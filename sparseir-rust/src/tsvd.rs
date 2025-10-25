@@ -43,29 +43,65 @@ pub enum TSVDError {
     InvalidTolerance(String),
 }
 
-/// Perform SVD decomposition using nalgebra
+/// Get appropriate epsilon value for SVD convergence based on type
+///
+/// Returns the machine epsilon (EPSILON constant) for the given type.
+/// This is preferred over approx::AbsDiffEq::default_epsilon() because
+/// the latter may return MIN_POSITIVE for Df64, which is too small and
+/// causes excessive iterations in SVD.
+#[inline]
+fn get_epsilon_for_svd<T: RealField + Copy>() -> T {
+    use std::any::TypeId;
+    
+    if TypeId::of::<T>() == TypeId::of::<f64>() {
+        // f64::EPSILON ≈ 2.22e-16
+        unsafe { std::ptr::read(&f64::EPSILON as *const f64 as *const T) }
+    } else if TypeId::of::<T>() == TypeId::of::<crate::Df64>() {
+        // Df64::EPSILON ≈ 2.465e-32
+        unsafe { std::ptr::read(&crate::Df64::EPSILON as *const crate::Df64 as *const T) }
+    } else {
+        // Fallback: use a reasonable default
+        T::from_f64(1e-15).unwrap_or(T::one() * T::from_f64(1e-15).unwrap_or(T::one()))
+    }
+}
+
+/// Perform SVD decomposition using nalgebra with sorted singular values
+///
+/// Note: This computes ALL singular values, not a truncated SVD.
+/// The truncation happens after SVD computation based on rtol.
 ///
 /// # Arguments
 /// * `matrix` - Input matrix (m × n)
-/// * `rtol` - Relative tolerance for rank determination (default: 1e-12 for f64)
+/// * `rtol` - Relative tolerance for rank determination (used for rank calculation, not SVD convergence)
 ///
 /// # Returns
-/// * `SVDResult` - SVD decomposition result
+/// * `SVDResult` - Truncated SVD result with U, S, V matrices and rank
 pub fn svd_decompose<T>(matrix: &DMatrix<T>, rtol: f64) -> SVDResult<T>
 where
     T: ComplexField + RealField + Copy + nalgebra::RealField + ToPrimitive,
 {
-    let (_m, _n) = matrix.shape();
+    // Use type-appropriate epsilon for SVD convergence
+    // For f64: f64::EPSILON (約 2.22e-16)
+    // For Df64: Df64::EPSILON (約 2.465e-32)
+    // Note: We use EPSILON (machine epsilon) instead of default_epsilon() (from approx trait)
+    // because default_epsilon() may return MIN_POSITIVE for Df64, which is too small.
+    let eps = get_epsilon_for_svd();
+    
+    // Perform FULL SVD decomposition with explicit epsilon
+    // try_svd automatically sorts singular values in descending order
+    // max_niter = 0 means iterate indefinitely until convergence
+    let svd = matrix
+        .clone()
+        .try_svd(true, true, eps, 0)
+        .expect("SVD computation failed");
 
-    // Perform SVD decomposition
-    let svd = matrix.clone().svd(true, true);
-
-    // Extract U, S, V matrices
+    // Extract U, S, V matrices (already sorted by nalgebra)
     let u_matrix = svd.u.unwrap();
-    let s_vector = svd.singular_values;
+    let s_vector = svd.singular_values;  // Sorted in descending order
     let v_t_matrix = svd.v_t.unwrap();
 
-    // Calculate effective rank (number of non-zero singular values)
+    // Calculate effective rank from sorted singular values
+    // Early termination is possible in rank calculation because values are sorted
     let rank = calculate_rank_from_vector(&s_vector, rtol);
 
     // Convert to thin SVD (truncate to effective rank)
@@ -81,14 +117,18 @@ where
     }
 }
 
-/// Calculate effective rank from singular values
+/// Calculate effective rank from sorted singular values
 ///
 /// # Arguments
-/// * `singular_values` - Vector of singular values
+/// * `singular_values` - Vector of singular values (sorted in descending order)
 /// * `rtol` - Relative tolerance for rank determination
 ///
 /// # Returns
 /// * `usize` - Effective rank
+///
+/// # Note
+/// Since singular values are sorted in descending order by try_svd,
+/// this function can terminate early when a value below the threshold is found.
 fn calculate_rank_from_vector<T>(singular_values: &DVector<T>, rtol: f64) -> usize
 where
     T: RealField + Copy + ToPrimitive,
@@ -97,7 +137,8 @@ where
         return 0;
     }
 
-    let max_sv = singular_values.max();
+    // First element is the maximum (sorted in descending order)
+    let max_sv = singular_values[0];
     let threshold = max_sv * T::from_f64(rtol).unwrap_or(T::zero());
 
     let mut rank = 0;
@@ -105,6 +146,7 @@ where
         if sv > threshold {
             rank += 1;
         } else {
+            // Early termination: since values are sorted, all remaining values are also below threshold
             break;
         }
     }
