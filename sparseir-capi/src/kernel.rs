@@ -8,7 +8,6 @@ use crate::types::spir_kernel;
 use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
 
 // Generate common opaque type functions: release, clone, is_assigned, get_raw_ptr
-impl_opaque_type_common!(kernel);
 
 /// Create a new Logistic kernel
 ///
@@ -173,6 +172,47 @@ pub extern "C" fn spir_kernel_compute(
     });
 
     result.unwrap_or(SPIR_INTERNAL_ERROR)
+}
+
+/// Manual release function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_kernel_release(kernel: *mut spir_kernel) {
+    if !kernel.is_null() {
+        unsafe {
+            let _ = Box::from_raw(kernel);
+        }
+    }
+}
+
+/// Manual clone function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn spir_kernel_clone(src: *const spir_kernel) -> *mut spir_kernel {
+    if src.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let src_ref = &*src;
+        let cloned = (*src_ref).clone();
+        Box::into_raw(Box::new(cloned))
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Manual is_assigned function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_kernel_is_assigned(obj: *const spir_kernel) -> i32 {
+    if obj.is_null() {
+        return 0;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let _ = &*obj;
+        1
+    }));
+
+    result.unwrap_or(0)
 }
 
 #[cfg(test)]

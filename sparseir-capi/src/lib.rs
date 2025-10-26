@@ -28,6 +28,17 @@ pub use sampling::*;
 pub use sve::*;
 pub use types::*;
 
+/// Complex number type for C API (compatible with C's double complex)
+/// 
+/// This type is compatible with C99's `double complex` and C++'s `std::complex<double>`.
+/// Layout: `{double re; double im;}` with standard alignment.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct Complex64 {
+    pub re: f64,
+    pub im: f64,
+}
+
 /// Error codes for C API (compatible with libsparseir)
 pub type StatusCode = libc::c_int;
 

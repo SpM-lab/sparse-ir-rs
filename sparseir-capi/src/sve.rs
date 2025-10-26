@@ -9,8 +9,46 @@ use sparseir_rust::sve::{compute_sve, TworkType};
 use crate::types::{spir_kernel, spir_sve_result};
 use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
 
-// Generate common opaque type functions: release, clone, is_assigned, get_raw_ptr
-impl_opaque_type_common!(sve_result);
+/// Manual release function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_sve_result_release(sve: *mut spir_sve_result) {
+    if !sve.is_null() {
+        unsafe {
+            let _ = Box::from_raw(sve);
+        }
+    }
+}
+
+/// Manual clone function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn spir_sve_result_clone(src: *const spir_sve_result) -> *mut spir_sve_result {
+    if src.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let src_ref = &*src;
+        let cloned = (*src_ref).clone();
+        Box::into_raw(Box::new(cloned))
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Manual is_assigned function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_sve_result_is_assigned(obj: *const spir_sve_result) -> i32 {
+    if obj.is_null() {
+        return 0;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let _ = &*obj;
+        1
+    }));
+
+    result.unwrap_or(0)
+}
 
 /// Compute Singular Value Expansion (SVE) of a kernel (libsparseir compatible)
 ///

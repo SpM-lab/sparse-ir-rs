@@ -4,8 +4,46 @@
 
 use crate::types::spir_funcs;
 
-// Generate common opaque type functions: release, clone, is_assigned, get_raw_ptr
-impl_opaque_type_common!(funcs);
+/// Manual release function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_funcs_release(funcs: *mut spir_funcs) {
+    if !funcs.is_null() {
+        unsafe {
+            let _ = Box::from_raw(funcs);
+        }
+    }
+}
+
+/// Manual clone function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn spir_funcs_clone(src: *const spir_funcs) -> *mut spir_funcs {
+    if src.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let src_ref = &*src;
+        let cloned = (*src_ref).clone();
+        Box::into_raw(Box::new(cloned))
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Manual is_assigned function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_funcs_is_assigned(obj: *const spir_funcs) -> i32 {
+    if obj.is_null() {
+        return 0;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let _ = &*obj;
+        1
+    }));
+
+    result.unwrap_or(0)
+}
 
 /// Extract a subset of functions by indices
 ///

@@ -42,6 +42,7 @@ include_version = true
 [export]
 # Include these items
 include = [
+    "Complex64",
     "spir_kernel",
     "spir_sve_result",
     "spir_basis",
@@ -63,12 +64,17 @@ rename_variants = "None"
 
 # Structure configuration
 [struct]
+# Rename fields to hide implementation details
 rename_fields = "None"
 
 # Function configuration
 [fn]
 # Sort functions alphabetically
 sort_by = "Name"
+# Rename functions
+rename_args = "None"
+# Must start with spir_ prefix to be exported
+prefix = ""
 
 # Constant configuration
 [const]

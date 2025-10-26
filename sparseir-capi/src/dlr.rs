@@ -201,8 +201,6 @@ pub unsafe extern "C" fn spir_dlr_get_npoles(
         let npoles = match &dlr_ref.inner {
             BasisType::DLRFermionic(dlr) => dlr.poles.len(),
             BasisType::DLRBosonic(dlr) => dlr.poles.len(),
-            BasisType::DLRFermionic(dlr) => dlr.poles.len(),
-            BasisType::DLRBosonic(dlr) => dlr.poles.len(),
             _ => return SPIR_INVALID_ARGUMENT, // Not a DLR
         };
 
@@ -235,8 +233,6 @@ pub unsafe extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut 
 
         // Get poles based on DLR type
         let pole_vec = match &dlr_ref.inner {
-            BasisType::DLRFermionic(dlr) => &dlr.poles,
-            BasisType::DLRBosonic(dlr) => &dlr.poles,
             BasisType::DLRFermionic(dlr) => &dlr.poles,
             BasisType::DLRBosonic(dlr) => &dlr.poles,
             _ => return SPIR_INVALID_ARGUMENT, // Not a DLR
@@ -316,10 +312,8 @@ pub unsafe extern "C" fn spir_ir2dlr_dd(
 
         // Convert IR to DLR based on DLR type
         let result_tensor = match &dlr_ref.inner {
-            BasisType::DLRFermionic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRFermionic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
@@ -391,10 +385,8 @@ pub unsafe extern "C" fn spir_ir2dlr_zz(
 
         // Convert IR to DLR based on DLR type
         let result_tensor = match &dlr_ref.inner {
-            BasisType::DLRFermionic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRFermionic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_IR_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
@@ -466,10 +458,8 @@ pub unsafe extern "C" fn spir_dlr2ir_dd(
 
         // Convert DLR to IR based on DLR type
         let result_tensor = match &dlr_ref.inner {
-            BasisType::DLRFermionic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRFermionic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
@@ -541,10 +531,8 @@ pub unsafe extern "C" fn spir_dlr2ir_zz(
 
         // Convert DLR to IR based on DLR type
         let result_tensor = match &dlr_ref.inner {
-            BasisType::DLRFermionic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRFermionic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_IR_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 

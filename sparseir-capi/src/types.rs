@@ -62,7 +62,7 @@ impl FunctionDomain {
 #[derive(Clone)]
 #[repr(C)]
 pub struct spir_kernel {
-    inner: KernelType,
+    pub(crate) inner: KernelType,
 }
 
 /// Opaque SVE result type for C API (compatible with libsparseir)
@@ -971,14 +971,5 @@ mod sampling_tests {
         // More comprehensive tests should be in integration tests
     }
 }
-/// Spir error codes (compatible with libsparseir)
-pub type StatusCode = i32;
-
-/// Computation completed successfully (0)
-pub const SPIR_COMPUTATION_SUCCESS: StatusCode = 0;
-/// Invalid argument error (-6)
-pub const SPIR_INVALID_ARGUMENT: StatusCode = -6;
-/// Internal error (-7)
-pub const SPIR_INTERNAL_ERROR: StatusCode = -7;
-/// Not supported error (-5)
-pub const SPIR_NOT_SUPPORTED: StatusCode = -5;
+// Re-export status codes from lib.rs to avoid duplication
+// (StatusCode and constants are defined in lib.rs)

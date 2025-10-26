@@ -9,8 +9,46 @@ use sparseir_rust::basis::FiniteTempBasis;
 use crate::types::{spir_basis, spir_funcs, spir_kernel, spir_sve_result};
 use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
 
-// Generate common opaque type functions: release, clone, is_assigned, get_raw_ptr
-impl_opaque_type_common!(basis);
+/// Manual release function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_basis_release(basis: *mut spir_basis) {
+    if !basis.is_null() {
+        unsafe {
+            let _ = Box::from_raw(basis);
+        }
+    }
+}
+
+/// Manual clone function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn spir_basis_clone(src: *const spir_basis) -> *mut spir_basis {
+    if src.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let src_ref = &*src;
+        let cloned = (*src_ref).clone();
+        Box::into_raw(Box::new(cloned))
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Manual is_assigned function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
+    if obj.is_null() {
+        return 0;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let _ = &*obj;
+        1
+    }));
+
+    result.unwrap_or(0)
+}
 
 /// Create a finite temperature basis (libsparseir compatible)
 ///
@@ -520,8 +558,6 @@ pub unsafe extern "C" fn spir_basis_get_v(
             BasisType::RegularizedBoseBosonic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
             // DLR: no continuous functions (v)
             BasisType::DLRFermionic(_)
-            | BasisType::DLRBosonic(_)
-            | BasisType::DLRFermionic(_)
             | BasisType::DLRBosonic(_) => {
                 return Result::<*mut spir_funcs, String>::Err(
                     "DLR does not support continuous functions".to_string(),
@@ -661,16 +697,6 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
                 spir_funcs::from_uhat_bosonic(basis.uhat.clone(), beta)
             }
             // DLR: Matsubara-domain functions using discrete poles
-            BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_matsubara_fermionic(
-                dlr.poles.clone(),
-                beta,
-                dlr.inv_weights.clone(),
-            ),
-            BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_matsubara_bosonic(
-                dlr.poles.clone(),
-                beta,
-                dlr.inv_weights.clone(),
-            ),
             BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_matsubara_fermionic(
                 dlr.poles.clone(),
                 beta,

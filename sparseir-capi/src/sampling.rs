@@ -19,8 +19,46 @@ use crate::utils::{convert_dims_for_row_major, copy_tensor_to_c_array, MemoryOrd
 use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED};
 use sparseir_rust::{Bosonic, Fermionic, Tensor};
 
-// Generate common opaque type functions: release, clone, is_assigned, get_raw_ptr
-impl_opaque_type_common!(sampling);
+/// Manual release function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_sampling_release(sampling: *mut spir_sampling) {
+    if !sampling.is_null() {
+        unsafe {
+            let _ = Box::from_raw(sampling);
+        }
+    }
+}
+
+/// Manual clone function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn spir_sampling_clone(src: *const spir_sampling) -> *mut spir_sampling {
+    if src.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let src_ref = &*src;
+        let cloned = (*src_ref).clone();
+        Box::into_raw(Box::new(cloned))
+    }));
+
+    result.unwrap_or(std::ptr::null_mut())
+}
+
+/// Manual is_assigned function (replaces macro-generated one)
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_sampling_is_assigned(obj: *const spir_sampling) -> i32 {
+    if obj.is_null() {
+        return 0;
+    }
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+        let _ = &*obj;
+        1
+    }));
+
+    result.unwrap_or(0)
+}
 
 // ============================================================================
 // Creation Functions
@@ -92,20 +130,6 @@ pub unsafe extern "C" fn spir_tau_sampling_new(
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
             // DLR: tau sampling supported via Basis trait
-            BasisType::DLRFermionic(dlr) => {
-                let tau_sampling = sparseir_rust::sampling::TauSampling::with_sampling_points(
-                    dlr.as_ref(),
-                    tau_points,
-                );
-                SamplingType::TauFermionic(Arc::new(tau_sampling))
-            }
-            BasisType::DLRBosonic(dlr) => {
-                let tau_sampling = sparseir_rust::sampling::TauSampling::with_sampling_points(
-                    dlr.as_ref(),
-                    tau_points,
-                );
-                SamplingType::TauBosonic(Arc::new(tau_sampling))
-            }
             BasisType::DLRFermionic(dlr) => {
                 let tau_sampling = sparseir_rust::sampling::TauSampling::with_sampling_points(
                     dlr.as_ref(),
@@ -247,12 +271,6 @@ pub unsafe extern "C" fn spir_matsu_sampling_new(
                 create_matsu_sampling!(ir_basis.as_ref(), Bosonic)
             }
             // DLR: Matsubara sampling supported via Basis trait
-            BasisType::DLRFermionic(dlr) => {
-                create_matsu_sampling!(dlr.as_ref(), Fermionic)
-            }
-            BasisType::DLRBosonic(dlr) => {
-                create_matsu_sampling!(dlr.as_ref(), Bosonic)
-            }
             BasisType::DLRFermionic(dlr) => {
                 create_matsu_sampling!(dlr.as_ref(), Fermionic)
             }
