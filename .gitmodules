@@ -25,9 +25,6 @@
 [submodule "dashu"]
 	path = dashu
 	url = git@github.com:cmpute/dashu.git
-[submodule "eigen"]
-	path = eigen
-	url = https://gitlab.com/libeigen/eigen.git
 [submodule "xprec-rs"]
 	path = xprec-rs
 	url = git@github.com:tuwien-cms/xprec-rs.git
