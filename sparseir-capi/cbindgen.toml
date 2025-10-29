@@ -5,10 +5,8 @@ language = "C"
 
 [export]
 # Include these types in the generated header
-include = [
-    "Complex64",
-    "StatusCode",
-]
+# Note: c_complex is now added manually in build.rs for libsparseir compatibility
+include = []
 
 # Exclude internal implementation details
 exclude = [
@@ -34,3 +32,4 @@ rename_variants = "ScreamingSnakeCase"
 [const]
 # Export all public constants
 allow_static_const = true
+

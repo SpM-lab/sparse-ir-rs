@@ -59,3 +59,14 @@ pub const SPIR_ORDER_COLUMN_MAJOR: libc::c_int = 1;
 // Statistics type constants (matching libsparseir)
 pub const SPIR_STATISTICS_BOSONIC: libc::c_int = 0;
 pub const SPIR_STATISTICS_FERMIONIC: libc::c_int = 1;
+
+// Twork type constants (matching libsparseir)
+pub const SPIR_TWORK_FLOAT64: libc::c_int = 0;
+pub const SPIR_TWORK_FLOAT64X2: libc::c_int = 1;
+pub const SPIR_TWORK_AUTO: libc::c_int = -1;
+
+// SVD strategy constants (matching libsparseir)
+// Note: Currently not used in Rust implementation, but included for API compatibility
+pub const SPIR_SVDSTRAT_FAST: libc::c_int = 0;
+pub const SPIR_SVDSTRAT_ACCURATE: libc::c_int = 1;
+pub const SPIR_SVDSTRAT_AUTO: libc::c_int = -1;

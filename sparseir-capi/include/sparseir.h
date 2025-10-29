@@ -4,425 +4,1329 @@
  *
  * This header provides C-compatible interface for the SparseIR library.
  * Compatible with libsparseir C API.
- * 
- * ============================================================================
- * MAINTENANCE INSTRUCTIONS
- * ============================================================================
- * 
- * This header is manually maintained based on cbindgen-generated output.
- * 
- * To update this header when Rust API changes:
- * 
- * 1. Ensure cbindgen.toml exists and is properly configured
- * 2. Run: cargo build --features shared-lib
- *    This generates sparseir_capi.h via build.rs
- * 3. Copy function declarations from sparseir_capi.h to this file:
- *    - Keep the header structure (includes, defines, forward declarations)
- *    - Replace function declarations section with updated ones
- *    - Maintain compatibility with libsparseir naming conventions
- * 
- * Key differences from sparseir_capi.h:
- * - File name: sparseir.h (not sparseir_capi.h)
- * - Header guards: SPARSEIR_H (not SPARSEIR_CAPI_H)
- * - Focus on public API functions only
- * - Maintain opaque type forward declarations
- * 
- * Last updated: $(date)
- * Generated from: sparseir_capi.h (via cbindgen)
+ *
+ * This header is automatically generated from Rust source code using cbindgen.
+ * Do not edit manually - changes will be overwritten on next build.
  */
 
-#ifndef SPARSEIR_H
-#define SPARSEIR_H
+#pragma once
 
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
 
+#if defined(_MSC_VER) || defined(__cplusplus)
+// MSVC doesn't support C99 complex types by default
+// For C++ compilation, use std::complex to avoid C99 extension warnings
+#include <complex>
+typedef std::complex<double> c_complex;
+#else
+#include <complex.h>
+// Define a C-compatible type alias for the C99 complex number.
+typedef double _Complex c_complex;
+#endif
+
 #define SPIR_ORDER_ROW_MAJOR 0
+
 #define SPIR_ORDER_COLUMN_MAJOR 1
+
 #define SPIR_STATISTICS_BOSONIC 0
+
 #define SPIR_STATISTICS_FERMIONIC 1
 
-#define SPIR_COMPUTATION_SUCCESS 0
-#define SPIR_GET_IMPL_FAILED -1
-#define SPIR_INVALID_DIMENSION -2
-#define SPIR_INPUT_DIMENSION_MISMATCH -3
-#define SPIR_OUTPUT_DIMENSION_MISMATCH -4
-#define SPIR_NOT_SUPPORTED -5
-#define SPIR_INVALID_ARGUMENT -6
-#define SPIR_INTERNAL_ERROR -7
+#define SPIR_TWORK_FLOAT64 0
+
+#define SPIR_TWORK_FLOAT64X2 1
+
+#define SPIR_TWORK_AUTO -1
+
+#define SPIR_SVDSTRAT_FAST 0
+
+#define SPIR_SVDSTRAT_ACCURATE 1
+
+#define SPIR_SVDSTRAT_AUTO -1
+
+/**
+ * Opaque basis type for C API (compatible with libsparseir)
+ *
+ * Represents a finite temperature basis (IR or DLR).
+ *
+ * Note: Named `spir_basis` to match libsparseir C++ API exactly.
+ * The internal structure is hidden using a void pointer to prevent exposing BasisType to C.
+ */
+typedef struct spir_basis {
+  void *_private;
+} spir_basis;
+
+/**
+ * Opaque kernel type for C API (compatible with libsparseir)
+ *
+ * This is a tagged union that can hold either LogisticKernel or RegularizedBoseKernel.
+ * The actual type is determined by which constructor was used.
+ *
+ * Note: Named `spir_kernel` to match libsparseir C++ API exactly.
+ * The internal structure is hidden using a void pointer to prevent exposing KernelType to C.
+ */
+typedef struct spir_kernel {
+  void *_private;
+} spir_kernel;
+
+/**
+ * Opaque SVE result type for C API (compatible with libsparseir)
+ *
+ * Contains singular values and singular functions from SVE computation.
+ *
+ * Note: Named `spir_sve_result` to match libsparseir C++ API exactly.
+ * The internal structure is hidden using a void pointer to prevent exposing Arc<SVEResult> to C.
+ */
+typedef struct spir_sve_result {
+  void *_private;
+} spir_sve_result;
 
 /**
  * Error codes for C API (compatible with libsparseir)
  */
-typedef int StatusCode;
+
 
 /**
- * Complex number type for C API (compatible with C's double complex)
+ * Opaque funcs type for C API (compatible with libsparseir)
  *
- * This type is compatible with C99's `double complex` and C++'s `std::complex<double>`.
- * Layout: `{double re; double im;}` with standard alignment.
+ * Wraps piecewise Legendre polynomial representations:
+ * - PiecewiseLegendrePolyVector for u and v
+ * - PiecewiseLegendreFTVector for uhat
+ *
+ * Note: Named `spir_funcs` to match libsparseir C++ API exactly.
+ * The internal FuncsType is hidden using a void pointer, but beta is kept as a public field.
  */
-typedef struct Complex64 {
-    double re;
-    double im;
-} Complex64;
+typedef struct spir_funcs {
+  void *_private;
+  double beta;
+} spir_funcs;
 
-// Forward declarations for opaque types
-typedef struct spir_kernel spir_kernel;
-typedef struct spir_basis spir_basis;
-typedef struct spir_funcs spir_funcs;
-typedef struct spir_sampling spir_sampling;
-typedef struct spir_sve_result spir_sve_result;
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
-// ============================================================================
-// Kernel functions
-// ============================================================================
 
 /**
- * @brief Creates a new logistic kernel
- * @param lambda Lambda parameter
- * @param status Pointer to store status code
- * @return Pointer to new kernel object, or NULL on failure
+ * Sampling type for C API (unified type for all domains)
+ *
+ * This wraps different sampling implementations:
+ * - TauSampling (for tau-domain)
+ * - MatsubaraSampling (for Matsubara frequencies, full range or positive-only)
+ * The internal structure is hidden using a void pointer to prevent exposing SamplingType to C.
  */
-spir_kernel* spir_logistic_kernel_new(double lambda, StatusCode* status);
+typedef struct spir_sampling {
+  void *_private;
+} spir_sampling;
+
+#define SPIR_COMPUTATION_SUCCESS 0
+
+#define SPIR_GET_IMPL_FAILED -1
+
+#define SPIR_INVALID_DIMENSION -2
+
+#define SPIR_INPUT_DIMENSION_MISMATCH -3
+
+#define SPIR_OUTPUT_DIMENSION_MISMATCH -4
+
+#define SPIR_NOT_SUPPORTED -5
+
+#define SPIR_INVALID_ARGUMENT -6
+
+#define SPIR_INTERNAL_ERROR -7
 
 /**
- * @brief Gets the lambda parameter of a kernel
- * @param kernel Pointer to kernel object
- * @return Lambda value
+ * Manual release function (replaces macro-generated one)
  */
-double spir_kernel_lambda(const spir_kernel* kernel);
+ void spir_basis_release(struct spir_basis *basis);
 
 /**
- * @brief Computes kernel value at given tau
- * @param kernel Pointer to kernel object
- * @param tau Tau value
- * @return Computed kernel value
+ * Manual clone function (replaces macro-generated one)
  */
-double spir_kernel_compute(const spir_kernel* kernel, double tau);
+ struct spir_basis *spir_basis_clone(const struct spir_basis *src);
 
 /**
- * @brief Releases a kernel object
- * @param kernel Pointer to kernel object
+ * Manual is_assigned function (replaces macro-generated one)
  */
-void spir_kernel_release(spir_kernel* kernel);
+ int32_t spir_basis_is_assigned(const struct spir_basis *obj);
 
 /**
- * @brief Clones a kernel object
- * @param src Source kernel object
- * @return Cloned kernel object, or NULL on failure
+ * Create a finite temperature basis (libsparseir compatible)
+ *
+ * # Arguments
+ * * `statistics` - 0 for Bosonic, 1 for Fermionic
+ * * `beta` - Inverse temperature (must be > 0)
+ * * `omega_max` - Frequency cutoff (must be > 0)
+ * * `epsilon` - Accuracy target (must be > 0)
+ * * `k` - Kernel object (can be NULL if sve is provided)
+ * * `sve` - Pre-computed SVE result (can be NULL, will compute if needed)
+ * * `max_size` - Maximum basis size (-1 for no limit)
+ * * `status` - Pointer to store status code
+ *
+ * # Returns
+ * * Pointer to basis object, or NULL on failure
+ *
+ * # Safety
+ * The caller must ensure `status` is a valid pointer.
  */
-spir_kernel* spir_kernel_clone(const spir_kernel* src);
+
+struct spir_basis *spir_basis_new(int statistics,
+                                  double beta,
+                                  double omega_max,
+                                  double epsilon,
+                                  const struct spir_kernel *k,
+                                  const struct spir_sve_result *sve,
+                                  int max_size,
+                                  int *status);
 
 /**
- * @brief Checks if a kernel object is assigned
- * @param kernel Pointer to kernel object
- * @return 1 if assigned, 0 otherwise
+ * Get the number of basis functions
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `size` - Pointer to store the size
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or size is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
-int spir_kernel_is_assigned(const spir_kernel* kernel);
-
-// ============================================================================
-// Basis functions
-// ============================================================================
-
-/**
- * Create a new basis object
- */
-spir_basis *spir_basis_new(int statistics, double lambda, double eps, StatusCode *status);
+ int spir_basis_get_size(const struct spir_basis *b, int *size);
 
 /**
- * Release a basis object
+ * Get singular values from a basis
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `svals` - Pre-allocated array to store singular values (size must be >= basis size)
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or svals is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
-void spir_basis_release(spir_basis *basis);
+ int spir_basis_get_svals(const struct spir_basis *b, double *svals);
 
 /**
- * Clone a basis object
+ * Get statistics type (Fermionic or Bosonic) of a basis
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `statistics` - Pointer to store statistics (0 = Bosonic, 1 = Fermionic)
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or statistics is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
-spir_basis *spir_basis_clone(const spir_basis *src);
+ int spir_basis_get_stats(const struct spir_basis *b, int *statistics);
 
 /**
- * Checks if a basis object is assigned
+ * Get singular values (alias for spir_basis_get_svals for libsparseir compatibility)
  */
-int32_t spir_basis_is_assigned(const spir_basis *obj);
+ int spir_basis_get_singular_values(const struct spir_basis *b, double *svals);
 
 /**
- * Get basis size
+ * Get the number of default tau sampling points
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `num_points` - Pointer to store the number of points
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
-StatusCode spir_basis_get_size(const spir_basis *b, int *size);
-
-/**
- * Get basis statistics
- */
-StatusCode spir_basis_get_stats(const spir_basis *b, int *statistics);
-
-/**
- * Get singular values
- */
-StatusCode spir_basis_get_singular_values(const spir_basis *b, double *svals);
-
-/**
- * Get singular values (alias)
- */
-StatusCode spir_basis_get_svals(const spir_basis *b, double *svals);
-
-/**
- * Get number of default tau sampling points
- */
-StatusCode spir_basis_get_n_default_taus(const spir_basis *b, int *num_points);
+ int spir_basis_get_n_default_taus(const struct spir_basis *b, int *num_points);
 
 /**
  * Get default tau sampling points
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `points` - Pre-allocated array to store tau points
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
-StatusCode spir_basis_get_default_taus(const spir_basis *b, double *points);
+ int spir_basis_get_default_taus(const struct spir_basis *b, double *points);
 
 /**
- * Get number of default Matsubara sampling points
+ * Get the number of default Matsubara sampling points
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `positive_only` - If true, return only positive frequencies
+ * * `num_points` - Pointer to store the number of points
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
-StatusCode spir_basis_get_n_default_matsus(const spir_basis *b, bool positive_only, int *num_points);
+
+int spir_basis_get_n_default_matsus(const struct spir_basis *b,
+                                           bool positive_only,
+                                           int *num_points);
 
 /**
  * Get default Matsubara sampling points
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `positive_only` - If true, return only positive frequencies
+ * * `points` - Pre-allocated array to store Matsubara indices
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
-StatusCode spir_basis_get_default_matsus(const spir_basis *b, bool positive_only, int64_t *points);
+
+int spir_basis_get_default_matsus(const struct spir_basis *b,
+                                         bool positive_only,
+                                         int64_t *points);
 
 /**
- * Get number of default w sampling points
+ * Gets the basis functions in imaginary time (τ) domain
+ *
+ * # Arguments
+ * * `b` - Pointer to the finite temperature basis object
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the basis functions object (`spir_funcs`), or NULL if creation fails
+ *
+ * # Safety
+ * The caller must ensure that `b` is a valid pointer, and must call
+ * `spir_funcs_release()` on the returned pointer when done.
  */
-StatusCode spir_basis_get_n_default_ws(const spir_basis *b, int *num_points);
+ struct spir_funcs *spir_basis_get_u(const struct spir_basis *b, int *status);
 
 /**
- * Get default w sampling points
+ * Gets the basis functions in real frequency (ω) domain
+ *
+ * # Arguments
+ * * `b` - Pointer to the finite temperature basis object
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the basis functions object (`spir_funcs`), or NULL if creation fails
+ *
+ * # Safety
+ * The caller must ensure that `b` is a valid pointer, and must call
+ * `spir_funcs_release()` on the returned pointer when done.
  */
-StatusCode spir_basis_get_default_ws(const spir_basis *b, double *points);
+ struct spir_funcs *spir_basis_get_v(const struct spir_basis *b, int *status);
 
 /**
- * Get U functions
+ * Gets the number of default omega (real frequency) sampling points
+ *
+ * # Arguments
+ * * `b` - Pointer to the finite temperature basis object
+ * * `num_points` - Pointer to store the number of sampling points
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success)
+ *
+ * # Safety
+ * The caller must ensure that `b` and `num_points` are valid pointers
  */
-spir_funcs *spir_basis_get_u(const spir_basis *b, StatusCode *status);
+ int spir_basis_get_n_default_ws(const struct spir_basis *b, int *num_points);
 
 /**
- * Get V functions
+ * Gets the default omega (real frequency) sampling points
+ *
+ * # Arguments
+ * * `b` - Pointer to the finite temperature basis object
+ * * `points` - Pre-allocated array to store the omega sampling points
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success)
+ *
+ * # Safety
+ * The caller must ensure that `points` has size >= `spir_basis_get_n_default_ws(b)`
  */
-spir_funcs *spir_basis_get_v(const spir_basis *b, StatusCode *status);
+ int spir_basis_get_default_ws(const struct spir_basis *b, double *points);
 
 /**
- * Get Uhat functions
+ * Gets the basis functions in Matsubara frequency domain
+ *
+ * # Arguments
+ * * `b` - Pointer to the finite temperature basis object
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the basis functions object (`spir_funcs`), or NULL if creation fails
+ *
+ * # Safety
+ * The caller must ensure that `b` is a valid pointer, and must call
+ * `spir_funcs_release()` on the returned pointer when done.
  */
-spir_funcs *spir_basis_get_uhat(const spir_basis *b, StatusCode *status);
-
-// ============================================================================
-// Functions
-// ============================================================================
+ struct spir_funcs *spir_basis_get_uhat(const struct spir_basis *b, int *status);
 
 /**
- * Release a functions object
+ * Get default tau sampling points with custom limit (extended version)
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `n_points` - Maximum number of points requested
+ * * `points` - Pre-allocated array to store tau points (size >= n_points)
+ * * `n_points_returned` - Pointer to store actual number of points returned
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
+ *
+ * # Note
+ * Returns min(n_points, actual_default_points) sampling points
  */
-void spir_funcs_release(spir_funcs *funcs);
+
+int spir_basis_get_default_taus_ext(const struct spir_basis *b,
+                                           int n_points,
+                                           double *points,
+                                           int *n_points_returned);
 
 /**
- * Clone a functions object
+ * Get number of default Matsubara sampling points with custom limit (extended version)
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `positive_only` - If true, return only positive frequencies
+ * * `L` - Requested number of sampling points
+ * * `num_points_returned` - Pointer to store actual number of points
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or L < 0
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
+ *
+ * # Note
+ * Returns min(L, actual_default_points) sampling points
  */
-spir_funcs *spir_funcs_clone(const spir_funcs *src);
+
+int spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
+                                               bool positive_only,
+                                               int L,
+                                               int *num_points_returned);
 
 /**
- * Checks if a functions object is assigned
+ * Get default Matsubara sampling points with custom limit (extended version)
+ *
+ * # Arguments
+ * * `b` - Basis object
+ * * `positive_only` - If true, return only positive frequencies
+ * * `n_points` - Maximum number of points requested
+ * * `points` - Pre-allocated array to store Matsubara indices (size >= n_points)
+ * * `n_points_returned` - Pointer to store actual number of points returned
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
+ *
+ * # Note
+ * Returns min(n_points, actual_default_points) sampling points
  */
-int32_t spir_funcs_is_assigned(const spir_funcs *funcs);
+
+int spir_basis_get_default_matsus_ext(const struct spir_basis *b,
+                                             bool positive_only,
+                                             int n_points,
+                                             int64_t *points,
+                                             int *n_points_returned);
 
 /**
- * Get functions size
+ * Creates a new DLR from an IR basis with default poles
+ *
+ * # Arguments
+ * * `b` - Pointer to a finite temperature basis object
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created DLR basis object, or NULL if creation fails
+ *
+ * # Safety
+ * Caller must ensure `b` is a valid IR basis pointer
  */
-StatusCode spir_funcs_get_size(const spir_funcs *funcs, int *size);
+ struct spir_basis *spir_dlr_new(const struct spir_basis *b, int *status);
 
 /**
- * Evaluates functions at a single point
+ * Creates a new DLR with custom poles
+ *
+ * # Arguments
+ * * `b` - Pointer to a finite temperature basis object
+ * * `npoles` - Number of poles to use
+ * * `poles` - Array of pole locations on the real-frequency axis
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created DLR basis object, or NULL if creation fails
+ *
+ * # Safety
+ * Caller must ensure `b` is valid and `poles` has `npoles` elements
  */
-StatusCode spir_funcs_eval(const spir_funcs *funcs, double x, double *out);
+
+struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
+                                           int npoles,
+                                           const double *poles,
+                                           int *status);
 
 /**
- * Evaluates functions at a Matsubara frequency
+ * Gets the number of poles in a DLR
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `num_poles` - Pointer to store the number of poles
+ *
+ * # Returns
+ * Status code
+ *
+ * # Safety
+ * Caller must ensure `dlr` is a valid DLR basis pointer
  */
-StatusCode spir_funcs_eval_matsu(const spir_funcs *funcs, int64_t n, Complex64 *out);
+ int spir_dlr_get_npoles(const struct spir_basis *dlr, int *num_poles);
 
 /**
- * Evaluates functions at multiple points
+ * Gets the pole locations in a DLR
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `poles` - Pre-allocated array to store pole locations
+ *
+ * # Returns
+ * Status code
+ *
+ * # Safety
+ * Caller must ensure `dlr` is valid and `poles` has sufficient size
  */
-StatusCode spir_funcs_batch_eval(const spir_funcs *funcs, int order, int num_points, const double *xs, double *out);
+ int spir_dlr_get_poles(const struct spir_basis *dlr, double *poles);
 
 /**
- * Evaluates functions at multiple Matsubara frequencies
+ * Convert IR coefficients to DLR (real-valued)
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `order` - Memory layout order
+ * * `ndim` - Number of dimensions
+ * * `input_dims` - Array of input dimensions
+ * * `target_dim` - Dimension to transform
+ * * `input` - IR coefficients
+ * * `out` - Output DLR coefficients
+ *
+ * # Returns
+ * Status code
+ *
+ * # Safety
+ * Caller must ensure pointers are valid and arrays have correct sizes
  */
-StatusCode spir_funcs_batch_eval_matsu(const spir_funcs *funcs, int order, int num_freqs, const int64_t *matsubara_freq_indices, Complex64 *out);
+
+int spir_ir2dlr_dd(const struct spir_basis *dlr,
+                          int order,
+                          int ndim,
+                          const int *input_dims,
+                          int target_dim,
+                          const double *input,
+                          double *out);
 
 /**
- * Get a slice of functions
+ * Convert IR coefficients to DLR (complex-valued)
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `order` - Memory layout order
+ * * `ndim` - Number of dimensions
+ * * `input_dims` - Array of input dimensions
+ * * `target_dim` - Dimension to transform
+ * * `input` - Complex IR coefficients
+ * * `out` - Output complex DLR coefficients
+ *
+ * # Returns
+ * Status code
+ *
+ * # Safety
+ * Caller must ensure pointers are valid and arrays have correct sizes
  */
-spir_funcs *spir_funcs_get_slice(const spir_funcs *funcs, int start, int end, StatusCode *status);
 
-// ============================================================================
-// Sampling functions
-// ============================================================================
+int spir_ir2dlr_zz(const struct spir_basis *dlr,
+                          int order,
+                          int ndim,
+                          const int *input_dims,
+                          int target_dim,
+                          const c_complex *input,
+                          c_complex *out);
 
 /**
- * Release a sampling object
+ * Convert DLR coefficients to IR (real-valued)
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `order` - Memory layout order
+ * * `ndim` - Number of dimensions
+ * * `input_dims` - Array of input dimensions
+ * * `target_dim` - Dimension to transform
+ * * `input` - DLR coefficients
+ * * `out` - Output IR coefficients
+ *
+ * # Returns
+ * Status code
+ *
+ * # Safety
+ * Caller must ensure pointers are valid and arrays have correct sizes
  */
-void spir_sampling_release(spir_sampling *sampling);
+
+int spir_dlr2ir_dd(const struct spir_basis *dlr,
+                          int order,
+                          int ndim,
+                          const int *input_dims,
+                          int target_dim,
+                          const double *input,
+                          double *out);
 
 /**
- * Clone a sampling object
+ * Convert DLR coefficients to IR (complex-valued)
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `order` - Memory layout order
+ * * `ndim` - Number of dimensions
+ * * `input_dims` - Array of input dimensions
+ * * `target_dim` - Dimension to transform
+ * * `input` - Complex DLR coefficients
+ * * `out` - Output complex IR coefficients
+ *
+ * # Returns
+ * Status code
+ *
+ * # Safety
+ * Caller must ensure pointers are valid and arrays have correct sizes
  */
-spir_sampling *spir_sampling_clone(const spir_sampling *src);
+
+int spir_dlr2ir_zz(const struct spir_basis *dlr,
+                          int order,
+                          int ndim,
+                          const int *input_dims,
+                          int target_dim,
+                          const c_complex *input,
+                          c_complex *out);
 
 /**
- * Checks if a sampling object is assigned
+ * Manual release function (replaces macro-generated one)
  */
-int32_t spir_sampling_is_assigned(const spir_sampling *sampling);
+ void spir_funcs_release(struct spir_funcs *funcs);
 
 /**
- * Create a new tau sampling object
+ * Manual clone function (replaces macro-generated one)
  */
-spir_sampling *spir_tau_sampling_new(const spir_basis *b, StatusCode *status);
+ struct spir_funcs *spir_funcs_clone(const struct spir_funcs *src);
 
 /**
- * Create a new Matsubara sampling object
+ * Manual is_assigned function (replaces macro-generated one)
  */
-spir_sampling *spir_matsu_sampling_new(const spir_basis *b, StatusCode *status);
+ int32_t spir_funcs_is_assigned(const struct spir_funcs *obj);
 
 /**
- * Evaluates basis coefficients at sampling points (double → double)
+ * Extract a subset of functions by indices
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the source funcs object
+ * * `nslice` - Number of functions to select (length of indices array)
+ * * `indices` - Array of indices specifying which functions to include
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to a new funcs object containing only the selected functions, or null on error
+ *
+ * # Safety
+ * The caller must ensure that `funcs` and `indices` are valid pointers.
+ * The returned pointer must be freed with `spir_funcs_release()`.
  */
-StatusCode spir_sampling_eval_dd(const spir_sampling *s, int order, int ndim, const int *input_dims, int target_dim, const double *input, double *out);
+
+struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
+                                        int32_t nslice,
+                                        const int32_t *indices,
+                                        int *status);
 
 /**
- * Evaluates basis coefficients at sampling points (double → complex)
+ * Gets the number of basis functions
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the funcs object
+ * * `size` - Pointer to store the number of functions
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success)
  */
-StatusCode spir_sampling_eval_dz(const spir_sampling *s, int order, int ndim, const int *input_dims, int target_dim, const double *input, Complex64 *out);
+ int spir_funcs_get_size(const struct spir_funcs *funcs, int *size);
 
 /**
- * Evaluates basis coefficients at sampling points (complex → complex)
+ * Gets the number of knots for continuous functions
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the funcs object
+ * * `n_knots` - Pointer to store the number of knots
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
  */
-StatusCode spir_sampling_eval_zz(const spir_sampling *s, int order, int ndim, const int *input_dims, int target_dim, const Complex64 *input, Complex64 *out);
+ int spir_funcs_get_n_knots(const struct spir_funcs *funcs, int *n_knots);
 
 /**
- * Fits values at sampling points to basis coefficients (double → double)
+ * Gets the knot positions for continuous functions
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the funcs object
+ * * `knots` - Pre-allocated array to store knot positions
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+ *
+ * # Safety
+ * The caller must ensure that `knots` has size >= `spir_funcs_get_n_knots(funcs)`
  */
-StatusCode spir_sampling_fit_dd(const spir_sampling *s, int order, int ndim, const int *input_dims, int target_dim, const double *input, double *out);
+ int spir_funcs_get_knots(const struct spir_funcs *funcs, double *knots);
 
 /**
- * Fits values at sampling points to basis coefficients (complex → double)
+ * Evaluate functions at a single point (continuous functions only)
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the funcs object
+ * * `x` - Point to evaluate at (tau coordinate in [-1, 1])
+ * * `out` - Pre-allocated array to store function values
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+ *
+ * # Safety
+ * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
  */
-StatusCode spir_sampling_fit_zd(const spir_sampling *s, int order, int ndim, const int *input_dims, int target_dim, const Complex64 *input, double *out);
+ int spir_funcs_eval(const struct spir_funcs *funcs, double x, double *out);
 
 /**
- * Fits values at sampling points to basis coefficients (complex → complex)
+ * Evaluate functions at a single Matsubara frequency
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the funcs object
+ * * `n` - Matsubara frequency index
+ * * `out` - Pre-allocated array to store complex function values
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type)
+ *
+ * # Safety
+ * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
+ * Complex numbers are laid out as [real, imag] pairs
  */
-StatusCode spir_sampling_fit_zz(const spir_sampling *s, int order, int ndim, const int *input_dims, int target_dim, const Complex64 *input, Complex64 *out);
-
-// ============================================================================
-// SVE functions
-// ============================================================================
+ int spir_funcs_eval_matsu(const struct spir_funcs *funcs, int64_t n, c_complex *out);
 
 /**
- * Release an SVE result object
+ * Batch evaluate functions at multiple points (continuous functions only)
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the funcs object
+ * * `order` - Memory layout: 0 for row-major, 1 for column-major
+ * * `num_points` - Number of evaluation points
+ * * `xs` - Array of points to evaluate at
+ * * `out` - Pre-allocated array to store results
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+ *
+ * # Safety
+ * - `xs` must have size >= `num_points`
+ * - `out` must have size >= `num_points * spir_funcs_get_size(funcs)`
+ * - Layout: row-major = out[point][func], column-major = out[func][point]
  */
-void spir_sve_result_release(spir_sve_result *sve);
+
+int spir_funcs_batch_eval(const struct spir_funcs *funcs,
+                                 int order,
+                                 int num_points,
+                                 const double *xs,
+                                 double *out);
 
 /**
- * Clone an SVE result object
+ * Batch evaluate functions at multiple Matsubara frequencies
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the funcs object
+ * * `order` - Memory layout: 0 for row-major, 1 for column-major
+ * * `num_freqs` - Number of Matsubara frequencies
+ * * `ns` - Array of Matsubara frequency indices
+ * * `out` - Pre-allocated array to store complex results
+ *
+ * # Returns
+ * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type)
+ *
+ * # Safety
+ * - `ns` must have size >= `num_freqs`
+ * - `out` must have size >= `num_freqs * spir_funcs_get_size(funcs)`
+ * - Complex numbers are laid out as [real, imag] pairs
+ * - Layout: row-major = out[freq][func], column-major = out[func][freq]
  */
-spir_sve_result *spir_sve_result_clone(const spir_sve_result *src);
+
+int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
+                                       int order,
+                                       int num_freqs,
+                                       const int64_t *ns,
+                                       c_complex *out);
 
 /**
- * Checks if an SVE result object is assigned
+ * Register custom BLAS functions (LP64: 32-bit integers)
+ *
+ * This function allows you to inject external BLAS implementations (OpenBLAS, MKL, Accelerate, etc.)
+ * for matrix multiplication operations. The registered functions will be used for all subsequent
+ * GEMM operations in the library.
+ *
+ * # Arguments
+ * * `cblas_dgemm` - Function pointer to CBLAS dgemm (double precision)
+ * * `cblas_zgemm` - Function pointer to CBLAS zgemm (complex double precision)
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if function pointers are null
+ *
+ * # Safety
+ * The provided function pointers must:
+ * - Be valid CBLAS function pointers following the standard CBLAS interface
+ * - Use 32-bit integers for all dimension parameters (LP64 interface)
+ * - Be thread-safe (will be called from multiple threads)
+ * - Remain valid for the entire lifetime of the program
+ *
+ * # Example (from C)
+ * ```c
+ * #include <cblas.h>
+ *
+ * // Register OpenBLAS
+ * int status = spir_register_blas_functions(
+ *     (void*)cblas_dgemm,
+ *     (void*)cblas_zgemm
+ * );
+ *
+ * if (status != SPIR_COMPUTATION_SUCCESS) {
+ *     fprintf(stderr, "Failed to register BLAS functions\n");
+ * }
+ * ```
+ *
+ * # CBLAS Interface
+ * The function pointers must match these signatures:
+ * ```c
+ * void cblas_dgemm(
+ *     CblasOrder order,       // 102 for ColMajor
+ *     CblasTranspose transa,  // 111 for NoTrans
+ *     CblasTranspose transb,  // 111 for NoTrans
+ *     int m, int n, int k,
+ *     double alpha,
+ *     const double *a, int lda,
+ *     const double *b, int ldb,
+ *     double beta,
+ *     double *c, int ldc
+ * );
+ *
+ * void cblas_zgemm(
+ *     CblasOrder order,
+ *     CblasTranspose transa,
+ *     CblasTranspose transb,
+ *     int m, int n, int k,
+ *     const void *alpha,      // complex<double>*
+ *     const void *a, int lda,
+ *     const void *b, int ldb,
+ *     const void *beta,       // complex<double>*
+ *     void *c, int ldc
+ * );
+ * ```
  */
-int32_t spir_sve_result_is_assigned(const spir_sve_result *obj);
+
+int spir_register_blas_functions(const void *cblas_dgemm,
+                                        const void *cblas_zgemm);
 
 /**
- * Create a new SVE result object
+ * Register ILP64 BLAS functions (64-bit integers)
+ *
+ * This function allows you to inject ILP64 BLAS implementations (MKL ILP64, OpenBLAS with ILP64, etc.)
+ * for matrix multiplication operations. ILP64 uses 64-bit integers for all dimension parameters,
+ * enabling support for very large matrices (> 2^31 elements).
+ *
+ * # Arguments
+ * * `cblas_dgemm64` - Function pointer to ILP64 CBLAS dgemm (double precision)
+ * * `cblas_zgemm64` - Function pointer to ILP64 CBLAS zgemm (complex double precision)
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if function pointers are null
+ *
+ * # Safety
+ * The provided function pointers must:
+ * - Be valid CBLAS function pointers following the standard CBLAS interface with ILP64
+ * - Use 64-bit integers for all dimension parameters (ILP64 interface)
+ * - Be thread-safe (will be called from multiple threads)
+ * - Remain valid for the entire lifetime of the program
+ *
+ * # Example (from C with MKL ILP64)
+ * ```c
+ * #define MKL_ILP64
+ * #include <mkl.h>
+ *
+ * // Register MKL ILP64
+ * int status = spir_register_ilp64_functions(
+ *     (void*)cblas_dgemm,  // MKL's ILP64 version
+ *     (void*)cblas_zgemm   // MKL's ILP64 version
+ * );
+ *
+ * if (status != SPIR_COMPUTATION_SUCCESS) {
+ *     fprintf(stderr, "Failed to register ILP64 BLAS functions\n");
+ * }
+ * ```
+ *
+ * # CBLAS ILP64 Interface
+ * The function pointers must match these signatures (note: long long = 64-bit int):
+ * ```c
+ * void cblas_dgemm(
+ *     CblasOrder order,
+ *     CblasTranspose transa,
+ *     CblasTranspose transb,
+ *     long long m, long long n, long long k,
+ *     double alpha,
+ *     const double *a, long long lda,
+ *     const double *b, long long ldb,
+ *     double beta,
+ *     double *c, long long ldc
+ * );
+ *
+ * void cblas_zgemm(
+ *     CblasOrder order,
+ *     CblasTranspose transa,
+ *     CblasTranspose transb,
+ *     long long m, long long n, long long k,
+ *     const void *alpha,
+ *     const void *a, long long lda,
+ *     const void *b, long long ldb,
+ *     const void *beta,
+ *     void *c, long long ldc
+ * );
+ * ```
  */
-spir_sve_result *spir_sve_result_new(const spir_kernel *k, StatusCode *status);
+
+int spir_register_ilp64_functions(const void *cblas_dgemm64,
+                                         const void *cblas_zgemm64);
 
 /**
- * Get SVE result size
+ * Create a new Logistic kernel
+ *
+ * # Arguments
+ * * `lambda` - The kernel parameter Λ = β * ωmax (must be > 0)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * * Pointer to the newly created kernel object, or NULL if creation fails
+ *
+ * # Safety
+ * The caller must ensure `status` is a valid pointer.
+ *
+ * # Example (C)
+ * ```c
+ * int status;
+ * spir_kernel* kernel = spir_logistic_kernel_new(10.0, &status);
+ * if (kernel != NULL) {
+ *     // Use kernel...
+ *     spir_kernel_release(kernel);
+ * }
+ * ```
  */
-StatusCode spir_sve_result_get_size(const spir_sve_result *sve, int *size);
+ struct spir_kernel *spir_logistic_kernel_new(double lambda, int *status);
 
 /**
- * Get singular values from SVE result
+ * Create a new RegularizedBose kernel
+ *
+ * # Arguments
+ * * `lambda` - The kernel parameter Λ = β * ωmax (must be > 0)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * * Pointer to the newly created kernel object, or NULL if creation fails
  */
-StatusCode spir_sve_result_get_svals(const spir_sve_result *sve, double *svals);
+ struct spir_kernel *spir_reg_bose_kernel_new(double lambda, int *status);
 
 /**
- * Truncate SVE result
+ * Get the lambda parameter of a kernel
+ *
+ * # Arguments
+ * * `kernel` - Kernel object
+ * * `lambda_out` - Pointer to store the lambda value
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if kernel or lambda_out is null
+ * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
-spir_sve_result *spir_sve_result_truncate(const spir_sve_result *sve, int rank, StatusCode *status);
-
-// ============================================================================
-// DLR functions
-// ============================================================================
+ int spir_kernel_lambda(const struct spir_kernel *kernel, double *lambda_out);
 
 /**
- * Create a new DLR basis object
+ * Compute kernel value K(x, y)
+ *
+ * # Arguments
+ * * `kernel` - Kernel object
+ * * `x` - First argument (typically in [-1, 1])
+ * * `y` - Second argument (typically in [-1, 1])
+ * * `out` - Pointer to store the result
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if kernel or out is null
+ * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
-spir_basis *spir_dlr_new(int statistics, double lambda, double eps, StatusCode *status);
+ int spir_kernel_compute(const struct spir_kernel *kernel, double x, double y, double *out);
 
 /**
- * Create a new DLR basis object with custom poles
+ * Manual release function (replaces macro-generated one)
+ *
+ * # Safety
+ * This function drops the kernel. The inner KernelType data is automatically freed
+ * by the Drop implementation when the spir_kernel structure is dropped.
  */
-spir_basis *spir_dlr_new_with_poles(const spir_basis *b, const double *poles, int npoles, StatusCode *status);
+ void spir_kernel_release(struct spir_kernel *kernel);
 
 /**
- * Get number of poles in DLR basis
+ * Manual clone function (replaces macro-generated one)
  */
-StatusCode spir_dlr_get_npoles(const spir_basis *dlr, int *npoles);
+ struct spir_kernel *spir_kernel_clone(const struct spir_kernel *src);
 
 /**
- * Get poles from DLR basis
+ * Manual is_assigned function (replaces macro-generated one)
  */
-StatusCode spir_dlr_get_poles(const spir_basis *dlr, double *poles);
+ int32_t spir_kernel_is_assigned(const struct spir_kernel *obj);
 
 /**
- * Convert IR to DLR (double → double)
+ * Manual release function (replaces macro-generated one)
  */
-StatusCode spir_ir2dlr_dd(const spir_basis *dlr, int order, int ndim, const int *input_dims, int target_dim, const double *input, double *out);
+ void spir_sampling_release(struct spir_sampling *sampling);
 
 /**
- * Convert IR to DLR (complex → complex)
+ * Manual clone function (replaces macro-generated one)
  */
-StatusCode spir_ir2dlr_zz(const spir_basis *dlr, int order, int ndim, const int *input_dims, int target_dim, const Complex64 *input, Complex64 *out);
+ struct spir_sampling *spir_sampling_clone(const struct spir_sampling *src);
 
 /**
- * Convert DLR to IR (double → double)
+ * Manual is_assigned function (replaces macro-generated one)
  */
-StatusCode spir_dlr2ir_dd(const spir_basis *dlr, int order, int ndim, const int *input_dims, int target_dim, const double *input, double *out);
+ int32_t spir_sampling_is_assigned(const struct spir_sampling *obj);
 
 /**
- * Convert DLR to IR (complex → complex)
+ * Creates a new tau sampling object for sparse sampling in imaginary time
+ *
+ * # Arguments
+ * * `b` - Pointer to a finite temperature basis object
+ * * `num_points` - Number of sampling points
+ * * `points` - Array of sampling points in imaginary time (τ)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created sampling object, or NULL if creation fails
+ *
+ * # Safety
+ * Caller must ensure `b` is valid and `points` has `num_points` elements
  */
-StatusCode spir_dlr2ir_zz(const spir_basis *dlr, int order, int ndim, const int *input_dims, int target_dim, const Complex64 *input, Complex64 *out);
 
-// ============================================================================
-// BLAS functions
-// ============================================================================
+struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
+                                            int num_points,
+                                            const double *points,
+                                            int *status);
 
 /**
- * Register BLAS functions
+ * Creates a new Matsubara sampling object for sparse sampling in Matsubara frequencies
+ *
+ * # Arguments
+ * * `b` - Pointer to a finite temperature basis object
+ * * `positive_only` - If true, only positive frequencies are used
+ * * `num_points` - Number of sampling points
+ * * `points` - Array of Matsubara frequency indices (n)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created sampling object, or NULL if creation fails
  */
-StatusCode spir_register_blas_functions(const void *cblas_dgemm, const void *cblas_zgemm);
+
+struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
+                                              bool positive_only,
+                                              int num_points,
+                                              const int64_t *points,
+                                              int *status);
 
 /**
- * Register ILP64 BLAS functions
+ * Creates a new tau sampling object with custom sampling points and pre-computed matrix
+ *
+ * # Arguments
+ * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
+ * * `basis_size` - Basis size
+ * * `num_points` - Number of sampling points
+ * * `points` - Array of sampling points in imaginary time (τ)
+ * * `matrix` - Pre-computed matrix for the sampling points (num_points x basis_size)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created sampling object, or NULL if creation fails
+ *
+ * # Safety
+ * Caller must ensure `points` and `matrix` have correct sizes
  */
-StatusCode spir_register_ilp64_functions(const void *cblas_dgemm64, const void *cblas_zgemm64);
 
-#ifdef __cplusplus
-}
-#endif
+struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
+                                                        int statistics,
+                                                        int basis_size,
+                                                        int num_points,
+                                                        const double *points,
+                                                        const double *matrix,
+                                                        int *status);
 
-#endif  // SPARSEIR_H
+/**
+ * Creates a new Matsubara sampling object with custom sampling points and pre-computed matrix
+ *
+ * # Arguments
+ * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
+ * * `basis_size` - Basis size
+ * * `positive_only` - If true, only positive frequencies are used
+ * * `num_points` - Number of sampling points
+ * * `points` - Array of Matsubara frequency indices (n)
+ * * `matrix` - Pre-computed complex matrix (num_points x basis_size)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created sampling object, or NULL if creation fails
+ *
+ * # Safety
+ * Caller must ensure `points` and `matrix` have correct sizes
+ */
+
+struct spir_sampling *spir_matsu_sampling_new_with_matrix(int order,
+                                                          int statistics,
+                                                          int basis_size,
+                                                          bool positive_only,
+                                                          int num_points,
+                                                          const int64_t *points,
+                                                          const c_complex *matrix,
+                                                          int *status);
+
+/**
+ * Gets the number of sampling points in a sampling object
+ */
+ int spir_sampling_get_npoints(const struct spir_sampling *s, int *num_points);
+
+/**
+ * Gets the imaginary time sampling points
+ */
+ int spir_sampling_get_taus(const struct spir_sampling *s, double *points);
+
+/**
+ * Gets the Matsubara frequency sampling points
+ */
+ int spir_sampling_get_matsus(const struct spir_sampling *s, int64_t *points);
+
+/**
+ * Gets the condition number of the sampling matrix
+ *
+ * Note: Currently returns a placeholder value.
+ * TODO: Implement proper condition number calculation from SVD
+ */
+ int spir_sampling_get_cond_num(const struct spir_sampling *s, double *cond_num);
+
+/**
+ * Evaluate basis coefficients at sampling points (double → double)
+ *
+ * Transforms IR basis coefficients to values at sampling points.
+ *
+ * # Note
+ * Currently only supports column-major order (SPIR_ORDER_COLUMN_MAJOR = 1).
+ * Row-major support will be added in a future update.
+ */
+
+int spir_sampling_eval_dd(const struct spir_sampling *s,
+                                 int order,
+                                 int ndim,
+                                 const int *input_dims,
+                                 int target_dim,
+                                 const double *input,
+                                 double *out);
+
+/**
+ * Evaluate basis coefficients at sampling points (double → complex)
+ *
+ * For Matsubara sampling: transforms real IR coefficients to complex values.
+ */
+
+int spir_sampling_eval_dz(const struct spir_sampling *s,
+                                 int order,
+                                 int ndim,
+                                 const int *input_dims,
+                                 int target_dim,
+                                 const double *input,
+                                 c_complex *out);
+
+/**
+ * Evaluate basis coefficients at sampling points (complex → complex)
+ *
+ * For Matsubara sampling: transforms complex coefficients to complex values.
+ */
+
+int spir_sampling_eval_zz(const struct spir_sampling *s,
+                                 int order,
+                                 int ndim,
+                                 const int *input_dims,
+                                 int target_dim,
+                                 const c_complex *input,
+                                 c_complex *out);
+
+/**
+ * Fit basis coefficients from sampling point values (double → double)
+ */
+
+int spir_sampling_fit_dd(const struct spir_sampling *s,
+                                int order,
+                                int ndim,
+                                const int *input_dims,
+                                int target_dim,
+                                const double *input,
+                                double *out);
+
+/**
+ * Fit basis coefficients from sampling point values (complex → complex)
+ */
+
+int spir_sampling_fit_zz(const struct spir_sampling *s,
+                                int order,
+                                int ndim,
+                                const int *input_dims,
+                                int target_dim,
+                                const c_complex *input,
+                                c_complex *out);
+
+/**
+ * Fit basis coefficients from Matsubara sampling (complex → double, positive only)
+ */
+
+int spir_sampling_fit_zd(const struct spir_sampling *s,
+                                int order,
+                                int ndim,
+                                const int *input_dims,
+                                int target_dim,
+                                const c_complex *input,
+                                double *out);
+
+/**
+ * Manual release function (replaces macro-generated one)
+ */
+ void spir_sve_result_release(struct spir_sve_result *sve);
+
+/**
+ * Manual clone function (replaces macro-generated one)
+ */
+ struct spir_sve_result *spir_sve_result_clone(const struct spir_sve_result *src);
+
+/**
+ * Manual is_assigned function (replaces macro-generated one)
+ */
+ int32_t spir_sve_result_is_assigned(const struct spir_sve_result *obj);
+
+/**
+ * Compute Singular Value Expansion (SVE) of a kernel (libsparseir compatible)
+ *
+ * # Arguments
+ * * `k` - Kernel object
+ * * `epsilon` - Accuracy target for the basis
+ * * `cutoff` - Cutoff value for singular values (-1 for default: 2*sqrt(machine_epsilon))
+ * * `lmax` - Maximum number of Legendre polynomials (currently ignored, auto-determined)
+ * * `n_gauss` - Number of Gauss points for integration (currently ignored, auto-determined)
+ * * `Twork` - Working precision: 0=Float64, 1=Float64x2, -1=Auto
+ * * `status` - Pointer to store status code
+ *
+ * # Returns
+ * * Pointer to SVE result, or NULL on failure
+ *
+ * # Safety
+ * The caller must ensure `status` is a valid pointer.
+ *
+ * # Note
+ * Parameters `lmax` and `n_gauss` are accepted for libsparseir compatibility but
+ * currently ignored. The Rust implementation automatically determines optimal values.
+ */
+
+struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
+                                            double epsilon,
+                                            double cutoff,
+                                            int _lmax,
+                                            int _n_gauss,
+                                            int twork,
+                                            int *status);
+
+/**
+ * Get the number of singular values in an SVE result
+ *
+ * # Arguments
+ * * `sve` - SVE result object
+ * * `size` - Pointer to store the size
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if sve or size is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
+ */
+ int spir_sve_result_get_size(const struct spir_sve_result *sve, int *size);
+
+/**
+ * Truncate an SVE result based on epsilon and max_size
+ *
+ * This function creates a new SVE result containing only the singular values
+ * that are larger than `epsilon * s[0]`, where `s[0]` is the largest singular value.
+ * The result can also be limited to a maximum size.
+ *
+ * # Arguments
+ * * `sve` - Source SVE result object
+ * * `epsilon` - Relative threshold for truncation (singular values < epsilon * s[0] are removed)
+ * * `max_size` - Maximum number of singular values to keep (-1 for no limit)
+ * * `status` - Pointer to store status code
+ *
+ * # Returns
+ * * Pointer to new truncated SVE result, or NULL on failure
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if sve or status is null, or epsilon is invalid
+ *   - `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
+ *
+ * # Safety
+ * The caller must ensure `status` is a valid pointer.
+ * The returned pointer must be freed with `spir_sve_result_release()`.
+ *
+ * # Example (C)
+ * ```c
+ * spir_sve_result* sve = spir_sve_result_new(kernel, 1e-10, -1.0, 0, 0, -1, &status);
+ *
+ * // Truncate to keep only singular values > 1e-8 * s[0], max 50 values
+ * spir_sve_result* sve_truncated = spir_sve_result_truncate(sve, 1e-8, 50, &status);
+ *
+ * // Use truncated result...
+ *
+ * spir_sve_result_release(sve_truncated);
+ * spir_sve_result_release(sve);
+ * ```
+ */
+
+struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *sve,
+                                                 double epsilon,
+                                                 int max_size,
+                                                 int *status);
+
+/**
+ * Get singular values from an SVE result
+ *
+ * # Arguments
+ * * `sve` - SVE result object
+ * * `svals` - Pre-allocated array to store singular values (size must be >= result size)
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if sve or svals is null
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
+ */
+ int spir_sve_result_get_svals(const struct spir_sve_result *sve, double *svals);
