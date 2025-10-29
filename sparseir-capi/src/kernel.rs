@@ -175,10 +175,16 @@ pub extern "C" fn spir_kernel_compute(
 }
 
 /// Manual release function (replaces macro-generated one)
+///
+/// # Safety
+/// This function drops the kernel. The inner KernelType data is automatically freed
+/// by the Drop implementation when the spir_kernel structure is dropped.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_kernel_release(kernel: *mut spir_kernel) {
     if !kernel.is_null() {
         unsafe {
+            // Drop the spir_kernel structure itself.
+            // The Drop implementation will automatically free the inner KernelType data.
             let _ = Box::from_raw(kernel);
         }
     }

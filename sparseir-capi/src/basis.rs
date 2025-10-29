@@ -463,7 +463,7 @@ pub unsafe extern "C" fn spir_basis_get_u(
         let basis_ref = &*b;
         let beta = basis_ref.beta();
 
-        let funcs = match &basis_ref.inner {
+        let funcs = match basis_ref.inner() {
             BasisType::LogisticFermionic(basis) => {
                 spir_funcs::from_u_fermionic(basis.u.clone(), beta)
             }
@@ -551,7 +551,7 @@ pub unsafe extern "C" fn spir_basis_get_v(
         let basis_ref = &*b;
         let beta = basis_ref.beta();
 
-        let funcs = match &basis_ref.inner {
+        let funcs = match basis_ref.inner() {
             BasisType::LogisticFermionic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
             BasisType::LogisticBosonic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
             BasisType::RegularizedBoseFermionic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
@@ -683,7 +683,7 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
         let basis_ref = &*b;
         let beta = basis_ref.beta();
 
-        let funcs = match &basis_ref.inner {
+        let funcs = match basis_ref.inner() {
             BasisType::LogisticFermionic(basis) => {
                 spir_funcs::from_uhat_fermionic(basis.uhat.clone(), beta)
             }

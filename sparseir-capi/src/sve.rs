@@ -254,7 +254,7 @@ pub extern "C" fn spir_sve_result_truncate(
         };
 
         // Extract truncated parts using SVEResult::part
-        let (u_part, s_part, v_part) = sve_ref.inner.part(Some(epsilon), max_size_opt);
+        let (u_part, s_part, v_part) = sve_ref.inner().part(Some(epsilon), max_size_opt);
 
         // Create new SVE result with truncated data
         let sve_truncated = sparseir_rust::sve::SVEResult::new(
@@ -262,9 +262,7 @@ pub extern "C" fn spir_sve_result_truncate(
         );
 
         // Wrap in C-API type
-        let sve_wrapper = spir_sve_result {
-            inner: std::sync::Arc::new(sve_truncated),
-        };
+        let sve_wrapper = spir_sve_result::new(sve_truncated);
 
         Box::into_raw(Box::new(sve_wrapper))
     });
