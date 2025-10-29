@@ -61,7 +61,7 @@ cargo test
 
 ### Header Generation
 
-The C header (`include/sparseir_capi.h`) is **automatically generated** from Rust source code using [cbindgen](https://github.com/mozilla/cbindgen):
+The C header (`include/sparseir.h`) is **automatically generated** from Rust source code using [cbindgen](https://github.com/mozilla/cbindgen):
 
 - **Build time**: Header is regenerated automatically when Rust sources change
 - **Manual regeneration**: `cargo build` (header is created by `build.rs`)
@@ -100,7 +100,7 @@ See `examples/test_julia.jl` for a complete example.
 ### C
 
 ```c
-#include "sparseir_capi.h"
+#include "sparseir.h"
 #include <stdio.h>
 
 int main() {

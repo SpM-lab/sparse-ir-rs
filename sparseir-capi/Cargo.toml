@@ -11,6 +11,8 @@ name = "sparseir_capi"
 # Build both dynamic and static libraries, plus rlib for Rust tests
 crate-type = ["cdylib", "staticlib", "rlib"]
 
+# build.rs will automatically generate sparseir.h via cbindgen
+
 [dependencies]
 # Main SparseIR library
 sparseir-rust = { path = "../sparseir-rust" }

@@ -100,7 +100,7 @@ pub unsafe extern "C" fn spir_tau_sampling_new(
         let tau_points: Vec<f64> = points_slice.to_vec();
 
         // Create sampling based on basis statistics
-        let sampling_type = match &basis_ref.inner {
+        let sampling_type = match basis_ref.inner() {
             BasisType::LogisticFermionic(ir_basis) => {
                 let tau_sampling = sparseir_rust::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
@@ -146,8 +146,9 @@ pub unsafe extern "C" fn spir_tau_sampling_new(
             }
         };
 
+        let inner = sampling_type;
         let sampling = spir_sampling {
-            inner: sampling_type,
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         };
 
         (Box::into_raw(Box::new(sampling)), SPIR_COMPUTATION_SUCCESS)
@@ -257,7 +258,7 @@ pub unsafe extern "C" fn spir_matsu_sampling_new(
         }
 
         // Create sampling based on basis statistics and positive_only flag
-        let sampling_type = match &basis_ref.inner {
+        let sampling_type = match basis_ref.inner() {
             BasisType::LogisticFermionic(ir_basis) => {
                 create_matsu_sampling!(ir_basis.as_ref(), Fermionic)
             }
@@ -279,8 +280,9 @@ pub unsafe extern "C" fn spir_matsu_sampling_new(
             }
         };
 
+        let inner = sampling_type;
         let sampling = spir_sampling {
-            inner: sampling_type,
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         };
 
         (Box::into_raw(Box::new(sampling)), SPIR_COMPUTATION_SUCCESS)
@@ -385,8 +387,9 @@ pub unsafe extern "C" fn spir_tau_sampling_new_with_matrix(
             _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
         };
 
+        let inner = sampling_type;
         let sampling = spir_sampling {
-            inner: sampling_type,
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         };
 
         (Box::into_raw(Box::new(sampling)), SPIR_COMPUTATION_SUCCESS)
@@ -531,8 +534,9 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
             _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
         };
 
+        let inner = sampling_type;
         let sampling = spir_sampling {
-            inner: sampling_type,
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         };
 
         (Box::into_raw(Box::new(sampling)), SPIR_COMPUTATION_SUCCESS)
@@ -571,7 +575,7 @@ pub unsafe extern "C" fn spir_sampling_get_npoints(
 
         let sampling_ref = unsafe { &*s };
 
-        let n_points = match &sampling_ref.inner {
+        let n_points = match sampling_ref.inner() {
             SamplingType::TauFermionic(tau) => tau.n_sampling_points(),
             SamplingType::TauBosonic(tau) => tau.n_sampling_points(),
             SamplingType::MatsubaraFermionic(matsu) => matsu.n_sampling_points(),
@@ -600,7 +604,7 @@ pub unsafe extern "C" fn spir_sampling_get_taus(
 
         let sampling_ref = unsafe { &*s };
 
-        match &sampling_ref.inner {
+        match sampling_ref.inner() {
             SamplingType::TauFermionic(tau) => {
                 let tau_points = tau.sampling_points();
                 let out_slice = unsafe { std::slice::from_raw_parts_mut(points, tau_points.len()) };
@@ -633,7 +637,7 @@ pub unsafe extern "C" fn spir_sampling_get_matsus(
 
         let sampling_ref = unsafe { &*s };
 
-        match &sampling_ref.inner {
+        match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
                 let matsu_freqs = matsu.sampling_points();
                 let out_slice = unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
@@ -750,7 +754,7 @@ pub unsafe extern "C" fn spir_sampling_eval_dd(
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
         // Validate that input dimension matches basis size
-        let expected_basis_size = match &sampling_ref.inner {
+        let expected_basis_size = match sampling_ref.inner() {
             SamplingType::TauFermionic(tau) => tau.basis_size(),
             SamplingType::TauBosonic(tau) => tau.basis_size(),
             _ => return SPIR_NOT_SUPPORTED,
@@ -761,7 +765,7 @@ pub unsafe extern "C" fn spir_sampling_eval_dd(
         }
 
         // Evaluate based on sampling type (only tau sampling supports dd)
-        let result_tensor = match &sampling_ref.inner {
+        let result_tensor = match sampling_ref.inner() {
             SamplingType::TauFermionic(tau) => tau.evaluate_nd(&input_tensor, mdarray_target_dim),
             SamplingType::TauBosonic(tau) => tau.evaluate_nd(&input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED,
@@ -820,7 +824,7 @@ pub unsafe extern "C" fn spir_sampling_eval_dz(
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
         // Evaluate based on sampling type (Matsubara, both full and positive-only)
-        let result_tensor = match &sampling_ref.inner {
+        let result_tensor = match sampling_ref.inner() {
             // Full range Matsubara: use evaluate_nd_real
             SamplingType::MatsubaraFermionic(matsu) => {
                 matsu.evaluate_nd_real(&input_tensor, mdarray_target_dim)
@@ -890,7 +894,7 @@ pub unsafe extern "C" fn spir_sampling_eval_zz(
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
         // Evaluate (full Matsubara sampling)
-        let result_tensor = match &sampling_ref.inner {
+        let result_tensor = match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
                 matsu.evaluate_nd(&input_tensor, mdarray_target_dim)
             }
@@ -954,7 +958,7 @@ pub unsafe extern "C" fn spir_sampling_fit_dd(
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
         // Fit (tau sampling only)
-        let result_tensor = match &sampling_ref.inner {
+        let result_tensor = match sampling_ref.inner() {
             SamplingType::TauFermionic(tau) => tau.fit_nd(&input_tensor, mdarray_target_dim),
             SamplingType::TauBosonic(tau) => tau.fit_nd(&input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED,
@@ -1010,7 +1014,7 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
         // Fit (full Matsubara sampling)
-        let result_tensor = match &sampling_ref.inner {
+        let result_tensor = match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
                 matsu.fit_nd(&input_tensor, mdarray_target_dim)
             }
@@ -1070,7 +1074,7 @@ pub unsafe extern "C" fn spir_sampling_fit_zd(
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
         // Fit (Matsubara → real coefficients, both full and positive-only)
-        let result_tensor = match &sampling_ref.inner {
+        let result_tensor = match sampling_ref.inner() {
             // Full range Matsubara: use fit_nd_real
             SamplingType::MatsubaraFermionic(matsu) => {
                 matsu.fit_nd_real(&input_tensor, mdarray_target_dim)

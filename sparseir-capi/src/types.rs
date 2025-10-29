@@ -59,10 +59,10 @@ impl FunctionDomain {
 /// The actual type is determined by which constructor was used.
 ///
 /// Note: Named `spir_kernel` to match libsparseir C++ API exactly.
-#[derive(Clone)]
+/// The internal structure is hidden using a void pointer to prevent exposing KernelType to C.
 #[repr(C)]
 pub struct spir_kernel {
-    pub(crate) inner: KernelType,
+    pub(crate) _private: *mut std::ffi::c_void,
 }
 
 /// Opaque SVE result type for C API (compatible with libsparseir)
@@ -70,10 +70,10 @@ pub struct spir_kernel {
 /// Contains singular values and singular functions from SVE computation.
 ///
 /// Note: Named `spir_sve_result` to match libsparseir C++ API exactly.
-#[derive(Clone)]
+/// The internal structure is hidden using a void pointer to prevent exposing Arc<SVEResult> to C.
 #[repr(C)]
 pub struct spir_sve_result {
-    pub(crate) inner: Arc<SVEResult>,
+    pub(crate) _private: *mut std::ffi::c_void,
 }
 
 /// Opaque basis type for C API (compatible with libsparseir)
@@ -81,10 +81,10 @@ pub struct spir_sve_result {
 /// Represents a finite temperature basis (IR or DLR).
 ///
 /// Note: Named `spir_basis` to match libsparseir C++ API exactly.
-#[derive(Clone)]
+/// The internal structure is hidden using a void pointer to prevent exposing BasisType to C.
 #[repr(C)]
 pub struct spir_basis {
-    pub(crate) inner: BasisType,
+    pub(crate) _private: *mut std::ffi::c_void,
 }
 
 /// Internal basis type (not exposed to C)
@@ -108,27 +108,36 @@ pub(crate) enum KernelType {
 }
 
 impl spir_kernel {
+    /// Get a reference to the inner KernelType
+    fn inner(&self) -> &KernelType {
+        unsafe {
+            &*(self._private as *const KernelType)
+        }
+    }
+
     pub(crate) fn new_logistic(lambda: f64) -> Self {
+        let inner = KernelType::Logistic(Arc::new(LogisticKernel::new(lambda)));
         Self {
-            inner: KernelType::Logistic(Arc::new(LogisticKernel::new(lambda))),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         }
     }
 
     pub(crate) fn new_regularized_bose(lambda: f64) -> Self {
+        let inner = KernelType::RegularizedBose(Arc::new(RegularizedBoseKernel::new(lambda)));
         Self {
-            inner: KernelType::RegularizedBose(Arc::new(RegularizedBoseKernel::new(lambda))),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         }
     }
 
     pub(crate) fn lambda(&self) -> f64 {
-        match &self.inner {
+        match self.inner() {
             KernelType::Logistic(k) => k.lambda(),
             KernelType::RegularizedBose(k) => k.lambda(),
         }
     }
 
     pub(crate) fn compute(&self, x: f64, y: f64) -> f64 {
-        match &self.inner {
+        match self.inner() {
             KernelType::Logistic(k) => k.compute(x, y),
             KernelType::RegularizedBose(k) => k.compute(x, y),
         }
@@ -136,84 +145,165 @@ impl spir_kernel {
 
     /// Get the inner kernel for SVE computation
     pub(crate) fn as_logistic(&self) -> Option<&Arc<LogisticKernel>> {
-        match &self.inner {
+        match self.inner() {
             KernelType::Logistic(k) => Some(k),
             _ => None,
         }
     }
 
     pub(crate) fn as_regularized_bose(&self) -> Option<&Arc<RegularizedBoseKernel>> {
-        match &self.inner {
+        match self.inner() {
             KernelType::RegularizedBose(k) => Some(k),
             _ => None,
         }
     }
 }
 
-impl spir_sve_result {
-    pub(crate) fn new(sve_result: SVEResult) -> Self {
+impl Clone for spir_kernel {
+    fn clone(&self) -> Self {
+        // Cheap clone: KernelType::clone internally uses Arc::clone which is cheap
+        let inner = self.inner().clone();
         Self {
-            inner: Arc::new(sve_result),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+        }
+    }
+}
+
+impl Drop for spir_kernel {
+    fn drop(&mut self) {
+        unsafe {
+            if !self._private.is_null() {
+                let _ = Box::from_raw(self._private as *mut KernelType);
+            }
+        }
+    }
+}
+
+impl spir_sve_result {
+    /// Get a reference to the inner Arc<SVEResult>
+    fn inner_arc(&self) -> &Arc<SVEResult> {
+        unsafe {
+            &*(self._private as *const Arc<SVEResult>)
+        }
+    }
+
+    pub(crate) fn new(sve_result: SVEResult) -> Self {
+        let inner = Arc::new(sve_result);
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         }
     }
 
     pub(crate) fn size(&self) -> usize {
-        self.inner.s.len()
+        self.inner_arc().s.len()
     }
 
     pub(crate) fn svals(&self) -> &[f64] {
-        &self.inner.s
+        &self.inner_arc().s
     }
 
     pub(crate) fn epsilon(&self) -> f64 {
-        self.inner.epsilon
+        self.inner_arc().epsilon
     }
 
     pub(crate) fn truncate(&self, epsilon: f64, max_size: Option<usize>) -> Self {
-        let (u_part, s_part, v_part) = self.inner.part(Some(epsilon), max_size);
+        let (u_part, s_part, v_part) = self.inner_arc().part(Some(epsilon), max_size);
         let truncated = SVEResult::new(u_part, s_part, v_part, epsilon);
         Self::new(truncated)
     }
 
     /// Get inner SVEResult for basis construction
     pub(crate) fn inner(&self) -> &Arc<SVEResult> {
-        &self.inner
+        self.inner_arc()
+    }
+}
+
+impl Clone for spir_sve_result {
+    fn clone(&self) -> Self {
+        // Cheap clone: Arc::clone just increments reference count
+        let inner = self.inner_arc().clone();
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+        }
+    }
+}
+
+impl Drop for spir_sve_result {
+    fn drop(&mut self) {
+        unsafe {
+            if !self._private.is_null() {
+                let _ = Box::from_raw(self._private as *mut Arc<SVEResult>);
+            }
+        }
     }
 }
 
 impl spir_basis {
+    /// Get a reference to the inner BasisType (for internal use by other modules)
+    pub(crate) fn inner(&self) -> &BasisType {
+        unsafe {
+            &*(self._private as *const BasisType)
+        }
+    }
+
+    fn inner_type(&self) -> &BasisType {
+        self.inner()
+    }
+
     pub(crate) fn new_logistic_fermionic(
         basis: FiniteTempBasis<LogisticKernel, Fermionic>,
     ) -> Self {
+        let inner = BasisType::LogisticFermionic(Arc::new(basis));
         Self {
-            inner: BasisType::LogisticFermionic(Arc::new(basis)),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         }
     }
 
     pub(crate) fn new_logistic_bosonic(basis: FiniteTempBasis<LogisticKernel, Bosonic>) -> Self {
+        let inner = BasisType::LogisticBosonic(Arc::new(basis));
         Self {
-            inner: BasisType::LogisticBosonic(Arc::new(basis)),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         }
     }
 
     pub(crate) fn new_regularized_bose_fermionic(
         basis: FiniteTempBasis<RegularizedBoseKernel, Fermionic>,
     ) -> Self {
+        let inner = BasisType::RegularizedBoseFermionic(Arc::new(basis));
         Self {
-            inner: BasisType::RegularizedBoseFermionic(Arc::new(basis)),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         }
     }
 
     pub(crate) fn new_regularized_bose_bosonic(
         basis: FiniteTempBasis<RegularizedBoseKernel, Bosonic>,
     ) -> Self {
+        let inner = BasisType::RegularizedBoseBosonic(Arc::new(basis));
         Self {
-            inner: BasisType::RegularizedBoseBosonic(Arc::new(basis)),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+        }
+    }
+
+    pub(crate) fn new_dlr_fermionic(
+        dlr: Arc<sparseir_rust::dlr::DiscreteLehmannRepresentation<Fermionic>>,
+    ) -> Self {
+        let inner = BasisType::DLRFermionic(dlr);
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+        }
+    }
+
+    pub(crate) fn new_dlr_bosonic(
+        dlr: Arc<sparseir_rust::dlr::DiscreteLehmannRepresentation<Bosonic>>,
+    ) -> Self {
+        let inner = BasisType::DLRBosonic(dlr);
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
         }
     }
 
     pub(crate) fn size(&self) -> usize {
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.size(),
             BasisType::LogisticBosonic(b) => b.size(),
             BasisType::RegularizedBoseFermionic(b) => b.size(),
@@ -224,7 +314,7 @@ impl spir_basis {
     }
 
     pub(crate) fn svals(&self) -> Vec<f64> {
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.s.clone(),
             BasisType::LogisticBosonic(b) => b.s.clone(),
             BasisType::RegularizedBoseFermionic(b) => b.s.clone(),
@@ -236,7 +326,7 @@ impl spir_basis {
 
     pub(crate) fn statistics(&self) -> i32 {
         // 0 = Bosonic, 1 = Fermionic (matching libsparseir)
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(_) => 1,
             BasisType::LogisticBosonic(_) => 0,
             BasisType::RegularizedBoseFermionic(_) => 1,
@@ -247,7 +337,7 @@ impl spir_basis {
     }
 
     pub(crate) fn beta(&self) -> f64 {
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.beta,
             BasisType::LogisticBosonic(b) => b.beta,
             BasisType::RegularizedBoseFermionic(b) => b.beta,
@@ -258,7 +348,7 @@ impl spir_basis {
     }
 
     pub(crate) fn wmax(&self) -> f64 {
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.wmax(),
             BasisType::LogisticBosonic(b) => b.wmax(),
             BasisType::RegularizedBoseFermionic(b) => b.wmax(),
@@ -269,7 +359,7 @@ impl spir_basis {
     }
 
     pub(crate) fn default_tau_sampling_points(&self) -> Vec<f64> {
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.default_tau_sampling_points(),
             BasisType::LogisticBosonic(b) => b.default_tau_sampling_points(),
             BasisType::RegularizedBoseFermionic(b) => b.default_tau_sampling_points(),
@@ -280,7 +370,7 @@ impl spir_basis {
     }
 
     pub(crate) fn default_matsubara_sampling_points(&self, positive_only: bool) -> Vec<i64> {
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(b) => {
                 b.default_matsubara_sampling_points_i64(positive_only)
             }
@@ -297,7 +387,7 @@ impl spir_basis {
     }
 
     pub(crate) fn default_omega_sampling_points(&self) -> Vec<f64> {
-        match &self.inner {
+        match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.default_omega_sampling_points(),
             BasisType::LogisticBosonic(b) => b.default_omega_sampling_points(),
             BasisType::RegularizedBoseFermionic(b) => b.default_omega_sampling_points(),
@@ -305,6 +395,26 @@ impl spir_basis {
             // DLR: return poles as omega sampling points
             BasisType::DLRFermionic(dlr) => dlr.poles.clone(),
             BasisType::DLRBosonic(dlr) => dlr.poles.clone(),
+        }
+    }
+}
+
+impl Clone for spir_basis {
+    fn clone(&self) -> Self {
+        // Cheap clone: BasisType::clone internally uses Arc::clone which is cheap
+        let inner = self.inner_type().clone();
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+        }
+    }
+}
+
+impl Drop for spir_basis {
+    fn drop(&mut self) {
+        unsafe {
+            if !self._private.is_null() {
+                let _ = Box::from_raw(self._private as *mut BasisType);
+            }
         }
     }
 }
@@ -498,43 +608,53 @@ pub(crate) enum FuncsType {
 /// - PiecewiseLegendreFTVector for uhat
 ///
 /// Note: Named `spir_funcs` to match libsparseir C++ API exactly.
-#[derive(Clone)]
+/// The internal FuncsType is hidden using a void pointer, but beta is kept as a public field.
 #[repr(C)]
 pub struct spir_funcs {
-    pub(crate) inner: FuncsType,
+    pub(crate) _private: *mut std::ffi::c_void,
     pub(crate) beta: f64,
 }
 
 impl spir_funcs {
+    /// Get a reference to the inner FuncsType
+    fn inner_type(&self) -> &FuncsType {
+        unsafe {
+            &*(self._private as *const FuncsType)
+        }
+    }
+
     /// Create u funcs (tau-domain, Fermionic)
     pub(crate) fn from_u_fermionic(poly: Arc<PiecewiseLegendrePolyVector>, beta: f64) -> Self {
+        let inner = FuncsType::PolyVector(PolyVectorFuncs {
+            poly,
+            domain: FunctionDomain::Tau(Statistics::Fermionic),
+        });
         Self {
-            inner: FuncsType::PolyVector(PolyVectorFuncs {
-                poly,
-                domain: FunctionDomain::Tau(Statistics::Fermionic),
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
 
     /// Create u funcs (tau-domain, Bosonic)
     pub(crate) fn from_u_bosonic(poly: Arc<PiecewiseLegendrePolyVector>, beta: f64) -> Self {
+        let inner = FuncsType::PolyVector(PolyVectorFuncs {
+            poly,
+            domain: FunctionDomain::Tau(Statistics::Bosonic),
+        });
         Self {
-            inner: FuncsType::PolyVector(PolyVectorFuncs {
-                poly,
-                domain: FunctionDomain::Tau(Statistics::Bosonic),
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
 
     /// Create v funcs (omega-domain, no statistics)
     pub(crate) fn from_v(poly: Arc<PiecewiseLegendrePolyVector>, beta: f64) -> Self {
+        let inner = FuncsType::PolyVector(PolyVectorFuncs {
+            poly,
+            domain: FunctionDomain::Omega,
+        });
         Self {
-            inner: FuncsType::PolyVector(PolyVectorFuncs {
-                poly,
-                domain: FunctionDomain::Omega,
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
@@ -544,12 +664,13 @@ impl spir_funcs {
         ft: Arc<PiecewiseLegendreFTVector<Fermionic>>,
         beta: f64,
     ) -> Self {
+        let inner = FuncsType::FTVector(FTVectorFuncs {
+            ft_fermionic: Some(ft),
+            ft_bosonic: None,
+            statistics: Statistics::Fermionic,
+        });
         Self {
-            inner: FuncsType::FTVector(FTVectorFuncs {
-                ft_fermionic: Some(ft),
-                ft_bosonic: None,
-                statistics: Statistics::Fermionic,
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
@@ -559,12 +680,13 @@ impl spir_funcs {
         ft: Arc<PiecewiseLegendreFTVector<Bosonic>>,
         beta: f64,
     ) -> Self {
+        let inner = FuncsType::FTVector(FTVectorFuncs {
+            ft_fermionic: None,
+            ft_bosonic: Some(ft),
+            statistics: Statistics::Bosonic,
+        });
         Self {
-            inner: FuncsType::FTVector(FTVectorFuncs {
-                ft_fermionic: None,
-                ft_bosonic: Some(ft),
-                statistics: Statistics::Bosonic,
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
@@ -577,14 +699,15 @@ impl spir_funcs {
         wmax: f64,
         inv_weights: Vec<f64>,
     ) -> Self {
+        let inner = FuncsType::DLRTau(DLRTauFuncs {
+            poles,
+            beta,
+            wmax,
+            inv_weights,
+            statistics: Statistics::Fermionic,
+        });
         Self {
-            inner: FuncsType::DLRTau(DLRTauFuncs {
-                poles,
-                beta,
-                wmax,
-                inv_weights,
-                statistics: Statistics::Fermionic,
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
@@ -597,14 +720,15 @@ impl spir_funcs {
         wmax: f64,
         inv_weights: Vec<f64>,
     ) -> Self {
+        let inner = FuncsType::DLRTau(DLRTauFuncs {
+            poles,
+            beta,
+            wmax,
+            inv_weights,
+            statistics: Statistics::Bosonic,
+        });
         Self {
-            inner: FuncsType::DLRTau(DLRTauFuncs {
-                poles,
-                beta,
-                wmax,
-                inv_weights,
-                statistics: Statistics::Bosonic,
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
@@ -615,13 +739,14 @@ impl spir_funcs {
         beta: f64,
         inv_weights: Vec<f64>,
     ) -> Self {
+        let inner = FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
+            poles,
+            beta,
+            inv_weights,
+            statistics: Statistics::Fermionic,
+        });
         Self {
-            inner: FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
-                poles,
-                beta,
-                inv_weights,
-                statistics: Statistics::Fermionic,
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
@@ -632,20 +757,21 @@ impl spir_funcs {
         beta: f64,
         inv_weights: Vec<f64>,
     ) -> Self {
+        let inner = FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
+            poles,
+            beta,
+            inv_weights,
+            statistics: Statistics::Bosonic,
+        });
         Self {
-            inner: FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
-                poles,
-                beta,
-                inv_weights,
-                statistics: Statistics::Bosonic,
-            }),
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
             beta,
         }
     }
 
     /// Get the number of basis functions
     pub(crate) fn size(&self) -> usize {
-        match &self.inner {
+        match self.inner_type() {
             FuncsType::PolyVector(pv) => pv.poly.polyvec.len(),
             FuncsType::FTVector(ftv) => {
                 if let Some(ft) = &ftv.ft_fermionic {
@@ -663,7 +789,7 @@ impl spir_funcs {
 
     /// Get knots for continuous functions (PolyVector only)
     pub(crate) fn knots(&self) -> Option<Vec<f64>> {
-        match &self.inner {
+        match self.inner_type() {
             FuncsType::PolyVector(pv) => {
                 // Get unique knots from all polynomials
                 let mut all_knots = Vec::new();
@@ -689,7 +815,7 @@ impl spir_funcs {
     /// # Returns
     /// Vector of function values, or None if not continuous
     pub(crate) fn eval_continuous(&self, x: f64) -> Option<Vec<f64>> {
-        match &self.inner {
+        match self.inner_type() {
             FuncsType::PolyVector(pv) => Some(pv.evaluate_at(x, self.beta)),
             FuncsType::DLRTau(dlr) => Some(dlr.evaluate_at(x)),
             _ => None,
@@ -704,7 +830,7 @@ impl spir_funcs {
     /// # Returns
     /// Vector of complex function values, or None if not FT type
     pub(crate) fn eval_matsubara(&self, n: i64) -> Option<Vec<num_complex::Complex64>> {
-        match &self.inner {
+        match self.inner_type() {
             FuncsType::FTVector(ftv) => {
                 if ftv.statistics == Statistics::Fermionic {
                     // Fermionic
@@ -756,7 +882,7 @@ impl spir_funcs {
 
     /// Batch evaluate at multiple tau/omega points
     pub(crate) fn batch_eval_continuous(&self, xs: &[f64]) -> Option<Vec<Vec<f64>>> {
-        match &self.inner {
+        match self.inner_type() {
             FuncsType::PolyVector(pv) => Some(pv.batch_evaluate_at(xs, self.beta)),
             FuncsType::DLRTau(dlr) => Some(dlr.batch_evaluate_at(xs)),
             _ => None,
@@ -774,7 +900,7 @@ impl spir_funcs {
         &self,
         ns: &[i64],
     ) -> Option<Vec<Vec<num_complex::Complex64>>> {
-        match &self.inner {
+        match self.inner_type() {
             FuncsType::FTVector(ftv) => {
                 if ftv.statistics == Statistics::Fermionic {
                     // Fermionic
@@ -856,7 +982,7 @@ impl spir_funcs {
     /// # Returns
     /// New funcs object with the selected subset, or None if operation not supported
     pub(crate) fn get_slice(&self, indices: &[usize]) -> Option<Self> {
-        match &self.inner {
+        match self.inner_type() {
             FuncsType::PolyVector(pv) => {
                 let mut new_polys = Vec::with_capacity(indices.len());
                 for &idx in indices {
@@ -867,10 +993,10 @@ impl spir_funcs {
                 }
                 let new_poly_vec = PiecewiseLegendrePolyVector::new(new_polys);
                 Some(Self {
-                    inner: FuncsType::PolyVector(PolyVectorFuncs {
+                    _private: Box::into_raw(Box::new(FuncsType::PolyVector(PolyVectorFuncs {
                         poly: Arc::new(new_poly_vec),
                         domain: pv.domain,
-                    }),
+                    }))) as *mut std::ffi::c_void,
                     beta: self.beta,
                 })
             }
@@ -890,13 +1016,13 @@ impl spir_funcs {
                     new_inv_weights.push(dlr.inv_weights[idx]);
                 }
                 Some(Self {
-                    inner: FuncsType::DLRTau(DLRTauFuncs {
+                    _private: Box::into_raw(Box::new(FuncsType::DLRTau(DLRTauFuncs {
                         poles: new_poles,
                         beta: dlr.beta,
                         wmax: dlr.wmax,
                         inv_weights: new_inv_weights,
                         statistics: dlr.statistics,
-                    }),
+                    }))) as *mut std::ffi::c_void,
                     beta: dlr.beta,
                 })
             }
@@ -912,14 +1038,35 @@ impl spir_funcs {
                     new_inv_weights.push(dlr.inv_weights[idx]);
                 }
                 Some(Self {
-                    inner: FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
+                    _private: Box::into_raw(Box::new(FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
                         poles: new_poles,
                         beta: dlr.beta,
                         inv_weights: new_inv_weights,
                         statistics: dlr.statistics,
-                    }),
+                    }))) as *mut std::ffi::c_void,
                     beta: dlr.beta,
                 })
+            }
+        }
+    }
+}
+
+impl Clone for spir_funcs {
+    fn clone(&self) -> Self {
+        // Cheap clone: FuncsType::clone internally uses Arc::clone which is cheap
+        let inner = self.inner_type().clone();
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            beta: self.beta,
+        }
+    }
+}
+
+impl Drop for spir_funcs {
+    fn drop(&mut self) {
+        unsafe {
+            if !self._private.is_null() {
+                let _ = Box::from_raw(self._private as *mut FuncsType);
             }
         }
     }
@@ -941,10 +1088,39 @@ mod tests {
 /// This wraps different sampling implementations:
 /// - TauSampling (for tau-domain)
 /// - MatsubaraSampling (for Matsubara frequencies, full range or positive-only)
-#[derive(Clone)]
+/// The internal structure is hidden using a void pointer to prevent exposing SamplingType to C.
 #[repr(C)]
 pub struct spir_sampling {
-    pub(crate) inner: SamplingType,
+    pub(crate) _private: *mut std::ffi::c_void,
+}
+
+impl spir_sampling {
+    /// Get a reference to the inner SamplingType (for internal use by other modules)
+    pub(crate) fn inner(&self) -> &SamplingType {
+        unsafe {
+            &*(self._private as *const SamplingType)
+        }
+    }
+}
+
+impl Clone for spir_sampling {
+    fn clone(&self) -> Self {
+        // Cheap clone: SamplingType::clone internally uses Arc::clone which is cheap
+        let inner = self.inner().clone();
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+        }
+    }
+}
+
+impl Drop for spir_sampling {
+    fn drop(&mut self) {
+        unsafe {
+            if !self._private.is_null() {
+                let _ = Box::from_raw(self._private as *mut SamplingType);
+            }
+        }
+    }
 }
 
 /// Internal enum to distinguish between different sampling types
