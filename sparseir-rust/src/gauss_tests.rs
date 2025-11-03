@@ -358,9 +358,7 @@ fn test_twofloat_integration_convergence_analysis() {
             "n={:3}: error={:.2e}, rel_error={:.2e}",
             n, error, rel_error
         );
-        // This target is too loose for Df64.
-        // The numerical precision of math functions in twofloat is not that good.
-        assert!(rel_error < 1e-15);
+        assert!(rel_error < 1e-30);
     }
 }
 
