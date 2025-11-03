@@ -270,8 +270,9 @@ fn test_rule_twofloat_methods() {
 /// Test function: f(x) = {cos((π/2) * x)}²
 /// Integral over [-1, 1] should be exactly 1.0
 fn test_function(x: Df64) -> Df64 {
-    let pi = Df64::from_f64_unchecked(std::f64::consts::PI);
-    let cos_val = (pi / Df64::from_f64_unchecked(2.0) * x).cos();
+    use nalgebra::RealField;
+    let pi_half = Df64::frac_pi_2();
+    let cos_val = (pi_half * x).cos();
     cos_val * cos_val
 }
 
