@@ -820,7 +820,9 @@ pub fn legendre_twofloat(n: usize) -> Rule<crate::Df64> {
         );
     }
 
-    let (x, w) = gauss_legendre_nodes_weights_custom::<crate::Df64>(n);
+    let mut x: Vec<crate::Df64> = vec![crate::Df64::ZERO; n];
+    let mut w: Vec<crate::Df64> = vec![crate::Df64::ZERO; n];
+    xprec::gauss::gauss_legendre(&mut x, &mut w);
 
     Rule::from_vectors_twofloat(
         x,
