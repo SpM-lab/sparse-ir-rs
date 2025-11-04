@@ -267,21 +267,6 @@ fn test_rule_twofloat_methods() {
 
 // ===== Df64 Gauss Integration Precision Tests =====
 
-/// Test function: f(x) = {cos((π/2) * x)}²
-/// Integral over [-1, 1] should be exactly 1.0
-fn test_function(x: Df64) -> Df64 {
-    use nalgebra::RealField;
-    let pi_half = Df64::frac_pi_2();
-    let cos_val = (pi_half * x).cos();
-    cos_val * cos_val
-}
-
-/// Analytical integral of f(x) = {cos((π/2) * x)}² over [-1, 1]
-/// ∫_{-1}^{1} cos²((π/2) * x) dx = 1.0
-fn analytical_integral() -> Df64 {
-    Df64::from_f64_unchecked(1.0)
-}
-
 #[test]
 fn test_twofloat_gauss_rule_validation() {
     println!("Df64 Gauss Rule Validation Test");
@@ -333,11 +318,22 @@ fn test_twofloat_gauss_rule_validation() {
 }
 
 #[test]
-fn test_twofloat_integration_convergence_analysis() {
+fn test_twofloat_integration_convergence_analysis_circular() {
     println!("Df64 Integration Convergence Analysis");
     println!("========================================");
 
-    let analytical = analytical_integral();
+    // Analytical integral of f(x) = {cos((π/2) * x)}² over [-1, 1]
+    // ∫_{-1}^{1} cos²((π/2) * x) dx = 1.0
+    let analytical = Df64::from_f64_unchecked(1.0);
+
+    // Test function: f(x) = {cos((π/2) * x)}²
+    // Integral over [-1, 1] should be exactly 1.0
+    let test_function = |x: Df64| -> Df64 {
+        use nalgebra::RealField;
+        let pi_half = Df64::frac_pi_2();
+        let cos_val = (pi_half * x).cos();
+        cos_val * cos_val
+    };
 
     // Test convergence with specific number of points
     let test_points = vec![100, 150, 200];
