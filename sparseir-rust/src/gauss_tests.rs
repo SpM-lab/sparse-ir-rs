@@ -358,6 +358,45 @@ fn test_twofloat_integration_convergence_analysis_circular() {
     }
 }
 
+#[test]
+fn test_twofloat_integration_convergence_analysis_polynomial() {
+    let poly_degn = |n: usize| -> bool {
+        let rule = legendre_twofloat(n);
+        assert_eq!(rule.x.len(), n);
+        assert_eq!(rule.w.len(), n);
+
+        let test_function = |x: Df64| -> Df64 {
+            let mut term1 = Df64::ONE;
+            for _ in 0..(2 * n - 1) {
+                term1 *= x;
+            }
+
+            let mut term2 = Df64::ONE;
+            for _ in 0..(2 * n - 2) {
+                term2 *= x;
+            }
+            // x ^ (2 * n - 1) + x ^ (2 * n - 2)
+            term1 + term2
+        };
+
+        let mut integral = Df64::from_f64_unchecked(0.0);
+
+        for i in 0..rule.x.len() {
+            let f_val = test_function(rule.x[i]);
+            integral += f_val * rule.w[i];
+        }
+
+        // 0 + 2 / (2 * n - 1)
+        let analytical = Df64::from_f64_unchecked(0.0) + 2.0 * Df64::ONE / (2.0 * n as f64 - 1.0);
+        let error = (integral - analytical).abs();
+
+            error < Df64::from(1e-30)
+    };
+    for n in 1..=200 {
+        assert!(poly_degn(n), "Polynomial degree {} failed", n);
+    }
+}
+
 /// Evaluate Legendre polynomial P_n(x) at point x
 fn evaluate_legendre_polynomial<T: CustomNumeric>(x: T, n: usize) -> T {
     if n == 0 {
