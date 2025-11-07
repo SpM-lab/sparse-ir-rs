@@ -4,6 +4,7 @@
 //! Tests the complete workflow: IR basis → sampling → DLR
 
 use num_complex::Complex64;
+use rstest::rstest;
 use sparseir_capi::{
     spir_basis, spir_basis_get_default_matsus, spir_basis_get_default_taus,
     spir_basis_get_n_default_matsus, spir_basis_get_n_default_taus, spir_basis_get_size,
@@ -108,11 +109,12 @@ fn get_default_matsubara_points(basis: *const spir_basis, positive_only: bool) -
 // Tests
 // ============================================================================
 
-#[test]
-fn test_integration_1d_fermionic() {
+#[rstest]
+#[case(1e-6)]
+#[case(1e-9)]
+fn test_integration_1d_fermionic(#[case] epsilon: f64) {
     let beta = 100.0;
     let wmax = 2.0;
-    let epsilon = 1e-6;
     let tol = 10.0 * epsilon;
 
     unsafe {
@@ -231,11 +233,12 @@ fn test_integration_1d_fermionic() {
     }
 }
 
-#[test]
-fn test_dlr_conversion_1d() {
+#[rstest]
+#[case(1e-6)]
+#[case(1e-9)]
+fn test_dlr_conversion_1d(#[case] epsilon: f64) {
     let beta = 100.0;
     let wmax = 2.0;
-    let epsilon = 1e-6;
     let tol = 10.0 * epsilon;
 
     unsafe {
@@ -349,11 +352,12 @@ fn test_dlr_conversion_1d() {
     }
 }
 
-#[test]
-fn test_dlr_sampling_integration() {
+#[rstest]
+#[case(1e-6)]
+#[case(1e-9)]
+fn test_dlr_sampling_integration(#[case] epsilon: f64) {
     let beta = 1000.0; // Match C++ test
     let wmax = 2.0;
-    let epsilon = 1e-6;
 
     unsafe {
         // Create IR basis (Fermionic)
@@ -448,11 +452,12 @@ fn test_dlr_sampling_integration() {
     }
 }
 
-#[test]
-fn test_column_major_order() {
+#[rstest]
+#[case(1e-6)]
+#[case(1e-9)]
+fn test_column_major_order(#[case] epsilon: f64) {
     let beta = 50.0;
     let wmax = 2.0;
-    let epsilon = 1e-6;
 
     unsafe {
         // Create IR basis (Fermionic)
@@ -515,11 +520,12 @@ fn test_column_major_order() {
     }
 }
 
-#[test]
-fn test_2d_tensor_operations() {
+#[rstest]
+#[case(1e-6)]
+#[case(1e-9)]
+fn test_2d_tensor_operations(#[case] epsilon: f64) {
     let beta = 50.0;
     let wmax = 2.0;
-    let epsilon = 1e-6;
 
     unsafe {
         // Create IR basis (Fermionic)
@@ -613,11 +619,12 @@ fn test_2d_tensor_operations() {
     }
 }
 
-#[test]
-fn test_complex_coefficients() {
+#[rstest]
+#[case(1e-6)]
+#[case(1e-9)]
+fn test_complex_coefficients(#[case] epsilon: f64) {
     let beta = 50.0;
     let wmax = 2.0;
-    let epsilon = 1e-6;
 
     unsafe {
         // Create IR basis (Fermionic)
