@@ -5,7 +5,7 @@
 //! at runtime without recompiling.
 //!
 //! # API Functions
-//! - `spir_register_blas_functions`: Register LP64 BLAS (32-bit integers)
+//! - `spir_register_dgemm_zgemm_lp64`: Register LP64 BLAS (32-bit integers)
 //! - `spir_register_ilp64_functions`: Register ILP64 BLAS (64-bit integers)
 //!
 //! # Example (C)
@@ -13,7 +13,7 @@
 //! #include <cblas.h>
 //!
 //! // Register OpenBLAS
-//! spir_register_blas_functions(
+//! spir_register_dgemm_zgemm_lp64(
 //!     (void*)cblas_dgemm,
 //!     (void*)cblas_zgemm
 //! );
@@ -50,7 +50,7 @@ use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT};
 /// #include <cblas.h>
 ///
 /// // Register OpenBLAS
-/// int status = spir_register_blas_functions(
+/// int status = spir_register_dgemm_zgemm_lp64(
 ///     (void*)cblas_dgemm,
 ///     (void*)cblas_zgemm
 /// );
@@ -88,7 +88,7 @@ use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT};
 /// );
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_register_blas_functions(
+pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
     cblas_dgemm: *const libc::c_void,
     cblas_zgemm: *const libc::c_void,
 ) -> StatusCode {
@@ -276,7 +276,7 @@ mod tests {
     fn test_register_blas_functions_success() {
         unsafe {
             let status =
-                spir_register_blas_functions(mock_dgemm as *const _, mock_zgemm as *const _);
+                spir_register_dgemm_zgemm_lp64(mock_dgemm as *const _, mock_zgemm as *const _);
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
             // Verify backend was registered
@@ -311,7 +311,7 @@ mod tests {
     #[test]
     fn test_register_blas_functions_null_dgemm() {
         unsafe {
-            let status = spir_register_blas_functions(std::ptr::null(), mock_zgemm as *const _);
+            let status = spir_register_dgemm_zgemm_lp64(std::ptr::null(), mock_zgemm as *const _);
             assert_eq!(status, SPIR_INVALID_ARGUMENT);
         }
     }
@@ -319,7 +319,7 @@ mod tests {
     #[test]
     fn test_register_blas_functions_null_zgemm() {
         unsafe {
-            let status = spir_register_blas_functions(mock_dgemm as *const _, std::ptr::null());
+            let status = spir_register_dgemm_zgemm_lp64(mock_dgemm as *const _, std::ptr::null());
             assert_eq!(status, SPIR_INVALID_ARGUMENT);
         }
     }

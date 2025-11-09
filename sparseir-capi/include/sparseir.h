@@ -799,7 +799,7 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * #include <cblas.h>
  *
  * // Register OpenBLAS
- * int status = spir_register_blas_functions(
+ * int status = spir_register_dgemm_zgemm_lp64(
  *     (void*)cblas_dgemm,
  *     (void*)cblas_zgemm
  * );
@@ -838,7 +838,7 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * ```
  */
 
-int spir_register_blas_functions(const void *cblas_dgemm,
+int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
                                         const void *cblas_zgemm);
 
 /**

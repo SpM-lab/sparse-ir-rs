@@ -10,11 +10,11 @@ Reimplement sparseir in Rust while keeping the C-API defined in `libsparseir/inc
 
 **The SparseIR Rust reimplementation is now fully complete!**
 
-✅ **All core functionality implemented** (210+ tests passing)  
-✅ **C-API fully compatible** with libsparseir (32+ functions)  
-✅ **Memory-safe FFI** with auto-generated headers  
-✅ **Performance validated** against Julia SparseIR.jl  
-✅ **Production ready** for integration and distribution  
+✅ **All core functionality implemented** (210+ tests passing)
+✅ **C-API fully compatible** with libsparseir (32+ functions)
+✅ **Memory-safe FFI** with auto-generated headers
+✅ **Performance validated** against Julia SparseIR.jl
+✅ **Production ready** for integration and distribution
 
 This project successfully delivers a complete, memory-safe Rust reimplementation of SparseIR while maintaining full compatibility with existing C, Python, and Fortran interfaces.
 
@@ -121,7 +121,7 @@ typedef struct _spir_kernel spir_kernel;
    - `spir_ir2dlr_dd()`, `spir_dlr2ir_dd()`
 
 7. **BLAS Function Registration**
-   - `spir_register_blas_functions()`: Register custom BLAS kernels
+   - `spir_register_dgemm_zgemm_lp64()`: Register custom BLAS kernels
    - `spir_register_ilp64_functions()`: Register ILP64 BLAS functions
    - `spir_clear_blas_functions()`: Reset to default BLAS
 
@@ -577,7 +577,7 @@ blas = "0.22"             # BLAS bindings (default)
 1. **Create `sparseir-capi` crate structure** ✅
    - Set up Cargo.toml with FFI dependencies ✅
    - Define module structure (types.rs, kernel.rs, sve.rs, basis.rs, funcs.rs, sampling.rs, dlr.rs, gemm.rs) ✅
-   
+
 2. **Implement Opaque Types** ✅
    - `spir_kernel`, `spir_sve_result`, `spir_basis` ✅
    - `spir_funcs`, `spir_sampling` ✅
