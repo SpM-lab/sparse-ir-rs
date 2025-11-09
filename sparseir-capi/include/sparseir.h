@@ -179,6 +179,51 @@ struct spir_basis *spir_basis_new(int statistics,
                                   int *status);
 
 /**
+ * Create a finite temperature basis from SVE result and custom inv_weight function
+ *
+ * This function creates a basis from a pre-computed SVE result and a custom
+ * inverse weight function. The inv_weight function is used to scale the basis
+ * functions in the frequency domain.
+ *
+ * # Arguments
+ * * `statistics` - 0 for Bosonic, 1 for Fermionic
+ * * `beta` - Inverse temperature (must be > 0)
+ * * `omega_max` - Frequency cutoff (must be > 0)
+ * * `epsilon` - Accuracy target (must be > 0)
+ * * `lambda` - Kernel parameter Λ = β * ωmax (must be > 0)
+ * * `ypower` - Power of y in kernel (typically 0 or 1)
+ * * `conv_radius` - Convergence radius for Fourier transform
+ * * `sve` - Pre-computed SVE result (must not be NULL)
+ * * `inv_weight_funcs` - Custom inv_weight function (must not be NULL)
+ * * `max_size` - Maximum basis size (-1 for no limit)
+ * * `status` - Pointer to store status code
+ *
+ * # Returns
+ * * Pointer to basis object, or NULL on failure
+ *
+ * # Note
+ * Currently, the inv_weight function is evaluated but the custom weight is not
+ * fully integrated into the basis construction. The basis is created using
+ * the standard from_sve_result method with the kernel's default inv_weight.
+ * This is a limitation of the current Rust implementation compared to the C++ version.
+ *
+ * # Safety
+ * The caller must ensure `status` is a valid pointer.
+ */
+
+struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
+                                                          double beta,
+                                                          double omega_max,
+                                                          double epsilon,
+                                                          double lambda,
+                                                          int _ypower,
+                                                          double _conv_radius,
+                                                          const struct spir_sve_result *sve,
+                                                          const struct spir_funcs *inv_weight_funcs,
+                                                          int max_size,
+                                                          int *status);
+
+/**
  * Get the number of basis functions
  *
  * # Arguments
@@ -366,6 +411,35 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * `spir_funcs_release()` on the returned pointer when done.
  */
  struct spir_funcs *spir_basis_get_uhat(const struct spir_basis *b, int *status);
+
+/**
+ * Gets the full (untruncated) Matsubara-frequency basis functions
+ *
+ * This function returns an object representing all basis functions
+ * in the Matsubara-frequency domain, including those beyond the truncation
+ * threshold. Unlike `spir_basis_get_uhat`, which returns only the truncated
+ * basis functions (up to `basis.size()`), this function returns all basis
+ * functions from the SVE result (up to `sve_result.s.size()`).
+ *
+ * # Arguments
+ * * `b` - Pointer to the finite temperature basis object (must be an IR basis)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the basis functions object, or NULL if creation fails
+ *
+ * # Note
+ * The returned object must be freed using `spir_funcs_release`
+ * when no longer needed
+ * This function is only available for IR basis objects (not DLR)
+ * uhat_full.size() >= uhat.size() is always true
+ * The first uhat.size() functions in uhat_full are identical to uhat
+ *
+ * # Safety
+ * The caller must ensure that `b` is a valid pointer, and must call
+ * `spir_funcs_release()` on the returned pointer when done.
+ */
+ struct spir_funcs *spir_basis_get_uhat_full(const struct spir_basis *b, int *status);
 
 /**
  * Get default tau sampling points with custom limit (extended version)
@@ -628,6 +702,38 @@ int spir_dlr2ir_zz(const struct spir_basis *dlr,
  int32_t spir_funcs_is_assigned(const struct spir_funcs *obj);
 
 /**
+ * Create a spir_funcs object from piecewise Legendre polynomial coefficients
+ *
+ * Constructs a continuous function object from segments and Legendre polynomial
+ * expansion coefficients. The coefficients are organized per segment, with each
+ * segment containing nfuncs coefficients (degrees 0 to nfuncs-1).
+ *
+ * # Arguments
+ * * `segments` - Array of segment boundaries (n_segments+1 elements). Must be monotonically increasing.
+ * * `n_segments` - Number of segments (must be >= 1)
+ * * `coeffs` - Array of Legendre coefficients. Layout: contiguous per segment,
+ *              coefficients for segment i are stored at indices [i*nfuncs, (i+1)*nfuncs).
+ *              Each segment has nfuncs coefficients for Legendre degrees 0 to nfuncs-1.
+ * * `nfuncs` - Number of basis functions per segment (Legendre polynomial degrees 0 to nfuncs-1)
+ * * `order` - Order parameter (currently unused, reserved for future use)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created funcs object, or NULL if creation fails
+ *
+ * # Note
+ * The function creates a single piecewise Legendre polynomial function.
+ * To create multiple functions, call this function multiple times.
+ */
+
+struct spir_funcs *spir_funcs_from_piecewise_legendre(const double *segments,
+                                                      int n_segments,
+                                                      const double *coeffs,
+                                                      int nfuncs,
+                                                      int _order,
+                                                      int *status);
+
+/**
  * Extract a subset of functions by indices
  *
  * # Arguments
@@ -773,6 +879,40 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
                                        c_complex *out);
 
 /**
+ * Get default Matsubara sampling points from a Matsubara-space spir_funcs
+ *
+ * This function computes default sampling points in Matsubara frequencies (iωn) from
+ * a spir_funcs object that represents Matsubara-space basis functions (e.g., uhat or uhat_full).
+ * The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
+ *
+ * # Arguments
+ * * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
+ * * `l` - Number of requested sampling points
+ * * `positive_only` - If true, only positive frequencies are used
+ * * `mitigate` - If true, enable mitigation (fencing) to improve conditioning by adding oversampling points
+ * * `points` - Pre-allocated array to store the sampling points. The size of the array must be sufficient for the returned points (may exceed L if mitigate is true).
+ * * `n_points_returned` - Pointer to store the number of sampling points returned (may exceed L if mitigate is true, or approximately L/2 when positive_only=true).
+ *
+ * # Returns
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if uhat, points, or n_points_returned is null
+ * - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function
+ *
+ * # Note
+ * This function is only available for spir_funcs objects representing Matsubara-space basis functions
+ * The statistics type is automatically detected from the spir_funcs object type
+ * The default sampling points are chosen to provide near-optimal conditioning
+ */
+
+int spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
+                                        int l,
+                                        bool positive_only,
+                                        bool mitigate,
+                                        int64_t *points,
+                                        int *n_points_returned);
+
+/**
  * Register custom BLAS functions (LP64: 32-bit integers)
  *
  * This function allows you to inject external BLAS implementations (OpenBLAS, MKL, Accelerate, etc.)
@@ -839,7 +979,7 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  */
 
 int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
-                                        const void *cblas_zgemm);
+                                          const void *cblas_zgemm);
 
 /**
  * Register ILP64 BLAS functions (64-bit integers)
@@ -909,7 +1049,7 @@ int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
  */
 
 int spir_register_dgemm_zgemm_ilp64(const void *cblas_dgemm64,
-                                         const void *cblas_zgemm64);
+                                           const void *cblas_zgemm64);
 
 /**
  * Create a new Logistic kernel
@@ -996,6 +1136,112 @@ int spir_register_dgemm_zgemm_ilp64(const void *cblas_dgemm64,
  * Manual is_assigned function (replaces macro-generated one)
  */
  int32_t spir_kernel_is_assigned(const struct spir_kernel *obj);
+
+/**
+ * Get kernel domain boundaries
+ *
+ * # Arguments
+ * * `k` - Kernel object
+ * * `xmin` - Pointer to store minimum x value
+ * * `xmax` - Pointer to store maximum x value
+ * * `ymin` - Pointer to store minimum y value
+ * * `ymax` - Pointer to store maximum y value
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if any pointer is null
+ * * `SPIR_INTERNAL_ERROR` if internal panic occurs
+ */
+
+int spir_kernel_get_domain(const struct spir_kernel *k,
+                                  double *xmin,
+                                  double *xmax,
+                                  double *ymin,
+                                  double *ymax);
+
+/**
+ * Get x-segments for SVE discretization hints from a kernel
+ *
+ * This function should be called twice:
+ * 1. First call with segments=NULL: set n_segments to the required array size
+ * 2. Second call with segments allocated: fill segments[0..n_segments-1] with values
+ *
+ * # Arguments
+ * * `k` - Kernel object
+ * * `epsilon` - Accuracy target for the basis
+ * * `segments` - Pointer to store segments array (NULL for first call)
+ * * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segments
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if k or n_segments is null, or segments array is too small
+ * * `SPIR_INTERNAL_ERROR` if internal panic occurs
+ */
+
+int spir_kernel_get_sve_hints_segments_x(const struct spir_kernel *k,
+                                                double epsilon,
+                                                double *segments,
+                                                int *n_segments);
+
+/**
+ * Get y-segments for SVE discretization hints from a kernel
+ *
+ * This function should be called twice:
+ * 1. First call with segments=NULL: set n_segments to the required array size
+ * 2. Second call with segments allocated: fill segments[0..n_segments-1] with values
+ *
+ * # Arguments
+ * * `k` - Kernel object
+ * * `epsilon` - Accuracy target for the basis
+ * * `segments` - Pointer to store segments array (NULL for first call)
+ * * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segments
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if k or n_segments is null, or segments array is too small
+ * * `SPIR_INTERNAL_ERROR` if internal panic occurs
+ */
+
+int spir_kernel_get_sve_hints_segments_y(const struct spir_kernel *k,
+                                                double epsilon,
+                                                double *segments,
+                                                int *n_segments);
+
+/**
+ * Get the number of singular values hint from a kernel
+ *
+ * # Arguments
+ * * `k` - Kernel object
+ * * `epsilon` - Accuracy target for the basis
+ * * `nsvals` - Pointer to store the number of singular values
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if k or nsvals is null
+ * * `SPIR_INTERNAL_ERROR` if internal panic occurs
+ */
+
+int spir_kernel_get_sve_hints_nsvals(const struct spir_kernel *k,
+                                            double epsilon,
+                                            int *nsvals);
+
+/**
+ * Get the number of Gauss points hint from a kernel
+ *
+ * # Arguments
+ * * `k` - Kernel object
+ * * `epsilon` - Accuracy target for the basis
+ * * `ngauss` - Pointer to store the number of Gauss points
+ *
+ * # Returns
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if k or ngauss is null
+ * * `SPIR_INTERNAL_ERROR` if internal panic occurs
+ */
+
+int spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
+                                            double epsilon,
+                                            int *ngauss);
 
 /**
  * Manual release function (replaces macro-generated one)
@@ -1330,3 +1576,170 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
  int spir_sve_result_get_svals(const struct spir_sve_result *sve, double *svals);
+
+/**
+ * Create a SVE result from a discretized kernel matrix
+ *
+ * This function performs singular value expansion (SVE) on a discretized kernel
+ * matrix K. The matrix K should already be in the appropriate form (no weight
+ * application needed). The function supports both double and DDouble precision
+ * based on whether K_low is provided.
+ *
+ * # Arguments
+ * * `K_high` - High part of the kernel matrix (required, size: nx * ny)
+ * * `K_low` - Low part of the kernel matrix (optional, nullptr for double precision)
+ * * `nx` - Number of rows in the matrix
+ * * `ny` - Number of columns in the matrix
+ * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `segments_x` - X-direction segments (size: n_segments_x + 1)
+ * * `n_segments_x` - Number of segments in x direction
+ * * `segments_y` - Y-direction segments (size: n_segments_y + 1)
+ * * `n_segments_y` - Number of segments in y direction
+ * * `n_gauss` - Number of Gauss points per segment
+ * * `epsilon` - Target accuracy
+ * * `status` - Pointer to store status code
+ *
+ * # Returns
+ * Pointer to SVE result on success, nullptr on failure
+ */
+
+struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
+                                                    const double *K_low,
+                                                    int nx,
+                                                    int ny,
+                                                    int order,
+                                                    const double *segments_x,
+                                                    int n_segments_x,
+                                                    const double *segments_y,
+                                                    int n_segments_y,
+                                                    int n_gauss,
+                                                    double epsilon,
+                                                    int *status);
+
+/**
+ * Create a SVE result from centrosymmetric discretized kernel matrices
+ *
+ * This function performs singular value expansion (SVE) on centrosymmetric
+ * discretized kernel matrices using even/odd symmetry decomposition. The matrices
+ * K_even and K_odd should already be in the appropriate form (no weight
+ * application needed). The function supports both double and DDouble precision
+ * based on whether K_low is provided.
+ *
+ * # Arguments
+ * * `K_even_high` - High part of the even-symmetry kernel matrix (required, size: nx * ny)
+ * * `K_even_low` - Low part of the even-symmetry kernel matrix (optional, nullptr for double precision)
+ * * `K_odd_high` - High part of the odd-symmetry kernel matrix (required, size: nx * ny)
+ * * `K_odd_low` - Low part of the odd-symmetry kernel matrix (optional, nullptr for double precision)
+ * * `nx` - Number of rows in the matrix
+ * * `ny` - Number of columns in the matrix
+ * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `segments_x` - X-direction segments (size: n_segments_x + 1)
+ * * `n_segments_x` - Number of segments in x direction
+ * * `segments_y` - Y-direction segments (size: n_segments_y + 1)
+ * * `n_segments_y` - Number of segments in y direction
+ * * `n_gauss` - Number of Gauss points per segment
+ * * `epsilon` - Target accuracy
+ * * `status` - Pointer to store status code
+ *
+ * # Returns
+ * Pointer to SVE result on success, nullptr on failure
+ */
+
+struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double *K_even_high,
+                                                                    const double *K_even_low,
+                                                                    const double *K_odd_high,
+                                                                    const double *K_odd_low,
+                                                                    int nx,
+                                                                    int ny,
+                                                                    int order,
+                                                                    const double *segments_x,
+                                                                    int n_segments_x,
+                                                                    const double *segments_y,
+                                                                    int n_segments_y,
+                                                                    int n_gauss,
+                                                                    double epsilon,
+                                                                    int *status);
+
+/**
+ * Choose the working type (Twork) based on epsilon value
+ *
+ * This function determines the appropriate working precision type based on the
+ * target accuracy epsilon. It follows the same logic as SPIR_TWORK_AUTO:
+ * - Returns SPIR_TWORK_FLOAT64X2 if epsilon < 1e-8 or epsilon is NaN
+ * - Returns SPIR_TWORK_FLOAT64 otherwise
+ *
+ * # Arguments
+ * * `epsilon` - Target accuracy (must be non-negative, or NaN for auto-selection)
+ *
+ * # Returns
+ * Working type constant:
+ * - SPIR_TWORK_FLOAT64 (0): Use double precision (64-bit)
+ * - SPIR_TWORK_FLOAT64X2 (1): Use extended precision (128-bit)
+ */
+ int spir_choose_working_type(double epsilon);
+
+/**
+ * Compute piecewise Gauss-Legendre quadrature rule (double precision)
+ *
+ * Generates a piecewise Gauss-Legendre quadrature rule with n points per segment.
+ * The rule is concatenated across all segments, with points and weights properly
+ * scaled for each segment interval.
+ *
+ * # Arguments
+ * * `n` - Number of Gauss points per segment (must be >= 1)
+ * * `segments` - Array of segment boundaries (n_segments + 1 elements).
+ *                Must be monotonically increasing.
+ * * `n_segments` - Number of segments (must be >= 1)
+ * * `x` - Output array for Gauss points (size n * n_segments). Must be pre-allocated.
+ * * `w` - Output array for Gauss weights (size n * n_segments). Must be pre-allocated.
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - Non-zero error code on failure
+ */
+
+int spir_gauss_legendre_rule_piecewise_double(int n,
+                                                     const double *segments,
+                                                     int n_segments,
+                                                     double *x,
+                                                     double *w,
+                                                     int *status);
+
+/**
+ * Compute piecewise Gauss-Legendre quadrature rule (DDouble precision)
+ *
+ * Generates a piecewise Gauss-Legendre quadrature rule with n points per segment,
+ * computed using extended precision (DDouble). Returns high and low parts separately
+ * for maximum precision.
+ *
+ * # Arguments
+ * * `n` - Number of Gauss points per segment (must be >= 1)
+ * * `segments` - Array of segment boundaries (n_segments + 1 elements).
+ *                Must be monotonically increasing.
+ * * `n_segments` - Number of segments (must be >= 1)
+ * * `x_high` - Output array for high part of Gauss points (size n * n_segments).
+ *              Must be pre-allocated.
+ * * `x_low` - Output array for low part of Gauss points (size n * n_segments).
+ *             Must be pre-allocated.
+ * * `w_high` - Output array for high part of Gauss weights (size n * n_segments).
+ *              Must be pre-allocated.
+ * * `w_low` - Output array for low part of Gauss weights (size n * n_segments).
+ *            Must be pre-allocated.
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - Non-zero error code on failure
+ */
+
+int spir_gauss_legendre_rule_piecewise_ddouble(int n,
+                                                      const double *segments,
+                                                      int n_segments,
+                                                      double *x_high,
+                                                      double *x_low,
+                                                      double *w_high,
+                                                      double *w_low,
+                                                      int *status);

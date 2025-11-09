@@ -92,38 +92,94 @@ typedef struct _spir_kernel spir_kernel;
 
 #### Major API Categories
 1. **Kernel Creation and Operations**
-   - `spir_logistic_kernel_new()`
-   - `spir_reg_bose_kernel_new()`
-   - `spir_kernel_domain()`
+   - `spir_logistic_kernel_new()`: Create logistic kernel for fermionic/bosonic analytical continuation
+   - `spir_reg_bose_kernel_new()`: Create regularized bosonic kernel
+   - `spir_kernel_get_lambda()`: Get cutoff parameter lambda
+   - `spir_kernel_domain()`: Get kernel domain boundaries (xmin, xmax, ymin, ymax)
+   - `spir_kernel_compute()`: Compute kernel value K(x, y)
+   - `spir_kernel_get_sve_hints_segments_x()`: Get x-segments for SVE discretization hints
+   - `spir_kernel_get_sve_hints_segments_y()`: Get y-segments for SVE discretization hints
+   - `spir_kernel_get_sve_hints_nsvals()`: Get number of singular values hint
+   - `spir_kernel_get_sve_hints_ngauss()`: Get number of Gauss points hint
+   - Opaque type functions: `spir_kernel_release()`, `spir_kernel_clone()`, `spir_kernel_is_assigned()`
 
 2. **SVE Computation**
-   - `spir_sve_result_new()`
-   - `spir_sve_result_get_size()`
-   - `spir_sve_result_get_svals()`
+   - `spir_sve_result_new()`: Perform truncated singular value expansion of a kernel
+   - `spir_sve_result_get_size()`: Get number of singular values/vectors
+   - `spir_sve_result_truncate()`: Truncate SVE result based on epsilon
+   - `spir_sve_result_get_svals()`: Get singular values
+   - `spir_sve_result_from_matrix()`: Create SVE result from discretized kernel matrix
+   - `spir_sve_result_from_matrix_centrosymmetric()`: Create SVE result from centrosymmetric matrices
+   - Opaque type functions: `spir_sve_result_release()`, `spir_sve_result_clone()`, `spir_sve_result_is_assigned()`
 
 3. **Basis Creation and Operations**
-   - `spir_basis_new()`
-   - `spir_basis_get_u()`, `spir_basis_get_v()`, `spir_basis_get_uhat()`
-   - Sampling point retrieval functions
+   - `spir_basis_new()`: Create finite temperature IR basis from SVE result
+   - `spir_basis_new_from_sve_and_inv_weight()`: Create basis from SVE and inv_weight function
+   - `spir_basis_get_size()`: Get number of basis functions
+   - `spir_basis_get_svals()`, `spir_basis_get_singular_values()`: Get singular values
+   - `spir_basis_get_stats()`: Get statistics type (Fermionic/Bosonic)
+   - `spir_basis_get_u()`: Get basis functions in imaginary-time domain
+   - `spir_basis_get_v()`: Get basis functions in real-frequency domain
+   - `spir_basis_get_uhat()`: Get basis functions in Matsubara frequency domain
+   - `spir_basis_get_uhat_full()`: Get full (untruncated) Matsubara-frequency basis functions
+   - Sampling point retrieval:
+     - `spir_basis_get_n_default_taus()`, `spir_basis_get_default_taus()`: Default tau sampling points
+     - `spir_basis_get_default_taus_ext()`: Extended tau sampling points
+     - `spir_basis_get_n_default_ws()`, `spir_basis_get_default_ws()`: Default omega sampling points
+     - `spir_basis_get_n_default_matsus()`, `spir_basis_get_default_matsus()`: Default Matsubara sampling points
+     - `spir_basis_get_n_default_matsus_ext()`, `spir_basis_get_default_matsus_ext()`: Extended Matsubara sampling points with mitigation
+   - Opaque type functions: `spir_basis_release()`, `spir_basis_clone()`, `spir_basis_is_assigned()`
 
 4. **Function Evaluation**
-   - `spir_funcs_eval()`
-   - `spir_funcs_batch_eval()`
-   - `spir_funcs_eval_matsu()`
+   - `spir_funcs_from_piecewise_legendre()`: Create funcs object from piecewise Legendre coefficients
+   - `spir_funcs_get_size()`: Get number of functions
+   - `spir_funcs_get_slice()`: Create subset of functions
+   - `spir_funcs_eval()`: Evaluate functions at a single point
+   - `spir_funcs_eval_matsu()`: Evaluate at a single Matsubara frequency
+   - `spir_funcs_batch_eval()`: Evaluate at multiple points
+   - `spir_funcs_batch_eval_matsu()`: Evaluate at multiple Matsubara frequencies
+   - `spir_funcs_get_n_knots()`, `spir_funcs_get_knots()`: Get knots of piecewise Legendre polynomial
+   - `spir_uhat_get_default_matsus()`: Get default Matsubara sampling points from uhat funcs
+   - Opaque type functions: `spir_funcs_release()`, `spir_funcs_clone()`, `spir_funcs_is_assigned()`
 
 5. **Sampling**
-   - `spir_tau_sampling_new()`
-   - `spir_matsu_sampling_new()`
-   - `spir_sampling_eval_dd()`, `spir_sampling_fit_dd()`
+   - `spir_tau_sampling_new()`: Create tau sampling with custom points
+   - `spir_tau_sampling_new_with_matrix()`: Create tau sampling with pre-computed matrix
+   - `spir_matsu_sampling_new()`: Create Matsubara sampling with custom points
+   - `spir_matsu_sampling_new_with_matrix()`: Create Matsubara sampling with pre-computed matrix
+   - `spir_sampling_get_npoints()`: Get number of sampling points
+   - `spir_sampling_get_taus()`: Get tau sampling points
+   - `spir_sampling_get_matsus()`: Get Matsubara frequency sampling points
+   - `spir_sampling_get_cond_num()`: Get condition number of sampling matrix
+   - Evaluation functions:
+     - `spir_sampling_eval_dd()`: Evaluate (double to double)
+     - `spir_sampling_eval_dz()`: Evaluate (double to complex)
+     - `spir_sampling_eval_zz()`: Evaluate (complex to complex)
+   - Fitting functions:
+     - `spir_sampling_fit_dd()`: Fit (double to double)
+     - `spir_sampling_fit_zz()`: Fit (complex to complex)
+     - `spir_sampling_fit_zd()`: Fit (complex to double, positive only)
+   - Opaque type functions: `spir_sampling_release()`, `spir_sampling_clone()`, `spir_sampling_is_assigned()`
 
 6. **DLR Transformations**
-   - `spir_dlr_new()`
-   - `spir_ir2dlr_dd()`, `spir_dlr2ir_dd()`
+   - `spir_dlr_new()`: Create DLR basis from IR basis
+   - `spir_dlr_new_with_poles()`: Create DLR basis with custom poles
+   - `spir_dlr_get_npoles()`, `spir_dlr_get_poles()`: Get DLR poles
+   - `spir_ir2dlr_dd()`: Transform IR to DLR (double precision)
+   - `spir_ir2dlr_zz()`: Transform IR to DLR (complex)
+   - `spir_dlr2ir_dd()`: Transform DLR to IR (double precision)
+   - `spir_dlr2ir_zz()`: Transform DLR to IR (complex)
 
-7. **BLAS Function Registration**
-   - `spir_register_dgemm_zgemm_lp64()`: Register custom BLAS kernels
-   - `spir_register_dgemm_zgemm_ilp64()`: Register ILP64 BLAS functions
-   - `spir_clear_blas_functions()`: Reset to default BLAS
+7. **Gauss-Legendre Quadrature**
+   - `spir_gauss_legendre_rule_piecewise_double()`: Compute piecewise Gauss-Legendre rule (double precision)
+   - `spir_gauss_legendre_rule_piecewise_ddouble()`: Compute piecewise Gauss-Legendre rule (DDouble precision)
+
+8. **Utility Functions**
+   - `spir_choose_working_type()`: Choose working precision type based on epsilon
+
+9. **BLAS Function Registration**
+   - `spir_register_dgemm_zgemm_lp64()`: Register BLAS functions (LP64 interface, 32-bit integers)
+   - `spir_register_dgemm_zgemm_ilp64()`: Register BLAS functions (ILP64 interface, 64-bit integers)
 
 ## Rust Reimplementation Strategy
 

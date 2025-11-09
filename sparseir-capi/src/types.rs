@@ -109,7 +109,7 @@ pub(crate) enum KernelType {
 
 impl spir_kernel {
     /// Get a reference to the inner KernelType
-    fn inner(&self) -> &KernelType {
+    pub(crate) fn inner(&self) -> &KernelType {
         unsafe {
             &*(self._private as *const KernelType)
         }
@@ -156,6 +156,12 @@ impl spir_kernel {
             KernelType::RegularizedBose(k) => Some(k),
             _ => None,
         }
+    }
+
+    /// Get kernel domain boundaries (xmin, xmax, ymin, ymax)
+    pub(crate) fn domain(&self) -> (f64, f64, f64, f64) {
+        // Both kernel types have domain [-1, 1] × [-1, 1]
+        (-1.0, 1.0, -1.0, 1.0)
     }
 }
 
