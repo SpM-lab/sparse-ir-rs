@@ -799,7 +799,7 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * #include <cblas.h>
  *
  * // Register OpenBLAS
- * int status = spir_register_blas_functions(
+ * int status = spir_register_dgemm_zgemm_lp64(
  *     (void*)cblas_dgemm,
  *     (void*)cblas_zgemm
  * );
@@ -838,7 +838,7 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * ```
  */
 
-int spir_register_blas_functions(const void *cblas_dgemm,
+int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
                                         const void *cblas_zgemm);
 
 /**
@@ -869,7 +869,7 @@ int spir_register_blas_functions(const void *cblas_dgemm,
  * #include <mkl.h>
  *
  * // Register MKL ILP64
- * int status = spir_register_ilp64_functions(
+ * int status = spir_register_dgemm_zgemm_ilp64(
  *     (void*)cblas_dgemm,  // MKL's ILP64 version
  *     (void*)cblas_zgemm   // MKL's ILP64 version
  * );
@@ -908,7 +908,7 @@ int spir_register_blas_functions(const void *cblas_dgemm,
  * ```
  */
 
-int spir_register_ilp64_functions(const void *cblas_dgemm64,
+int spir_register_dgemm_zgemm_ilp64(const void *cblas_dgemm64,
                                          const void *cblas_zgemm64);
 
 /**
