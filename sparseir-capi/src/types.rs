@@ -5,7 +5,7 @@
 
 use sparseir_rust::basis::FiniteTempBasis;
 use sparseir_rust::freq::MatsubaraFreq;
-use sparseir_rust::kernel::{CentrosymmKernel, LogisticKernel, RegularizedBoseKernel};
+use sparseir_rust::kernel::{AbstractKernel, CentrosymmKernel, LogisticKernel, RegularizedBoseKernel};
 use sparseir_rust::poly::PiecewiseLegendrePolyVector;
 use sparseir_rust::polyfourier::PiecewiseLegendreFTVector;
 use sparseir_rust::sve::SVEResult;
@@ -623,7 +623,7 @@ pub struct spir_funcs {
 
 impl spir_funcs {
     /// Get a reference to the inner FuncsType
-    fn inner_type(&self) -> &FuncsType {
+    pub(crate) fn inner_type(&self) -> &FuncsType {
         unsafe {
             &*(self._private as *const FuncsType)
         }

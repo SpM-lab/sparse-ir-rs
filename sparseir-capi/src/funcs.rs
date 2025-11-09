@@ -607,12 +607,80 @@ pub extern "C" fn spir_uhat_get_default_matsus(
         let funcs = &*uhat;
 
         // Check if this is a MatsubaraBasisFunctions (FTVector)
-        let (uhat_ft, statistics) = match funcs.inner_type() {
+        let (indices, statistics) = match funcs.inner_type() {
             FuncsType::FTVector(ftv) => {
+                let l_usize = l as usize;
+                let mut l_requested = l_usize;
+
                 if let Some(ft) = &ftv.ft_fermionic {
-                    (ft.clone(), Statistics::Fermionic)
+                    // Fermionic case
+                    let statistics = Statistics::Fermionic;
+                    // Adjust l_requested based on statistics (same as C++)
+                    if l_requested % 2 != 0 {
+                        l_requested += 1;
+                    }
+
+                    // Choose sign_changes or find_extrema based on l_requested
+                    let mut omega_n: Vec<MatsubaraFreq<Fermionic>> = if l_requested < ft.polyvec.len() {
+                        if mitigate {
+                            // Use find_extrema for mitigation (fencing)
+                            find_extrema(&ft[l_requested], positive_only)
+                        } else {
+                            sign_changes(&ft[l_requested], positive_only)
+                        }
+                    } else {
+                        // Use the last function
+                        let last_idx = ft.polyvec.len() - 1;
+                        if mitigate {
+                            find_extrema(&ft[last_idx], positive_only)
+                        } else {
+                            sign_changes(&ft[last_idx], positive_only)
+                        }
+                    };
+
+                    // Sort and remove duplicates using BTreeSet
+                    let omega_n_set: BTreeSet<_> = omega_n.into_iter().collect();
+                    let omega_n: Vec<_> = omega_n_set.into_iter().collect();
+
+                    // Convert to i64 indices
+                    let indices: Vec<i64> = omega_n.iter().map(|freq| freq.n()).collect();
+                    (indices, statistics)
                 } else if let Some(ft) = &ftv.ft_bosonic {
-                    (ft.clone(), Statistics::Bosonic)
+                    // Bosonic case
+                    let statistics = Statistics::Bosonic;
+                    // Adjust l_requested based on statistics (same as C++)
+                    if l_requested % 2 == 0 {
+                        l_requested += 1;
+                    }
+
+                    // Choose sign_changes or find_extrema based on l_requested
+                    let mut omega_n: Vec<MatsubaraFreq<Bosonic>> = if l_requested < ft.polyvec.len() {
+                        if mitigate {
+                            // Use find_extrema for mitigation (fencing)
+                            find_extrema(&ft[l_requested], positive_only)
+                        } else {
+                            sign_changes(&ft[l_requested], positive_only)
+                        }
+                    } else {
+                        // Use the last function
+                        let last_idx = ft.polyvec.len() - 1;
+                        if mitigate {
+                            find_extrema(&ft[last_idx], positive_only)
+                        } else {
+                            sign_changes(&ft[last_idx], positive_only)
+                        }
+                    };
+
+                    // For bosons, include zero frequency explicitly to prevent conditioning issues
+                    omega_n.push(MatsubaraFreq::<Bosonic>::new(0).unwrap());
+
+                    // Sort and remove duplicates using BTreeSet
+                    let omega_n_set: BTreeSet<_> = omega_n.into_iter().collect();
+                    let omega_n: Vec<_> = omega_n_set.into_iter().collect();
+
+                    // Convert to i64 indices
+                    let indices: Vec<i64> = omega_n.iter().map(|freq| freq.n()).collect();
+                    (indices, statistics)
                 } else {
                     return SPIR_INVALID_ARGUMENT;
                 }
@@ -622,46 +690,6 @@ pub extern "C" fn spir_uhat_get_default_matsus(
                 return SPIR_NOT_SUPPORTED;
             }
         };
-
-        let l_usize = l as usize;
-        let mut l_requested = l_usize;
-
-        // Adjust l_requested based on statistics (same as C++)
-        if statistics == Statistics::Fermionic && l_requested % 2 != 0 {
-            l_requested += 1;
-        } else if statistics == Statistics::Bosonic && l_requested % 2 == 0 {
-            l_requested += 1;
-        }
-
-        // Choose sign_changes or find_extrema based on l_requested
-        let mut omega_n = if l_requested < uhat_ft.polyvec.len() {
-            if mitigate {
-                // Use find_extrema for mitigation (fencing)
-                find_extrema(&uhat_ft[l_requested], positive_only)
-            } else {
-                sign_changes(&uhat_ft[l_requested], positive_only)
-            }
-        } else {
-            // Use the last function
-            let last_idx = uhat_ft.polyvec.len() - 1;
-            if mitigate {
-                find_extrema(&uhat_ft[last_idx], positive_only)
-            } else {
-                sign_changes(&uhat_ft[last_idx], positive_only)
-            }
-        };
-
-        // For bosons, include zero frequency explicitly to prevent conditioning issues
-        if statistics == Statistics::Bosonic {
-            omega_n.push(MatsubaraFreq::<Bosonic>::new(0).unwrap());
-        }
-
-        // Sort and remove duplicates using BTreeSet
-        let omega_n_set: BTreeSet<_> = omega_n.into_iter().collect();
-        let omega_n: Vec<_> = omega_n_set.into_iter().collect();
-
-        // Convert to i64 indices
-        let indices: Vec<i64> = omega_n.iter().map(|freq| freq.n()).collect();
 
         // Copy to output array
         let n_returned = indices.len();
