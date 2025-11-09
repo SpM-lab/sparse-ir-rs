@@ -4,7 +4,7 @@
 
 use std::panic::catch_unwind;
 
-use sparseir_rust::kernel::{KernelProperties, SVEHints};
+use sparseir_rust::kernel::SVEHints;
 
 use crate::types::spir_kernel;
 use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
@@ -237,7 +237,7 @@ pub extern "C" fn spir_kernel_is_assigned(obj: *const spir_kernel) -> i32 {
 /// * `SPIR_INVALID_ARGUMENT` if any pointer is null
 /// * `SPIR_INTERNAL_ERROR` if internal panic occurs
 #[unsafe(no_mangle)]
-pub extern "C" fn spir_kernel_domain(
+pub extern "C" fn spir_kernel_get_domain(
     k: *const spir_kernel,
     xmin: *mut f64,
     xmax: *mut f64,
@@ -591,7 +591,7 @@ mod tests {
         let mut xmax = 0.0;
         let mut ymin = 0.0;
         let mut ymax = 0.0;
-        let status = spir_kernel_domain(kernel, &mut xmin, &mut xmax, &mut ymin, &mut ymax);
+        let status = spir_kernel_get_domain(kernel, &mut xmin, &mut xmax, &mut ymin, &mut ymax);
 
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(xmin, -1.0);
