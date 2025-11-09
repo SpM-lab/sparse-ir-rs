@@ -6,7 +6,7 @@
 //!
 //! # API Functions
 //! - `spir_register_dgemm_zgemm_lp64`: Register LP64 BLAS (32-bit integers)
-//! - `spir_register_ilp64_functions`: Register ILP64 BLAS (64-bit integers)
+//! - `spir_register_dgemm_zgemm_ilp64`: Register ILP64 BLAS (64-bit integers)
 //!
 //! # Example (C)
 //! ```c
@@ -134,7 +134,7 @@ pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
 /// #include <mkl.h>
 ///
 /// // Register MKL ILP64
-/// int status = spir_register_ilp64_functions(
+/// int status = spir_register_dgemm_zgemm_ilp64(
 ///     (void*)cblas_dgemm,  // MKL's ILP64 version
 ///     (void*)cblas_zgemm   // MKL's ILP64 version
 /// );
@@ -172,7 +172,7 @@ pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
 /// );
 /// ```
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_register_ilp64_functions(
+pub unsafe extern "C" fn spir_register_dgemm_zgemm_ilp64(
     cblas_dgemm64: *const libc::c_void,
     cblas_zgemm64: *const libc::c_void,
 ) -> StatusCode {
@@ -294,7 +294,7 @@ mod tests {
     fn test_register_ilp64_functions_success() {
         unsafe {
             let status =
-                spir_register_ilp64_functions(mock_dgemm64 as *const _, mock_zgemm64 as *const _);
+                spir_register_dgemm_zgemm_ilp64(mock_dgemm64 as *const _, mock_zgemm64 as *const _);
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
             // Verify ILP64 backend was registered
@@ -327,7 +327,7 @@ mod tests {
     #[test]
     fn test_register_ilp64_functions_null_pointers() {
         unsafe {
-            let status = spir_register_ilp64_functions(std::ptr::null(), std::ptr::null());
+            let status = spir_register_dgemm_zgemm_ilp64(std::ptr::null(), std::ptr::null());
             assert_eq!(status, SPIR_INVALID_ARGUMENT);
         }
     }

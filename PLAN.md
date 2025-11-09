@@ -122,7 +122,7 @@ typedef struct _spir_kernel spir_kernel;
 
 7. **BLAS Function Registration**
    - `spir_register_dgemm_zgemm_lp64()`: Register custom BLAS kernels
-   - `spir_register_ilp64_functions()`: Register ILP64 BLAS functions
+   - `spir_register_dgemm_zgemm_ilp64()`: Register ILP64 BLAS functions
    - `spir_clear_blas_functions()`: Reset to default BLAS
 
 ## Rust Reimplementation Strategy
