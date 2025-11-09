@@ -125,7 +125,7 @@ pub extern "C" fn spir_reg_bose_kernel_new(
 /// * `SPIR_INVALID_ARGUMENT` if kernel or lambda_out is null
 /// * `SPIR_INTERNAL_ERROR` if internal panic occurs
 #[unsafe(no_mangle)]
-pub extern "C" fn spir_kernel_lambda(
+pub extern "C" fn spir_kernel_get_lambda(
     kernel: *const spir_kernel,
     lambda_out: *mut f64,
 ) -> StatusCode {
@@ -255,7 +255,7 @@ mod tests {
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let mut lambda = 0.0;
-        let status = spir_kernel_lambda(kernel, &mut lambda);
+        let status = spir_kernel_get_lambda(kernel, &mut lambda);
 
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(lambda, 10.0);
@@ -286,7 +286,7 @@ mod tests {
 
         // Null kernel pointer
         let mut lambda = 0.0;
-        let status = spir_kernel_lambda(ptr::null(), &mut lambda);
+        let status = spir_kernel_get_lambda(ptr::null(), &mut lambda);
         assert_eq!(status, SPIR_INVALID_ARGUMENT);
     }
 

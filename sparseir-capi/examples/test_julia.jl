@@ -37,11 +37,11 @@ function kernel_logistic_new(lambda::Float64)
         (Float64, Ref{Int32}),
         lambda, status
     )
-    
+
     if kernel == C_NULL
         error("Failed to create kernel: status = $(status[])")
     end
-    
+
     return kernel
 end
 
@@ -56,11 +56,11 @@ function kernel_regularized_bose_new(lambda::Float64)
         (Float64, Ref{Int32}),
         lambda, status
     )
-    
+
     if kernel == C_NULL
         error("Failed to create kernel: status = $(status[])")
     end
-    
+
     return kernel
 end
 
@@ -82,16 +82,16 @@ Get lambda parameter
 function kernel_lambda(kernel::Ptr{spir_kernel})
     lambda = Ref{Float64}()
     status = ccall(
-        (:spir_kernel_lambda, libpath),
+        (:spir_kernel_get_lambda, libpath),
         Int32,
         (Ptr{spir_kernel}, Ref{Float64}),
         kernel, lambda
     )
-    
+
     if status != SPIR_SUCCESS
         error("Failed to get lambda: status = $status")
     end
-    
+
     return lambda[]
 end
 
@@ -106,11 +106,11 @@ function kernel_compute(kernel::Ptr{spir_kernel}, x::Float64, y::Float64)
         (Ptr{spir_kernel}, Float64, Float64, Ref{Float64}),
         kernel, x, y, result
     )
-    
+
     if status != SPIR_SUCCESS
         error("Failed to compute kernel: status = $status")
     end
-    
+
     return result[]
 end
 
@@ -826,7 +826,7 @@ basis = ccall((:spir_basis_new, libpath), Ptr{Cvoid},
 
 # Get basis size
 basis_size_ref = Ref{Cint}(0)
-status = ccall((:spir_basis_get_size, libpath), Cint, 
+status = ccall((:spir_basis_get_size, libpath), Cint,
     (Ptr{Cvoid}, Ptr{Cint}), basis, basis_size_ref)
 @assert status == SPIR_COMPUTATION_SUCCESS
 basis_size = basis_size_ref[]
