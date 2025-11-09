@@ -6,7 +6,7 @@
 
 use crate::fitter::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
-use crate::kernel::CentrosymmKernel;
+use crate::kernel::AbstractKernel;
 use crate::traits::{Statistics, StatisticsType};
 use mdarray::DTensor;
 use num_complex::Complex;
@@ -151,7 +151,7 @@ pub fn giwn_single_pole<S: StatisticsType>(
 ///
 /// where:
 /// - `ω[i]` are pole positions on the real axis
-/// - `a[i]` are expansion coefficients  
+/// - `a[i]` are expansion coefficients
 /// - `reg[i]` are regularization factors (1 for fermions, tanh(βω/2) for bosons)
 ///
 /// Note: DLR always uses LogisticKernel-type weights, regardless of the IR basis kernel type.

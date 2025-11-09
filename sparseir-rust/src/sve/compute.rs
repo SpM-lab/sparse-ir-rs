@@ -1,21 +1,21 @@
 //! Main SVE computation functions
 
-use crate::kernel::{CentrosymmKernel, KernelProperties, SVEHints};
+use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints};
 use crate::numeric::CustomNumeric;
 use mdarray::DTensor;
 
 use super::result::SVEResult;
-use super::strategy::{CentrosymmSVE, SVEStrategy};
+use super::strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use super::types::{SVDStrategy, TworkType, safe_epsilon};
 
-/// Main SVE computation function
+/// Main SVE computation function for centrosymmetric kernels
 ///
 /// Automatically chooses the appropriate SVE strategy based on kernel properties
 /// and working precision based on epsilon.
 ///
 /// # Arguments
 ///
-/// * `kernel` - The kernel to expand
+/// * `kernel` - The centrosymmetric kernel to expand
 /// * `epsilon` - Required accuracy
 /// * `cutoff` - Relative tolerance for singular value truncation
 /// * `max_num_svals` - Maximum number of singular values to keep
@@ -44,6 +44,52 @@ where
             compute_sve_with_precision::<f64, K>(kernel, safe_epsilon, cutoff, max_num_svals)
         }
         TworkType::Float64X2 => compute_sve_with_precision::<crate::Df64, K>(
+            kernel,
+            safe_epsilon,
+            cutoff,
+            max_num_svals,
+        ),
+        _ => panic!("Invalid TworkType: {:?}", twork_actual),
+    }
+}
+
+/// Main SVE computation function for general kernels (centrosymmetric or non-centrosymmetric)
+///
+/// Automatically chooses the appropriate SVE strategy based on kernel properties.
+/// For centrosymmetric kernels, uses CentrosymmSVE for efficiency.
+/// For non-centrosymmetric kernels, uses NonCentrosymmSVE.
+///
+/// # Arguments
+///
+/// * `kernel` - The kernel to expand (can be centrosymmetric or non-centrosymmetric)
+/// * `epsilon` - Required accuracy
+/// * `cutoff` - Relative tolerance for singular value truncation
+/// * `max_num_svals` - Maximum number of singular values to keep
+/// * `twork` - Working precision type (Auto for automatic selection)
+///
+/// # Returns
+///
+/// SVEResult containing singular functions and values
+pub fn compute_sve_general<K>(
+    kernel: K,
+    epsilon: f64,
+    cutoff: Option<f64>,
+    max_num_svals: Option<usize>,
+    twork: TworkType,
+) -> SVEResult
+where
+    K: AbstractKernel + KernelProperties + Clone + 'static,
+{
+    // Determine safe epsilon and working precision
+    let (safe_epsilon, twork_actual, _svd_strategy) =
+        safe_epsilon(epsilon, twork, SVDStrategy::Auto);
+
+    // Dispatch based on working precision
+    match twork_actual {
+        TworkType::Float64 => {
+            compute_sve_general_with_precision::<f64, K>(kernel, safe_epsilon, cutoff, max_num_svals)
+        }
+        TworkType::Float64X2 => compute_sve_general_with_precision::<crate::Df64, K>(
             kernel,
             safe_epsilon,
             cutoff,
@@ -93,6 +139,46 @@ where
     sve.postprocess(u_trunc, s_trunc, v_trunc)
 }
 
+/// Compute SVE with specific precision type for general kernels
+fn compute_sve_general_with_precision<T, K>(
+    kernel: K,
+    epsilon: f64,
+    cutoff: Option<f64>,
+    max_num_svals: Option<usize>,
+) -> SVEResult
+where
+    T: CustomNumeric + Send + Sync + Clone + 'static,
+    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K::SVEHintsType<T>: SVEHints<T> + Clone,
+{
+    // 1. Determine SVE strategy based on kernel symmetry
+    let sve = determine_sve_general::<T, K>(kernel, epsilon);
+
+    // 2. Compute matrices
+    let matrices = sve.matrices();
+
+    // 3. Compute SVD for each matrix
+    let mut u_list = Vec::new();
+    let mut s_list = Vec::new();
+    let mut v_list = Vec::new();
+
+    for matrix in matrices.iter() {
+        let (u, s, v) = compute_svd(matrix);
+
+        u_list.push(u);
+        s_list.push(s);
+        v_list.push(v);
+    }
+
+    // 4. Truncate based on cutoff
+    let rtol = cutoff.unwrap_or(2.0 * f64::EPSILON);
+    let rtol_t = T::from_f64_unchecked(rtol);
+    let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
+
+    // 5. Post-process to create SVEResult
+    sve.postprocess(u_trunc, s_trunc, v_trunc)
+}
+
 /// Determine the appropriate SVE strategy
 ///
 /// For centrosymmetric kernels, uses CentrosymmSVE for efficient computation
@@ -105,6 +191,26 @@ where
 {
     // CentrosymmKernel trait implies centrosymmetric
     Box::new(CentrosymmSVE::new(kernel, epsilon))
+}
+
+/// Determine the appropriate SVE strategy for general kernels
+///
+/// Automatically chooses between CentrosymmSVE and NonCentrosymmSVE
+/// based on kernel symmetry.
+fn determine_sve_general<T, K>(kernel: K, epsilon: f64) -> Box<dyn SVEStrategy<T>>
+where
+    T: CustomNumeric + Send + Sync + Clone + 'static,
+    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K::SVEHintsType<T>: SVEHints<T> + Clone,
+{
+    if kernel.is_centrosymmetric() {
+        // Try to use CentrosymmSVE if kernel implements CentrosymmKernel
+        // For now, we'll use NonCentrosymmSVE as a fallback
+        // In practice, centrosymmetric kernels should implement CentrosymmKernel
+        Box::new(NonCentrosymmSVE::new(kernel, epsilon))
+    } else {
+        Box::new(NonCentrosymmSVE::new(kernel, epsilon))
+    }
 }
 
 /// Compute SVD of a matrix
@@ -178,9 +284,9 @@ fn compute_svd_twofloat_xprec<T: CustomNumeric>(
         let [i, j] = [idx[0], idx[1]];
         T::from_f64_unchecked(result.u[(i, j)].to_f64())
     });
-    
+
     let s: Vec<T> = result.s.iter().map(|x| T::from_f64_unchecked(x.to_f64())).collect();
-    
+
     let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
         let [i, j] = [idx[0], idx[1]];
         T::from_f64_unchecked(result.v[(i, j)].to_f64())

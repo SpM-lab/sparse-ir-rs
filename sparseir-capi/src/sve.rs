@@ -352,8 +352,6 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ) -> *mut spir_sve_result {
     use crate::utils::MemoryOrder;
     use sparseir_rust::gauss::legendre;
-    use sparseir_rust::interpolation1d::legendre_collocation_matrix;
-    use sparseir_rust::poly::PiecewiseLegendrePoly;
     use sparseir_rust::poly::PiecewiseLegendrePolyVector;
     use sparseir_rust::sve::{compute_svd, SVEResult};
     use std::panic::catch_unwind;
@@ -422,8 +420,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
             use sparseir_rust::numeric::CustomNumeric;
 
             // Convert segments to DDouble
-            let segs_x_dd: Vec<Df64> = segs_x_slice.iter().map(|&x| Df64::from_f64(x)).collect();
-            let segs_y_dd: Vec<Df64> = segs_y_slice.iter().map(|&y| Df64::from_f64(y)).collect();
+            let segs_x_dd: Vec<Df64> = segs_x_slice.iter().map(|&x| Df64::from(x)).collect();
+            let segs_y_dd: Vec<Df64> = segs_y_slice.iter().map(|&y| Df64::from(y)).collect();
 
             // Create piecewise Gauss rules
             let gauss_x_dd = rule_base_dd.piecewise(&segs_x_dd);
@@ -431,7 +429,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
             // Convert matrix from C array to DTensor
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix = mdarray::DTensor::<Df64, 2>::zeros([nx as usize, ny as usize]);
+            let mut matrix = mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
 
             let k_high_slice = unsafe { std::slice::from_raw_parts(K_high, (nx * ny) as usize) };
             let k_low_slice = unsafe { std::slice::from_raw_parts(K_low, (nx * ny) as usize) };
@@ -441,7 +439,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = i * (ny as usize) + j;
-                            matrix[[i, j]] = Df64::new(k_high_slice[idx], k_low_slice[idx]);
+                            // Use unsafe new_full since K_high and K_low are already properly compensated
+                            matrix[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                         }
                     }
                 }
@@ -449,23 +448,31 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = j * (nx as usize) + i;
-                            matrix[[i, j]] = Df64::new(k_high_slice[idx], k_low_slice[idx]);
+                            // Use unsafe new_full since K_high and K_low are already properly compensated
+                            matrix[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                         }
                     }
                 }
             }
 
-            // Compute SVD
-            let (u, s, v) = compute_svd(&matrix);
-
-            // Convert to polynomials using svd_to_polynomials
+            // Prepare f64 segments for polynomial conversion
             let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
             let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
             let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
 
+            // Compute SVD
+            let (u, s, v) = compute_svd(&matrix);
+
+            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
+            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
+            // So we need to remove weights from SVD results
+            use sparseir_rust::sve::utils::remove_weights;
+            let u_unweighted = remove_weights(&u, gauss_x_dd.w.as_slice(), true);
+            let v_unweighted = remove_weights(&v, gauss_y_dd.w.as_slice(), true);
+
             // Convert U and V to f64 for polynomial conversion
-            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u.shape(), |idx| u[idx].to_f64());
-            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v.shape(), |idx| v[idx].to_f64());
+            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| u_unweighted[idx].to_f64());
+            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| v_unweighted[idx].to_f64());
 
             let u_polys = sparseir_rust::sve::utils::svd_to_polynomials(
                 &u_f64,
@@ -480,7 +487,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 n_gauss as usize,
             );
 
-            // Convert singular values to f64
+            // Convert singular values to f64 (Df64 -> f64)
             let s_f64: Vec<f64> = s.iter().map(|&sv| sv.to_f64()).collect();
 
             // Create SVEResult
@@ -520,29 +527,39 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 }
             }
 
-            // Compute SVD
-            let (u, s, v) = compute_svd(&matrix);
-
-            // Convert to polynomials using svd_to_polynomials
+            // Reconstruct Gauss rules for weight removal
             let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
             let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
             let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
+            let gauss_x = gauss_rule_f64.piecewise(&segs_x_f64);
+            let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
 
+            // Compute SVD
+            let (u, s, v) = compute_svd(&matrix);
+
+            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / std::sqrt(gauss_x_w[i]))
+            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
+            // So we need to remove weights from SVD results
+            use sparseir_rust::sve::utils::remove_weights;
+            let u_unweighted = remove_weights(&u, gauss_x.w.as_slice(), true);
+            let v_unweighted = remove_weights(&v, gauss_y.w.as_slice(), true);
+
+            // Convert to polynomials using svd_to_polynomials
             let u_polys = sparseir_rust::sve::utils::svd_to_polynomials(
-                &u,
+                &u_unweighted,
                 &segs_x_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
             );
             let v_polys = sparseir_rust::sve::utils::svd_to_polynomials(
-                &v,
+                &v_unweighted,
                 &segs_y_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
             );
 
-            // Convert singular values to f64
-            let s_f64: Vec<f64> = s.iter().map(|&sv| sv.to_f64()).collect();
+            // Convert singular values to f64 (s is already Vec<f64>)
+            let s_f64: Vec<f64> = s;
 
             // Create SVEResult
             let sve_result = SVEResult::new(

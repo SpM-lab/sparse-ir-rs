@@ -5,7 +5,7 @@
 
 use crate::gauss::Rule;
 use crate::interpolation2d::Interpolate2D;
-use crate::kernel::{CentrosymmKernel, KernelProperties, SymmetryType};
+use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SymmetryType};
 use crate::numeric::CustomNumeric;
 use mdarray::DTensor;
 use std::fmt::Debug;
@@ -20,7 +20,7 @@ pub struct DiscretizedKernel<T> {
     pub matrix: DTensor<T, 2>,
     /// Gauss quadrature rule for x coordinates
     pub gauss_x: Rule<T>,
-    /// Gauss quadrature rule for y coordinates  
+    /// Gauss quadrature rule for y coordinates
     pub gauss_y: Rule<T>,
     /// X-axis segment boundaries (from SVEHints)
     pub segments_x: Vec<T>,
@@ -260,6 +260,58 @@ pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelP
     DiscretizedKernel::new_legacy(result, gauss_x.clone(), gauss_y.clone())
 }
 
+/// Compute matrix from Gauss quadrature rules for non-centrosymmetric kernels
+///
+/// This function evaluates the kernel directly at all combinations of Gauss points
+/// without exploiting symmetry. It works with the full domain [-xmax, xmax] × [-ymax, ymax].
+///
+/// # Arguments
+///
+/// * `kernel` - The kernel implementing AbstractKernel
+/// * `gauss_x` - Gauss quadrature rule for x coordinates (full domain)
+/// * `gauss_y` - Gauss quadrature rule for y coordinates (full domain)
+/// * `hints` - SVE hints providing segment information
+///
+/// # Returns
+///
+/// DiscretizedKernel containing the matrix, quadrature rules, and segments
+pub fn matrix_from_gauss_noncentrosymmetric<
+    T: CustomNumeric + Clone + Send + Sync,
+    K: AbstractKernel + KernelProperties,
+    H: crate::kernel::SVEHints<T>,
+>(
+    kernel: &K,
+    gauss_x: &Rule<T>,
+    gauss_y: &Rule<T>,
+    hints: &H,
+) -> DiscretizedKernel<T> {
+    let segments_x = hints.segments_x();
+    let segments_y = hints.segments_y();
+
+    let n = gauss_x.x.len();
+    let m = gauss_y.x.len();
+    let mut result = DTensor::<T, 2>::from_elem([n, m], T::zero());
+
+    // Evaluate kernel directly at all combinations of Gauss points
+    for i in 0..n {
+        for j in 0..m {
+            let x = gauss_x.x[i];
+            let y = gauss_y.x[j];
+
+            // Direct kernel evaluation (no symmetry exploitation)
+            result[[i, j]] = kernel.compute(x, y);
+        }
+    }
+
+    DiscretizedKernel::new(
+        result,
+        gauss_x.clone(),
+        gauss_y.clone(),
+        segments_x,
+        segments_y,
+    )
+}
+
 /// 2D interpolation kernel for efficient evaluation at arbitrary points
 ///
 /// This structure manages a grid of Interpolate2D objects for piecewise
@@ -268,7 +320,7 @@ pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelP
 pub struct InterpolatedKernel<T> {
     /// X-axis segment boundaries (from SVEHints)
     pub segments_x: Vec<T>,
-    /// Y-axis segment boundaries (from SVEHints)  
+    /// Y-axis segment boundaries (from SVEHints)
     pub segments_y: Vec<T>,
     /// Domain boundaries
     pub domain_x: (T, T),
@@ -429,7 +481,7 @@ impl<T: CustomNumeric + Debug + Clone + 'static> InterpolatedKernel<T> {
         self.n_cells_x
     }
 
-    /// Get number of cells in y direction  
+    /// Get number of cells in y direction
     pub fn n_cells_y(&self) -> usize {
         self.n_cells_y
     }

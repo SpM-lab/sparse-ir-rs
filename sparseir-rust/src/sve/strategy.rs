@@ -1,8 +1,8 @@
 //! SVE computation strategies
 
 use crate::gauss::{Rule, legendre_generic};
-use crate::kernel::{CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
-use crate::kernelmatrix::matrix_from_gauss_with_segments;
+use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
+use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
 use crate::numeric::CustomNumeric;
 use crate::poly::PiecewiseLegendrePolyVector;
 use mdarray::DTensor;
@@ -265,5 +265,115 @@ where
 
         // Merge the results
         merge_results(result_even_full, result_odd_full, self.epsilon)
+    }
+}
+
+/// Non-centrosymmetric SVE computation
+///
+/// This strategy works with non-centrosymmetric kernels by directly computing
+/// the kernel matrix over the full domain [-xmax, xmax] × [-ymax, ymax].
+/// No symmetry exploitation is performed.
+pub struct NonCentrosymmSVE<T, K>
+where
+    T: CustomNumeric + Send + Sync + 'static,
+    K: AbstractKernel + KernelProperties,
+{
+    kernel: K,
+    epsilon: f64,
+    hints: K::SVEHintsType<T>,
+    n_gauss: usize,
+
+    // Geometric information (full domain [-xmax, xmax])
+    segments_x: Vec<T>,
+    segments_y: Vec<T>,
+    gauss_x: Rule<T>,
+    gauss_y: Rule<T>,
+
+    // The general SVE processor
+    sampling_sve: SamplingSVE<T>,
+}
+
+impl<T, K> NonCentrosymmSVE<T, K>
+where
+    T: CustomNumeric + Send + Sync + Clone + 'static,
+    K: AbstractKernel + KernelProperties + Clone,
+    K::SVEHintsType<T>: SVEHints<T> + Clone,
+{
+    /// Create a new NonCentrosymmSVE
+    pub fn new(kernel: K, epsilon: f64) -> Self {
+        let hints = kernel.sve_hints::<T>(epsilon);
+
+        // Get segments for full domain [-xmax, xmax]
+        let segments_x = hints.segments_x();
+        let segments_y = hints.segments_y();
+        let n_gauss = hints.ngauss();
+
+        // Create composite Gauss rules for full domain
+        let rule = legendre_generic::<T>(n_gauss);
+        let gauss_x = rule.piecewise(&segments_x);
+        let gauss_y = rule.piecewise(&segments_y);
+
+        // Create the general SVE processor
+        let sampling_sve = SamplingSVE::new(
+            segments_x.clone(),
+            segments_y.clone(),
+            gauss_x.clone(),
+            gauss_y.clone(),
+            epsilon,
+            n_gauss,
+        );
+
+        Self {
+            kernel,
+            epsilon,
+            hints,
+            n_gauss,
+            segments_x,
+            segments_y,
+            gauss_x,
+            gauss_y,
+            sampling_sve,
+        }
+    }
+
+    /// Compute kernel matrix for non-centrosymmetric kernel
+    fn compute_matrix(&self) -> DTensor<T, 2> {
+        // Compute K(x, y) directly over full domain
+        let discretized = matrix_from_gauss_noncentrosymmetric(
+            &self.kernel,
+            &self.gauss_x,
+            &self.gauss_y,
+            &self.hints,
+        );
+
+        // Apply weights for SVE
+        discretized.apply_weights_for_sve()
+    }
+}
+
+impl<T, K> SVEStrategy<T> for NonCentrosymmSVE<T, K>
+where
+    T: CustomNumeric + Send + Sync + Clone + 'static,
+    K: AbstractKernel + KernelProperties + Clone,
+    K::SVEHintsType<T>: SVEHints<T> + Clone,
+{
+    fn matrices(&self) -> Vec<DTensor<T, 2>> {
+        // Single matrix for non-centrosymmetric kernel
+        vec![self.compute_matrix()]
+    }
+
+    fn postprocess(
+        &self,
+        u_list: Vec<DTensor<T, 2>>,
+        s_list: Vec<Vec<T>>,
+        v_list: Vec<DTensor<T, 2>>,
+    ) -> SVEResult {
+        // Process single result using SamplingSVE
+        let (u_polys, s, v_polys) = self
+            .sampling_sve
+            .postprocess_single(&u_list[0], &s_list[0], &v_list[0]);
+
+        // No domain extension needed - already on full domain
+        SVEResult::new(u_polys, s, v_polys, self.epsilon)
     }
 }
