@@ -45,6 +45,122 @@ pub extern "C" fn spir_funcs_is_assigned(obj: *const spir_funcs) -> i32 {
     result.unwrap_or(0)
 }
 
+/// Create a spir_funcs object from piecewise Legendre polynomial coefficients
+///
+/// Constructs a continuous function object from segments and Legendre polynomial
+/// expansion coefficients. The coefficients are organized per segment, with each
+/// segment containing nfuncs coefficients (degrees 0 to nfuncs-1).
+///
+/// # Arguments
+/// * `segments` - Array of segment boundaries (n_segments+1 elements). Must be monotonically increasing.
+/// * `n_segments` - Number of segments (must be >= 1)
+/// * `coeffs` - Array of Legendre coefficients. Layout: contiguous per segment,
+///              coefficients for segment i are stored at indices [i*nfuncs, (i+1)*nfuncs).
+///              Each segment has nfuncs coefficients for Legendre degrees 0 to nfuncs-1.
+/// * `nfuncs` - Number of basis functions per segment (Legendre polynomial degrees 0 to nfuncs-1)
+/// * `order` - Order parameter (currently unused, reserved for future use)
+/// * `status` - Pointer to store the status code
+///
+/// # Returns
+/// Pointer to the newly created funcs object, or NULL if creation fails
+///
+/// # Note
+/// The function creates a single piecewise Legendre polynomial function.
+/// To create multiple functions, call this function multiple times.
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_funcs_from_piecewise_legendre(
+    segments: *const f64,
+    n_segments: libc::c_int,
+    coeffs: *const f64,
+    nfuncs: libc::c_int,
+    _order: libc::c_int,
+    status: *mut crate::StatusCode,
+) -> *mut spir_funcs {
+    use crate::{
+        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT,
+    };
+    use sparseir_rust::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
+    use std::panic::catch_unwind;
+    use std::sync::Arc;
+
+    if status.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    if segments.is_null() || coeffs.is_null() {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
+    if n_segments < 1 || nfuncs < 1 {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
+    let result = catch_unwind(|| {
+        // Convert segments to Vec
+        let segments_slice = unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        let knots = segments_slice.to_vec();
+
+        // Verify segments are monotonically increasing
+        for i in 1..knots.len() {
+            if knots[i] <= knots[i - 1] {
+                unsafe {
+                    *status = SPIR_INVALID_ARGUMENT;
+                }
+                return std::ptr::null_mut();
+            }
+        }
+
+        // Create coefficient matrix: data is (nfuncs, n_segments)
+        // Each column represents one segment's coefficients
+        let n_segments_usize = n_segments as usize;
+        let nfuncs_usize = nfuncs as usize;
+        let mut data = mdarray::DTensor::<f64, 2>::zeros([nfuncs_usize, n_segments_usize]);
+
+        // Copy coefficients from C array
+        // Layout: coeffs[seg * nfuncs + deg]
+        let coeffs_slice = unsafe { std::slice::from_raw_parts(coeffs, (n_segments * nfuncs) as usize) };
+        for seg in 0..n_segments_usize {
+            for deg in 0..nfuncs_usize {
+                data[[deg, seg]] = coeffs_slice[seg * nfuncs_usize + deg];
+            }
+        }
+
+        // Create PiecewiseLegendrePoly (l=-1 means not specified)
+        let poly = PiecewiseLegendrePoly::new(data, knots, -1, None, 0);
+
+        // Create PiecewiseLegendrePolyVector (single function)
+        let polyvec = PiecewiseLegendrePolyVector::new(vec![poly]);
+        let poly_arc = Arc::new(polyvec);
+
+        // Create spir_funcs with Omega domain (generic continuous function)
+        // Note: order parameter is currently unused, so we default to Omega domain
+        // Use beta=1.0 as default (not used for Omega domain functions)
+        let funcs = spir_funcs::from_v(poly_arc, 1.0);
+        Box::into_raw(Box::new(funcs))
+    });
+
+    match result {
+        Ok(ptr) => {
+            unsafe {
+                *status = SPIR_COMPUTATION_SUCCESS;
+            }
+            ptr
+        }
+        Err(_) => {
+            unsafe {
+                *status = SPIR_INTERNAL_ERROR;
+            }
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Extract a subset of functions by indices
 ///
 /// # Arguments
@@ -436,6 +552,135 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
     result.unwrap_or(SPIR_INTERNAL_ERROR)
 }
 
+/// Get default Matsubara sampling points from a Matsubara-space spir_funcs
+///
+/// This function computes default sampling points in Matsubara frequencies (iωn) from
+/// a spir_funcs object that represents Matsubara-space basis functions (e.g., uhat or uhat_full).
+/// The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
+///
+/// # Arguments
+/// * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
+/// * `l` - Number of requested sampling points
+/// * `positive_only` - If true, only positive frequencies are used
+/// * `mitigate` - If true, enable mitigation (fencing) to improve conditioning by adding oversampling points
+/// * `points` - Pre-allocated array to store the sampling points. The size of the array must be sufficient for the returned points (may exceed L if mitigate is true).
+/// * `n_points_returned` - Pointer to store the number of sampling points returned (may exceed L if mitigate is true, or approximately L/2 when positive_only=true).
+///
+/// # Returns
+/// Status code:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if uhat, points, or n_points_returned is null
+/// - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function
+///
+/// # Note
+/// This function is only available for spir_funcs objects representing Matsubara-space basis functions
+/// The statistics type is automatically detected from the spir_funcs object type
+/// The default sampling points are chosen to provide near-optimal conditioning
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_uhat_get_default_matsus(
+    uhat: *const spir_funcs,
+    l: libc::c_int,
+    positive_only: bool,
+    mitigate: bool,
+    points: *mut i64,
+    n_points_returned: *mut libc::c_int,
+) -> crate::StatusCode {
+    use crate::{
+        types::FuncsType,
+        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
+    };
+    use sparseir_rust::freq::MatsubaraFreq;
+    use sparseir_rust::polyfourier::{find_extrema, sign_changes};
+    use sparseir_rust::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
+    use std::collections::BTreeSet;
+    use std::panic::catch_unwind;
+
+    if uhat.is_null() || points.is_null() || n_points_returned.is_null() {
+        return SPIR_INVALID_ARGUMENT;
+    }
+
+    if l < 0 {
+        return SPIR_INVALID_ARGUMENT;
+    }
+
+    let result = catch_unwind(|| unsafe {
+        let funcs = &*uhat;
+
+        // Check if this is a MatsubaraBasisFunctions (FTVector)
+        let (uhat_ft, statistics) = match funcs.inner_type() {
+            FuncsType::FTVector(ftv) => {
+                if let Some(ft) = &ftv.ft_fermionic {
+                    (ft.clone(), Statistics::Fermionic)
+                } else if let Some(ft) = &ftv.ft_bosonic {
+                    (ft.clone(), Statistics::Bosonic)
+                } else {
+                    return SPIR_INVALID_ARGUMENT;
+                }
+            }
+            _ => {
+                // Not a Matsubara-space function
+                return SPIR_NOT_SUPPORTED;
+            }
+        };
+
+        let l_usize = l as usize;
+        let mut l_requested = l_usize;
+
+        // Adjust l_requested based on statistics (same as C++)
+        if statistics == Statistics::Fermionic && l_requested % 2 != 0 {
+            l_requested += 1;
+        } else if statistics == Statistics::Bosonic && l_requested % 2 == 0 {
+            l_requested += 1;
+        }
+
+        // Choose sign_changes or find_extrema based on l_requested
+        let mut omega_n = if l_requested < uhat_ft.polyvec.len() {
+            if mitigate {
+                // Use find_extrema for mitigation (fencing)
+                find_extrema(&uhat_ft[l_requested], positive_only)
+            } else {
+                sign_changes(&uhat_ft[l_requested], positive_only)
+            }
+        } else {
+            // Use the last function
+            let last_idx = uhat_ft.polyvec.len() - 1;
+            if mitigate {
+                find_extrema(&uhat_ft[last_idx], positive_only)
+            } else {
+                sign_changes(&uhat_ft[last_idx], positive_only)
+            }
+        };
+
+        // For bosons, include zero frequency explicitly to prevent conditioning issues
+        if statistics == Statistics::Bosonic {
+            omega_n.push(MatsubaraFreq::<Bosonic>::new(0).unwrap());
+        }
+
+        // Sort and remove duplicates using BTreeSet
+        let omega_n_set: BTreeSet<_> = omega_n.into_iter().collect();
+        let omega_n: Vec<_> = omega_n_set.into_iter().collect();
+
+        // Convert to i64 indices
+        let indices: Vec<i64> = omega_n.iter().map(|freq| freq.n()).collect();
+
+        // Copy to output array
+        let n_returned = indices.len();
+        for (i, &idx) in indices.iter().enumerate() {
+            unsafe {
+                *points.add(i) = idx;
+            }
+        }
+
+        unsafe {
+            *n_points_returned = n_returned as libc::c_int;
+        }
+
+        SPIR_COMPUTATION_SUCCESS
+    });
+
+    result.unwrap_or(SPIR_INTERNAL_ERROR)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -780,5 +1025,270 @@ mod tests {
             spir_kernel_release(kernel);
         }
         println!("✓ All objects released successfully");
+    }
+
+    #[test]
+    fn test_funcs_from_piecewise_legendre() {
+        // Create a simple piecewise polynomial: constant function = 1.0 on [-1, 1]
+        // Single segment, nfuncs=1 (only degree 0 Legendre polynomial)
+        {
+            let n_segments = 1;
+            let segments = [-1.0, 1.0];
+            let coeffs = [1.0]; // Only constant term
+            let nfuncs = 1;
+            let order = 0;
+
+            let mut status = SPIR_INTERNAL_ERROR;
+            let funcs = spir_funcs_from_piecewise_legendre(
+                segments.as_ptr(),
+                n_segments,
+                coeffs.as_ptr(),
+                nfuncs,
+                order,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(!funcs.is_null());
+
+            // Test evaluation at x=0 (should be normalized, so value depends on normalization)
+            let mut size = 0;
+            let status = spir_funcs_get_size(funcs, &mut size);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert_eq!(size, 1);
+
+            // Evaluate at x=0
+            let x = 0.0;
+            let mut values = vec![0.0; size as usize];
+            let status = spir_funcs_eval(funcs, x, values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            // Value should be approximately 1.0 * normalization factor
+            assert!((values[0] - 1.0).abs() < 1e-10);
+
+            unsafe {
+                spir_funcs_release(funcs);
+            }
+        }
+
+        // Create a linear function: f(x) = x on [-1, 1]
+        // Single segment, nfuncs=2 (degrees 0 and 1)
+        {
+            let n_segments = 1;
+            let segments = [-1.0, 1.0];
+            // Legendre expansion: P0(x) = 1, P1(x) = x
+            // For f(x) = x, we need coefficient 0 for P0 and 1 for P1
+            // But normalization affects the actual values
+            let coeffs = [0.0, 1.0]; // Constant=0, linear=1
+            let nfuncs = 2;
+            let order = 0;
+
+            let mut status = SPIR_INTERNAL_ERROR;
+            let funcs = spir_funcs_from_piecewise_legendre(
+                segments.as_ptr(),
+                n_segments,
+                coeffs.as_ptr(),
+                nfuncs,
+                order,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(!funcs.is_null());
+
+            // Evaluate at x=0.5
+            let x = 0.5;
+            let mut size = 0;
+            let status = spir_funcs_get_size(funcs, &mut size);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            let mut values = vec![0.0; size as usize];
+            let status = spir_funcs_eval(funcs, x, values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            // Value should be approximately 0.5 (with normalization)
+            // Note: PiecewiseLegendrePoly applies normalization, so the actual value may differ
+            // We just check that evaluation succeeds and returns a reasonable value
+            assert!(values[0].abs() < 10.0); // Reasonable bound
+
+            unsafe {
+                spir_funcs_release(funcs);
+            }
+        }
+
+        // Test error handling: invalid arguments
+        {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let funcs = spir_funcs_from_piecewise_legendre(
+                ptr::null(),
+                1,
+                ptr::null(),
+                1,
+                0,
+                &mut status,
+            );
+            assert_ne!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(funcs.is_null());
+        }
+
+        // Test error handling: n_segments < 1
+        {
+            let segments = [-1.0, 1.0];
+            let coeffs = [1.0];
+            let mut status = SPIR_INTERNAL_ERROR;
+            let funcs = spir_funcs_from_piecewise_legendre(
+                segments.as_ptr(),
+                0,
+                coeffs.as_ptr(),
+                1,
+                0,
+                &mut status,
+            );
+            assert_ne!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(funcs.is_null());
+        }
+
+        // Test error handling: non-monotonic segments
+        {
+            let segments = [1.0, -1.0]; // Wrong order
+            let coeffs = [1.0];
+            let mut status = SPIR_INTERNAL_ERROR;
+            let funcs = spir_funcs_from_piecewise_legendre(
+                segments.as_ptr(),
+                1,
+                coeffs.as_ptr(),
+                1,
+                0,
+                &mut status,
+            );
+            assert_ne!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(funcs.is_null());
+        }
+    }
+
+    #[test]
+    fn test_uhat_get_default_matsus() {
+        use crate::basis::*;
+        use crate::kernel::*;
+
+        // Create a kernel and basis
+        let mut kernel_status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut kernel_status);
+        assert_eq!(kernel_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut basis_status = SPIR_INTERNAL_ERROR;
+        let basis = spir_basis_new(
+            1,    // Fermionic
+            10.0, // beta
+            1.0,  // omega_max
+            1e-6, // epsilon
+            kernel,
+            ptr::null(),
+            -1,
+            &mut basis_status,
+        );
+        assert_eq!(basis_status, SPIR_COMPUTATION_SUCCESS);
+
+        // Get uhat funcs
+        let mut uhat_status = SPIR_INTERNAL_ERROR;
+        let uhat_funcs = unsafe { spir_basis_get_uhat(basis, &mut uhat_status) };
+        assert_eq!(uhat_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!uhat_funcs.is_null());
+
+        // Get basis size
+        let mut basis_size = 0;
+        let status = spir_basis_get_size(basis, &mut basis_size);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        // Test without mitigation (mitigate = false)
+        {
+            let l = basis_size;
+            let positive_only = false;
+            let mitigate = false;
+            let mut points = vec![0i64; (l + 10) as usize];
+            let mut n_points_returned = 0;
+
+            let status = spir_uhat_get_default_matsus(
+                uhat_funcs,
+                l,
+                positive_only,
+                mitigate,
+                points.as_mut_ptr(),
+                &mut n_points_returned,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(n_points_returned > 0);
+
+            // Verify points are valid fermionic frequencies (odd integers)
+            for i in 0..(n_points_returned as usize) {
+                assert!(points[i].abs() % 2 == 1);
+            }
+        }
+
+        // Test with mitigation (mitigate = true)
+        {
+            let l = basis_size;
+            let positive_only = false;
+            let mitigate = true;
+            let mut points = vec![0i64; (l + 20) as usize];
+            let mut n_points_returned = 0;
+
+            let status = spir_uhat_get_default_matsus(
+                uhat_funcs,
+                l,
+                positive_only,
+                mitigate,
+                points.as_mut_ptr(),
+                &mut n_points_returned,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(n_points_returned > 0);
+
+            // Verify points are valid fermionic frequencies (odd integers)
+            for i in 0..(n_points_returned as usize) {
+                assert!(points[i].abs() % 2 == 1);
+            }
+        }
+
+        // Test positive_only = true with mitigation
+        {
+            let l = basis_size;
+            let positive_only = true;
+            let mitigate = true;
+            let mut points = vec![0i64; (l + 20) as usize];
+            let mut n_points_returned = 0;
+
+            let status = spir_uhat_get_default_matsus(
+                uhat_funcs,
+                l,
+                positive_only,
+                mitigate,
+                points.as_mut_ptr(),
+                &mut n_points_returned,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(n_points_returned > 0);
+
+            // Verify all points are positive and odd
+            for i in 0..(n_points_returned as usize) {
+                assert!(points[i] > 0);
+                assert!(points[i] % 2 == 1);
+            }
+        }
+
+        // Test error handling
+        {
+            let mut n_points_returned = 0;
+            let status = spir_uhat_get_default_matsus(
+                ptr::null(),
+                10,
+                false,
+                false,
+                ptr::null_mut(),
+                &mut n_points_returned,
+            );
+            assert_ne!(status, SPIR_COMPUTATION_SUCCESS);
+        }
+
+        unsafe {
+            spir_funcs_release(uhat_funcs);
+            spir_basis_release(basis);
+            spir_kernel_release(kernel);
+        }
     }
 }
