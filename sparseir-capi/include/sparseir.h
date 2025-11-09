@@ -960,7 +960,7 @@ int spir_register_dgemm_zgemm_ilp64(const void *cblas_dgemm64,
  * * `SPIR_INVALID_ARGUMENT` if kernel or lambda_out is null
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
- int spir_kernel_lambda(const struct spir_kernel *kernel, double *lambda_out);
+ int spir_kernel_get_lambda(const struct spir_kernel *kernel, double *lambda_out);
 
 /**
  * Compute kernel value K(x, y)

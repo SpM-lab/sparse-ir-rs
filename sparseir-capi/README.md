@@ -38,7 +38,7 @@ This API is **100% compatible** with the [libsparseir C++ library](https://githu
   - `spir_logistic_kernel_new()` - Create LogisticKernel
   - `spir_reg_bose_kernel_new()` - Create RegularizedBoseKernel
   - `spir_kernel_release()` - Free kernel
-  - `spir_kernel_lambda()` - Get λ parameter
+  - `spir_kernel_get_lambda()` - Get λ parameter
   - `spir_kernel_compute()` - Compute K(x, y)
 
 ### Error Handling 🛡️
@@ -79,8 +79,8 @@ const lib = "../target/release/libsparseir_capi.dylib"
 
 # Create kernel
 kernel_ptr = Ref{Ptr{Cvoid}}()
-status = ccall((:spir_kernel_logistic_new, lib), 
-               Int32, (Float64, Ref{Ptr{Cvoid}}), 
+status = ccall((:spir_kernel_logistic_new, lib),
+               Int32, (Float64, Ref{Ptr{Cvoid}}),
                10.0, kernel_ptr)
 
 # Compute kernel value
@@ -107,16 +107,16 @@ int main() {
     // libsparseir compatible API
     int status;
     spir_kernel* kernel = spir_logistic_kernel_new(10.0, &status);
-    
+
     if (kernel == NULL || status != SPIR_COMPUTATION_SUCCESS) {
         fprintf(stderr, "Failed to create kernel: status = %d\n", status);
         return 1;
     }
-    
+
     double result;
     status = spir_kernel_compute(kernel, 0.5, 0.5, &result);
     printf("K(0.5, 0.5) = %f\n", result);
-    
+
     spir_kernel_release(kernel);
     return 0;
 }
