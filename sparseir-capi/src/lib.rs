@@ -27,9 +27,10 @@ pub use kernel::*;
 pub use sampling::*;
 pub use sve::*;
 pub use types::*;
+pub use utils::*;
 
 /// Complex number type for C API (compatible with C's double complex)
-/// 
+///
 /// This type is compatible with C99's `double complex` and C++'s `std::complex<double>`.
 /// Layout: `{double re; double im;}` with standard alignment.
 #[repr(C)]

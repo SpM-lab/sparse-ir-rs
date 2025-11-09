@@ -341,7 +341,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
                 Some(epsilon),
                 max_size_opt,
             );
-            Ok(Box::into_raw(Box::new(spir_basis::new_logistic_fermionic(basis))))
+            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(spir_basis::new_logistic_fermionic(basis))))
         } else {
             // Bosonic
             let basis = FiniteTempBasis::<LogisticKernel, sparseir_rust::traits::Bosonic>::from_sve_result(
@@ -351,7 +351,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
                 Some(epsilon),
                 max_size_opt,
             );
-            Ok(Box::into_raw(Box::new(spir_basis::new_logistic_bosonic(basis))))
+            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(spir_basis::new_logistic_bosonic(basis))))
         }
     }));
 
@@ -1130,10 +1130,12 @@ mod tests {
     use super::*;
     use crate::kernel::*;
     use crate::sve::*;
+    use crate::{spir_funcs_get_size, spir_funcs_release, spir_gauss_legendre_rule_piecewise_double};
     use std::ptr;
 
     #[test]
     fn test_basis_from_sve() {
+        use crate::{spir_funcs_get_size, spir_funcs_release};
         // Create kernel
         let mut kernel_status = SPIR_INTERNAL_ERROR;
         let kernel = spir_logistic_kernel_new(10.0, &mut kernel_status);
@@ -1474,6 +1476,7 @@ mod tests {
 
     #[test]
     fn test_basis_new_from_sve_and_inv_weight() {
+        use crate::{spir_funcs_from_piecewise_legendre, spir_funcs_get_size, spir_funcs_release, spir_gauss_legendre_rule_piecewise_double, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR};
         let lambda = 10.0;
         let beta = 1.0;
         let omega_max = lambda / beta;
@@ -1486,7 +1489,8 @@ mod tests {
         assert!(!kernel.is_null());
 
         let mut sve_status = SPIR_INTERNAL_ERROR;
-        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &mut sve_status);
+        use crate::SPIR_TWORK_AUTO;
+        let sve = spir_sve_result_new(kernel, epsilon, -1.0, -1, -1, SPIR_TWORK_AUTO, &mut sve_status);
         assert_eq!(sve_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!sve.is_null());
 

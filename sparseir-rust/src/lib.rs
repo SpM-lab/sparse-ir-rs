@@ -38,11 +38,11 @@ pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
 pub use interpolation1d::Interpolate1D;
 pub use interpolation2d::Interpolate2D;
 pub use kernel::{
-    CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints, RegularizedBoseKernel,
+    AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints, RegularizedBoseKernel,
     RegularizedBoseSVEHints, SVEHints, SymmetryType, compute_logistic_kernel,
 };
 pub use kernelmatrix::{
-    DiscretizedKernel, InterpolatedKernel, matrix_from_gauss, matrix_from_gauss_with_segments,
+    DiscretizedKernel, InterpolatedKernel, matrix_from_gauss, matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
 };
 pub use matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
 pub use numeric::CustomNumeric;

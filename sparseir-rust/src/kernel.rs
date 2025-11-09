@@ -43,16 +43,22 @@ where
 {
     /// Get the x-axis segments for discretization
     ///
-    /// Returns only positive values (x >= 0) including the endpoints.
+    /// For centrosymmetric kernels, returns only positive values (x >= 0) including the endpoints.
     /// The returned vector contains segments from [0, xmax] where xmax is the
     /// upper bound of the x domain.
+    ///
+    /// For non-centrosymmetric kernels, returns segments covering the full domain
+    /// [-xmax, xmax].
     fn segments_x(&self) -> Vec<T>;
 
     /// Get the y-axis segments for discretization
     ///
-    /// Returns only positive values (y >= 0) including the endpoints.
+    /// For centrosymmetric kernels, returns only positive values (y >= 0) including the endpoints.
     /// The returned vector contains segments from [0, ymax] where ymax is the
     /// upper bound of the y domain.
+    ///
+    /// For non-centrosymmetric kernels, returns segments covering the full domain
+    /// [-ymax, ymax].
     fn segments_y(&self) -> Vec<T>;
 
     /// Get the number of singular values hint
@@ -104,7 +110,7 @@ pub trait KernelProperties {
     ///
     /// This is a safer API that returns the inverse weight.
     ///
-    /// @param beta Inverse temperature  
+    /// @param beta Inverse temperature
     /// @param omega Frequency
     /// @return The inverse weight value
     fn inv_weight<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64;
@@ -122,14 +128,43 @@ pub trait KernelProperties {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 }
 
+/// Trait for general kernels (both centrosymmetric and non-centrosymmetric)
+///
+/// This trait provides the basic interface for computing kernel values.
+/// Centrosymmetric kernels should implement `CentrosymmKernel` instead,
+/// which provides additional optimizations.
+pub trait AbstractKernel: Send + Sync {
+    /// Compute the kernel value K(x, y) with high precision
+    ///
+    /// # Arguments
+    ///
+    /// * `x` - The x coordinate (typically in [-xmax, xmax])
+    /// * `y` - The y coordinate (typically in [-ymax, ymax])
+    ///
+    /// # Returns
+    ///
+    /// The kernel value K(x, y)
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T;
+
+    /// Check if the kernel is centrosymmetric
+    ///
+    /// Returns true if and only if K(x, y) == K(-x, -y) for all values of x and y.
+    /// This allows the kernel to be block-diagonalized, speeding up the
+    /// singular value expansion by a factor of 4.
+    ///
+    /// # Returns
+    ///
+    /// True if the kernel is centrosymmetric, false otherwise.
+    fn is_centrosymmetric(&self) -> bool {
+        false
+    }
+}
+
 /// Trait for centrosymmetric kernels
 ///
 /// Centrosymmetric kernels satisfy K(x, y) = K(-x, -y) and can be decomposed
 /// into even and odd components for efficient computation.
-pub trait CentrosymmKernel: Send + Sync {
-    /// Compute the kernel value K(x, y) with high precision
-    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T;
-
+pub trait CentrosymmKernel: AbstractKernel {
     /// Compute the reduced kernel value
     ///
     /// K_red(x, y) = K(x, y) + sign * K(x, -y)
@@ -258,11 +293,17 @@ fn compute_logistic_kernel_reduced_odd<T: CustomNumeric>(lambda: f64, x: T, y: T
     }
 }
 
-impl CentrosymmKernel for LogisticKernel {
+impl AbstractKernel for LogisticKernel {
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
         compute_logistic_kernel(self.lambda, x, y)
     }
 
+    fn is_centrosymmetric(&self) -> bool {
+        true
+    }
+}
+
+impl CentrosymmKernel for LogisticKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
@@ -590,13 +631,19 @@ impl KernelProperties for RegularizedBoseKernel {
     }
 }
 
-impl CentrosymmKernel for RegularizedBoseKernel {
+impl AbstractKernel for RegularizedBoseKernel {
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
         let x_plus = Some(T::from_f64_unchecked(1.0) + x);
         let x_minus = Some(T::from_f64_unchecked(1.0) - x);
         self.compute_impl(x, y, x_plus, x_minus)
     }
 
+    fn is_centrosymmetric(&self) -> bool {
+        true
+    }
+}
+
+impl CentrosymmKernel for RegularizedBoseKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,

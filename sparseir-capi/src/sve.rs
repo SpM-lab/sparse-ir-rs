@@ -352,8 +352,6 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ) -> *mut spir_sve_result {
     use crate::utils::MemoryOrder;
     use sparseir_rust::gauss::legendre;
-    use sparseir_rust::interpolation1d::legendre_collocation_matrix;
-    use sparseir_rust::poly::PiecewiseLegendrePoly;
     use sparseir_rust::poly::PiecewiseLegendrePolyVector;
     use sparseir_rust::sve::{compute_svd, SVEResult};
     use std::panic::catch_unwind;
@@ -422,8 +420,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
             use sparseir_rust::numeric::CustomNumeric;
 
             // Convert segments to DDouble
-            let segs_x_dd: Vec<Df64> = segs_x_slice.iter().map(|&x| Df64::from_f64(x)).collect();
-            let segs_y_dd: Vec<Df64> = segs_y_slice.iter().map(|&y| Df64::from_f64(y)).collect();
+            let segs_x_dd: Vec<Df64> = segs_x_slice.iter().map(|&x| Df64::from(x)).collect();
+            let segs_y_dd: Vec<Df64> = segs_y_slice.iter().map(|&y| Df64::from(y)).collect();
 
             // Create piecewise Gauss rules
             let gauss_x_dd = rule_base_dd.piecewise(&segs_x_dd);
@@ -431,7 +429,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
             // Convert matrix from C array to DTensor
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix = mdarray::DTensor::<Df64, 2>::zeros([nx as usize, ny as usize]);
+            let mut matrix = mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
 
             let k_high_slice = unsafe { std::slice::from_raw_parts(K_high, (nx * ny) as usize) };
             let k_low_slice = unsafe { std::slice::from_raw_parts(K_low, (nx * ny) as usize) };
@@ -441,7 +439,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = i * (ny as usize) + j;
-                            matrix[[i, j]] = Df64::new(k_high_slice[idx], k_low_slice[idx]);
+                            // Use unsafe new_full since K_high and K_low are already properly compensated
+                            matrix[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                         }
                     }
                 }
@@ -449,23 +448,31 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = j * (nx as usize) + i;
-                            matrix[[i, j]] = Df64::new(k_high_slice[idx], k_low_slice[idx]);
+                            // Use unsafe new_full since K_high and K_low are already properly compensated
+                            matrix[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                         }
                     }
                 }
             }
 
-            // Compute SVD
-            let (u, s, v) = compute_svd(&matrix);
-
-            // Convert to polynomials using svd_to_polynomials
+            // Prepare f64 segments for polynomial conversion
             let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
             let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
             let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
 
+            // Compute SVD
+            let (u, s, v) = compute_svd(&matrix);
+
+            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
+            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
+            // So we need to remove weights from SVD results
+            use sparseir_rust::sve::utils::remove_weights;
+            let u_unweighted = remove_weights(&u, gauss_x_dd.w.as_slice(), true);
+            let v_unweighted = remove_weights(&v, gauss_y_dd.w.as_slice(), true);
+
             // Convert U and V to f64 for polynomial conversion
-            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u.shape(), |idx| u[idx].to_f64());
-            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v.shape(), |idx| v[idx].to_f64());
+            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| u_unweighted[idx].to_f64());
+            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| v_unweighted[idx].to_f64());
 
             let u_polys = sparseir_rust::sve::utils::svd_to_polynomials(
                 &u_f64,
@@ -480,7 +487,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 n_gauss as usize,
             );
 
-            // Convert singular values to f64
+            // Convert singular values to f64 (Df64 -> f64)
             let s_f64: Vec<f64> = s.iter().map(|&sv| sv.to_f64()).collect();
 
             // Create SVEResult
@@ -520,29 +527,39 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 }
             }
 
-            // Compute SVD
-            let (u, s, v) = compute_svd(&matrix);
-
-            // Convert to polynomials using svd_to_polynomials
+            // Reconstruct Gauss rules for weight removal
             let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
             let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
             let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
+            let gauss_x = gauss_rule_f64.piecewise(&segs_x_f64);
+            let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
 
+            // Compute SVD
+            let (u, s, v) = compute_svd(&matrix);
+
+            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / std::sqrt(gauss_x_w[i]))
+            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
+            // So we need to remove weights from SVD results
+            use sparseir_rust::sve::utils::remove_weights;
+            let u_unweighted = remove_weights(&u, gauss_x.w.as_slice(), true);
+            let v_unweighted = remove_weights(&v, gauss_y.w.as_slice(), true);
+
+            // Convert to polynomials using svd_to_polynomials
             let u_polys = sparseir_rust::sve::utils::svd_to_polynomials(
-                &u,
+                &u_unweighted,
                 &segs_x_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
             );
             let v_polys = sparseir_rust::sve::utils::svd_to_polynomials(
-                &v,
+                &v_unweighted,
                 &segs_y_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
             );
 
-            // Convert singular values to f64
-            let s_f64: Vec<f64> = s.iter().map(|&sv| sv.to_f64()).collect();
+            // Convert singular values to f64 (s is already Vec<f64>)
+            let s_f64: Vec<f64> = s;
 
             // Create SVEResult
             let sve_result = SVEResult::new(
@@ -620,7 +637,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
     use sparseir_rust::gauss::legendre;
     use sparseir_rust::kernel::SymmetryType;
     use sparseir_rust::poly::PiecewiseLegendrePolyVector;
-    use sparseir_rust::sve::{compute_svd, SVEResult};
+    use sparseir_rust::sve::compute_svd;
     use sparseir_rust::sve::utils::{extend_to_full_domain, merge_results};
     use std::panic::catch_unwind;
 
@@ -688,13 +705,17 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
         let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
 
+        // Reconstruct Gauss rules for weight removal (reduced domain [0, xmax] x [0, ymax])
+        let gauss_x = gauss_rule_f64.piecewise(&segs_x_f64);
+        let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
+
         // Helper function to convert matrix and compute SVD
         let compute_svd_for_symmetry = |k_high: *const f64, k_low: *const f64| -> Option<(mdarray::DTensor<f64, 2>, Vec<f64>, mdarray::DTensor<f64, 2>)> {
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix = if use_ddouble {
+            let matrix = if use_ddouble {
                 use sparseir_rust::Df64;
                 use sparseir_rust::numeric::CustomNumeric;
-                let mut matrix_dd = mdarray::DTensor::<Df64, 2>::zeros([nx as usize, ny as usize]);
+                let mut matrix_dd = mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
                 let k_high_slice = unsafe { std::slice::from_raw_parts(k_high, (nx * ny) as usize) };
                 let k_low_slice = unsafe { std::slice::from_raw_parts(k_low, (nx * ny) as usize) };
                 match memory_order {
@@ -702,7 +723,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                         for i in 0..(nx as usize) {
                             for j in 0..(ny as usize) {
                                 let idx = i * (ny as usize) + j;
-                                matrix_dd[[i, j]] = Df64::new(k_high_slice[idx], k_low_slice[idx]);
+                                matrix_dd[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                             }
                         }
                     }
@@ -710,7 +731,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                         for i in 0..(nx as usize) {
                             for j in 0..(ny as usize) {
                                 let idx = j * (nx as usize) + i;
-                                matrix_dd[[i, j]] = Df64::new(k_high_slice[idx], k_low_slice[idx]);
+                                matrix_dd[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                             }
                         }
                     }
@@ -740,15 +761,34 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                 }
                 matrix_f64
             };
+
+            // Compute SVD
             let (u, s, v) = compute_svd(&matrix);
-            Some((u, s.iter().map(|&sv| sv.to_f64()).collect(), v))
+
+            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
+            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
+            // So we need to remove weights from SVD results
+            use sparseir_rust::sve::utils::remove_weights;
+            let u_unweighted = remove_weights(&u, gauss_x.w.as_slice(), true);
+            let v_unweighted = remove_weights(&v, gauss_y.w.as_slice(), true);
+
+            // Convert singular values to f64 (s is already Vec<f64>)
+            let s_f64: Vec<f64> = s;
+
+            Some((u_unweighted, s_f64, v_unweighted))
         };
 
         // Compute SVD for even symmetry
-        let (u_even, s_even, v_even) = compute_svd_for_symmetry(K_even_high, K_even_low)?;
+        let (u_even, s_even, v_even) = match compute_svd_for_symmetry(K_even_high, K_even_low) {
+            Some(result) => result,
+            None => return std::ptr::null_mut(),
+        };
 
         // Compute SVD for odd symmetry
-        let (u_odd, s_odd, v_odd) = compute_svd_for_symmetry(K_odd_high, K_odd_low)?;
+        let (u_odd, s_odd, v_odd) = match compute_svd_for_symmetry(K_odd_high, K_odd_low) {
+            Some(result) => result,
+            None => return std::ptr::null_mut(),
+        };
 
         // Convert to polynomials
         let u_even_polys = sparseir_rust::sve::utils::svd_to_polynomials(
@@ -815,17 +855,17 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         let sve_result = merge_results(result_even, result_odd, epsilon);
 
         let sve_wrapper = spir_sve_result::new(sve_result);
-        Some(Box::into_raw(Box::new(sve_wrapper)))
+        Box::into_raw(Box::new(sve_wrapper))
     });
 
     match result {
-        Some(ptr) => {
+        Ok(ptr) => {
             unsafe {
                 *status = SPIR_COMPUTATION_SUCCESS;
             }
             ptr
         }
-        None => {
+        Err(_) => {
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
@@ -838,6 +878,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
 mod tests {
     use super::*;
     use crate::kernel::*;
+    use crate::{SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, spir_gauss_legendre_rule_piecewise_double};
     use std::ptr;
 
     #[test]
@@ -1006,7 +1047,7 @@ mod tests {
             for j in 0..(ny as usize) {
                 // Simple test: scaled identity-like matrix
                 let k_val = if i == j {
-                    (w_x[i] * w_y[j]).sqrt()
+                    (w_x[i] * w_y[j] as f64).sqrt()
                 } else {
                     0.0
                 };
@@ -1069,7 +1110,7 @@ mod tests {
             for j in 0..(ny as usize) {
                 for i in 0..(nx as usize) {
                     let k_val = if i == j {
-                        (w_x[i] * w_y[j]).sqrt()
+                        (w_x[i] * w_y[j] as f64).sqrt()
                     } else {
                         0.0
                     };
@@ -1175,7 +1216,7 @@ mod tests {
             for j in 0..(ny as usize) {
                 // Simple test: even part is symmetric, odd part is antisymmetric
                 let k_val = if i == j {
-                    (w_x[i] * w_y[j]).sqrt()
+                    (w_x[i] * w_y[j] as f64).sqrt()
                 } else {
                     0.0
                 };
@@ -1237,5 +1278,186 @@ mod tests {
         }
 
         spir_kernel_release(kernel);
+    }
+
+    #[test]
+    fn test_sve_result_from_matrix_centrosymmetric_vs_from_matrix() {
+        use sparseir_rust::kernel::{KernelProperties, LogisticKernel, SVEHints, SymmetryType};
+        use sparseir_rust::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
+        use sparseir_rust::gauss::legendre;
+
+        let lambda = 10.0;
+        let epsilon = 1e-6;
+        let kernel = LogisticKernel::new(lambda);
+
+        // Get SVE hints
+        let hints = kernel.sve_hints::<f64>(epsilon);
+        let segments_x = hints.segments_x();
+        let segments_y = hints.segments_y();
+        let n_gauss = hints.ngauss();
+
+        // Create Gauss rules for reduced domain [0, xmax] x [0, ymax]
+        let gauss_rule = legendre::<f64>(n_gauss);
+        let gauss_x_reduced = gauss_rule.piecewise(&segments_x);
+        let gauss_y_reduced = gauss_rule.piecewise(&segments_y);
+
+        // Compute even and odd matrices (reduced domain)
+        let discretized_even = matrix_from_gauss_with_segments(
+            &kernel,
+            &gauss_x_reduced,
+            &gauss_y_reduced,
+            SymmetryType::Even,
+            &hints,
+        );
+        let discretized_odd = matrix_from_gauss_with_segments(
+            &kernel,
+            &gauss_x_reduced,
+            &gauss_y_reduced,
+            SymmetryType::Odd,
+            &hints,
+        );
+
+        // Apply weights for SVE
+        let k_even_weighted = discretized_even.apply_weights_for_sve();
+        let k_odd_weighted = discretized_odd.apply_weights_for_sve();
+
+        // Create full domain segments [-xmax, xmax] x [-ymax, ymax]
+        let mut segments_x_full = Vec::new();
+        for i in (0..segments_x.len()).rev() {
+            segments_x_full.push(-segments_x[i]);
+        }
+        for i in 1..segments_x.len() {
+            segments_x_full.push(segments_x[i]);
+        }
+        let mut segments_y_full = Vec::new();
+        for i in (0..segments_y.len()).rev() {
+            segments_y_full.push(-segments_y[i]);
+        }
+        for i in 1..segments_y.len() {
+            segments_y_full.push(segments_y[i]);
+        }
+
+        // Create Gauss rules for full domain
+        let gauss_x_full = gauss_rule.piecewise(&segments_x_full);
+        let gauss_y_full = gauss_rule.piecewise(&segments_y_full);
+
+        // Compute full domain matrix
+        let discretized_full = matrix_from_gauss_noncentrosymmetric(
+            &kernel,
+            &gauss_x_full,
+            &gauss_y_full,
+            &hints,
+        );
+        let k_full_weighted = discretized_full.apply_weights_for_sve();
+
+        // Convert matrices to C arrays (row-major)
+        let nx = k_even_weighted.shape().0;
+        let ny = k_even_weighted.shape().1;
+        let nx_full = k_full_weighted.shape().0;
+        let ny_full = k_full_weighted.shape().1;
+
+        let mut k_even_vec = vec![0.0; nx * ny];
+        let mut k_odd_vec = vec![0.0; nx * ny];
+        let mut k_full_vec = vec![0.0; nx_full * ny_full];
+
+        for i in 0..nx {
+            for j in 0..ny {
+                let idx = i * ny + j;
+                k_even_vec[idx] = k_even_weighted[[i, j]];
+                k_odd_vec[idx] = k_odd_weighted[[i, j]];
+            }
+        }
+
+        for i in 0..nx_full {
+            for j in 0..ny_full {
+                let idx = i * ny_full + j;
+                k_full_vec[idx] = k_full_weighted[[i, j]];
+            }
+        }
+
+        // Convert segments to arrays
+        let segments_x_vec = segments_x.clone();
+        let segments_y_vec = segments_y.clone();
+        let segments_x_full_vec = segments_x_full.clone();
+        let segments_y_full_vec = segments_y_full.clone();
+
+        // Compute SVE using centrosymmetric function
+        let mut status_centrosymm = SPIR_INTERNAL_ERROR;
+        let sve_centrosymm = spir_sve_result_from_matrix_centrosymmetric(
+            k_even_vec.as_ptr(),
+            ptr::null(), // K_even_low (double precision)
+            k_odd_vec.as_ptr(),
+            ptr::null(), // K_odd_low (double precision)
+            nx as libc::c_int,
+            ny as libc::c_int,
+            SPIR_ORDER_ROW_MAJOR,
+            segments_x_vec.as_ptr(),
+            (segments_x_vec.len() - 1) as libc::c_int,
+            segments_y_vec.as_ptr(),
+            (segments_y_vec.len() - 1) as libc::c_int,
+            n_gauss as libc::c_int,
+            epsilon,
+            &mut status_centrosymm,
+        );
+
+        assert_eq!(status_centrosymm, SPIR_COMPUTATION_SUCCESS);
+        assert!(!sve_centrosymm.is_null());
+
+        // Compute SVE using non-centrosymmetric function
+        let mut status_noncentrosymm = SPIR_INTERNAL_ERROR;
+        let sve_noncentrosymm = spir_sve_result_from_matrix(
+            k_full_vec.as_ptr(),
+            ptr::null(), // K_low (double precision)
+            nx_full as libc::c_int,
+            ny_full as libc::c_int,
+            SPIR_ORDER_ROW_MAJOR,
+            segments_x_full_vec.as_ptr(),
+            (segments_x_full_vec.len() - 1) as libc::c_int,
+            segments_y_full_vec.as_ptr(),
+            (segments_y_full_vec.len() - 1) as libc::c_int,
+            n_gauss as libc::c_int,
+            epsilon,
+            &mut status_noncentrosymm,
+        );
+
+        assert_eq!(status_noncentrosymm, SPIR_COMPUTATION_SUCCESS);
+        assert!(!sve_noncentrosymm.is_null());
+
+        // Compare results
+        let mut size_centrosymm = 0;
+        let mut size_noncentrosymm = 0;
+
+        spir_sve_result_get_size(sve_centrosymm, &mut size_centrosymm);
+        spir_sve_result_get_size(sve_noncentrosymm, &mut size_noncentrosymm);
+
+        // Sizes should be similar (may differ slightly due to numerical precision)
+        assert!((size_centrosymm as i32 - size_noncentrosymm as i32).abs() <= 1,
+            "Size mismatch: centrosymmetric={}, noncentrosymmetric={}",
+            size_centrosymm, size_noncentrosymm);
+
+        // Get singular values
+        let mut svals_centrosymm = vec![0.0; size_centrosymm as usize];
+        let mut svals_noncentrosymm = vec![0.0; size_noncentrosymm as usize];
+
+        spir_sve_result_get_svals(sve_centrosymm, svals_centrosymm.as_mut_ptr());
+        spir_sve_result_get_svals(sve_noncentrosymm, svals_noncentrosymm.as_mut_ptr());
+
+        // Compare singular values (should match within tolerance)
+        let min_size = size_centrosymm.min(size_noncentrosymm) as usize;
+        let tolerance = 1e-10;
+
+        for i in 0..min_size {
+            let diff = (svals_centrosymm[i] - svals_noncentrosymm[i]).abs();
+            let rel_diff = diff / svals_centrosymm[i].max(svals_noncentrosymm[i]);
+            assert!(diff < tolerance || rel_diff < tolerance,
+                "Singular value mismatch at index {}: centrosymmetric={}, noncentrosymmetric={}, diff={}, rel_diff={}",
+                i, svals_centrosymm[i], svals_noncentrosymm[i], diff, rel_diff);
+        }
+
+        println!("Comparison successful: {} singular values match within tolerance", min_size);
+
+        // Cleanup
+        spir_sve_result_release(sve_centrosymm);
+        spir_sve_result_release(sve_noncentrosymm);
     }
 }

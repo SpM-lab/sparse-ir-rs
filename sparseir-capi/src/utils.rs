@@ -2,7 +2,8 @@
 //!
 //! This module provides helper functions for order conversion and dimension handling.
 
-use crate::{SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR, SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2};
+use crate::{SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR, SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR};
+use sparseir_rust::numeric::CustomNumeric;
 
 /// Memory layout order
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -276,7 +277,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
         let segments_slice = unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
         let segs_vec: Vec<sparseir_rust::Df64> = segments_slice
             .iter()
-            .map(|&x| sparseir_rust::Df64::from_f64(x))
+            .map(|&x| sparseir_rust::Df64::new(x))
             .collect();
 
         // Verify segments are monotonically increasing
