@@ -101,7 +101,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| {
+    let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Convert segments to Vec
         let segments_slice = unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
         let knots = segments_slice.to_vec();
@@ -131,11 +131,34 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
             }
         }
 
+        // Note: knots.len() is guaranteed to be n_segments + 1 because knots is created
+        // from segments_slice which has (n_segments + 1) elements
+
         // Create PiecewiseLegendrePoly (l=-1 means not specified)
-        let poly = PiecewiseLegendrePoly::new(data, knots, -1, None, 0);
+        let poly = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            PiecewiseLegendrePoly::new(data, knots.clone(), -1, None, 0)
+        })) {
+            Ok(p) => p,
+            Err(_) => {
+                unsafe {
+                    *status = SPIR_INTERNAL_ERROR;
+                }
+                return std::ptr::null_mut();
+            }
+        };
 
         // Create PiecewiseLegendrePolyVector (single function)
-        let polyvec = PiecewiseLegendrePolyVector::new(vec![poly]);
+        let polyvec = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            PiecewiseLegendrePolyVector::new(vec![poly])
+        })) {
+            Ok(pv) => pv,
+            Err(_) => {
+                unsafe {
+                    *status = SPIR_INTERNAL_ERROR;
+                }
+                return std::ptr::null_mut();
+            }
+        };
         let poly_arc = Arc::new(polyvec);
 
         // Create spir_funcs with Omega domain (generic continuous function)
@@ -143,7 +166,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         // Use beta=1.0 as default (not used for Omega domain functions)
         let funcs = spir_funcs::from_v(poly_arc, 1.0);
         Box::into_raw(Box::new(funcs))
-    });
+    }));
 
     match result {
         Ok(ptr) => {
