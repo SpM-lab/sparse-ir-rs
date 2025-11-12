@@ -147,6 +147,12 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
 
     match result {
         Ok(ptr) => {
+            // If ptr is null, status was already set to an error value inside catch_unwind
+            // (e.g., SPIR_INVALID_ARGUMENT for non-monotonic segments)
+            // Don't overwrite the error status in that case
+            if ptr.is_null() {
+                return std::ptr::null_mut();
+            }
             unsafe {
                 *status = SPIR_COMPUTATION_SUCCESS;
             }
