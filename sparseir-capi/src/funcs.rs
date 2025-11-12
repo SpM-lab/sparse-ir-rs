@@ -587,6 +587,13 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// a spir_funcs object that represents Matsubara-space basis functions (e.g., uhat or uhat_full).
 /// The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
 ///
+/// This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
+/// `FiniteTempBasis::default_matsubara_sampling_points_impl` from `basis.rs` (lines 332-387)
+/// to compute default sampling points.
+///
+/// The implementation uses the same algorithm as defined in `sparseir-rust/src/basis.rs`,
+/// which selects sampling points based on sign changes or extrema of the Matsubara basis functions.
+///
 /// # Arguments
 /// * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
 /// * `l` - Number of requested sampling points
@@ -614,124 +621,57 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     points: *mut i64,
     n_points_returned: *mut libc::c_int,
 ) -> crate::StatusCode {
-    use crate::{
-        types::FuncsType,
-        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
-    };
-    use sparseir_rust::freq::MatsubaraFreq;
-    use sparseir_rust::polyfourier::{find_extrema, sign_changes};
-    use sparseir_rust::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
-    use std::collections::BTreeSet;
+    use crate::types::FuncsType;
+    use crate::{SPIR_INVALID_ARGUMENT, SPIR_COMPUTATION_SUCCESS, SPIR_NOT_SUPPORTED, SPIR_INTERNAL_ERROR};
+    use sparseir_rust::basis::FiniteTempBasis;
+    use sparseir_rust::kernel::LogisticKernel;
+    use sparseir_rust::traits::{Bosonic, Fermionic};
     use std::panic::catch_unwind;
 
     if uhat.is_null() || points.is_null() || n_points_returned.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    if l < 0 {
-        return SPIR_INVALID_ARGUMENT;
-    }
-
     let result = catch_unwind(|| unsafe {
-        let funcs = &*uhat;
+        let f = &*uhat;
+        let inner = f.inner_type();
 
-        // Check if this is a MatsubaraBasisFunctions (FTVector)
-        let (indices, statistics) = match funcs.inner_type() {
-            FuncsType::FTVector(ftv) => {
+        let points_vec: Vec<i64> = match inner {
+            FuncsType::FTVector(ft_funcs) => {
+                let fence = mitigate;
                 let l_usize = l as usize;
-                let mut l_requested = l_usize;
 
-                if let Some(ft) = &ftv.ft_fermionic {
-                    // Fermionic case
-                    let statistics = Statistics::Fermionic;
-                    // Adjust l_requested based on statistics (same as C++)
-                    if l_requested % 2 != 0 {
-                        l_requested += 1;
-                    }
-
-                    // Choose sign_changes or find_extrema based on l_requested
-                    let mut omega_n: Vec<MatsubaraFreq<Fermionic>> = if l_requested < ft.polyvec.len() {
-                        if mitigate {
-                            // Use find_extrema for mitigation (fencing)
-                            find_extrema(&ft[l_requested], positive_only)
-                        } else {
-                            sign_changes(&ft[l_requested], positive_only)
-                        }
-                    } else {
-                        // Use the last function
-                        let last_idx = ft.polyvec.len() - 1;
-                        if mitigate {
-                            find_extrema(&ft[last_idx], positive_only)
-                        } else {
-                            sign_changes(&ft[last_idx], positive_only)
-                        }
-                    };
-
-                    // Sort and remove duplicates using BTreeSet
-                    let omega_n_set: BTreeSet<_> = omega_n.into_iter().collect();
-                    let omega_n: Vec<_> = omega_n_set.into_iter().collect();
-
-                    // Convert to i64 indices
-                    let indices: Vec<i64> = omega_n.iter().map(|freq| freq.n()).collect();
-                    (indices, statistics)
-                } else if let Some(ft) = &ftv.ft_bosonic {
-                    // Bosonic case
-                    let statistics = Statistics::Bosonic;
-                    // Adjust l_requested based on statistics (same as C++)
-                    if l_requested % 2 == 0 {
-                        l_requested += 1;
-                    }
-
-                    // Choose sign_changes or find_extrema based on l_requested
-                    let mut omega_n: Vec<MatsubaraFreq<Bosonic>> = if l_requested < ft.polyvec.len() {
-                        if mitigate {
-                            // Use find_extrema for mitigation (fencing)
-                            find_extrema(&ft[l_requested], positive_only)
-                        } else {
-                            sign_changes(&ft[l_requested], positive_only)
-                        }
-                    } else {
-                        // Use the last function
-                        let last_idx = ft.polyvec.len() - 1;
-                        if mitigate {
-                            find_extrema(&ft[last_idx], positive_only)
-                        } else {
-                            sign_changes(&ft[last_idx], positive_only)
-                        }
-                    };
-
-                    // For bosons, include zero frequency explicitly to prevent conditioning issues
-                    omega_n.push(MatsubaraFreq::<Bosonic>::new(0).unwrap());
-
-                    // Sort and remove duplicates using BTreeSet
-                    let omega_n_set: BTreeSet<_> = omega_n.into_iter().collect();
-                    let omega_n: Vec<_> = omega_n_set.into_iter().collect();
-
-                    // Convert to i64 indices
-                    let indices: Vec<i64> = omega_n.iter().map(|freq| freq.n()).collect();
-                    (indices, statistics)
+                // Handle Fermionic case
+                // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
+                if let Some(ref ft_fermionic) = ft_funcs.ft_fermionic {
+                    let matsubara_points = FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
+                        ft_fermionic,
+                        l_usize,
+                        fence,
+                        positive_only,
+                    );
+                    matsubara_points.iter().map(|freq| freq.into_i64()).collect()
+                }
+                // Handle Bosonic case
+                // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
+                else if let Some(ref ft_bosonic) = ft_funcs.ft_bosonic {
+                    let matsubara_points = FiniteTempBasis::<LogisticKernel, Bosonic>::default_matsubara_sampling_points_impl(
+                        ft_bosonic,
+                        l_usize,
+                        fence,
+                        positive_only,
+                    );
+                    matsubara_points.iter().map(|freq| freq.into_i64()).collect()
                 } else {
                     return SPIR_INVALID_ARGUMENT;
                 }
             }
-            _ => {
-                // Not a Matsubara-space function
-                return SPIR_NOT_SUPPORTED;
-            }
+            _ => return SPIR_NOT_SUPPORTED,
         };
 
-        // Copy to output array
-        let n_returned = indices.len();
-        for (i, &idx) in indices.iter().enumerate() {
-            unsafe {
-                *points.add(i) = idx;
-            }
-        }
-
-        unsafe {
-            *n_points_returned = n_returned as libc::c_int;
-        }
-
+        let n_points = points_vec.len();
+        std::ptr::copy_nonoverlapping(points_vec.as_ptr(), points, n_points);
+        *n_points_returned = n_points as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     });
 

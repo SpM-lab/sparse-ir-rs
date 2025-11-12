@@ -885,6 +885,13 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * a spir_funcs object that represents Matsubara-space basis functions (e.g., uhat or uhat_full).
  * The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
  *
+ * This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
+ * `FiniteTempBasis::default_matsubara_sampling_points_impl` from `basis.rs` (lines 332-387)
+ * to compute default sampling points.
+ *
+ * The implementation uses the same algorithm as defined in `sparseir-rust/src/basis.rs`,
+ * which selects sampling points based on sign changes or extrema of the Matsubara basis functions.
+ *
  * # Arguments
  * * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
  * * `l` - Number of requested sampling points
