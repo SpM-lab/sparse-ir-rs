@@ -665,7 +665,7 @@ impl spir_funcs {
         }
     }
 
-    /// Create uhat funcs (Matsubara-domain, Fermionic)
+    /// Create uhat funcs (Matsubara-domain, Fermionic, truncated)
     pub(crate) fn from_uhat_fermionic(
         ft: Arc<PiecewiseLegendreFTVector<Fermionic>>,
         beta: f64,
@@ -681,8 +681,48 @@ impl spir_funcs {
         }
     }
 
-    /// Create uhat funcs (Matsubara-domain, Bosonic)
+    /// Create uhat funcs (Matsubara-domain, Bosonic, truncated)
     pub(crate) fn from_uhat_bosonic(
+        ft: Arc<PiecewiseLegendreFTVector<Bosonic>>,
+        beta: f64,
+    ) -> Self {
+        let inner = FuncsType::FTVector(FTVectorFuncs {
+            ft_fermionic: None,
+            ft_bosonic: Some(ft),
+            statistics: Statistics::Bosonic,
+        });
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            beta,
+        }
+    }
+
+    /// Create uhat_full funcs (Matsubara-domain, Fermionic, untruncated)
+    ///
+    /// Creates funcs from the full (untruncated) basis functions `uhat_full`.
+    /// This accesses `basis.uhat_full` which contains all basis functions
+    /// from the SVE result, not just the truncated ones.
+    pub(crate) fn from_uhat_full_fermionic(
+        ft: Arc<PiecewiseLegendreFTVector<Fermionic>>,
+        beta: f64,
+    ) -> Self {
+        let inner = FuncsType::FTVector(FTVectorFuncs {
+            ft_fermionic: Some(ft),
+            ft_bosonic: None,
+            statistics: Statistics::Fermionic,
+        });
+        Self {
+            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            beta,
+        }
+    }
+
+    /// Create uhat_full funcs (Matsubara-domain, Bosonic, untruncated)
+    ///
+    /// Creates funcs from the full (untruncated) basis functions `uhat_full`.
+    /// This accesses `basis.uhat_full` which contains all basis functions
+    /// from the SVE result, not just the truncated ones.
+    pub(crate) fn from_uhat_full_bosonic(
         ft: Arc<PiecewiseLegendreFTVector<Bosonic>>,
         beta: f64,
     ) -> Self {

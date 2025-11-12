@@ -944,16 +944,16 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
 
         let funcs = match basis_ref.inner() {
             BasisType::LogisticFermionic(basis) => {
-                spir_funcs::from_uhat_fermionic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_fermionic(basis.uhat_full.clone(), beta)
             }
             BasisType::LogisticBosonic(basis) => {
-                spir_funcs::from_uhat_bosonic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_bosonic(basis.uhat_full.clone(), beta)
             }
             BasisType::RegularizedBoseFermionic(basis) => {
-                spir_funcs::from_uhat_fermionic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_fermionic(basis.uhat_full.clone(), beta)
             }
             BasisType::RegularizedBoseBosonic(basis) => {
-                spir_funcs::from_uhat_bosonic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_bosonic(basis.uhat_full.clone(), beta)
             }
             // DLR: not supported (only IR basis has uhat_full)
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => {
