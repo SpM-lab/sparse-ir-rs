@@ -5,10 +5,9 @@ Example: Using SparseIR C-API from Julia
 This demonstrates how to call the SparseIR Rust library from Julia.
 """
 
+using Libdl: dlext
 # Load the shared library
-const libpath = "../target/debug/libsparseir_capi.dylib"  # macOS
-# const libpath = "../target/debug/libsparseir_capi.so"   # Linux
-# const libpath = "../target/debug/sparseir_capi.dll"     # Windows
+const libpath = "../../target/debug/libsparseir_capi.$(dlext)"  # macOS
 
 # Error codes (compatible with libsparseir)
 const SPIR_COMPUTATION_SUCCESS = Int32(0)
