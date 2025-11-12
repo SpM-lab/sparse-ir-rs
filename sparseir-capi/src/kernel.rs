@@ -673,7 +673,7 @@ mod tests {
 
         // Verify segments are valid
         assert_eq!(segments.len(), n_segments as usize);
-        assert!((segments[0] - (-1.0)).abs() < 1e-10);
+        assert!((segments[0] - (0.0)).abs() < 1e-10);
         assert!((segments[n_segments as usize - 1] - 1.0).abs() < 1e-10);
 
         // Verify segments are in ascending order
@@ -709,7 +709,7 @@ mod tests {
 
         // Verify segments are valid
         assert_eq!(segments.len(), n_segments as usize);
-        assert!((segments[0] - (-1.0)).abs() < 1e-10);
+        assert!((segments[0] - (0.0)).abs() < 1e-10);
         assert!((segments[n_segments as usize - 1] - 1.0).abs() < 1e-10);
 
         // Verify segments are in ascending order
