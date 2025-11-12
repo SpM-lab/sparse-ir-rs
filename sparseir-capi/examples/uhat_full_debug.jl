@@ -72,32 +72,52 @@ begin
 end
 
 # ╔═╡ 76f6ffb2-69ef-4c84-8dac-3e92e570b3fa
-begin
-	status_u_hat_full = Ref{Int32}(0)
-	u_hat_full_funcs = ccall(
-	    (:spir_basis_get_uhat_full, libpath),
-	    Ptr{Cvoid},
-	    (Ptr{Cvoid}, Ref{Int32}),
-	    basis, status_u_hat_full
-	)
-end
-
-# ╔═╡ 18acb538-59ea-41ec-9787-475b192b8d60
 let
-	status_u_hat = Ref{Int32}(0)
-	u_hat_full_funcs = ccall(
+	status_uhat = Ref{Int32}(0)
+	uhat_funcs = ccall(
 	    (:spir_basis_get_uhat, libpath),
 	    Ptr{Cvoid},
-	    (Ptr{Cvoid}, Ref{Int32}),
-	    basis, status_u_hat
+	    (Ptr{Cvoid}, Ptr{Int32}),
+	    basis, status_uhat
 	)
+	println(status_uhat[])
+
+	uhat_size = Ref{Int32}(0)
+	ccall(
+		(:spir_funcs_get_size, libpath),
+		Cint,
+		(Ptr{Cvoid}, Ptr{Cint}),
+		uhat_funcs, uhat_size
+	)
+	uhat_size[]
+end
+
+# ╔═╡ bf89ff80-c6ab-4375-901d-3714229c6a60
+let
+	status_uhat_full = Ref{Int32}(0)
+	uhat_full_funcs = ccall(
+	    (:spir_basis_get_uhat_full, libpath),
+	    Ptr{Cvoid},
+	    (Ptr{Cvoid}, Ptr{Int32}),
+	    basis, status_uhat_full
+	)
+	println(status_uhat_full[])
+
+	uhat_full_size = Ref{Int32}(0)
+	ccall(
+		(:spir_funcs_get_size, libpath),
+		Cint,
+		(Ptr{Cvoid}, Ptr{Cint}),
+		uhat_full_funcs, uhat_full_size
+	)
+	uhat_full_size[]
 end
 
 # ╔═╡ 91eeba52-05fc-4faf-b6c1-eb3d297a0e2b
-FiniteTempBasis{Fermionic}(10.0, 1.0).uhat
+length(FiniteTempBasis{Fermionic}(10.0, 1.0, 1e-6, kernel=LogisticKernel(10.)).uhat)
 
 # ╔═╡ 071e7e32-c8f8-4046-9547-ac33cc475c7e
-FiniteTempBasis{Fermionic}(10.0, 1.0).uhat_full
+length(FiniteTempBasis{Fermionic}(10.0, 1.0, 1e-6, kernel=LogisticKernel(10.)).uhat_full)
 
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
@@ -241,11 +261,11 @@ version = "5.15.0+0"
 # ╔═╡ Cell order:
 # ╠═241d9650-bf6c-11f0-a388-39fe8a039b7e
 # ╠═1758e5e0-1908-4b30-8e86-329f979b1e0e
-# ╠═6c6f6202-02a9-416b-ba6b-4f718a42bd5d
 # ╠═25d100cd-bcc1-446e-a14d-79e1ee8ccb33
+# ╠═6c6f6202-02a9-416b-ba6b-4f718a42bd5d
 # ╠═2b548ca0-069f-478d-90b4-ad16e93497b8
 # ╠═76f6ffb2-69ef-4c84-8dac-3e92e570b3fa
-# ╠═18acb538-59ea-41ec-9787-475b192b8d60
+# ╠═bf89ff80-c6ab-4375-901d-3714229c6a60
 # ╠═91eeba52-05fc-4faf-b6c1-eb3d297a0e2b
 # ╠═071e7e32-c8f8-4046-9547-ac33cc475c7e
 # ╟─00000000-0000-0000-0000-000000000001

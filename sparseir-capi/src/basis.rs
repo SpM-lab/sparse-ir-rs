@@ -1458,8 +1458,9 @@ mod tests {
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         // uhat_full should have at least as many functions as uhat
+        assert_eq!(uhat_size, 10);
         assert!(uhat_full_size >= uhat_size);
-
+        // assert!(uhat_full_size == 28); <--- expected value
         // Test error handling: DLR basis (not supported)
         {
             // Note: DLR basis creation would require different API
@@ -1476,7 +1477,7 @@ mod tests {
 
     #[test]
     fn test_basis_new_from_sve_and_inv_weight() {
-        use crate::{spir_funcs_from_piecewise_legendre, spir_funcs_get_size, spir_funcs_release, spir_gauss_legendre_rule_piecewise_double, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR};
+        use crate::{spir_funcs_from_piecewise_legendre, spir_funcs_release, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR};
         let lambda = 10.0;
         let beta = 1.0;
         let omega_max = lambda / beta;
