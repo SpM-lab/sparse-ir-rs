@@ -120,8 +120,6 @@ function spir_uhat_get_default_matsus(
     positive_only::Bool,
     mitigate::Bool
 )
-    # Pre-allocate buffer - allocate enough space for worst case (l points, possibly more with mitigation)
-    max_points = l + 10  # Allocate extra space to be safe
     points_buffer = Vector{Int64}()
     n_points_returned = Ref{Int32}(0)
     status = ccall(
@@ -152,19 +150,21 @@ let
         positive_only = true
         mitigate = false
         default_matsus_positive_only = spir_uhat_get_default_matsus(
-            uhat_full, 10, positive_only, mitigate
+            uhat, 10, positive_only, mitigate
         )
-        @assert default_matsus_positive_only == [1, 3, 5, 7, 23]
+        println("default_matsus_positive_only: $default_matsus_positive_only")
+        @assert default_matsus_positive_only == [3, 5, 7, 15]
     end
 
     let
         positive_only = false
         mitigate = false
-        default_matsus_positive_only = spir_uhat_get_default_matsus(
-            uhat_full, 10, positive_only, mitigate
+        default_matsus = spir_uhat_get_default_matsus(
+            uhat, 10, positive_only, mitigate
         )
-        @assert default_matsus_positive_only == [
-            -23, -7, -5, -3, -1, 1, 3, 5, 7, 23
+        println("default_matsus: $default_matsus")
+        @assert default_matsus == [
+            -15, -7, -5, -3, 3, 5, 7, 15
         ]
     end
 end
@@ -173,9 +173,8 @@ end
 let
     kernel = SparseIR.LogisticKernel(10.0)
     basis = SparseIR.FiniteTempBasis{SparseIR.Fermionic}(10.0, 1.0, 1e-6)
-    basis.uhat
     SparseIR.default_matsubara_sampling_points(
-        basis.uhat_full, 10; fence=false, positive_only=false
+        basis.uhat, 10; fence=false, positive_only=true
     )
 end
 

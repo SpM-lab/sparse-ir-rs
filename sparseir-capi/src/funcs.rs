@@ -1266,6 +1266,8 @@ mod tests {
                 assert!(points[i] > 0);
                 assert!(points[i] % 2 == 1);
             }
+
+            assert_eq!(points[n_points_returned as usize - 1], 15);
         }
 
         // Test error handling
