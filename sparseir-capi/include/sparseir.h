@@ -1598,10 +1598,10 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * * `nx` - Number of rows in the matrix
  * * `ny` - Number of columns in the matrix
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
- * * `segments_x` - X-direction segments (size: n_segments_x + 1)
- * * `n_segments_x` - Number of segments in x direction
- * * `segments_y` - Y-direction segments (size: n_segments_y + 1)
- * * `n_segments_y` - Number of segments in y direction
+ * * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+ * * `n_segments_x` - Number of segments in x direction (boundary points - 1)
+ * * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+ * * `n_segments_y` - Number of segments in y direction (boundary points - 1)
  * * `n_gauss` - Number of Gauss points per segment
  * * `epsilon` - Target accuracy
  * * `status` - Pointer to store status code
@@ -1640,10 +1640,10 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * * `nx` - Number of rows in the matrix
  * * `ny` - Number of columns in the matrix
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
- * * `segments_x` - X-direction segments (size: n_segments_x + 1)
- * * `n_segments_x` - Number of segments in x direction
- * * `segments_y` - Y-direction segments (size: n_segments_y + 1)
- * * `n_segments_y` - Number of segments in y direction
+ * * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+ * * `n_segments_x` - Number of segments in x direction (boundary points - 1)
+ * * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+ * * `n_segments_y` - Number of segments in y direction (boundary points - 1)
  * * `n_gauss` - Number of Gauss points per segment
  * * `epsilon` - Target accuracy
  * * `status` - Pointer to store status code

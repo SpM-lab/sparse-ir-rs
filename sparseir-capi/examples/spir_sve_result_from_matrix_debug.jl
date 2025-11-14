@@ -1,0 +1,212 @@
+# ---
+# jupyter:
+#   jupytext:
+#     cell_metadata_filter: -all
+#     custom_cell_magics: kql
+#     text_representation:
+#       extension: .jl
+#       format_name: percent
+#       format_version: '1.3'
+#       jupytext_version: 1.11.2
+#   kernelspec:
+#     display_name: Julia 1.12.1
+#     language: julia
+#     name: julia-1.12
+# ---
+
+# %%
+using Pkg;
+Pkg.activate(temp=true);
+Pkg.add("SparseIR")
+import SparseIR
+using Libdl: dlext
+
+# %%
+using Libdl: dlext
+# Load the shared library"
+const libpath = joinpath(@__DIR__, "../../target/debug/libsparseir_capi.$(dlext)")
+
+mutable struct spir_kernel end
+
+"""
+Create a Logistic kernel
+"""
+function kernel_logistic_new(lambda::Float64)
+    status = Ref{Int32}(0)
+    kernel = ccall(
+        (:spir_logistic_kernel_new, libpath),
+        Ptr{spir_kernel},
+        (Float64, Ref{Int32}),
+        lambda, status
+    )
+
+    if kernel == C_NULL
+        error("Failed to create kernel: status = $(status[])")
+    end
+
+    return kernel
+end
+
+function spir_kernel_get_sve_hints_ngauss(kernel::Ptr{spir_kernel}, epsilon::Float64)
+    status = Ref{Int32}(0)
+    n_gauss = Ref{Int32}(0)
+    ccall(
+        (:spir_kernel_get_sve_hints_ngauss, libpath),
+        Int32,
+        (Ptr{spir_kernel}, Float64, Ptr{Int32}, Ref{Int32}),
+        kernel, epsilon, n_gauss, status
+    )
+    return n_gauss[]
+end
+
+function spir_kernel_get_sve_hints_segments_x(kernel::Ptr{spir_kernel}, epsilon::Float64)
+    status = Ref{Int32}(0)
+    n_segments_x = Ref{Int32}(0)
+    status = ccall(
+        (:spir_kernel_get_sve_hints_segments_x, libpath),
+        Float64,
+        (Ptr{spir_kernel}, Float64, Ptr{Nothing}, Ptr{Int32}),
+        kernel, epsilon, C_NULL, n_segments_x
+    )
+
+    segments_x = zeros(n_segments_x[])
+    n_segments_x_out = Cint(n_segments_x[])
+    ccall(
+        (:spir_kernel_get_sve_hints_segments_x, libpath),
+        Float64,
+        (Ptr{spir_kernel}, Float64, Ptr{Float64}, Ptr{Int32}),
+        kernel, epsilon, segments_x, Ref(n_segments_x_out)
+    )
+    return segments_x
+end
+
+function spir_kernel_get_sve_hints_segments_y(kernel::Ptr{spir_kernel}, epsilon::Float64)
+    status = Ref{Int32}(0)
+    n_segments_y = Ref{Int32}(0)
+    status = ccall(
+        (:spir_kernel_get_sve_hints_segments_y, libpath),
+        Float64,
+        (Ptr{spir_kernel}, Float64, Ptr{Nothing}, Ptr{Int32}),
+        kernel, epsilon, C_NULL, n_segments_y
+    )
+
+    segments_y = zeros(n_segments_y[])
+    n_segments_y_out = Cint(n_segments_y[])
+    ccall(
+        (:spir_kernel_get_sve_hints_segments_y, libpath),
+        Float64,
+        (Ptr{spir_kernel}, Float64, Ptr{Float64}, Ptr{Int32}),
+        kernel, epsilon, segments_y, Ref(n_segments_y_out)
+    )
+    return segments_y
+end
+
+function spir_gauss_legendre_rule_piecewise_double!(
+    n_gauss::Integer,
+    segments::Vector{Float64},
+    x::Vector{Float64},
+    w::Vector{Float64},
+)
+    status = Ref{Int32}(0)
+    n_segments = length(segments) - 1
+
+    return ccall(
+        (:spir_gauss_legendre_rule_piecewise_double, libpath),
+        Int32,
+        (Int32, Ptr{Float64}, Int32, Ptr{Float64}, Ptr{Float64}, Ptr{Int32}),
+        Cint(n_gauss), segments, Cint(n_segments), x, w, status
+    )
+end
+
+mutable struct spir_sve_result end
+function spir_sve_result_from_matrix(
+    K::Matrix{Float64},
+    nx::Integer,
+    ny::Integer,
+    segments_x::Vector{Float64},
+    segments_y::Vector{Float64},
+    n_gauss::Integer,
+    epsilon::Float64,
+)
+    status = Ref{Int32}(0)
+    K_low = C_NULL
+    order = 1
+    n_segments_x = length(segments_x)
+    n_segments_y = length(segments_y)
+    sve_result = ccall(
+        (:spir_sve_result_from_matrix, libpath),
+        Ptr{spir_sve_result},
+        (
+            Ptr{Float64}, Ptr{C_NULL},
+            Int32, Int32, Int32,
+            Ptr{Float64}, Int32,
+            Ptr{Float64}, Int32,
+            Int32, Float64,
+            Ptr{Int32}
+        ),
+        vec(K), zero(K),
+        nx, ny, 1,
+        segments_x, n_segments_x,
+        segments_y, n_segments_y,
+        n_gauss, epsilon, status
+    )
+    if status[] != 0
+        error("Failed to create SVE result: status = $(status[])")
+    end
+    return sve_result
+end
+
+let
+    kernel = kernel_logistic_new(10.0)
+    n_gauss = spir_kernel_get_sve_hints_ngauss(kernel, 1e-8)
+    segments_x = spir_kernel_get_sve_hints_segments_x(kernel, 1e-8)
+    segments_y = spir_kernel_get_sve_hints_segments_y(kernel, 1e-8)
+    nx = n_gauss * (length(segments_x) - 1)
+    ny = n_gauss * (length(segments_y) - 1)
+    x = zeros(nx)
+    w_x = zeros(nx)
+    y = zeros(ny)
+    w_y = zeros(ny)
+    spir_gauss_legendre_rule_piecewise_double!(
+        n_gauss, segments_x, x, w_x
+    )
+    spir_gauss_legendre_rule_piecewise_double!(
+        n_gauss, segments_y, y, w_y
+    )
+
+    K = zeros(nx, ny)
+    for i in 1:nx
+        for j in 1:ny
+            if i == j
+                K[i, j] = sqrt(w_x[i] * w_y[j])
+            else
+                K[i, j] = 0.0
+            end
+        end
+    end
+
+    sve_result = spir_sve_result_from_matrix(
+        K, nx, ny, segments_x, segments_y, n_gauss, 1e-8
+    )
+    print(sve_result)
+end
+
+# %%
+#=
+let
+    ngauss(epsilon) = epsilon >= 1e-8 ? 10 : 16
+
+    lambda = 10.0
+    epsilon = 1e-8
+    full_hints = SparseIR.sve_hints(SparseIR.LogisticKernel(lambda), epsilon)
+    n_gauss = ngauss(epsilon)
+    @assert n_gauss == 10
+    segs_x = SparseIR.segments_x(full_hints)
+    segs_x = segs_x[segs_x.>=0]
+
+    segs_y = SparseIR.segments_y(full_hints)
+    segs_y = segs_y[segs_y.>=0]
+end
+=#
+
+# %%

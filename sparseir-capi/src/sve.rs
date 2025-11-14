@@ -325,10 +325,10 @@ pub extern "C" fn spir_sve_result_get_svals(
 /// * `nx` - Number of rows in the matrix
 /// * `ny` - Number of columns in the matrix
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
-/// * `segments_x` - X-direction segments (size: n_segments_x + 1)
-/// * `n_segments_x` - Number of segments in x direction
-/// * `segments_y` - Y-direction segments (size: n_segments_y + 1)
-/// * `n_segments_y` - Number of segments in y direction
+/// * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+/// * `n_segments_x` - Number of segments in x direction (boundary points - 1)
+/// * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+/// * `n_segments_y` - Number of segments in y direction (boundary points - 1)
 /// * `n_gauss` - Number of Gauss points per segment
 /// * `epsilon` - Target accuracy
 /// * `status` - Pointer to store status code
@@ -383,6 +383,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
     let result = catch_unwind(|| {
         // Convert segments to Vec
+        // Note: n_segments_x is the number of segments (boundary points - 1),
+        // matching C++ API behavior: C++ uses segments_x[0..n_segments_x] (n_segments_x + 1 elements)
         let segs_x_slice = unsafe {
             std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize)
         };
@@ -391,7 +393,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
         };
 
         // Verify segments are monotonically increasing
-        for i in 1..segs_x_slice.len() {
+        // C++: for (int i = 1; i <= n_segments_x; ++i) checks segments_x[1..n_segments_x]
+        for i in 1..=n_segments_x as usize {
             if segs_x_slice[i] <= segs_x_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
@@ -399,7 +402,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 return std::ptr::null_mut();
             }
         }
-        for i in 1..segs_y_slice.len() {
+        for i in 1..=n_segments_y as usize {
             if segs_y_slice[i] <= segs_y_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
@@ -606,10 +609,10 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// * `nx` - Number of rows in the matrix
 /// * `ny` - Number of columns in the matrix
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
-/// * `segments_x` - X-direction segments (size: n_segments_x + 1)
-/// * `n_segments_x` - Number of segments in x direction
-/// * `segments_y` - Y-direction segments (size: n_segments_y + 1)
-/// * `n_segments_y` - Number of segments in y direction
+/// * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+/// * `n_segments_x` - Number of segments in x direction (boundary points - 1)
+/// * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+/// * `n_segments_y` - Number of segments in y direction (boundary points - 1)
 /// * `n_gauss` - Number of Gauss points per segment
 /// * `epsilon` - Target accuracy
 /// * `status` - Pointer to store status code
@@ -668,6 +671,8 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
 
     let result = catch_unwind(|| {
         // Convert segments to Vec
+        // Note: n_segments_x is the number of segments (boundary points - 1),
+        // matching C++ API behavior: C++ uses segments_x[0..n_segments_x] (n_segments_x + 1 elements)
         let segs_x_slice = unsafe {
             std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize)
         };
@@ -676,7 +681,8 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         };
 
         // Verify segments are monotonically increasing
-        for i in 1..segs_x_slice.len() {
+        // C++: for (int i = 1; i <= n_segments_x; ++i) checks segments_x[1..n_segments_x]
+        for i in 1..=n_segments_x as usize {
             if segs_x_slice[i] <= segs_x_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
@@ -684,7 +690,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                 return std::ptr::null_mut();
             }
         }
-        for i in 1..segs_y_slice.len() {
+        for i in 1..=n_segments_y as usize {
             if segs_y_slice[i] <= segs_y_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
