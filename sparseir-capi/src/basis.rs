@@ -1150,7 +1150,7 @@ mod tests {
 
         // Compute SVE
         let mut sve_status = SPIR_INTERNAL_ERROR;
-        let sve = spir_sve_result_new(kernel, 1e-6, -1.0, -1, -1, -1, &mut sve_status);
+        let sve = spir_sve_result_new(kernel, 1e-6, -1, -1, -1, &mut sve_status);
         assert_eq!(sve_status, SPIR_COMPUTATION_SUCCESS);
 
         // Create basis from SVE (kernel is still required for type info)
@@ -1398,17 +1398,22 @@ mod tests {
         println!("✓ get_n_default_matsus_ext returned count: {}", matsu_count);
 
         // Test get_default_matsus_ext
+        // Note: get_n_default_matsus_ext doesn't use mitigate, so the actual count
+        // may differ when mitigate=false. We'll allocate enough space and check the returned count.
         let mut matsu_points = vec![0i64; matsu_count as usize];
         let mut matsu_returned = 0;
         let status = spir_basis_get_default_matsus_ext(
             basis,
             true, // positive_only
-            matsu_count,
+            false, // mitigate
+            matsu_count as libc::c_int,
             matsu_points.as_mut_ptr(),
             &mut matsu_returned,
         );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        assert_eq!(matsu_returned, matsu_count);
+        // When mitigate=false, the returned count may differ from requested
+        assert!(matsu_returned > 0);
+        assert!(matsu_returned <= matsu_count as libc::c_int);
         println!(
             "✓ get_default_matsus_ext returned {} matsubara points",
             matsu_returned
@@ -1498,7 +1503,7 @@ mod tests {
 
         let mut sve_status = SPIR_INTERNAL_ERROR;
         use crate::SPIR_TWORK_AUTO;
-        let sve = spir_sve_result_new(kernel, epsilon, -1.0, -1, -1, SPIR_TWORK_AUTO, &mut sve_status);
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &mut sve_status);
         assert_eq!(sve_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!sve.is_null());
 

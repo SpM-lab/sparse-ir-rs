@@ -1183,7 +1183,7 @@ mod tests {
             let kernel = crate::spir_logistic_kernel_new(10.0, &mut status);
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-            let sve = crate::spir_sve_result_new(kernel, 1e-6, -1.0, -1, -1, -1, &mut status);
+            let sve = crate::spir_sve_result_new(kernel, 1e-6, -1, -1, -1, &mut status);
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
             // Limit basis size to 5

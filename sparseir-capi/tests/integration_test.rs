@@ -43,7 +43,7 @@ fn create_ir_basis(
         let kernel = create_logistic_kernel(beta * wmax);
 
         let mut sve_status = SPIR_INTERNAL_ERROR;
-        let sve = spir_sve_result_new(kernel, epsilon, -1.0, -1, -1, 0, &mut sve_status);
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, 0, &mut sve_status);
         assert_eq!(sve_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!sve.is_null());
 

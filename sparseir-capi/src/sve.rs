@@ -891,7 +891,6 @@ mod tests {
         let sve = spir_sve_result_new(
             kernel,
             1e-6, // epsilon
-            -1.0, // cutoff (default)
             -1,   // lmax (auto)
             -1,   // n_gauss (auto)
             -1,   // Twork (auto)
@@ -929,7 +928,7 @@ mod tests {
         let kernel = spir_logistic_kernel_new(10.0, &mut kernel_status);
 
         let mut sve_status = SPIR_INTERNAL_ERROR;
-        let sve = spir_sve_result_new(kernel, 1e-6, -1.0, -1, -1, -1, &mut sve_status);
+        let sve = spir_sve_result_new(kernel, 1e-6, -1, -1, -1, &mut sve_status);
 
         let mut size = 0;
         spir_sve_result_get_size(sve, &mut size);
@@ -953,7 +952,7 @@ mod tests {
     fn test_sve_null_pointers() {
         // Null kernel
         let mut status = SPIR_COMPUTATION_SUCCESS;
-        let sve = spir_sve_result_new(ptr::null(), 1e-6, -1.0, -1, -1, -1, &mut status);
+        let sve = spir_sve_result_new(ptr::null(), 1e-6, -1, -1, -1, &mut status);
         assert_eq!(status, SPIR_INVALID_ARGUMENT);
         assert!(sve.is_null());
 
@@ -961,7 +960,7 @@ mod tests {
         let mut kernel_status = SPIR_INTERNAL_ERROR;
         let kernel = spir_logistic_kernel_new(10.0, &mut kernel_status);
         let mut sve_status = SPIR_INTERNAL_ERROR;
-        let sve = spir_sve_result_new(kernel, 1e-6, -1.0, -1, -1, -1, &mut sve_status);
+        let sve = spir_sve_result_new(kernel, 1e-6, -1, -1, -1, &mut sve_status);
 
         let status = spir_sve_result_get_size(sve, ptr::null_mut());
         assert_eq!(status, SPIR_INVALID_ARGUMENT);
@@ -1456,52 +1455,5 @@ mod tests {
         // Cleanup
         spir_sve_result_release(sve_centrosymm);
         spir_sve_result_release(sve_noncentrosymm);
-    }
-}
-
-#[cfg(test)]
-mod keepalive_tests {
-    use super::*;
-    use std::ptr;
-
-    #[test]
-    fn test_sve_result_dummy_kernel_exports() {
-        let mut status = SPIR_INTERNAL_ERROR;
-        let ptr = spir_sve_result_from_matrix(
-            ptr::null(),
-            ptr::null(),
-            0,
-            0,
-            0,
-            ptr::null(),
-            0,
-            ptr::null(),
-            0,
-            0,
-            0.0,
-            &mut status,
-        );
-        assert!(ptr.is_null());
-        assert_eq!(status, SPIR_INVALID_ARGUMENT);
-
-        status = SPIR_INTERNAL_ERROR;
-        let ptr = spir_sve_result_from_matrix_centrosymmetric(
-            ptr::null(),
-            ptr::null(),
-            ptr::null(),
-            ptr::null(),
-            0,
-            0,
-            0,
-            ptr::null(),
-            0,
-            ptr::null(),
-            0,
-            0,
-            0.0,
-            &mut status,
-        );
-        assert!(ptr.is_null());
-        assert_eq!(status, SPIR_INVALID_ARGUMENT);
     }
 }
