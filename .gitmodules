@@ -10,18 +10,12 @@
 [submodule "sparse-ir"]
 	path = sparse-ir
 	url = git@github.com:SpM-lab/sparse-ir.git
-[submodule "GenericLinearAlgebra.jl"]
-	path = GenericLinearAlgebra.jl
-	url = git@github.com:JuliaLinearAlgebra/GenericLinearAlgebra.jl.git
 [submodule "mdarray"]
 	path = mdarray
 	url = git@github.com:fre-hu/mdarray.git
 [submodule "mdarray-linalg"]
 	path = mdarray-linalg
 	url = https://github.com/grothesque/mdarray-linalg
-[submodule "ndarray"]
-	path = ndarray
-	url = git@github.com:rust-ndarray/ndarray.git
 [submodule "dashu"]
 	path = dashu
 	url = git@github.com:cmpute/dashu.git
