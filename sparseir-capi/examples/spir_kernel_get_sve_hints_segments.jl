@@ -24,7 +24,8 @@ using Libdl: dlext
 # %%
 using Libdl: dlext
 # Load the shared library"
-const libpath = joinpath(@__DIR__, "../../target/debug/libsparseir_capi.$(dlext)")
+libpath = joinpath(@__DIR__, "../../target/debug/libsparseir_capi.$(dlext)")
+#libpath = joinpath(@__DIR__, "../../libsparseir/backend/cxx/build/libsparseir.$(dlext)")
 
 mutable struct spir_kernel end
 
@@ -69,8 +70,8 @@ function spir_kernel_get_sve_hints_segments_x(kernel::Ptr{spir_kernel}, epsilon:
         kernel, epsilon, C_NULL, n_segments_x
     )
 
-    segments_x = zeros(n_segments_x[])
-    n_segments_x_out = Cint(n_segments_x[])
+    segments_x = zeros(n_segments_x[] + 1)
+    n_segments_x_out = Cint(n_segments_x[] + 1)
     ccall(
         (:spir_kernel_get_sve_hints_segments_x, libpath),
         Float64,
@@ -91,8 +92,8 @@ function spir_kernel_get_sve_hints_segments_y(kernel::Ptr{spir_kernel}, epsilon:
         kernel, epsilon, C_NULL, n_segments_y
     )
 
-    segments_y = zeros(n_segments_y[])
-    n_segments_y_out = Cint(n_segments_y[])
+    segments_y = zeros(n_segments_y[] + 1)
+    n_segments_y_out = Cint(n_segments_y[] + 1)
     # Second call: get the actual segments
     ccall(
         (:spir_kernel_get_sve_hints_segments_y, libpath),
@@ -109,8 +110,8 @@ let
     n_gauss = spir_kernel_get_sve_hints_ngauss(kernel, 1e-8)
     segments_x = spir_kernel_get_sve_hints_segments_x(kernel, 1e-8)
     segments_y = spir_kernel_get_sve_hints_segments_y(kernel, 1e-8)
-    length(segments_x) == 16
-    length(segments_y) == 21
+    @assert length(segments_x) == 16
+    @assert length(segments_y) == 21
 end
 
 # %%

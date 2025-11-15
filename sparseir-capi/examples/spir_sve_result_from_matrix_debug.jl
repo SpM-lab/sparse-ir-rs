@@ -15,16 +15,18 @@
 # ---
 
 # %%
+#=
 using Pkg;
 Pkg.activate(temp=true);
-Pkg.add("SparseIR")
+Pkg.add(name="SparseIR", version="1.1.4")
 import SparseIR
-using Libdl: dlext
+=#
 
 # %%
 using Libdl: dlext
 # Load the shared library"
-const libpath = joinpath(@__DIR__, "../../target/debug/libsparseir_capi.$(dlext)")
+libpath = joinpath(@__DIR__, "../../target/debug/libsparseir_capi.$(dlext)")
+# libpath = joinpath(@__DIR__, "../../libsparseir/backend/cxx/build/libsparseir.$(dlext)")
 
 mutable struct spir_kernel end
 
@@ -69,8 +71,8 @@ function spir_kernel_get_sve_hints_segments_x(kernel::Ptr{spir_kernel}, epsilon:
         kernel, epsilon, C_NULL, n_segments_x
     )
 
-    segments_x = zeros(n_segments_x[])
-    n_segments_x_out = Cint(n_segments_x[])
+    segments_x = zeros(n_segments_x[] + 1)
+    n_segments_x_out = Cint(n_segments_x[] + 1)
     ccall(
         (:spir_kernel_get_sve_hints_segments_x, libpath),
         Float64,
@@ -83,6 +85,7 @@ end
 function spir_kernel_get_sve_hints_segments_y(kernel::Ptr{spir_kernel}, epsilon::Float64)
     status = Ref{Int32}(0)
     n_segments_y = Ref{Int32}(0)
+    # First call: get the number of segments
     status = ccall(
         (:spir_kernel_get_sve_hints_segments_y, libpath),
         Float64,
@@ -90,8 +93,9 @@ function spir_kernel_get_sve_hints_segments_y(kernel::Ptr{spir_kernel}, epsilon:
         kernel, epsilon, C_NULL, n_segments_y
     )
 
-    segments_y = zeros(n_segments_y[])
-    n_segments_y_out = Cint(n_segments_y[])
+    segments_y = zeros(n_segments_y[] + 1)
+    n_segments_y_out = Cint(n_segments_y[] + 1)
+    # Second call: get the actual segments
     ccall(
         (:spir_kernel_get_sve_hints_segments_y, libpath),
         Float64,
@@ -129,22 +133,23 @@ function spir_sve_result_from_matrix(
     epsilon::Float64,
 )
     status = Ref{Int32}(0)
-    K_low = C_NULL
     order = 1
-    n_segments_x = length(segments_x)
-    n_segments_y = length(segments_y)
+    # n_segments_x is the number of segments (boundary points - 1)
+    # segments_x has n_segments_x + 1 elements
+    n_segments_x = length(segments_x) - 1
+    n_segments_y = length(segments_y) - 1
     sve_result = ccall(
         (:spir_sve_result_from_matrix, libpath),
         Ptr{spir_sve_result},
         (
-            Ptr{Float64}, Ptr{C_NULL},
+            Ptr{Float64}, Ptr{Nothing},
             Int32, Int32, Int32,
             Ptr{Float64}, Int32,
             Ptr{Float64}, Int32,
             Int32, Float64,
             Ptr{Int32}
         ),
-        vec(K), zero(K),
+        vec(K), C_NULL,
         nx, ny, 1,
         segments_x, n_segments_x,
         segments_y, n_segments_y,
@@ -156,13 +161,31 @@ function spir_sve_result_from_matrix(
     return sve_result
 end
 
+function spir_sve_result_get_size(sve_result::Ptr{spir_sve_result})
+    status = Ref{Int32}(0)
+    size = Ref{Int32}(0)
+    ccall(
+        (:spir_sve_result_get_size, libpath),
+        Int32,
+        (Ptr{spir_sve_result}, Ptr{Int32}, Ptr{Int32}),
+        sve_result, size, status
+    )
+    if status[] != 0
+        error("Failed to get SVE result size: status = $(status[])")
+    end
+    return size[]
+end
+
 let
     kernel = kernel_logistic_new(10.0)
     n_gauss = spir_kernel_get_sve_hints_ngauss(kernel, 1e-8)
     segments_x = spir_kernel_get_sve_hints_segments_x(kernel, 1e-8)
     segments_y = spir_kernel_get_sve_hints_segments_y(kernel, 1e-8)
-    nx = n_gauss * (length(segments_x) - 1)
-    ny = n_gauss * (length(segments_y) - 1)
+    n_segments_x = length(segments_x) - 1
+    n_segments_y = length(segments_y) - 1
+    # Total number of Gauss points = n_gauss points per segment * number of segments
+    nx = n_gauss * n_segments_x
+    ny = n_gauss * n_segments_y
     x = zeros(nx)
     w_x = zeros(nx)
     y = zeros(ny)
@@ -188,7 +211,7 @@ let
     sve_result = spir_sve_result_from_matrix(
         K, nx, ny, segments_x, segments_y, n_gauss, 1e-8
     )
-    print(sve_result)
+    println(spir_sve_result_get_size(sve_result))
 end
 
 # %%
