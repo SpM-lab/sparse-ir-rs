@@ -124,7 +124,6 @@ where
 
     for matrix in matrices.iter() {
         let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix);
-
         u_list.push(u);
         s_list.push(s);
         v_list.push(v);
@@ -164,7 +163,6 @@ where
 
     for matrix in matrices.iter() {
         let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix);
-
         u_list.push(u);
         s_list.push(s);
         v_list.push(v);

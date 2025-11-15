@@ -236,7 +236,7 @@ where
 
     // Step 2: Apply QR-based rank estimation first
     // Use type-specific epsilon for QR diagonal elements (more conservative than rtol)
-    let qr_rank = calculate_rank_from_r(&r_matrix, T::default_epsilon());
+    let qr_rank = calculate_rank_from_r(&r_matrix, get_epsilon_for_svd::<T>());
     
     if qr_rank == 0 {
         // Matrix has zero rank
@@ -331,6 +331,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
         let rtol = 2.0 * f64::EPSILON;
         let result = tsvd(&matrix_f64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
 
+
         // Convert back to DTensor<T>
         let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
@@ -346,30 +347,32 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
 
         (u, s, v)
     } else if TypeId::of::<T>() == TypeId::of::<Df64>() {
-        // Convert to DMatrix<Df64>
-        let matrix_df64 = DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
-            Df64::from(CustomNumeric::to_f64(matrix[[i, j]]))
+        // Convert to DMatrix<Df64> without going through f64 to preserve precision
+        // TypeId check ensures T == Df64 at runtime, so we can safely cast
+        let matrix_df64: DMatrix<Df64> = DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
+            // Safe: TypeId check guarantees T == Df64
+            unsafe { std::mem::transmute_copy(&matrix[[i, j]]) }
         });
 
         // Use TSVD with appropriate tolerance for Df64
         let rtol = Df64::from(2.0) * Df64::epsilon();
-        let result = tsvd(&matrix_df64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
+        let result = tsvd_df64(&matrix_df64, rtol).expect("TSVD computation failed");
 
-        // Convert back to DTensor<T>
+        // Convert back to DTensor<T> without going through f64 to preserve Df64 precision
         let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
-            T::from_f64_unchecked(CustomNumeric::to_f64(result.u[(i, j)]))
+            T::convert_from(result.u[(i, j)])
         });
 
         let s: Vec<T> = result
             .s
             .iter()
-            .map(|x| T::from_f64_unchecked(CustomNumeric::to_f64(*x)))
+            .map(|x| T::convert_from(*x))
             .collect();
 
         let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
-            T::from_f64_unchecked(CustomNumeric::to_f64(result.v[(i, j)]))
+            T::convert_from(result.v[(i, j)])
         });
 
         (u, s, v)
@@ -472,20 +475,9 @@ mod tests {
     {
         let h = create_hilbert_matrix_generic::<T>(n);
 
-        println!("Testing Hilbert {}x{} with type: {}, rtol: {:.2e}", 
-                 n, n, std::any::type_name::<T>(), rtol);
-        println!("Original matrix norm: {:.6e}", frobenius_norm_generic(&h));
-
-        // Compute TSVD with specified tolerance and measure execution time
+        // Compute TSVD with specified tolerance
         let config = TSVDConfig::new(T::from(rtol));
-        let start = std::time::Instant::now();
         let result = tsvd(&h, config).unwrap();
-        let duration = start.elapsed();
-        
-        println!("TSVD execution time: {:?}", duration);
-
-        println!("Detected rank: {}", result.rank);
-        println!("Singular values: {:?}", result.s);
 
         // Reconstruct matrix
         let h_reconstructed = reconstruct_matrix_generic(&result.u, &result.s, &result.v);
@@ -494,9 +486,6 @@ mod tests {
         let error_matrix = &h - &h_reconstructed;
         let error_norm = frobenius_norm_generic(&error_matrix);
         let relative_error = error_norm / frobenius_norm_generic(&h);
-
-        println!("Reconstruction error norm: {:.6e}", error_norm);
-        println!("Relative reconstruction error: {:.6e}", relative_error);
 
         // Check that reconstruction error is within expected bounds
         assert!(relative_error <= expected_max_error, 
