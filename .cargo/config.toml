@@ -1,0 +1,8 @@
+# Cargo configuration for native CPU optimizations
+# This enables CPU-specific optimizations for better performance
+
+[build]
+# Enable native CPU optimizations for release builds
+# This allows the compiler to use CPU-specific instructions (e.g., AVX, SSE, etc.)
+rustflags = ["-C", "target-cpu=native"]
+
