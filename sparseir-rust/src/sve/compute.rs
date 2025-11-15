@@ -123,7 +123,7 @@ where
     let mut v_list = Vec::new();
 
     for matrix in matrices.iter() {
-        let (u, s, v) = compute_svd(matrix);
+        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix);
 
         u_list.push(u);
         s_list.push(s);
@@ -163,7 +163,7 @@ where
     let mut v_list = Vec::new();
 
     for matrix in matrices.iter() {
-        let (u, s, v) = compute_svd(matrix);
+        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix);
 
         u_list.push(u);
         s_list.push(s);
@@ -211,88 +211,6 @@ where
     } else {
         Box::new(NonCentrosymmSVE::new(kernel, epsilon))
     }
-}
-
-/// Compute SVD of a matrix
-///
-/// Uses nalgebra-based TSVD for high-precision SVD computation.
-///
-/// # Returns
-///
-/// Tuple of (U, singular_values, V) where A = U * S * V^T
-pub fn compute_svd<T: CustomNumeric + 'static>(
-    matrix: &DTensor<T, 2>,
-) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
-        compute_svd_f64_xprec(matrix)
-    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<crate::Df64>() {
-        compute_svd_twofloat_xprec(matrix)
-    } else {
-        compute_svd_f64_xprec(matrix)
-    }
-}
-
-/// Compute SVD for f64 using mdarray-linalg (Faer backend)
-fn compute_svd_f64_xprec<T: CustomNumeric>(
-    matrix: &DTensor<T, 2>,
-) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
-    use mdarray_linalg::prelude::SVD;
-    use mdarray_linalg_faer::Faer;
-
-    let matrix_f64 = DTensor::<f64, 2>::from_fn(*matrix.shape(), |idx| matrix[idx].to_f64());
-
-    // Clone for SVD (mdarray-linalg requires &mut)
-    let mut matrix_copy = matrix_f64.clone();
-    let result = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
-
-    // Extract singular values from first row (mdarray-linalg stores in s[[0, i]])
-    let min_dim = result.s.shape().0.min(result.s.shape().1);
-    let s_vec: Vec<T> = (0..min_dim)
-        .map(|i| T::from_f64_unchecked(result.s[[0, i]])) // First row, not diagonal!
-        .collect();
-
-    // Convert back to T
-    let u = DTensor::<T, 2>::from_fn(*result.u.shape(), |idx| T::from_f64_unchecked(result.u[idx]));
-
-    // mdarray-linalg returns vt (V^T), but we need v (V)
-    // First convert vt to type T, then transpose
-    let vt = DTensor::<T, 2>::from_fn(*result.vt.shape(), |idx| T::from_f64_unchecked(result.vt[idx]));
-    let v = vt.transpose().to_tensor(); // (V^T)^T = V
-
-    (u, s_vec, v)
-}
-
-/// Compute SVD for Df64 using nalgebra-based TSVD
-fn compute_svd_twofloat_xprec<T: CustomNumeric>(
-    matrix: &DTensor<T, 2>,
-) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
-    use crate::tsvd::{tsvd, TSVDConfig};
-    use nalgebra::DMatrix;
-    use crate::Df64;
-
-    // Convert to nalgebra DMatrix<Df64>
-    let matrix_df64 = DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
-        Df64::from(matrix[[i, j]].to_f64())
-    });
-
-    // Use TSVD with appropriate tolerance for Df64
-    let rtol = Df64::from(1e-28); // High precision for Df64
-    let result = tsvd(&matrix_df64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
-
-    // Convert back to DTensor<T>
-    let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
-        let [i, j] = [idx[0], idx[1]];
-        T::from_f64_unchecked(result.u[(i, j)].to_f64())
-    });
-
-    let s: Vec<T> = result.s.iter().map(|x| T::from_f64_unchecked(x.to_f64())).collect();
-
-    let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
-        let [i, j] = [idx[0], idx[1]];
-        T::from_f64_unchecked(result.v[(i, j)].to_f64())
-    });
-
-    (u, s, v)
 }
 
 /// Truncate SVD results based on cutoff and maximum size

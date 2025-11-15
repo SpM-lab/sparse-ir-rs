@@ -20,7 +20,7 @@ mod types;
 pub mod utils; // Public for testing
 
 // Re-export public API
-pub use compute::{compute_svd, compute_sve, compute_sve_general, truncate};
+pub use compute::{compute_sve, compute_sve_general, truncate};
 pub use result::SVEResult;
 pub use strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy, SamplingSVE};
 pub use types::{SVDStrategy, TworkType, safe_epsilon};
