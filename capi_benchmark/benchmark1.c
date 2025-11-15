@@ -54,7 +54,7 @@ int benchmark(double beta, double omega_max, double epsilon, int extra_size, int
     // Create a pre-computed SVE result
     int lmax = -1;
     int n_gauss = -1;
-    int Twork = SPIR_TWORK_FLOAT64X2;
+    int Twork = SPIR_TWORK_AUTO;  // Auto-select: FLOAT64 for epsilon >= 1e-8, FLOAT64X2 for epsilon < 1e-8
     benchmark_start(&bench, "SVE computation");
     spir_sve_result *sve_logistic = spir_sve_result_new(
         kernel, epsilon, lmax, n_gauss, Twork, &status);
