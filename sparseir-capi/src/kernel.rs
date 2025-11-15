@@ -311,19 +311,19 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_x(
 
         if segments.is_null() {
             // First call: return the number of segments
-            *n_segments = segs.len() as libc::c_int;
+            *n_segments = (segs.len() - 1) as libc::c_int;
             return SPIR_COMPUTATION_SUCCESS;
         }
 
         // Second call: copy segments to output array
-        if *n_segments < segs.len() as libc::c_int {
+        if *n_segments < (segs.len() - 1) as libc::c_int {
             return SPIR_INVALID_ARGUMENT;
         }
 
         for (i, &seg) in segs.iter().enumerate() {
             *segments.add(i) = seg;
         }
-        *n_segments = segs.len() as libc::c_int;
+        *n_segments = (segs.len() - 1) as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     });
 
@@ -380,19 +380,19 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_y(
 
         if segments.is_null() {
             // First call: return the number of segments
-            *n_segments = segs.len() as libc::c_int;
+            *n_segments = (segs.len() - 1) as libc::c_int;
             return SPIR_COMPUTATION_SUCCESS;
         }
 
         // Second call: copy segments to output array
-        if *n_segments < segs.len() as libc::c_int {
+        if *n_segments < (segs.len() - 1) as libc::c_int {
             return SPIR_INVALID_ARGUMENT;
         }
 
         for (i, &seg) in segs.iter().enumerate() {
             *segments.add(i) = seg;
         }
-        *n_segments = segs.len() as libc::c_int;
+        *n_segments = (segs.len() - 1) as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     });
 
@@ -665,16 +665,16 @@ mod tests {
         assert!(n_segments > 0);
 
         // Second call: get the actual segments
-        let mut segments = vec![0.0; n_segments as usize];
-        let mut n_segments_out = n_segments;
+        let mut segments = vec![0.0; (n_segments + 1) as usize];
+        let mut n_segments_out = n_segments + 1;
         let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, segments.as_mut_ptr(), &mut n_segments_out);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(n_segments_out, n_segments);
 
         // Verify segments are valid
-        assert_eq!(segments.len(), n_segments as usize);
+        assert_eq!(segments.len(), (n_segments + 1) as usize);
         assert!((segments[0] - (0.0)).abs() < 1e-10);
-        assert!((segments[n_segments as usize - 1] - 1.0).abs() < 1e-10);
+        assert!((segments[n_segments as usize] - 1.0).abs() < 1e-10);
 
         // Verify segments are in ascending order
         for i in 1..segments.len() {
@@ -701,16 +701,16 @@ mod tests {
         assert!(n_segments > 0);
 
         // Second call: get the actual segments
-        let mut segments = vec![0.0; n_segments as usize];
-        let mut n_segments_out = n_segments;
+        let mut segments = vec![0.0; (n_segments + 1) as usize];
+        let mut n_segments_out = n_segments + 1;
         let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, segments.as_mut_ptr(), &mut n_segments_out);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(n_segments_out, n_segments);
 
         // Verify segments are valid
-        assert_eq!(segments.len(), n_segments as usize);
+        assert_eq!(segments.len(), (n_segments + 1) as usize);
         assert!((segments[0] - (0.0)).abs() < 1e-10);
-        assert!((segments[n_segments as usize - 1] - 1.0).abs() < 1e-10);
+        assert!((segments[n_segments as usize] - 1.0).abs() < 1e-10);
 
         // Verify segments are in ascending order
         for i in 1..segments.len() {
