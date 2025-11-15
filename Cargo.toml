@@ -8,8 +8,8 @@ resolver = "2"
 [workspace.dependencies]
 # Common dependencies
 mdarray = "0.7.1"
-mdarray-linalg = { version = "0.1.1", path = "mdarray-linalg/mdarray-linalg" }
-mdarray-linalg-faer = { version = "0.1.1", path = "mdarray-linalg/mdarray-linalg-faer" }
+mdarray-linalg = { version = "0.2.0", path = "mdarray-linalg/mdarray-linalg" }
+mdarray-linalg-faer = { version = "0.2.0", path = "mdarray-linalg/mdarray-linalg-faer" }
 
 # Internal dependencies
 sparseir-rust = { path = "sparseir-rust" }

@@ -94,6 +94,21 @@ where
         freqs.into_iter().map(|f| f.n()).collect()
     }
 
+    /// Get default Matsubara sampling points as i64 indices with mitigate parameter (for C-API)
+    pub fn default_matsubara_sampling_points_i64_with_mitigate(
+        &self,
+        positive_only: bool,
+        mitigate: bool,
+        n_points: usize,
+    ) -> Vec<i64>
+    where
+        S: 'static,
+    {
+        let fence = mitigate;
+        let freqs = Self::default_matsubara_sampling_points_impl(&self.uhat_full, n_points, fence, positive_only);
+        freqs.into_iter().map(|f| f.n()).collect()
+    }
+
     /// Create a new FiniteTempBasis
     ///
     /// # Arguments

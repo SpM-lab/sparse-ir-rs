@@ -55,7 +55,6 @@ pub extern "C" fn spir_sve_result_is_assigned(obj: *const spir_sve_result) -> i3
 /// # Arguments
 /// * `k` - Kernel object
 /// * `epsilon` - Accuracy target for the basis
-/// * `cutoff` - Cutoff value for singular values (-1 for default: 2*sqrt(machine_epsilon))
 /// * `lmax` - Maximum number of Legendre polynomials (currently ignored, auto-determined)
 /// * `n_gauss` - Number of Gauss points for integration (currently ignored, auto-determined)
 /// * `Twork` - Working precision: 0=Float64, 1=Float64x2, -1=Auto
@@ -70,11 +69,11 @@ pub extern "C" fn spir_sve_result_is_assigned(obj: *const spir_sve_result) -> i3
 /// # Note
 /// Parameters `lmax` and `n_gauss` are accepted for libsparseir compatibility but
 /// currently ignored. The Rust implementation automatically determines optimal values.
+/// The cutoff is automatically set to 2*sqrt(machine_epsilon) internally.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sve_result_new(
     k: *const spir_kernel,
     epsilon: f64,
-    cutoff: f64,
     _lmax: libc::c_int,
     _n_gauss: libc::c_int,
     twork: libc::c_int,
@@ -112,22 +111,20 @@ pub extern "C" fn spir_sve_result_new(
         }
     };
 
-    // Convert cutoff (-1 means default)
-    let cutoff_opt = if cutoff < 0.0 { None } else { Some(cutoff) };
-
     // Catch panics to prevent unwinding across FFI boundary
     let result = catch_unwind(|| unsafe {
         let kernel = &*k;
 
         // Dispatch based on kernel type
+        // cutoff is automatically set to 2*sqrt(machine_epsilon) internally
         let sve_result = if let Some(logistic) = kernel.as_logistic() {
             compute_sve(
-                **logistic, epsilon, cutoff_opt, None, // max_num_svals auto-determined
+                **logistic, epsilon, None, None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else if let Some(reg_bose) = kernel.as_regularized_bose() {
             compute_sve(
-                **reg_bose, epsilon, cutoff_opt, None, // max_num_svals auto-determined
+                **reg_bose, epsilon, None, None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else {
@@ -207,7 +204,7 @@ pub extern "C" fn spir_sve_result_get_size(
 ///
 /// # Example (C)
 /// ```c
-/// spir_sve_result* sve = spir_sve_result_new(kernel, 1e-10, -1.0, 0, 0, -1, &status);
+/// spir_sve_result* sve = spir_sve_result_new(kernel, 1e-10, 0, 0, -1, &status);
 ///
 /// // Truncate to keep only singular values > 1e-8 * s[0], max 50 values
 /// spir_sve_result* sve_truncated = spir_sve_result_truncate(sve, 1e-8, 50, &status);
@@ -1459,5 +1456,52 @@ mod tests {
         // Cleanup
         spir_sve_result_release(sve_centrosymm);
         spir_sve_result_release(sve_noncentrosymm);
+    }
+}
+
+#[cfg(test)]
+mod keepalive_tests {
+    use super::*;
+    use std::ptr;
+
+    #[test]
+    fn test_sve_result_dummy_kernel_exports() {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let ptr = spir_sve_result_from_matrix(
+            ptr::null(),
+            ptr::null(),
+            0,
+            0,
+            0,
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            0,
+            0.0,
+            &mut status,
+        );
+        assert!(ptr.is_null());
+        assert_eq!(status, SPIR_INVALID_ARGUMENT);
+
+        status = SPIR_INTERNAL_ERROR;
+        let ptr = spir_sve_result_from_matrix_centrosymmetric(
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            ptr::null(),
+            0,
+            0,
+            0,
+            ptr::null(),
+            0,
+            ptr::null(),
+            0,
+            0,
+            0.0,
+            &mut status,
+        );
+        assert!(ptr.is_null());
+        assert_eq!(status, SPIR_INVALID_ARGUMENT);
     }
 }

@@ -696,3 +696,4 @@ fn test_complex_coefficients(#[case] epsilon: f64) {
         spir_kernel_release(kernel);
     }
 }
+

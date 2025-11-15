@@ -56,6 +56,8 @@ fn is_odd_period(tau: f64, beta: f64) -> bool {
 /// * `tau ∈ [-β, 0)` → wraps to [0, β] with `sign = -1.0`
 ///
 /// For Bosonic statistics:
+/// * `tau = -0.0` (negative zero) → `(tau_normalized = β, sign = 1.0)` (periodic)
+/// * `tau = 0.0` (positive zero) → `(tau_normalized = 0.0, sign = 1.0)`
 /// * `tau ∈ [-β, 0)` → wraps to [0, β] with `sign = 1.0`
 ///
 /// # Examples
@@ -84,12 +86,12 @@ pub fn normalize_tau<S: StatisticsType>(tau: f64, beta: f64) -> (f64, f64) {
         );
     }
 
-    // Special handling for negative zero: treat as being in odd period
+    // Special handling for negative zero
     if tau.is_sign_negative() && tau == 0.0 {
         // tau = -0.0
         return match S::STATISTICS {
-            Statistics::Fermionic => (beta, -1.0),
-            Statistics::Bosonic => (0.0, 1.0),
+            Statistics::Fermionic => (beta, -1.0), // Anti-periodic: wraps to beta with sign flip
+            Statistics::Bosonic => (beta, 1.0),    // Periodic: wraps to beta with sign unchanged
         };
     }
 

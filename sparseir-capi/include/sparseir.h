@@ -137,6 +137,10 @@ typedef struct spir_sampling {
 /**
  * Manual release function (replaces macro-generated one)
  */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
  void spir_basis_release(struct spir_basis *basis);
 
 /**
@@ -493,6 +497,7 @@ int spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * # Arguments
  * * `b` - Basis object
  * * `positive_only` - If true, return only positive frequencies
+ * * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
  * * `n_points` - Maximum number of points requested
  * * `points` - Pre-allocated array to store Matsubara indices (size >= n_points)
  * * `n_points_returned` - Pointer to store actual number of points returned
@@ -504,10 +509,12 @@ int spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  *
  * # Note
  * Returns min(n_points, actual_default_points) sampling points
+ * When mitigate is true, may return more points than requested due to fencing
  */
 
 int spir_basis_get_default_matsus_ext(const struct spir_basis *b,
                                              bool positive_only,
+                                             bool mitigate,
                                              int n_points,
                                              int64_t *points,
                                              int *n_points_returned);
@@ -1488,7 +1495,6 @@ int spir_sampling_fit_zd(const struct spir_sampling *s,
  * # Arguments
  * * `k` - Kernel object
  * * `epsilon` - Accuracy target for the basis
- * * `cutoff` - Cutoff value for singular values (-1 for default: 2*sqrt(machine_epsilon))
  * * `lmax` - Maximum number of Legendre polynomials (currently ignored, auto-determined)
  * * `n_gauss` - Number of Gauss points for integration (currently ignored, auto-determined)
  * * `Twork` - Working precision: 0=Float64, 1=Float64x2, -1=Auto
@@ -1503,11 +1509,11 @@ int spir_sampling_fit_zd(const struct spir_sampling *s,
  * # Note
  * Parameters `lmax` and `n_gauss` are accepted for libsparseir compatibility but
  * currently ignored. The Rust implementation automatically determines optimal values.
+ * The cutoff is automatically set to 2*sqrt(machine_epsilon) internally.
  */
 
 struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
                                             double epsilon,
-                                            double cutoff,
                                             int _lmax,
                                             int _n_gauss,
                                             int twork,
@@ -1553,7 +1559,7 @@ struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
  *
  * # Example (C)
  * ```c
- * spir_sve_result* sve = spir_sve_result_new(kernel, 1e-10, -1.0, 0, 0, -1, &status);
+ * spir_sve_result* sve = spir_sve_result_new(kernel, 1e-10, 0, 0, -1, &status);
  *
  * // Truncate to keep only singular values > 1e-8 * s[0], max 50 values
  * spir_sve_result* sve_truncated = spir_sve_result_truncate(sve, 1e-8, 50, &status);
@@ -1750,3 +1756,7 @@ int spir_gauss_legendre_rule_piecewise_ddouble(int n,
                                                       double *w_high,
                                                       double *w_low,
                                                       int *status);
+
+#ifdef __cplusplus
+}
+#endif

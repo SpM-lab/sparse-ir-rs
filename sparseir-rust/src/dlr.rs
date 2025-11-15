@@ -492,26 +492,45 @@ where
         let n_points = tau.len();
         let n_poles = self.poles.len();
 
-        // Evaluate TauPoles basis functions: u_i(τ) = -K(x, y_i) / weight[i]
-        // where x = 2τ/β - 1, y_i = pole_i/ωmax
-        // Normalize tau to [0, β] for kernel evaluation
+        // Evaluate tau-domain DLR basis functions:
+        //   u_i(τ) = sign * ( -K_logistic(x, y_i) )
+        // where x = 2τ/β - 1, y_i = pole_i/ωmax and
+        //   sign encodes (anti-)periodicity:
+        //     Fermionic: G(τ + β) = -G(τ)
+        //     Bosonic:  G(τ + β) =  G(τ)
+        //
+        // NOTE: Statistics-dependent regularization factors
+        // (tanh(βω/2) for bosons) are applied only in the
+        // Matsubara representation via `inv_weights` and
+        // do NOT enter the tau basis functions themselves.
 
-        DTensor::<f64, 2>::from_fn([n_points, n_poles], |idx| {
-            let tau_val = tau[idx[0]];
-            let pole = self.poles[idx[1]];
-            let inv_weight = self.inv_weights[idx[1]];
+        let mut result = DTensor::<f64, 2>::zeros([n_points, n_poles]);
 
-            // Normalize tau to [0, β] (ignore sign for DLR)
-            let (tau_norm, _sign) = normalize_tau::<S>(tau_val, self.beta);
+        // Loop over tau points: for each tau, normalize once and compute for all poles
+        for i in 0..n_points {
+            let tau_val = tau[i];
 
-            // Compute kernel value
+            // Normalize tau to [0, β] with statistics-dependent sign
+            let (tau_norm, sign) = normalize_tau::<S>(tau_val, self.beta);
+
+            // Compute x coordinate once for this tau
             let x = 2.0 * tau_norm / self.beta - 1.0;
-            let y = pole / self.wmax;
 
-            // u_i(τ) = -K(x, y_i) * inv_weight[i]
-            // Note: No sign factor for DLR (unlike IR)
-            (-self.kernel.compute(x, y)) * inv_weight
-        })
+            // Loop over poles: sign is the same for all poles at this tau
+            for j in 0..n_poles {
+                let pole = self.poles[j];
+                let y = pole / self.wmax;
+
+                // Compute kernel value
+                let kernel_val = self.kernel.compute(x, y);
+
+                // Tau basis: u_i(τ) = sign * (-K(x, y_i))
+                let value = sign * (-kernel_val);
+                result[[i, j]] += value;
+            }
+        }
+
+        result
     }
 
     fn evaluate_matsubara(

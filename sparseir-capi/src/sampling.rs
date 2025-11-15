@@ -13,6 +13,7 @@
 use num_complex::Complex64;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::Arc;
+use mdarray::Shape;
 
 use crate::types::{spir_basis, spir_sampling, BasisType, SamplingType};
 use crate::utils::{convert_dims_for_row_major, copy_tensor_to_c_array, MemoryOrder};
@@ -893,13 +894,21 @@ pub unsafe extern "C" fn spir_sampling_eval_zz(
         let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
-        // Evaluate (full Matsubara sampling)
+        // Evaluate (Matsubara or tau sampling)
         let result_tensor = match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
                 matsu.evaluate_nd(&input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraBosonic(matsu) => {
                 matsu.evaluate_nd(&input_tensor, mdarray_target_dim)
+            }
+            // Tau sampling: evaluate with complex input, returns complex
+            // The transformation matrix is real, but if input has imaginary part, output will also have imaginary part
+            SamplingType::TauFermionic(tau) => {
+                tau.evaluate_nd(&input_tensor, mdarray_target_dim)
+            }
+            SamplingType::TauBosonic(tau) => {
+                tau.evaluate_nd(&input_tensor, mdarray_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED,
         };
@@ -1013,13 +1022,74 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
         let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
-        // Fit (full Matsubara sampling)
+        // Fit (Matsubara or tau sampling)
         let result_tensor = match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
                 matsu.fit_nd(&input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraBosonic(matsu) => {
                 matsu.fit_nd(&input_tensor, mdarray_target_dim)
+            }
+            // MatsubaraPositiveOnly: fit_nd returns real, convert to complex
+            SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
+                let real_result = matsu.fit_nd(&input_tensor, mdarray_target_dim);
+                // Convert Tensor<f64> to Tensor<Complex64> by converting element by element
+                let rank = real_result.rank();
+                let shape_vec: Vec<usize> = (0..rank)
+                    .map(|i| real_result.shape().dim(i))
+                    .collect();
+                let total_size: usize = shape_vec.iter().product();
+                
+                // Create a vector of complex values
+                let mut complex_vec = Vec::with_capacity(total_size);
+                for i in 0..total_size {
+                    // Convert flat index to multi-dimensional index
+                    let mut idx = vec![0; rank];
+                    let mut remaining = i;
+                    for (dim_idx, &dim_size) in shape_vec.iter().enumerate().rev() {
+                        idx[dim_idx] = remaining % dim_size;
+                        remaining /= dim_size;
+                    }
+                    complex_vec.push(Complex64::new(real_result[&idx[..]], 0.0));
+                }
+                
+                // Create Tensor from vector
+                let flat_tensor = Tensor::<Complex64, (usize,)>::from(complex_vec);
+                flat_tensor.into_dyn().reshape(&shape_vec[..]).to_tensor()
+            }
+            SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
+                let real_result = matsu.fit_nd(&input_tensor, mdarray_target_dim);
+                // Convert Tensor<f64> to Tensor<Complex64> by converting element by element
+                let rank = real_result.rank();
+                let shape_vec: Vec<usize> = (0..rank)
+                    .map(|i| real_result.shape().dim(i))
+                    .collect();
+                let total_size: usize = shape_vec.iter().product();
+                
+                // Create a vector of complex values
+                let mut complex_vec = Vec::with_capacity(total_size);
+                for i in 0..total_size {
+                    // Convert flat index to multi-dimensional index
+                    let mut idx = vec![0; rank];
+                    let mut remaining = i;
+                    for (dim_idx, &dim_size) in shape_vec.iter().enumerate().rev() {
+                        idx[dim_idx] = remaining % dim_size;
+                        remaining /= dim_size;
+                    }
+                    complex_vec.push(Complex64::new(real_result[&idx[..]], 0.0));
+                }
+                
+                // Create Tensor from vector
+                let flat_tensor = Tensor::<Complex64, (usize,)>::from(complex_vec);
+                flat_tensor.into_dyn().reshape(&shape_vec[..]).to_tensor()
+            }
+            // Tau sampling: fit with complex input, returns complex
+            // The transformation matrix is real, but if input has imaginary part, output will also have imaginary part
+            SamplingType::TauFermionic(tau) => {
+                tau.fit_nd(&input_tensor, mdarray_target_dim)
+            }
+            SamplingType::TauBosonic(tau) => {
+                tau.fit_nd(&input_tensor, mdarray_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED,
         };

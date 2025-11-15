@@ -1083,6 +1083,7 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// # Arguments
 /// * `b` - Basis object
 /// * `positive_only` - If true, return only positive frequencies
+/// * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
 /// * `n_points` - Maximum number of points requested
 /// * `points` - Pre-allocated array to store Matsubara indices (size >= n_points)
 /// * `n_points_returned` - Pointer to store actual number of points returned
@@ -1094,10 +1095,12 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 ///
 /// # Note
 /// Returns min(n_points, actual_default_points) sampling points
+/// When mitigate is true, may return more points than requested due to fencing
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_default_matsus_ext(
     b: *const spir_basis,
     positive_only: bool,
+    mitigate: bool,
     n_points: libc::c_int,
     points: *mut i64,
     n_points_returned: *mut libc::c_int,
@@ -1112,10 +1115,14 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let matsu_points = basis.default_matsubara_sampling_points(positive_only);
+        let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
+            positive_only,
+            mitigate,
+            n_points as usize,
+        );
 
-        // Return min(requested, available) points
-        let n_to_return = std::cmp::min(n_points as usize, matsu_points.len());
+        // When mitigate is true, may return more points than requested
+        let n_to_return = matsu_points.len();
         std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, n_to_return);
         *n_points_returned = n_to_return as libc::c_int;
 
