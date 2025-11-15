@@ -53,7 +53,7 @@ pub use polyfourier::{
 };
 pub use sampling::TauSampling;
 pub use sve::{
-    CentrosymmSVE, SVDStrategy, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_svd,
+    CentrosymmSVE, SVDStrategy, SVEResult, SVEStrategy, SamplingSVE, TworkType,
     compute_sve, truncate,
 };
 pub use tsvd::{

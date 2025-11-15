@@ -7,6 +7,8 @@ use nalgebra::{DMatrix, DVector, ComplexField, RealField};
 use nalgebra::linalg::ColPivQR;
 use num_traits::{Zero, One, ToPrimitive};
 use crate::Df64;
+use crate::numeric::CustomNumeric;
+use mdarray::DTensor;
 
 /// Result of SVD decomposition
 #[derive(Debug, Clone)]
@@ -85,7 +87,7 @@ where
     // For Df64: Df64::EPSILON (約 2.465e-32)
     // Note: We use EPSILON (machine epsilon) instead of default_epsilon() (from approx trait)
     // because default_epsilon() may return MIN_POSITIVE for Df64, which is too small.
-    let eps = get_epsilon_for_svd();
+    let eps = get_epsilon_for_svd::<T>();
     
     // Perform FULL SVD decomposition with explicit epsilon
     // try_svd automatically sorts singular values in descending order
@@ -307,6 +309,73 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
     });
     let rtol_df64 = Df64::from(rtol);
     tsvd(&matrix_df64, TSVDConfig::new(rtol_df64))
+}
+
+/// Compute SVD for DTensor using nalgebra-based TSVD
+///
+/// Supports both f64 and Df64 types. Uses nalgebra TSVD backend for both.
+pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
+    matrix: &DTensor<T, 2>,
+) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
+    use std::any::TypeId;
+    use nalgebra::DMatrix;
+
+    // Dispatch based on type: convert to appropriate DMatrix type
+    if TypeId::of::<T>() == TypeId::of::<f64>() {
+        // Convert to DMatrix<f64>
+        let matrix_f64 = DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
+            CustomNumeric::to_f64(matrix[[i, j]])
+        });
+
+        // Use TSVD with appropriate tolerance for f64
+        let rtol = 2.0 * f64::EPSILON;
+        let result = tsvd(&matrix_f64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
+
+        // Convert back to DTensor<T>
+        let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
+            let [i, j] = [idx[0], idx[1]];
+            T::from_f64_unchecked(result.u[(i, j)])
+        });
+
+        let s: Vec<T> = result.s.iter().map(|x| T::from_f64_unchecked(*x)).collect();
+
+        let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
+            let [i, j] = [idx[0], idx[1]];
+            T::from_f64_unchecked(result.v[(i, j)])
+        });
+
+        (u, s, v)
+    } else if TypeId::of::<T>() == TypeId::of::<Df64>() {
+        // Convert to DMatrix<Df64>
+        let matrix_df64 = DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
+            Df64::from(CustomNumeric::to_f64(matrix[[i, j]]))
+        });
+
+        // Use TSVD with appropriate tolerance for Df64
+        let rtol = Df64::from(2.0) * Df64::epsilon();
+        let result = tsvd(&matrix_df64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
+
+        // Convert back to DTensor<T>
+        let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
+            let [i, j] = [idx[0], idx[1]];
+            T::from_f64_unchecked(CustomNumeric::to_f64(result.u[(i, j)]))
+        });
+
+        let s: Vec<T> = result
+            .s
+            .iter()
+            .map(|x| T::from_f64_unchecked(CustomNumeric::to_f64(*x)))
+            .collect();
+
+        let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
+            let [i, j] = [idx[0], idx[1]];
+            T::from_f64_unchecked(CustomNumeric::to_f64(result.v[(i, j)]))
+        });
+
+        (u, s, v)
+    } else {
+        panic!("SVD is only implemented for f64 and Df64");
+    }
 }
 
 #[cfg(test)]

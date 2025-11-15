@@ -25,3 +25,6 @@
 [submodule "nalgebra"]
 	path = nalgebra
 	url = git@github.com:dimforge/nalgebra.git
+[submodule "GenericLinearAlgebra.jl"]
+	path = GenericLinearAlgebra.jl
+	url = git@github.com:JuliaLinearAlgebra/GenericLinearAlgebra.jl.git

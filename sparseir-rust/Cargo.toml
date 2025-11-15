@@ -68,3 +68,11 @@ pkg-config = "0.3"
 default = []
 # Shared library features
 shared-lib = []
+
+[profile.release]
+# Maximum optimization for performance
+opt-level = 3
+# Link-time optimization for better performance
+lto = true
+# Single codegen unit for better optimization
+codegen-units = 1

@@ -2,7 +2,7 @@
 
 #include <memory>
 
-#include "sparseir.h" // C interface
+#include <sparseir/sparseir.h> // C interface
 
 inline spir_basis *_spir_basis_new(int32_t statistics, double beta,
                                   double omega_max, double epsilon,

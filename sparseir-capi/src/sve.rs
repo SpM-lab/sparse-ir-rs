@@ -350,7 +350,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
     use crate::utils::MemoryOrder;
     use sparseir_rust::gauss::legendre;
     use sparseir_rust::poly::PiecewiseLegendrePolyVector;
-    use sparseir_rust::sve::{compute_svd, SVEResult};
+    use sparseir_rust::sve::SVEResult;
+    use sparseir_rust::tsvd::compute_svd_dtensor;
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -461,7 +462,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
             let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
 
             // Compute SVD
-            let (u, s, v) = compute_svd(&matrix);
+            let (u, s, v) = compute_svd_dtensor(&matrix);
 
             // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
             // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
@@ -535,7 +536,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
             let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
 
             // Compute SVD
-            let (u, s, v) = compute_svd(&matrix);
+            let (u, s, v) = compute_svd_dtensor(&matrix);
 
             // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / std::sqrt(gauss_x_w[i]))
             // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
@@ -637,7 +638,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
     use sparseir_rust::gauss::legendre;
     use sparseir_rust::kernel::SymmetryType;
     use sparseir_rust::poly::PiecewiseLegendrePolyVector;
-    use sparseir_rust::sve::compute_svd;
+    use sparseir_rust::tsvd::compute_svd_dtensor;
     use sparseir_rust::sve::utils::{extend_to_full_domain, merge_results};
     use std::panic::catch_unwind;
 
@@ -766,7 +767,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
             };
 
             // Compute SVD
-            let (u, s, v) = compute_svd(&matrix);
+            let (u, s, v) = compute_svd_dtensor(&matrix);
 
             // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
             // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
