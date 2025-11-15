@@ -14,3 +14,10 @@ Thumbs.db
 
 # Backup directories
 tests_backup/
+
+# C++ test build artifacts
+cxx_tests/_build/
+cxx_tests/_install/
+
+# Keepalive tests
+keepalive_tests/

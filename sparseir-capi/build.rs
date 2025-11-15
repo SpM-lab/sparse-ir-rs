@@ -146,7 +146,49 @@ typedef double _Complex c_complex;
         content
     };
 
-    let new_content = format!("{}{}", header_comment, content_without_includes);
+    // Find where function declarations start (after typedefs and struct definitions)
+    // Look for the first function declaration (starts with return type like "int ", "void ", "struct ")
+    let mut func_start = 0;
+    let lines: Vec<&str> = content_without_includes.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        // Check if this line starts a function declaration (not a typedef or struct definition)
+        if (trimmed.starts_with("int ") || trimmed.starts_with("void ") || trimmed.starts_with("struct ") || trimmed.starts_with("spir_"))
+            && !trimmed.starts_with("typedef")
+            && !trimmed.starts_with("struct _")
+            && trimmed.contains('(') {
+            func_start = i;
+            break;
+        }
+    }
+
+    // Split content into before functions and functions
+    let before_funcs = if func_start > 0 {
+        lines[..func_start].join("\n")
+    } else {
+        content_without_includes.clone()
+    };
+
+    let funcs_and_after = if func_start > 0 {
+        lines[func_start..].join("\n")
+    } else {
+        String::new()
+    };
+
+    // Add extern "C" block around function declarations
+    let extern_c_start = if !funcs_and_after.is_empty() {
+        "\n#ifdef __cplusplus\nextern \"C\" {\n#endif\n\n"
+    } else {
+        ""
+    };
+
+    let extern_c_end = if !funcs_and_after.is_empty() {
+        "\n\n#ifdef __cplusplus\n}\n#endif\n"
+    } else {
+        ""
+    };
+
+    let new_content = format!("{}{}{}{}{}", header_comment, before_funcs, extern_c_start, funcs_and_after, extern_c_end);
 
     fs::write(header_path, new_content)
         .expect("Failed to write sparseir.h");

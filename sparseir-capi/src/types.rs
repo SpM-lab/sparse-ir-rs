@@ -392,6 +392,30 @@ impl spir_basis {
         }
     }
 
+    pub(crate) fn default_matsubara_sampling_points_with_mitigate(
+        &self,
+        positive_only: bool,
+        mitigate: bool,
+        n_points: usize,
+    ) -> Vec<i64> {
+        match self.inner_type() {
+            BasisType::LogisticFermionic(b) => {
+                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
+            }
+            BasisType::LogisticBosonic(b) => {
+                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
+            }
+            BasisType::RegularizedBoseFermionic(b) => {
+                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
+            }
+            BasisType::RegularizedBoseBosonic(b) => {
+                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
+            }
+            // DLR: no default Matsubara sampling points
+            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+        }
+    }
+
     pub(crate) fn default_omega_sampling_points(&self) -> Vec<f64> {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.default_omega_sampling_points(),
@@ -526,19 +550,21 @@ impl DLRTauFuncs {
         };
 
         // Compute kernel parameters
-        // DLR always uses LogisticKernel
+        // DLR always uses LogisticKernel in tau domain.
+        // Statistics-dependent regularization factors (e.g. tanh(βω/2) for bosons)
+        // are applied only in the Matsubara representation via inv_weights and
+        // do NOT enter the tau basis functions themselves.
         let lambda = self.beta * self.wmax;
         let kernel = LogisticKernel::new(lambda);
         let x_kern = 2.0 * tau_reg / self.beta - 1.0; // x_kern ∈ [-1, 1]
 
-        // Evaluate DLR functions: u_l(tau) = sign * inv_weight[l] * (-K(x, y_l))
+        // Evaluate DLR tau basis functions: u_l(τ) = sign * (-K(x, y_l))
         self.poles
             .iter()
-            .zip(self.inv_weights.iter())
-            .map(|(&pole, &inv_weight)| {
+            .map(|&pole| {
                 let y = pole / self.wmax;
                 let k_val = kernel.compute(x_kern, y);
-                sign * (-k_val) * inv_weight
+                sign * (-k_val)
             })
             .collect()
     }
@@ -552,7 +578,7 @@ impl DLRTauFuncs {
         let n_points = taus.len();
         let mut result = vec![vec![0.0; n_points]; n_funcs];
 
-        // DLR always uses LogisticKernel
+        // DLR always uses LogisticKernel in tau domain
         let lambda = self.beta * self.wmax;
         let kernel = LogisticKernel::new(lambda);
 
@@ -565,12 +591,10 @@ impl DLRTauFuncs {
             };
             let x_kern = 2.0 * tau_reg / self.beta - 1.0;
 
-            for (i, (&pole, &inv_weight)) in
-                self.poles.iter().zip(self.inv_weights.iter()).enumerate()
-            {
+            for (i, &pole) in self.poles.iter().enumerate() {
                 let y = pole / self.wmax;
                 let k_val = kernel.compute(x_kern, y);
-                result[i][j] = sign * (-k_val) * inv_weight;
+                result[i][j] = sign * (-k_val);
             }
         }
 
