@@ -15,7 +15,7 @@
 #include <unsupported/Eigen/CXX11/Tensor>
 
 // C++ interface removed for C-API test
-#include "sparseir.h"   // C interface
+#include <sparseir/sparseir.h>   // C interface
 #include "_utils.hpp"
 
 // Helper function for movedim (replacing sparseir::movedim)

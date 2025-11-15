@@ -30,7 +30,12 @@ fn main() {
 
     let crate_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let include_dir = PathBuf::from(&crate_dir).join("include");
-    let sparseir_header = include_dir.join("sparseir.h");
+    let sparseir_subdir = include_dir.join("sparseir");
+    let sparseir_header = sparseir_subdir.join("sparseir.h");
+
+    // Create sparseir subdirectory if it doesn't exist
+    fs::create_dir_all(&sparseir_subdir)
+        .expect("Failed to create include/sparseir directory");
 
     // Generate sparseir.h directly
     let output = Command::new("cbindgen")

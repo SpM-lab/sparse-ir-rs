@@ -1,9 +1,9 @@
 #!/bin/bash
 
-# Build sparseir-capi Rust library, install it to _install, then build and run C++ tests
+# Build sparseir-capi Rust library, install it to _install, then build and run benchmarks
 # Directory structure:
-#   cxx_tests/_install/          - Install directory for Rust C API library
-#   cxx_tests/_build/            - Build directory for C++ tests
+#   capi_benchmark/_install/          - Install directory for Rust C API library
+#   capi_benchmark/_build/            - Build directory for benchmarks
 
 set -euo pipefail
 
@@ -21,15 +21,10 @@ WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 INSTALL_DIR="${SCRIPT_DIR}/_install"
 BUILD_DIR="${SCRIPT_DIR}/_build"
 
-echo -e "${GREEN}=== Testing C++ CAPI tests with Rust sparseir-capi ===${NC}"
+echo -e "${GREEN}=== Running C API benchmarks with Rust sparseir-capi ===${NC}"
 
-# Step 0: Clean build (remove target, _build, and _install directories)
+# Step 0: Clean build (remove _build and _install directories)
 echo -e "${YELLOW}Step 0: Cleaning build directories...${NC}"
-cd "${WORKSPACE_ROOT}"
-if [ -d "target" ]; then
-    rm -rf target
-    echo -e "${GREEN}Removed target directory${NC}"
-fi
 cd "${SCRIPT_DIR}"
 if [ -d "_build" ]; then
     rm -rf _build
@@ -71,14 +66,15 @@ mkdir -p "${INSTALL_DIR}/lib" "${INSTALL_DIR}/include/sparseir"
 
 cp "${LIB_SOURCE}" "${INSTALL_DIR}/lib/"
 # Copy sparseir directory structure
+mkdir -p "${INSTALL_DIR}/include/sparseir"
 cp "${WORKSPACE_ROOT}/sparseir-capi/include/sparseir/sparseir.h" "${INSTALL_DIR}/include/sparseir/"
 
 echo -e "${GREEN}Installed:${NC}"
 echo -e "  Library: ${INSTALL_DIR}/lib/${LIB_NAME}"
 echo -e "  Header:  ${INSTALL_DIR}/include/sparseir/sparseir.h"
 
-# Step 3: Build C++ tests
-echo -e "${YELLOW}Step 3: Building C++ tests...${NC}"
+# Step 3: Build benchmarks
+echo -e "${YELLOW}Step 3: Building benchmarks...${NC}"
 cd "${SCRIPT_DIR}"
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
@@ -87,11 +83,11 @@ cd "${BUILD_DIR}"
 cmake "${SCRIPT_DIR}" \
     -DCMAKE_BUILD_TYPE=Release
 
-echo -e "${YELLOW}Building C++ tests...${NC}"
+echo -e "${YELLOW}Building benchmarks...${NC}"
 cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
 
-# Step 4: Run tests
-echo -e "${YELLOW}Step 4: Running C++ tests...${NC}"
+# Step 4: Run benchmarks
+echo -e "${YELLOW}Step 4: Running benchmarks...${NC}"
 
 # Set library path for runtime
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -100,7 +96,8 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     export LD_LIBRARY_PATH="${INSTALL_DIR}/lib:${LD_LIBRARY_PATH:-}"
 fi
 
-ctest --output-on-failure --verbose
+# Run benchmarks from _build directory
+cmake --build "${BUILD_DIR}" --target benchmark
 
-echo -e "${GREEN}=== All tests completed successfully ===${NC}"
+echo -e "${GREEN}=== All benchmarks completed successfully ===${NC}"
 

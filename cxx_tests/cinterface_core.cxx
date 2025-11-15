@@ -8,7 +8,7 @@
 #include <memory>
 #include <vector>
 
-#include "sparseir.h"   // C interface
+#include <sparseir/sparseir.h>   // C interface
 
 using Catch::Approx;
 
