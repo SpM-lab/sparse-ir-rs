@@ -322,10 +322,10 @@ pub extern "C" fn spir_sve_result_get_svals(
 /// * `nx` - Number of rows in the matrix
 /// * `ny` - Number of columns in the matrix
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
-/// * `segments_x` - X-direction segments (size: n_segments_x + 1)
-/// * `n_segments_x` - Number of segments in x direction
-/// * `segments_y` - Y-direction segments (size: n_segments_y + 1)
-/// * `n_segments_y` - Number of segments in y direction
+/// * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+/// * `n_segments_x` - Number of segments in x direction (boundary points - 1)
+/// * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+/// * `n_segments_y` - Number of segments in y direction (boundary points - 1)
 /// * `n_gauss` - Number of Gauss points per segment
 /// * `epsilon` - Target accuracy
 /// * `status` - Pointer to store status code
@@ -380,6 +380,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
     let result = catch_unwind(|| {
         // Convert segments to Vec
+        // Note: n_segments_x is the number of segments (boundary points - 1),
+        // matching C++ API behavior: C++ uses segments_x[0..n_segments_x] (n_segments_x + 1 elements)
         let segs_x_slice = unsafe {
             std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize)
         };
@@ -388,7 +390,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
         };
 
         // Verify segments are monotonically increasing
-        for i in 1..segs_x_slice.len() {
+        // C++: for (int i = 1; i <= n_segments_x; ++i) checks segments_x[1..n_segments_x]
+        for i in 1..=n_segments_x as usize {
             if segs_x_slice[i] <= segs_x_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
@@ -396,7 +399,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 return std::ptr::null_mut();
             }
         }
-        for i in 1..segs_y_slice.len() {
+        for i in 1..=n_segments_y as usize {
             if segs_y_slice[i] <= segs_y_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
@@ -603,10 +606,10 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// * `nx` - Number of rows in the matrix
 /// * `ny` - Number of columns in the matrix
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
-/// * `segments_x` - X-direction segments (size: n_segments_x + 1)
-/// * `n_segments_x` - Number of segments in x direction
-/// * `segments_y` - Y-direction segments (size: n_segments_y + 1)
-/// * `n_segments_y` - Number of segments in y direction
+/// * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+/// * `n_segments_x` - Number of segments in x direction (boundary points - 1)
+/// * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+/// * `n_segments_y` - Number of segments in y direction (boundary points - 1)
 /// * `n_gauss` - Number of Gauss points per segment
 /// * `epsilon` - Target accuracy
 /// * `status` - Pointer to store status code
@@ -665,6 +668,8 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
 
     let result = catch_unwind(|| {
         // Convert segments to Vec
+        // Note: n_segments_x is the number of segments (boundary points - 1),
+        // matching C++ API behavior: C++ uses segments_x[0..n_segments_x] (n_segments_x + 1 elements)
         let segs_x_slice = unsafe {
             std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize)
         };
@@ -673,7 +678,8 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         };
 
         // Verify segments are monotonically increasing
-        for i in 1..segs_x_slice.len() {
+        // C++: for (int i = 1; i <= n_segments_x; ++i) checks segments_x[1..n_segments_x]
+        for i in 1..=n_segments_x as usize {
             if segs_x_slice[i] <= segs_x_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
@@ -681,7 +687,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                 return std::ptr::null_mut();
             }
         }
-        for i in 1..segs_y_slice.len() {
+        for i in 1..=n_segments_y as usize {
             if segs_y_slice[i] <= segs_y_slice[i - 1] {
                 unsafe {
                     *status = SPIR_INVALID_ARGUMENT;
@@ -1004,11 +1010,13 @@ mod tests {
         let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, segments_y.as_mut_ptr(), &mut n_segments_y_out);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
+        assert_eq!(segments_x.len(), (n_segments_x + 1) as usize);
+        assert_eq!(segments_y.len(), (n_segments_y + 1) as usize);
         // Get Gauss points and weights
         // Note: n_segments_x and n_segments_y are the number of boundary points (n_segments + 1),
         // but spir_gauss_legendre_rule_piecewise_double expects the number of segments (n_segments)
-        let nx = n_gauss * (n_segments_x - 1); // n_segments_x - 1 is the number of segments
-        let ny = n_gauss * (n_segments_y - 1); // n_segments_y - 1 is the number of segments
+        let nx = n_gauss * (n_segments_x); // n_segments_x - 1 is the number of segments
+        let ny = n_gauss * (n_segments_y); // n_segments_y - 1 is the number of segments
         let mut x = vec![0.0; nx as usize];
         let mut w_x = vec![0.0; nx as usize];
         let mut y = vec![0.0; ny as usize];
@@ -1018,7 +1026,7 @@ mod tests {
         let result = spir_gauss_legendre_rule_piecewise_double(
             n_gauss,
             segments_x.as_ptr(),
-            n_segments_x - 1,
+            n_segments_x,
             x.as_mut_ptr(),
             w_x.as_mut_ptr(),
             &mut status_gauss,
@@ -1029,7 +1037,7 @@ mod tests {
         let result = spir_gauss_legendre_rule_piecewise_double(
             n_gauss,
             segments_y.as_ptr(),
-            n_segments_y - 1,
+            n_segments_y,
             y.as_mut_ptr(),
             w_y.as_mut_ptr(),
             &mut status_gauss,
