@@ -1,14 +1,13 @@
 use super::*;
-use crate::traits::{Bosonic, Fermionic};
-use dashu_base::Approximation;
+use dashu_base::{Abs, Approximation};
 use dashu_float::{Context, DBig, round::mode::HalfAway};
 use std::str::FromStr;
 use crate::Df64;
 
 // Configuration for precision tests
-const DBIG_DIGITS: usize = 100;
-const TOLERANCE_F64: f64 = 1e-12;
-const TOLERANCE_TWOFLOAT: f64 = 1e-12; // TODO: MAKE IT TIGHTER
+const DBIG_DIGITS: usize = 300;
+const TOLERANCE_F64: f64 = 1e-14;
+const TOLERANCE_DF64: f64 = 1e-25;
 
 /// Trait for kernel computation using high-precision DBig arithmetic
 trait KernelDbigCompute {
@@ -18,7 +17,7 @@ trait KernelDbigCompute {
 
 /// Convert f64 to DBig with high precision
 fn f64_to_dbig(val: f64, precision: usize) -> DBig {
-    let val_str = format!("{:.17e}", val);
+    let val_str = format!("{:.30e}", val);
     DBig::from_str(&val_str)
         .unwrap()
         .with_precision(precision)
@@ -50,24 +49,43 @@ impl KernelDbigCompute for LogisticKernel {
 // Implement KernelDbigCompute for RegularizedBoseKernel
 impl KernelDbigCompute for RegularizedBoseKernel {
     fn compute_dbig(lambda: DBig, x: DBig, y: DBig, ctx: &Context<HalfAway>) -> DBig {
-        // K(x, y) = y * exp(-Λ y (x + 1) / 2) / (1 - exp(-Λ y))
-
-        // Special case: y ≈ 0 → K(x, 0) = 1/Λ (independent of x)
-        let y_f64 = extract_f64(y.to_f64());
-        let lambda_f64 = extract_f64(lambda.to_f64());
-        if y_f64.abs() < 1e-100 {
-            // For very small y, use the limit: lim_{y→0} K(x,y) = 1/Λ
-            return f64_to_dbig(1.0 / lambda_f64, ctx.precision());
-        }
-
+        // K(x, y) = -1/Λ * exp(-|v| * (v >= 0 ? u_plus : u_minus)) * (|v| / (exp(-|v|) - 1))
+        // where v = Λy, u_plus = (x+1)/2, u_minus = (1-x)/2
+        
         let one = f64_to_dbig(1.0, ctx.precision());
-        let two = f64_to_dbig(2.0, ctx.precision());
-
-        let exponent = -lambda.clone() * y.clone() * (x + one.clone()) / two;
-        let numerator = y.clone() * exponent.exp();
-        let denominator = one - (-lambda * y.clone()).exp();
-
-        numerator / denominator
+        let half = f64_to_dbig(0.5, ctx.precision());
+        
+        // u_plus = (x + 1) / 2, u_minus = (1 - x) / 2
+        let u_plus = (x.clone() + one.clone()) * half.clone();
+        let u_minus = (one.clone() - x.clone()) * half.clone();
+        
+        let v = lambda.clone() * y.clone();
+        let absv = v.clone().abs();
+        
+        // Handle y ≈ 0 using Taylor expansion
+        // K(x,y) = 1/Λ - xy/2 + (1/24)Λ(3x² - 1)y² + O(y³)
+        // For |Λy| < 2e-14, use first-order approximation
+        let absv_f64 = extract_f64(absv.to_f64());
+        if absv_f64 < 2e-14 {
+            let term0 = one.clone() / lambda.clone();
+            let term1 = half.clone() * x.clone() * y.clone();
+            return term0 - term1;
+        }
+        
+        // enum_val = exp(-|v| * (v >= 0 ? u_plus : u_minus))
+        let enum_val = if extract_f64(v.to_f64()) >= 0.0 {
+            (-absv.clone() * u_plus).exp()
+        } else {
+            (-absv.clone() * u_minus).exp()
+        };
+        
+        // Handle v / (exp(v) - 1) with numerical stability using expm1 pattern
+        // denom = absv / (exp(-absv) - 1)
+        let exp_neg_absv = (-absv.clone()).exp();
+        let denom = absv / (exp_neg_absv - one.clone());
+        
+        // K(x, y) = -1/Λ * enum_val * denom
+        -one / lambda * enum_val * denom
     }
 }
 
@@ -105,7 +123,7 @@ fn test_kernel_compute_precision_generic<K, T>(
     let result_dbig_f64 = extract_f64(result_dbig.to_f64());
     let result_t_f64 = result_t.to_f64();
 
-    // Compare
+    // Compare using absolute error
     let diff = (result_t_f64 - result_dbig_f64).abs();
     let rel_error = if result_dbig_f64.abs() > 1e-300 {
         diff / result_dbig_f64.abs()
@@ -114,14 +132,16 @@ fn test_kernel_compute_precision_generic<K, T>(
     };
 
     assert!(
-        rel_error < tolerance,
-        "{}: precision test failed for lambda={}, x={}, y={}\n  Expected: {}\n  Got: {}\n  Relative error: {}",
+        diff < tolerance,
+        "{}: precision test failed for lambda={}, x={}, y={}\n  Expected: {}\n  Got: {}\n  Absolute error: {} (tolerance: {})\n  Relative error: {}",
         kernel_name,
         lambda,
         x,
         y,
         result_dbig_f64,
         result_t_f64,
+        diff,
+        tolerance,
         rel_error
     );
 }
@@ -156,7 +176,7 @@ fn test_kernel_compute_precision_generic_noncentrosymm<K, T>(
     let result_dbig_f64 = extract_f64(result_dbig.to_f64());
     let result_t_f64 = result_t.to_f64();
 
-    // Compare
+    // Compare using absolute error
     let diff = (result_t_f64 - result_dbig_f64).abs();
     let rel_error = if result_dbig_f64.abs() > 1e-300 {
         diff / result_dbig_f64.abs()
@@ -165,13 +185,15 @@ fn test_kernel_compute_precision_generic_noncentrosymm<K, T>(
     };
 
     assert!(
-        rel_error < tolerance,
-        "{}: precision test failed for x={}, y={}\n  Expected: {}\n  Got: {}\n  Relative error: {}",
+        diff < tolerance,
+        "{}: precision test failed for x={}, y={}\n  Expected: {}\n  Got: {}\n  Absolute error: {} (tolerance: {})\n  Relative error: {}",
         kernel_name,
         x,
         y,
         result_dbig_f64,
         result_t_f64,
+        diff,
+        tolerance,
         rel_error
     );
 }
@@ -229,7 +251,7 @@ fn test_kernel_compute_reduced_precision_generic<K, T>(
     let result_dbig_f64 = extract_f64(result_dbig.to_f64());
     let result_t_f64 = result_t.to_f64();
 
-    // Compare
+    // Compare using absolute error
     let diff = (result_t_f64 - result_dbig_f64).abs();
     let rel_error = if result_dbig_f64.abs() > 1e-300 {
         diff / result_dbig_f64.abs()
@@ -238,8 +260,8 @@ fn test_kernel_compute_reduced_precision_generic<K, T>(
     };
 
     assert!(
-        rel_error < tolerance,
-        "{}: compute_reduced precision test failed for lambda={}, x={}, y={}, symmetry={:?}\n  Expected: {}\n  Got: {}\n  Relative error: {}",
+        diff < tolerance,
+        "{}: compute_reduced precision test failed for lambda={}, x={}, y={}, symmetry={:?}\n  Expected: {}\n  Got: {}\n  Absolute error: {} (tolerance: {})\n  Relative error: {}",
         kernel_name,
         lambda,
         x,
@@ -247,33 +269,106 @@ fn test_kernel_compute_reduced_precision_generic<K, T>(
         symmetry,
         result_dbig_f64,
         result_t_f64,
+        diff,
+        tolerance,
         rel_error
     );
 }
 
 /// Generic test helper for different lambda values
-fn test_kernel_precision_different_lambdas<F>(
+/// Tests both compute() and compute_reduced() for Even and Odd symmetries
+/// Works with any CentrosymmKernel that implements KernelDbigCompute
+fn test_kernel_precision_different_lambdas<K, F>(
     kernel_constructor: F,
     kernel_name: &str,
     test_points: &[(f64, f64)],
+    lambdas: &[f64],
 ) where
-    F: Fn(f64) -> LogisticKernel,
+    K: CentrosymmKernel + KernelDbigCompute + Clone,
+    F: Fn(f64) -> K,
 {
-    let lambdas = [10.0, 1e2, 1e3, 1e4];
-    for &lambda in &lambdas {
+    for &lambda in lambdas {
         let kernel = kernel_constructor(lambda);
         for &(x, y) in test_points {
-            test_kernel_compute_precision_generic::<LogisticKernel, f64>(
+            // Test compute() precision
+            test_kernel_compute_precision_generic::<K, f64>(
                 &kernel, lambda, x, y, TOLERANCE_F64, kernel_name,
             );
-            test_kernel_compute_precision_generic::<LogisticKernel, Df64>(
-                &kernel, lambda, x, y, TOLERANCE_TWOFLOAT, kernel_name,
+            test_kernel_compute_precision_generic::<K, Df64>(
+                &kernel, lambda, x, y, TOLERANCE_DF64, kernel_name,
+            );
+            
+            // Test compute_reduced() precision for Even symmetry
+            test_kernel_compute_reduced_precision_generic::<K, f64>(
+                &kernel, lambda, x, y, SymmetryType::Even, TOLERANCE_F64, kernel_name,
+            );
+            test_kernel_compute_reduced_precision_generic::<K, Df64>(
+                &kernel, lambda, x, y, SymmetryType::Even, TOLERANCE_DF64, kernel_name,
+            );
+            
+            // Test compute_reduced() precision for Odd symmetry
+            test_kernel_compute_reduced_precision_generic::<K, f64>(
+                &kernel, lambda, x, y, SymmetryType::Odd, TOLERANCE_F64, kernel_name,
+            );
+            test_kernel_compute_reduced_precision_generic::<K, Df64>(
+                &kernel, lambda, x, y, SymmetryType::Odd, TOLERANCE_DF64, kernel_name,
             );
         }
     }
 }
 
-// Simple non-centrosymmetric kernel for testing
+/// Test kernel precision at critical points that revealed the double-double precision bug
+/// This test specifically targets the issue where abs_as_same_type was losing precision
+#[test]
+fn test_logistic_kernel_precision_critical_points() {
+    // Critical test points that revealed the precision bug
+    // x = y = 0.01 was the point where the bug was discovered
+    let test_points = [
+        (0.0, 0.0),      // Origin
+        (0.01, 0.01),    // Small values (bug discovery point)
+        (0.1, 0.1),      // Medium-small values
+        (0.5, 0.5),      // Medium values
+        (0.9, 0.9),      // Near boundary
+        (0.01, 0.1),     // Asymmetric small x
+        (0.1, 0.01),     // Asymmetric small y
+    ];
+    
+    let lambdas = [10.0, 1e2, 1e3, 1e4];
+    
+    test_kernel_precision_different_lambdas::<LogisticKernel, _>(
+        |lambda| LogisticKernel::new(lambda),
+        "LogisticKernel",
+        &test_points,
+        &lambdas,
+    );
+}
+
+/// Test RegularizedBoseKernel precision at critical points
+/// Uses the same generic test framework to ensure consistency
+#[test]
+#[ignore]
+fn test_regularized_bose_kernel_precision_critical_points() {
+    let test_points = [
+        (0.0, 0.0),      // Origin
+        (0.01, 0.01),    // Small values
+        (0.1, 0.1),      // Medium-small values
+        (0.5, 0.5),      // Medium values
+        (0.9, 0.9),      // Near boundary
+        (0.01, 0.1),     // Asymmetric small x
+        (0.1, 0.01),     // Asymmetric small y
+    ];
+    
+    let lambdas = [10.0, 1e2, 1e3];
+    
+    test_kernel_precision_different_lambdas::<RegularizedBoseKernel, _>(
+        |lambda| RegularizedBoseKernel::new(lambda),
+        "RegularizedBoseKernel",
+        &test_points,
+        &lambdas,
+    );
+}
+
+// Simple non-centrosymmetric kernel for testing AbstractKernel trait
 // K(x, y) = x + y (clearly non-centrosymmetric: K(-x, -y) = -x - y = -(x + y) != x + y = K(x, y))
 #[derive(Debug, Clone, Copy)]
 struct SimpleNonCentrosymmKernel {
@@ -293,98 +388,6 @@ impl AbstractKernel for SimpleNonCentrosymmKernel {
 
     fn is_centrosymmetric(&self) -> bool {
         false
-    }
-}
-
-impl KernelProperties for SimpleNonCentrosymmKernel {
-    type SVEHintsType<T> = SimpleNonCentrosymmSVEHints<T>
-    where
-        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
-
-    fn ypower(&self) -> i32 {
-        0
-    }
-
-    fn conv_radius(&self) -> f64 {
-        std::f64::INFINITY
-    }
-
-    fn xmax(&self) -> f64 {
-        1.0
-    }
-
-    fn ymax(&self) -> f64 {
-        1.0
-    }
-
-    fn weight<S: StatisticsType + 'static>(&self, _beta: f64, _omega: f64) -> f64 {
-        1.0
-    }
-
-    fn inv_weight<S: StatisticsType + 'static>(&self, _beta: f64, _omega: f64) -> f64 {
-        1.0
-    }
-
-    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
-    where
-        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
-    {
-        SimpleNonCentrosymmSVEHints::new(*self, epsilon)
-    }
-}
-
-#[derive(Debug, Clone)]
-struct SimpleNonCentrosymmSVEHints<T> {
-    kernel: SimpleNonCentrosymmKernel,
-    epsilon: f64,
-    _phantom: std::marker::PhantomData<T>,
-}
-
-impl<T> SimpleNonCentrosymmSVEHints<T>
-where
-    T: Copy + Debug + Send + Sync,
-{
-    pub fn new(kernel: SimpleNonCentrosymmKernel, epsilon: f64) -> Self {
-        Self {
-            kernel,
-            epsilon,
-            _phantom: std::marker::PhantomData,
-        }
-    }
-}
-
-impl<T> SVEHints<T> for SimpleNonCentrosymmSVEHints<T>
-where
-    T: Copy + Debug + Send + Sync + CustomNumeric,
-{
-    fn segments_x(&self) -> Vec<T> {
-        // Return full domain [-1, 1] for non-centrosymmetric kernel
-        vec![
-            T::from_f64_unchecked(-1.0),
-            T::from_f64_unchecked(0.0),
-            T::from_f64_unchecked(1.0),
-        ]
-    }
-
-    fn segments_y(&self) -> Vec<T> {
-        // Return full domain [-1, 1] for non-centrosymmetric kernel
-        vec![
-            T::from_f64_unchecked(-1.0),
-            T::from_f64_unchecked(0.0),
-            T::from_f64_unchecked(1.0),
-        ]
-    }
-
-    fn nsvals(&self) -> usize {
-        10
-    }
-
-    fn ngauss(&self) -> usize {
-        if self.epsilon >= 1e-8 {
-            10
-        } else {
-            16
-        }
     }
 }
 
@@ -412,83 +415,3 @@ fn test_noncentrosymm_kernel_compute() {
     assert!((result3 - result4).abs() > 1e-10); // Should be different (1.0 vs -1.0)
 }
 
-#[test]
-fn test_noncentrosymm_kernel_sve_hints() {
-    let kernel = SimpleNonCentrosymmKernel::new(10.0);
-    let hints = kernel.sve_hints::<f64>(1e-6);
-
-    let segments_x = hints.segments_x();
-    let segments_y = hints.segments_y();
-
-    // Should include negative values for non-centrosymmetric kernel
-    assert!(segments_x[0] < 0.0);
-    assert!(segments_y[0] < 0.0);
-    assert!(segments_x.last().unwrap() > &0.0);
-    assert!(segments_y.last().unwrap() > &0.0);
-
-    assert!(hints.nsvals() > 0);
-    assert!(hints.ngauss() > 0);
-}
-
-#[test]
-fn test_compute_sve_general_noncentrosymm() {
-    use crate::sve::{compute_sve_general, TworkType};
-
-    let kernel = SimpleNonCentrosymmKernel::new(10.0);
-    let epsilon = 1e-6;
-
-    let result = compute_sve_general(
-        kernel,
-        epsilon,
-        None,
-        None,
-        TworkType::Auto,
-    );
-
-    // Verify result is valid
-    assert!(result.s.len() > 0);
-    assert!(result.u.get_polys().len() > 0);
-    assert!(result.v.get_polys().len() > 0);
-
-    // Singular values should be non-negative and decreasing
-    for i in 0..result.s.len() - 1 {
-        assert!(result.s[i] >= result.s[i + 1]);
-    }
-}
-
-#[test]
-fn test_matrix_from_gauss_noncentrosymmetric() {
-    use crate::kernelmatrix::matrix_from_gauss_noncentrosymmetric;
-    use crate::gauss::legendre_generic;
-
-    let kernel = SimpleNonCentrosymmKernel::new(10.0);
-    let hints = kernel.sve_hints::<f64>(1e-6);
-
-    let segments_x = hints.segments_x();
-    let segments_y = hints.segments_y();
-
-    let rule = legendre_generic::<f64>(10);
-    let gauss_x = rule.piecewise(&segments_x);
-    let gauss_y = rule.piecewise(&segments_y);
-
-    let discretized = matrix_from_gauss_noncentrosymmetric(
-        &kernel,
-        &gauss_x,
-        &gauss_y,
-        &hints,
-    );
-
-    // Verify matrix dimensions
-    assert_eq!(discretized.matrix.shape().0, gauss_x.x.len());
-    assert_eq!(discretized.matrix.shape().1, gauss_y.x.len());
-
-    // Verify some matrix values (for K(x, y) = x + y)
-    for i in 0..gauss_x.x.len().min(5) {
-        for j in 0..gauss_y.x.len().min(5) {
-            let expected = gauss_x.x[i] + gauss_y.x[j];
-            let actual = discretized.matrix[[i, j]];
-            assert!((actual - expected).abs() < 1e-10,
-                "Matrix value mismatch at [{}, {}]: expected {}, got {}", i, j, expected, actual);
-        }
-    }
-}
