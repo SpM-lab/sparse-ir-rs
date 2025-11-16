@@ -36,6 +36,7 @@ dashu-base.workspace = true
 # Special functions
 special.workspace = true
 statrs.workspace = true
+libm.workspace = true
 
 # Error handling
 thiserror.workspace = true

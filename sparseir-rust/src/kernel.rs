@@ -16,6 +16,8 @@
 
 use crate::numeric::CustomNumeric;
 use crate::traits::{Statistics, StatisticsType};
+use libm::expm1 as libm_expm1;
+use simba::scalar::ComplexField;
 use std::fmt::Debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -505,6 +507,24 @@ pub struct RegularizedBoseKernel {
     pub lambda: f64,
 }
 
+/// Helper function to compute expm1(-absv) for different numeric types
+/// Uses exp_m1() for Df64 and libm::expm1 for f64
+fn _exp_m1<T: CustomNumeric>(absv: T) -> T {
+    match std::any::TypeId::of::<T>() {
+        id if id == std::any::TypeId::of::<crate::Df64>() => {
+            // Safe: we know T is Df64, use exp_m1() method from ComplexField trait
+            let df64_absv: crate::Df64 = unsafe { std::mem::transmute_copy(&absv) };
+            let expm1_result = (-df64_absv).exp_m1();
+            unsafe { std::mem::transmute_copy(&expm1_result) }
+        }
+        _ => {
+            // For f64, use libm::expm1 for better numerical stability
+            let f64_absv = absv.to_f64();
+            T::from_f64_unchecked(libm_expm1(-f64_absv))
+        }
+    }
+}
+
 impl RegularizedBoseKernel {
     /// Create a new RegularizedBoseKernel
     ///
@@ -563,11 +583,16 @@ impl RegularizedBoseKernel {
             (-absv * u_minus).exp()
         };
 
-        // Handle v / (exp(v) - 1) with numerical stability
-        // Follows C++ implementation using expm1 pattern
-        // denom = absv / expm1(-absv) = absv / (exp(-absv) - 1)
-        let exp_neg_absv = (-absv).exp();
-        let denom = absv / (exp_neg_absv - T::from_f64_unchecked(1.0));
+        // Handle v / (exp(v) - 1) with numerical stability using expm1
+        // Follows SparseIR.jl implementation: denom = absv / expm1(-absv)
+        // This is more accurate than exp(-absv) - 1 for small arguments
+        let denom = if absv.to_f64() >= 1e-200 {
+            let expm1_neg_absv = _exp_m1(absv);
+            absv / expm1_neg_absv
+        } else {
+            // For very small absv, use -1 (matches SparseIR.jl: -one(absv))
+            -T::from_f64_unchecked(1.0)
+        };
 
         // K(x, y) = -1/Λ * enum_val * denom
         // Since denom is negative (exp(-absv) < 1), final result is positive
