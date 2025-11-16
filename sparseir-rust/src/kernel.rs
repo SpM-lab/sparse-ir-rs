@@ -282,8 +282,9 @@ fn compute_logistic_kernel_reduced_odd<T: CustomNumeric>(lambda: f64, x: T, y: T
     // reduces the relative precision. To combat this, we replace the
     // values with the explicit form
     let v_half: T = T::from_f64_unchecked(lambda * 0.5) * y;
-    let xy_small: bool = (x * v_half).to_f64() < 1.0;
-    let cosh_finite: bool = v_half.to_f64() < 85.0;
+    // Use direct comparison to match C++ implementation (avoid precision loss from to_f64())
+    let xy_small: bool = x * v_half < T::from_f64_unchecked(1.0);
+    let cosh_finite: bool = v_half < T::from_f64_unchecked(85.0);
     if xy_small && cosh_finite {
         -(v_half * x).sinh() / v_half.cosh()
     } else {

@@ -481,7 +481,7 @@ mod tests {
     /// Generic Hilbert matrix reconstruction test
     fn test_hilbert_reconstruction_generic<T>(n: usize, rtol: f64, expected_max_error: f64)
     where
-        T: nalgebra::RealField + From<f64> + Copy + ToPrimitive + std::fmt::Debug,
+        T: nalgebra::RealField + From<f64> + Copy + ToPrimitive + std::fmt::Debug + crate::numeric::CustomNumeric,
     {
         let h = create_hilbert_matrix_generic::<T>(n);
 
