@@ -15,12 +15,11 @@
 # ---
 
 # %%
-#=
 using Pkg;
 Pkg.activate(temp=true);
 Pkg.add(name="SparseIR", version="1.1.4")
 import SparseIR
-=#
+using LinearAlgebra
 
 # %%
 using Libdl: dlext
@@ -215,21 +214,75 @@ let
 end
 
 # %%
-#=
+function postprocess(n_gauss, gauss_rule, segs_x, segs_y, w_x, w_y, u, s, v)
+    s = Float64.(s)
+    u_x = u ./ sqrt.(w_x)
+    v_y = v ./ sqrt.(w_y)
+
+    u_x = reshape(u_x, (n_gauss, length(segs_x) - 1, length(s)))
+    v_y = reshape(v_y, (n_gauss, length(segs_y) - 1, length(s)))
+
+    cmat = SparseIR.legendre_collocation(gauss_rule)
+    u_data = reshape(cmat * reshape(u_x, (size(u_x, 1), :)),
+        (:, size(u_x, 2), size(u_x, 3)))
+    v_data = reshape(cmat * reshape(v_y, (size(v_y, 1), :)),
+        (:, size(v_y, 2), size(v_y, 3)))
+
+    dsegs_x = diff(segs_x)
+    dsegs_y = diff(segs_y)
+    u_data .*= sqrt.(0.5 .* reshape(dsegs_x, (1, :)))
+    v_data .*= sqrt.(0.5 .* reshape(dsegs_y, (1, :)))
+
+    # Construct polynomials
+    ulx = SparseIR.PiecewiseLegendrePolyVector(Float64.(u_data), Float64.(segs_x))
+    vly = SparseIR.PiecewiseLegendrePolyVector(Float64.(v_data), Float64.(segs_y))
+    SparseIR.canonicalize!(ulx, vly)
+    return ulx, s, vly
+end
+
 let
     ngauss(epsilon) = epsilon >= 1e-8 ? 10 : 16
-
     lambda = 10.0
     epsilon = 1e-8
     full_hints = SparseIR.sve_hints(SparseIR.LogisticKernel(lambda), epsilon)
     n_gauss = ngauss(epsilon)
     @assert n_gauss == 10
-    segs_x = SparseIR.segments_x(full_hints)
-    segs_x = segs_x[segs_x.>=0]
+    segments_x = SparseIR.segments_x(full_hints)
+    segments_x = segments_x[segments_x.>=0]
+    segments_y = SparseIR.segments_y(full_hints)
+    segments_y = segments_y[segments_y.>=0]
 
-    segs_y = SparseIR.segments_y(full_hints)
-    segs_y = segs_y[segs_y.>=0]
+    n_segments_x = length(segments_x) - 1
+    n_segments_y = length(segments_y) - 1
+    nx = n_gauss * n_segments_x
+    ny = n_gauss * n_segments_y
+
+    rule_x = SparseIR.legendre(n_gauss)
+    rule_x = SparseIR.piecewise(rule_x, segments_x)
+
+    rule_y = SparseIR.legendre(n_gauss)
+    rule_y = SparseIR.piecewise(rule_y, segments_y)
+
+    x = rule_x.x
+    w_x = rule_x.w
+    y = rule_y.x
+    w_y = rule_y.w
+
+    K = zeros(nx, ny)
+    for i in 1:nx
+        for j in 1:ny
+            if i == j
+                K[i, j] = sqrt(w_x[i] * w_y[j])
+            else
+                K[i, j] = 0.0
+            end
+        end
+    end
+
+    gauss_rule = SparseIR.legendre(n_gauss)
+    segs_x_f64 = segments_x
+    segs_y_f64 = segments_y
+    u, s, v = svd(K)
+    postprocess(n_gauss, gauss_rule, segments_x, segments_y, w_x, w_y, u, s, v)
 end
-=#
 
-# %%
