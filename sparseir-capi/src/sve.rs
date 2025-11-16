@@ -785,13 +785,23 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         // Compute SVD for even symmetry
         let (u_even, s_even, v_even) = match compute_svd_for_symmetry(K_even_high, K_even_low) {
             Some(result) => result,
-            None => return std::ptr::null_mut(),
+            None => {
+                unsafe {
+                    *status = SPIR_INTERNAL_ERROR;
+                }
+                return std::ptr::null_mut();
+            }
         };
 
         // Compute SVD for odd symmetry
         let (u_odd, s_odd, v_odd) = match compute_svd_for_symmetry(K_odd_high, K_odd_low) {
             Some(result) => result,
-            None => return std::ptr::null_mut(),
+            None => {
+                unsafe {
+                    *status = SPIR_INTERNAL_ERROR;
+                }
+                return std::ptr::null_mut();
+            }
         };
 
         // Convert to polynomials
@@ -1183,8 +1193,8 @@ mod tests {
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         // Get Gauss points and weights
-        let nx = n_gauss * (n_segments_x - 1);
-        let ny = n_gauss * (n_segments_y - 1);
+        let nx = n_gauss * n_segments_x;
+        let ny = n_gauss * n_segments_y;
         let mut x = vec![0.0; nx as usize];
         let mut w_x = vec![0.0; nx as usize];
         let mut y = vec![0.0; ny as usize];
@@ -1194,7 +1204,7 @@ mod tests {
         let result = spir_gauss_legendre_rule_piecewise_double(
             n_gauss,
             segments_x.as_ptr(),
-            n_segments_x - 1,
+            n_segments_x,
             x.as_mut_ptr(),
             w_x.as_mut_ptr(),
             &mut status_gauss,
