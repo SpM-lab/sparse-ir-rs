@@ -175,7 +175,23 @@ function spir_sve_result_get_size(sve_result::Ptr{spir_sve_result})
     return size[]
 end
 
-let
+function spir_sve_result_get_svals(sve_result::Ptr{spir_sve_result})
+    status = Ref{Int32}(0)
+    svals_size = spir_sve_result_get_size(sve_result)
+    svals = zeros(svals_size)
+    ccall(
+        (:spir_sve_result_get_svals, libpath),
+        Int32,
+        (Ptr{spir_sve_result}, Ptr{Float64}, Ptr{Int32}),
+        sve_result, svals, status
+    )
+    if status[] != 0
+        error("Failed to get SVE result svals: status = $(status[])")
+    end
+    return svals
+end
+
+svals_capi = let
     kernel = kernel_logistic_new(10.0)
     n_gauss = spir_kernel_get_sve_hints_ngauss(kernel, 1e-8)
     segments_x = spir_kernel_get_sve_hints_segments_x(kernel, 1e-8)
@@ -210,7 +226,7 @@ let
     sve_result = spir_sve_result_from_matrix(
         K, nx, ny, segments_x, segments_y, n_gauss, 1e-8
     )
-    println(spir_sve_result_get_size(sve_result))
+    svals = spir_sve_result_get_svals(sve_result)
 end
 
 # %%
@@ -283,6 +299,7 @@ let
     segs_x_f64 = segments_x
     segs_y_f64 = segments_y
     u, s, v = svd(K)
-    postprocess(n_gauss, gauss_rule, segments_x, segments_y, w_x, w_y, u, s, v)
+    u, svals_julia, v = postprocess(n_gauss, gauss_rule, segments_x, segments_y, w_x, w_y, u, s, v)
+    @assert svals_julia ≈ svals_capi
 end
 
