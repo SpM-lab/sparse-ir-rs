@@ -161,8 +161,16 @@ impl CustomNumeric for Df64 {
             // For Df64 to Df64, this is just a copy (no conversion needed)
             id if id == std::any::TypeId::of::<Df64>() => {
                 // Safe: Df64 to Df64 conversion (copy)
-                let df64_value = value.to_f64(); // Convert to f64 first
-                Self::from_f64_unchecked(df64_value) // Then back to Df64
+                // We know U is Df64 from TypeId check, and Df64 implements Copy
+                // so we can safely copy the value without losing precision
+                // Note: We can't just return `value` directly because Rust's type system
+                // doesn't know that U == Df64 at compile time, even though we've verified
+                // it at runtime with TypeId. So we need unsafe transmute_copy.
+                unsafe {
+                    // Safety: We've verified via TypeId that U == Df64, and Df64 is Copy
+                    // so this is a no-op copy that preserves all precision (hi and lo parts)
+                    std::mem::transmute_copy(&value)
+                }
             }
             // Fallback: convert via f64 for unknown types
             _ => Self::from_f64_unchecked(value.to_f64()),

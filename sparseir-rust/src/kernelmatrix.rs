@@ -10,6 +10,7 @@ use crate::numeric::CustomNumeric;
 use mdarray::DTensor;
 use std::fmt::Debug;
 
+
 /// This structure stores a discrete kernel matrix along with the corresponding
 /// Gauss quadrature rules for x and y coordinates. This enables easy application
 /// of weights for SVE computation and maintains the relationship between matrix
@@ -188,9 +189,6 @@ pub fn matrix_from_gauss_with_segments<
         for j in 0..m {
             let x = gauss_x.x[i];
             let y = gauss_y.x[j];
-
-            // Use T type directly for kernel computation
-            // Note: gauss_x and gauss_y should already be scaled to [0, 1] interval
             result[[i, j]] = kernel.compute_reduced(x, y, symmetry);
         }
     }

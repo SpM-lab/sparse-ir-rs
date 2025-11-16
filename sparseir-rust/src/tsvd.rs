@@ -213,7 +213,7 @@ pub fn tsvd<T>(
     config: TSVDConfig<T>,
 ) -> Result<SVDResult<T>, TSVDError>
 where
-    T: ComplexField + RealField + Copy + nalgebra::RealField + std::fmt::Debug + ToPrimitive,
+    T: ComplexField + RealField + Copy + nalgebra::RealField + std::fmt::Debug + ToPrimitive + CustomNumeric,
 {
     let (m, n) = matrix.shape();
 
@@ -234,9 +234,20 @@ where
     let r_matrix = qr.r();
     let permutation = qr.p();
 
+    // print q_matrix shape
+    //println!("q_matrix shape: {:?}", q_matrix.shape());
+    //println!("r_matrix shape: {:?}", r_matrix.shape());
+    //print r_matrix diagonal values (handle non-square matrices)
+    let (r_rows, r_cols) = r_matrix.shape();
+    let diag_len = r_rows.min(r_cols);
+    let diag_values: Vec<T> = (0..diag_len).map(|i| r_matrix[(i, i)]).collect();
+    for i in 0..diag_values.len() {
+        println!("diag[{}]: {}", i, diag_values[i].to_f64());
+    }
+
     // Step 2: Apply QR-based rank estimation first
     // Use type-specific epsilon for QR diagonal elements (more conservative than rtol)
-    let qr_rank = calculate_rank_from_r(&r_matrix, get_epsilon_for_svd::<T>());
+    let qr_rank = calculate_rank_from_r(&r_matrix, T::from_f64_unchecked(2.0) * get_epsilon_for_svd::<T>());
     
     if qr_rank == 0 {
         // Matrix has zero rank
@@ -248,15 +259,14 @@ where
         });
     }
 
+    //print qr_rank
+    println!("qr_rank: {:?}", qr_rank);
+
     // Step 3: Truncate R to estimated rank and apply SVD
     let r_truncated: DMatrix<T> = r_matrix.rows(0, qr_rank).into();
-    // Use rtol directly as T, fallback to type-specific epsilon
-    let rtol_t = if config.rtol.to_f64().is_some() {
-        config.rtol
-    } else {
-        T::default_epsilon()
-    };
-    let rtol_f64 = rtol_t.to_f64().unwrap_or(f64::EPSILON);
+    // Use rtol directly as T
+    let rtol_t = config.rtol;
+    let rtol_f64 = rtol_t.to_f64();
     let svd_result = svd_decompose(&r_truncated, rtol_f64);
     
     if svd_result.rank == 0 {
@@ -471,7 +481,7 @@ mod tests {
     /// Generic Hilbert matrix reconstruction test
     fn test_hilbert_reconstruction_generic<T>(n: usize, rtol: f64, expected_max_error: f64)
     where
-        T: nalgebra::RealField + From<f64> + Copy + ToPrimitive + std::fmt::Debug,
+        T: nalgebra::RealField + From<f64> + Copy + ToPrimitive + std::fmt::Debug + crate::numeric::CustomNumeric,
     {
         let h = create_hilbert_matrix_generic::<T>(n);
 
