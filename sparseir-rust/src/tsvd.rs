@@ -234,17 +234,6 @@ where
     let r_matrix = qr.r();
     let permutation = qr.p();
 
-    // print q_matrix shape
-    //println!("q_matrix shape: {:?}", q_matrix.shape());
-    //println!("r_matrix shape: {:?}", r_matrix.shape());
-    //print r_matrix diagonal values (handle non-square matrices)
-    let (r_rows, r_cols) = r_matrix.shape();
-    let diag_len = r_rows.min(r_cols);
-    let diag_values: Vec<T> = (0..diag_len).map(|i| r_matrix[(i, i)]).collect();
-    for i in 0..diag_values.len() {
-        println!("diag[{}]: {}", i, diag_values[i].to_f64());
-    }
-
     // Step 2: Apply QR-based rank estimation first
     // Use type-specific epsilon for QR diagonal elements (more conservative than rtol)
     let qr_rank = calculate_rank_from_r(&r_matrix, T::from_f64_unchecked(2.0) * get_epsilon_for_svd::<T>());
@@ -258,9 +247,6 @@ where
             rank: 0,
         });
     }
-
-    //print qr_rank
-    println!("qr_rank: {:?}", qr_rank);
 
     // Step 3: Truncate R to estimated rank and apply SVD
     let r_truncated: DMatrix<T> = r_matrix.rows(0, qr_rank).into();
