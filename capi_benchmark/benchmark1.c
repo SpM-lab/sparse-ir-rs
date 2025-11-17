@@ -222,9 +222,9 @@ int benchmark_internal(double beta, double epsilon)
 
 int main()
 {
-    //printf("Benchmark (beta = 1e+3, epsilon = 1e-6)\n");
-    //benchmark_internal(1e+3, 1e-6);
-    //printf("\n");
+    printf("Benchmark (beta = 1e+3, epsilon = 1e-6)\n");
+    benchmark_internal(1e+3, 1e-6);
+    printf("\n");
 
     printf("Benchmark (beta = 1e+5, epsilon = 1e-10)\n");
     benchmark_internal(1e+5, 1e-10);
