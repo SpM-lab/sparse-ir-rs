@@ -15,6 +15,11 @@ Thumbs.db
 # Backup directories
 tests_backup/
 
+# Backup files (sparseir.h is auto-generated, backups are not needed)
+*.backup.*
+*_backup.*
+*.old
+
 # C++ test build artifacts
 cxx_tests/_build/
 cxx_tests/_install/
