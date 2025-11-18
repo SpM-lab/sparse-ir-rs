@@ -84,8 +84,26 @@ rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
+# Temporarily disable Git URL rewriting to ensure HTTPS is used for GitLab
+# This prevents Git from rewriting https://gitlab.com/ to git@gitlab.com:
+GIT_CONFIG_GLOBAL_OLD=$(git config --global --get url.git@gitlab.com:.insteadOf 2>/dev/null || echo "")
+if [ -n "${GIT_CONFIG_GLOBAL_OLD}" ]; then
+    git config --global --unset url.git@gitlab.com:.insteadOf
+    GIT_CONFIG_RESTORE=true
+    # Set up trap to restore config on exit (including errors)
+    trap 'if [ "${GIT_CONFIG_RESTORE}" = "true" ]; then git config --global url.git@gitlab.com:.insteadOf https://gitlab.com/; fi' EXIT
+else
+    GIT_CONFIG_RESTORE=false
+fi
+
 cmake "${SCRIPT_DIR}" \
     -DCMAKE_BUILD_TYPE=Release
+
+# Restore Git config if it was changed (trap will also handle this on exit)
+if [ "${GIT_CONFIG_RESTORE}" = "true" ]; then
+    git config --global url.git@gitlab.com:.insteadOf https://gitlab.com/
+    trap - EXIT  # Remove trap since we've restored manually
+fi
 
 echo -e "${YELLOW}Building C++ tests...${NC}"
 cmake --build . -j$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)

@@ -34,11 +34,12 @@ message(STATUS "Found libsparseir_capi at: ${SPARSEIR_CAPI_LIB}")
 # Find Eigen3
 find_package(Eigen3 3.4.1 QUIET NO_MODULE)
 if(NOT Eigen3_FOUND)
-    message(STATUS "Eigen3 not found in system, fetching from GitHub...")
+    message(STATUS "Eigen3 not found in system, fetching from GitLab...")
     include(FetchContent)
     FetchContent_Declare(Eigen3
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
         GIT_TAG 3.4.1
+        GIT_SHALLOW TRUE
     )
     FetchContent_MakeAvailable(Eigen3)
 endif()
@@ -74,10 +75,10 @@ target_include_directories(cinterface_integration PRIVATE
     ${xprec_SOURCE_DIR}/include
 )
 
-target_link_libraries(cinterface_integration PRIVATE 
+target_link_libraries(cinterface_integration PRIVATE
     Catch2::Catch2WithMain
     ${SPARSEIR_CAPI_LIB}
-    Eigen3::Eigen 
+    Eigen3::Eigen
     Threads::Threads
 )
 
@@ -94,10 +95,10 @@ target_include_directories(cinterface_core PRIVATE
     ${EIGEN3_INCLUDE_DIR}
 )
 
-target_link_libraries(cinterface_core PRIVATE 
+target_link_libraries(cinterface_core PRIVATE
     Catch2::Catch2WithMain
     ${SPARSEIR_CAPI_LIB}
-    Eigen3::Eigen 
+    Eigen3::Eigen
     Threads::Threads
 )
 
