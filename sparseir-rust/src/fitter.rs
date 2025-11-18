@@ -9,16 +9,84 @@ use std::cell::RefCell;
 
 /// SVD decomposition for real matrices
 struct RealSVD {
-    u: DTensor<f64, 2>,  // (n_rows, min_dim)
+    ut: DTensor<f64, 2>, // (min_dim, n_rows) - U^T
     s: Vec<f64>,         // (min_dim,)
-    vt: DTensor<f64, 2>, // (min_dim, n_cols)
+    v: DTensor<f64, 2>,  // (n_cols, min_dim) - V (transpose of V^T)
+}
+
+impl RealSVD {
+    fn new(u: DTensor<f64, 2>, s: Vec<f64>, vt: DTensor<f64, 2>) -> Self {
+        // Check dimensions
+        let (_, u_cols) = *u.shape();
+        let (vt_rows, _) = *vt.shape();
+        let min_dim = s.len();
+        
+        assert_eq!(
+            u_cols, min_dim,
+            "u.cols()={} must equal s.len()={}",
+            u_cols, min_dim
+        );
+        assert_eq!(
+            vt_rows, min_dim,
+            "vt.rows()={} must equal s.len()={}",
+            vt_rows, min_dim
+        );
+        
+        // Create ut and v from u and vt
+        let ut = u.transpose().to_tensor(); // (min_dim, n_rows)
+        let v = vt.transpose().to_tensor(); // (n_cols, min_dim)
+        
+        // Verify v.cols() == s.len() (v.shape().1 is the second dimension, which is min_dim)
+        assert_eq!(
+            v.shape().1, min_dim,
+            "v.cols()={} must equal s.len()={}",
+            v.shape().1, min_dim
+        );
+        
+        Self { ut, s, v }
+    }
 }
 
 /// SVD decomposition for complex matrices
 struct ComplexSVD {
-    u: DTensor<Complex<f64>, 2>,  // (n_rows, min_dim)
+    ut: DTensor<Complex<f64>, 2>, // (min_dim, n_rows) - U^H
     s: Vec<f64>,                  // (min_dim,) - singular values are real
-    vt: DTensor<Complex<f64>, 2>, // (min_dim, n_cols)
+    v: DTensor<Complex<f64>, 2>,  // (n_cols, min_dim) - V (transpose of V^T)
+}
+
+impl ComplexSVD {
+    fn new(u: DTensor<Complex<f64>, 2>, s: Vec<f64>, vt: DTensor<Complex<f64>, 2>) -> Self {
+        // Check dimensions
+        let (u_rows, u_cols) = *u.shape();
+        let (vt_rows, _) = *vt.shape();
+        let min_dim = s.len();
+        
+        assert_eq!(
+            u_cols, min_dim,
+            "u.cols()={} must equal s.len()={}",
+            u_cols, min_dim
+        );
+        assert_eq!(
+            vt_rows, min_dim,
+            "vt.rows()={} must equal s.len()={}",
+            vt_rows, min_dim
+        );
+        
+        // Create ut (U^H, conjugate transpose) and v from u and vt
+        let ut = DTensor::<Complex<f64>, 2>::from_fn([u_cols, u_rows], |idx| {
+            u[[idx[1], idx[0]]].conj() // conjugate transpose: U^H
+        });
+        let v = vt.transpose().to_tensor(); // (n_cols, min_dim)
+        
+        // Verify v.cols() == s.len() (v.shape().1 is the second dimension, which is min_dim)
+        assert_eq!(
+            v.shape().1, min_dim,
+            "v.cols()={} must equal s.len()={}",
+            v.shape().1, min_dim
+        );
+        
+        Self { ut, s, v }
+    }
 }
 
 /// Fitter for real matrix: A ∈ R^{n×m}
@@ -98,17 +166,14 @@ impl RealMatrixFitter {
             self.n_points()
         );
 
-        // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_real_svd(&self.matrix);
-            *self.svd.borrow_mut() = Some(svd);
-        }
+        // Convert values to column vector and use fit_2d
+        let n = values.len();
+        let values_2d = DTensor::<f64, 2>::from_fn([n, 1], |idx| values[idx[0]]);
+        let coeffs_2d = self.fit_2d(&values_2d);
 
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
-
-        // Solve: coeffs = V * S^{-1} * U^T * values
-        solve_real_svd(svd, values)
+        // Extract as Vec
+        let basis_size = self.basis_size();
+        (0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect()
     }
 
     /// Fit complex values by fitting real and imaginary parts separately
@@ -235,20 +300,19 @@ impl RealMatrixFitter {
         // coeffs_2d = V * S^{-1} * U^T * values_2d
 
         // 1. U^T * values_2d
-        let ut = DTensor::<f64, 2>::from_fn(*svd.u.shape(), |idx| {
-            svd.u[[idx[1], idx[0]]] // transpose
-        });
-        let ut_values = matmul_par(&ut, values_2d); // [min_dim, extra_size]
+        let mut ut_values = matmul_par(&svd.ut, values_2d); // [min_dim, extra_size]
 
-        // 2. S^{-1} * (U^T * values_2d)
+        // 2. S^{-1} * (U^T * values_2d) - in-place division
         let min_dim = svd.s.len();
-        let s_inv_ut_values = DTensor::<f64, 2>::from_fn([min_dim, extra_size], |idx| {
-            ut_values[[idx[0], idx[1]]] / svd.s[idx[0]]
-        });
+        // In-place division by singular values
+        for i in 0..min_dim {
+            for j in 0..extra_size {
+                ut_values[[i, j]] /= svd.s[i];
+            }
+        }
 
         // 3. V * (S^{-1} * U^T * values_2d)
-        let v = svd.vt.transpose().to_tensor(); // [basis_size, min_dim]
-        matmul_par(&v, &s_inv_ut_values) // [basis_size, extra_size]
+        matmul_par(&svd.v, &ut_values) // [basis_size, extra_size]
     }
 
     /// Fit 2D complex tensor (along dim=0) using matrix multiplication
@@ -500,23 +564,14 @@ impl ComplexToRealFitter {
             self.basis_size()
         );
 
-        // A_real * coeffs → [re_0, im_0, re_1, im_1, ...]
-        let result_flat = {
-            let mut result = vec![0.0; 2 * self.n_points];
-            for i in 0..(2 * self.n_points) {
-                let mut sum = 0.0;
-                for j in 0..self.basis_size() {
-                    sum += self.matrix_real[[i, j]] * coeffs[j];
-                }
-                result[i] = sum;
-            }
-            result
-        };
+        // Convert coeffs to column vector and use evaluate_2d
+        let basis_size = coeffs.len();
+        let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, 1], |idx| coeffs[idx[0]]);
+        let values_2d = self.evaluate_2d(&coeffs_2d);
 
-        // Unflatten: [re_0, im_0, ...] → [z_0, z_1, ...]
-        (0..self.n_points)
-            .map(|i| Complex::new(result_flat[2 * i], result_flat[2 * i + 1]))
-            .collect()
+        // Extract as Vec
+        let n_points = self.n_points();
+        (0..n_points).map(|i| values_2d[[i, 0]]).collect()
     }
 
     /// Fit: values (complex) → coeffs (real)
@@ -531,24 +586,14 @@ impl ComplexToRealFitter {
             self.n_points()
         );
 
-        // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_real_svd(&self.matrix_real);
-            *self.svd.borrow_mut() = Some(svd);
-        }
+        // Convert complex values to 2D tensor (column vector) and use fit_2d
+        let n = values.len();
+        let values_2d = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
+        let coeffs_2d = self.fit_2d(&values_2d);
 
-        // Flatten complex values → real: [z_0, z_1, ...] → [re_0, im_0, re_1, im_1, ...]
-        let mut values_flat = vec![0.0; 2 * self.n_points];
-        for (i, &z) in values.iter().enumerate() {
-            values_flat[2 * i] = z.re;
-            values_flat[2 * i + 1] = z.im;
-        }
-
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
-
-        // Solve: coeffs = V * S^{-1} * U^T * values_flat
-        solve_real_svd(svd, &values_flat)
+        // Extract as Vec
+        let basis_size = self.basis_size();
+        (0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect()
     }
 
     /// Evaluate 2D real tensor to complex (along dim=0) using matrix multiplication
@@ -625,18 +670,23 @@ impl ComplexToRealFitter {
         // coeffs_2d = V * S^{-1} * U^T * values_flat
 
         // 1. U^T * values_flat
-        let ut = svd.u.transpose().to_tensor();
-        let ut_values = matmul_par(&ut, &values_flat);
+        let mut ut_values = matmul_par(&svd.ut, &values_flat);
 
-        // 2. S^{-1} * (U^T * values_flat)
+        // 2. S^{-1} * (U^T * values_flat) - in-place division
         let min_dim = svd.s.len();
-        let s_inv_ut_values = DTensor::<f64, 2>::from_fn([min_dim, extra_size], |idx| {
-            ut_values[[idx[0], idx[1]]] / svd.s[idx[0]]
-        });
+        if *ut_values.shape() != (min_dim, extra_size) {
+            panic!("ut_values.shape()={:?} must equal [min_dim, extra_size]=[{}, {}]", ut_values.shape(), min_dim, extra_size);
+        }
+
+        // In-place division by singular values
+        for i in 0..min_dim {
+            for j in 0..extra_size {
+                ut_values[[i, j]] /= svd.s[i];
+            }
+        }
 
         // 3. V * (S^{-1} * U^T * values_flat)
-        let v = svd.vt.transpose().to_tensor();
-        matmul_par(&v, &s_inv_ut_values)
+        matmul_par(&svd.v, &ut_values)
     }
 }
 
@@ -717,17 +767,14 @@ impl ComplexMatrixFitter {
             self.n_points()
         );
 
-        // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_complex_svd(&self.matrix);
-            *self.svd.borrow_mut() = Some(svd);
-        }
+        // Convert values to column vector and use fit_2d
+        let n = values.len();
+        let values_2d = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
+        let coeffs_2d = self.fit_2d(&values_2d);
 
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
-
-        // Solve: coeffs = V * S^{-1} * U^H * values
-        solve_complex_svd(svd, values)
+        // Extract as Vec
+        let basis_size = self.basis_size();
+        (0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect()
     }
 
     /// Evaluate 2D complex tensor (along dim=0) using matrix multiplication
@@ -820,22 +867,20 @@ impl ComplexMatrixFitter {
 
         // coeffs_2d = V * S^{-1} * U^H * values_2d
 
-        // 1. U^H * values_2d (conjugate transpose)
-        let (u_rows, u_cols) = *svd.u.shape();
-        let uh = DTensor::<Complex<f64>, 2>::from_fn([u_cols, u_rows], |idx| {
-            svd.u[[idx[1], idx[0]]].conj()
-        });
-        let uh_values = matmul_par(&uh, values_2d); // [min_dim, extra_size]
+        // 1. U^H * values_2d (ut is already U^H)
+        let mut uh_values = matmul_par(&svd.ut, values_2d); // [min_dim, extra_size]
 
-        // 2. S^{-1} * (U^H * values_2d)
+        // 2. S^{-1} * (U^H * values_2d) - in-place division
         let min_dim = svd.s.len();
-        let s_inv_uh_values = DTensor::<Complex<f64>, 2>::from_fn([min_dim, extra_size], |idx| {
-            uh_values[[idx[0], idx[1]]] / svd.s[idx[0]]
-        });
+        // In-place division by singular values
+        for i in 0..min_dim {
+            for j in 0..extra_size {
+                uh_values[[i, j]] /= svd.s[i];
+            }
+        }
 
         // 3. V * (S^{-1} * U^H * values_2d)
-        let v = svd.vt.transpose().to_tensor(); // [basis_size, min_dim]
-        matmul_par(&v, &s_inv_uh_values) // [basis_size, extra_size]
+        matmul_par(&svd.v, &uh_values) // [basis_size, extra_size]
     }
 
     /// Fit 2D complex values to real coefficients (along dim=0)
@@ -875,37 +920,15 @@ fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
     let min_dim = s.shape().0.min(s.shape().1);
     let s_vec: Vec<f64> = (0..min_dim).map(|i| s[[0, i]]).collect();
 
-    RealSVD { u, s: s_vec, vt }
+    // Trim u and vt to min_dim
+    // u: (n_rows, n_cols) -> (n_rows, min_dim) - take first min_dim columns
+    // vt: (n_rows, n_cols) -> (min_dim, n_cols) - take first min_dim rows
+    let u_trimmed = u.view(.., ..min_dim).to_tensor();
+    let vt_trimmed = vt.view(..min_dim, ..).to_tensor();
+
+    RealSVD::new(u_trimmed, s_vec, vt_trimmed)
 }
 
-/// Solve linear system using precomputed SVD
-fn solve_real_svd(svd: &RealSVD, values: &[f64]) -> Vec<f64> {
-    use crate::gemm::matmul_par;
-
-    let n = values.len();
-    let basis_size = svd.vt.shape().1;
-
-    // Convert values to column vector
-    let values_col = DTensor::<f64, 2>::from_fn([n, 1], |idx| values[idx[0]]);
-
-    // U^T * values
-    let ut = svd.u.transpose().to_tensor();
-    let ut_values = matmul_par(&ut, &values_col);
-
-    // S^{-1} * (U^T * values)
-    let min_dim = svd.s.len();
-    let s_inv_ut_values = DTensor::<f64, 2>::from_fn([min_dim, 1], |idx| {
-        let i = idx[0];
-        ut_values[[i, 0]] / svd.s[i]
-    });
-
-    // coeffs = V * (S^{-1} * U^T * values) = V^T^T * (S^{-1} * U^T * values)
-    let v = svd.vt.transpose().to_tensor(); // (basis_size, min_dim)
-    let coeffs_col = matmul_par(&v, &s_inv_ut_values); // (basis_size, 1)
-
-    // Extract as Vec
-    (0..basis_size).map(|i| coeffs_col[[i, 0]]).collect()
-}
 
 /// Compute SVD of a complex matrix directly
 fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexSVD {
@@ -927,41 +950,13 @@ fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexSVD {
     let min_dim = s.shape().0.min(s.shape().1);
     let s_vec: Vec<f64> = (0..min_dim).map(|i| s[[0, i]].re).collect();
 
-    ComplexSVD { u, s: s_vec, vt }
-}
+    // Trim u and vt to min_dim
+    // u: (n_rows, n_cols) -> (n_rows, min_dim) - take first min_dim columns
+    // vt: (n_rows, n_cols) -> (min_dim, n_cols) - take first min_dim rows
+    let u_trimmed = u.view(.., ..min_dim).to_tensor();
+    let vt_trimmed = vt.view(..min_dim, ..).to_tensor();
 
-/// Solve linear system using precomputed complex SVD
-fn solve_complex_svd(svd: &ComplexSVD, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
-    use crate::gemm::matmul_par;
-
-    let n = values.len();
-    let basis_size = svd.vt.shape().1;
-
-    // Convert values to column vector
-    let values_col = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
-
-    // U^H * values (conjugate transpose)
-    // U has shape (n, min_dim), so U^H has shape (min_dim, n)
-    let (u_rows, u_cols) = *svd.u.shape();
-    let uh = DTensor::<Complex<f64>, 2>::from_fn([u_cols, u_rows], |idx| {
-        svd.u[[idx[1], idx[0]]].conj() // transpose and conjugate
-    });
-    let uh_values = matmul_par(&uh, &values_col);
-
-    // S^{-1} * (U^H * values)
-    let min_dim = svd.s.len();
-    let s_inv_uh_values = DTensor::<Complex<f64>, 2>::from_fn([min_dim, 1], |idx| {
-        let i = idx[0];
-        uh_values[[i, 0]] / svd.s[i]
-    });
-
-    // coeffs = V * (S^{-1} * U^H * values)
-    // V = (V^T)^T, and since V^T is real → complex, no conjugate needed
-    let v = svd.vt.transpose().to_tensor(); // (m, min_dim)
-    let coeffs_col = matmul_par(&v, &s_inv_uh_values);
-
-    // Extract as Vec
-    (0..basis_size).map(|i| coeffs_col[[i, 0]]).collect()
+    ComplexSVD::new(u_trimmed, s_vec, vt_trimmed)
 }
 
 #[cfg(test)]
