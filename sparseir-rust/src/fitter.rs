@@ -238,6 +238,7 @@ impl RealMatrixFitter {
         let ut = DTensor::<f64, 2>::from_fn(*svd.u.shape(), |idx| {
             svd.u[[idx[1], idx[0]]] // transpose
         });
+
         let ut_values = matmul_par(&ut, values_2d); // [min_dim, extra_size]
 
         // 2. S^{-1} * (U^T * values_2d)
