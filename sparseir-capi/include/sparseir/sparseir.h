@@ -934,8 +934,8 @@ int spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
  * GEMM operations in the library.
  *
  * # Arguments
- * * `cblas_dgemm` - Function pointer to CBLAS dgemm (double precision)
- * * `cblas_zgemm` - Function pointer to CBLAS zgemm (complex double precision)
+ * * `dgemm` - Function pointer to Fortran BLAS dgemm (double precision)
+ * * `zgemm` - Function pointer to Fortran BLAS zgemm (complex double precision)
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -943,19 +943,20 @@ int spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
  *
  * # Safety
  * The provided function pointers must:
- * - Be valid CBLAS function pointers following the standard CBLAS interface
+ * - Be valid Fortran BLAS function pointers following the standard Fortran BLAS interface
  * - Use 32-bit integers for all dimension parameters (LP64 interface)
  * - Be thread-safe (will be called from multiple threads)
  * - Remain valid for the entire lifetime of the program
  *
  * # Example (from C)
  * ```c
- * #include <cblas.h>
+ * // Link against BLAS library (e.g., -lblas or -lopenblas)
+ * // Fortran BLAS functions typically have trailing underscore
  *
- * // Register OpenBLAS
+ * // Register Fortran BLAS
  * int status = spir_register_dgemm_zgemm_lp64(
- *     (void*)cblas_dgemm,
- *     (void*)cblas_zgemm
+ *     (void*)dgemm_,
+ *     (void*)zgemm_
  * );
  *
  * if (status != SPIR_COMPUTATION_SUCCESS) {
@@ -963,37 +964,23 @@ int spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
  * }
  * ```
  *
- * # CBLAS Interface
+ * # Fortran BLAS Interface
  * The function pointers must match these signatures:
  * ```c
- * void cblas_dgemm(
- *     CblasOrder order,       // 102 for ColMajor
- *     CblasTranspose transa,  // 111 for NoTrans
- *     CblasTranspose transb,  // 111 for NoTrans
- *     int m, int n, int k,
- *     double alpha,
- *     const double *a, int lda,
- *     const double *b, int ldb,
- *     double beta,
- *     double *c, int ldc
- * );
+ * void dgemm_(char *transa, char *transb, int *m, int *n, int *k,
+ *             double *alpha, double *a, int *lda, double *b, int *ldb,
+ *             double *beta, double *c, int *ldc);
  *
- * void cblas_zgemm(
- *     CblasOrder order,
- *     CblasTranspose transa,
- *     CblasTranspose transb,
- *     int m, int n, int k,
- *     const void *alpha,      // complex<double>*
- *     const void *a, int lda,
- *     const void *b, int ldb,
- *     const void *beta,       // complex<double>*
- *     void *c, int ldc
- * );
+ * void zgemm_(char *transa, char *transb, int *m, int *n, int *k,
+ *             void *alpha, void *a, int *lda, void *b, int *ldb,
+ *             void *beta, void *c, int *ldc);
  * ```
+ * Note: All parameters are passed by reference (pointers).
+ * Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
  */
 
-int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
-                                          const void *cblas_zgemm);
+int spir_register_dgemm_zgemm_lp64(const void *dgemm,
+                                          const void *zgemm);
 
 /**
  * Register ILP64 BLAS functions (64-bit integers)
@@ -1003,8 +990,8 @@ int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
  * enabling support for very large matrices (> 2^31 elements).
  *
  * # Arguments
- * * `cblas_dgemm64` - Function pointer to ILP64 CBLAS dgemm (double precision)
- * * `cblas_zgemm64` - Function pointer to ILP64 CBLAS zgemm (complex double precision)
+ * * `dgemm64` - Function pointer to ILP64 Fortran BLAS dgemm (double precision)
+ * * `zgemm64` - Function pointer to ILP64 Fortran BLAS zgemm (complex double precision)
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -1012,7 +999,7 @@ int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
  *
  * # Safety
  * The provided function pointers must:
- * - Be valid CBLAS function pointers following the standard CBLAS interface with ILP64
+ * - Be valid Fortran BLAS function pointers following the standard Fortran BLAS interface with ILP64
  * - Use 64-bit integers for all dimension parameters (ILP64 interface)
  * - Be thread-safe (will be called from multiple threads)
  * - Remain valid for the entire lifetime of the program
@@ -1022,10 +1009,10 @@ int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
  * #define MKL_ILP64
  * #include <mkl.h>
  *
- * // Register MKL ILP64
+ * // Register MKL ILP64 Fortran BLAS
  * int status = spir_register_dgemm_zgemm_ilp64(
- *     (void*)cblas_dgemm,  // MKL's ILP64 version
- *     (void*)cblas_zgemm   // MKL's ILP64 version
+ *     (void*)dgemm_,  // MKL's ILP64 Fortran BLAS version
+ *     (void*)zgemm_   // MKL's ILP64 Fortran BLAS version
  * );
  *
  * if (status != SPIR_COMPUTATION_SUCCESS) {
@@ -1033,37 +1020,23 @@ int spir_register_dgemm_zgemm_lp64(const void *cblas_dgemm,
  * }
  * ```
  *
- * # CBLAS ILP64 Interface
+ * # Fortran BLAS ILP64 Interface
  * The function pointers must match these signatures (note: long long = 64-bit int):
  * ```c
- * void cblas_dgemm(
- *     CblasOrder order,
- *     CblasTranspose transa,
- *     CblasTranspose transb,
- *     long long m, long long n, long long k,
- *     double alpha,
- *     const double *a, long long lda,
- *     const double *b, long long ldb,
- *     double beta,
- *     double *c, long long ldc
- * );
+ * void dgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
+ *             double *alpha, double *a, long long *lda, double *b, long long *ldb,
+ *             double *beta, double *c, long long *ldc);
  *
- * void cblas_zgemm(
- *     CblasOrder order,
- *     CblasTranspose transa,
- *     CblasTranspose transb,
- *     long long m, long long n, long long k,
- *     const void *alpha,
- *     const void *a, long long lda,
- *     const void *b, long long ldb,
- *     const void *beta,
- *     void *c, long long ldc
- * );
+ * void zgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
+ *             void *alpha, void *a, long long *lda, void *b, long long *ldb,
+ *             void *beta, void *c, long long *ldc);
  * ```
+ * Note: All parameters are passed by reference (pointers).
+ * Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
  */
 
-int spir_register_dgemm_zgemm_ilp64(const void *cblas_dgemm64,
-                                           const void *cblas_zgemm64);
+int spir_register_dgemm_zgemm_ilp64(const void *dgemm64,
+                                           const void *zgemm64);
 
 /**
  * Create a new Logistic kernel

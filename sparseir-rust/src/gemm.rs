@@ -32,112 +32,111 @@ use std::sync::RwLock;
 
 /// BLAS dgemm function pointer type (LP64: 32-bit integers)
 ///
-/// Signature matches CBLAS dgemm:
+/// Signature matches Fortran BLAS dgemm:
 /// ```c
-/// void cblas_dgemm(
-///     CblasOrder order,          // 101 (RowMajor) or 102 (ColMajor)
-///     CblasTranspose transa,     // 111 (NoTrans), 112 (Trans), 113 (ConjTrans)
-///     CblasTranspose transb,
-///     int m, int n, int k,
-///     double alpha,
-///     const double *a, int lda,
-///     const double *b, int ldb,
-///     double beta,
-///     double *c, int ldc
-/// );
+/// void dgemm_(char *transa, char *transb, int *m, int *n, int *k,
+///             double *alpha, double *a, int *lda, double *b, int *ldb,
+///             double *beta, double *c, int *ldc);
 /// ```
+/// Note: All parameters are passed by reference (pointers).
+/// Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
 pub type DgemmFnPtr = unsafe extern "C" fn(
-    order: libc::c_int,
-    transa: libc::c_int,
-    transb: libc::c_int,
-    m: libc::c_int,
-    n: libc::c_int,
-    k: libc::c_int,
-    alpha: libc::c_double,
+    transa: *const libc::c_char,
+    transb: *const libc::c_char,
+    m: *const libc::c_int,
+    n: *const libc::c_int,
+    k: *const libc::c_int,
+    alpha: *const libc::c_double,
     a: *const libc::c_double,
-    lda: libc::c_int,
+    lda: *const libc::c_int,
     b: *const libc::c_double,
-    ldb: libc::c_int,
-    beta: libc::c_double,
+    ldb: *const libc::c_int,
+    beta: *const libc::c_double,
     c: *mut libc::c_double,
-    ldc: libc::c_int,
+    ldc: *const libc::c_int,
 );
 
 /// BLAS zgemm function pointer type (LP64: 32-bit integers)
 ///
-/// Signature matches CBLAS zgemm:
+/// Signature matches Fortran BLAS zgemm:
 /// ```c
-/// void cblas_zgemm(
-///     CblasOrder order,
-///     CblasTranspose transa,
-///     CblasTranspose transb,
-///     int m, int n, int k,
-///     const void *alpha,         // complex<double>*
-///     const void *a, int lda,
-///     const void *b, int ldb,
-///     const void *beta,          // complex<double>*
-///     void *c, int ldc
-/// );
+/// void zgemm_(char *transa, char *transb, int *m, int *n, int *k,
+///             void *alpha, void *a, int *lda, void *b, int *ldb,
+///             void *beta, void *c, int *ldc);
 /// ```
+/// Note: All parameters are passed by reference (pointers).
+/// Complex numbers are passed as void* (typically complex<double>*).
+/// Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
 pub type ZgemmFnPtr = unsafe extern "C" fn(
-    order: libc::c_int,
-    transa: libc::c_int,
-    transb: libc::c_int,
-    m: libc::c_int,
-    n: libc::c_int,
-    k: libc::c_int,
+    transa: *const libc::c_char,
+    transb: *const libc::c_char,
+    m: *const libc::c_int,
+    n: *const libc::c_int,
+    k: *const libc::c_int,
     alpha: *const num_complex::Complex<f64>,
     a: *const num_complex::Complex<f64>,
-    lda: libc::c_int,
+    lda: *const libc::c_int,
     b: *const num_complex::Complex<f64>,
-    ldb: libc::c_int,
+    ldb: *const libc::c_int,
     beta: *const num_complex::Complex<f64>,
     c: *mut num_complex::Complex<f64>,
-    ldc: libc::c_int,
+    ldc: *const libc::c_int,
 );
 
 /// BLAS dgemm function pointer type (ILP64: 64-bit integers)
+///
+/// Signature matches Fortran BLAS dgemm (ILP64):
+/// ```c
+/// void dgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
+///             double *alpha, double *a, long long *lda, double *b, long long *ldb,
+///             double *beta, double *c, long long *ldc);
+/// ```
 pub type Dgemm64FnPtr = unsafe extern "C" fn(
-    order: libc::c_int,
-    transa: libc::c_int,
-    transb: libc::c_int,
-    m: i64,
-    n: i64,
-    k: i64,
-    alpha: libc::c_double,
+    transa: *const libc::c_char,
+    transb: *const libc::c_char,
+    m: *const i64,
+    n: *const i64,
+    k: *const i64,
+    alpha: *const libc::c_double,
     a: *const libc::c_double,
-    lda: i64,
+    lda: *const i64,
     b: *const libc::c_double,
-    ldb: i64,
-    beta: libc::c_double,
+    ldb: *const i64,
+    beta: *const libc::c_double,
     c: *mut libc::c_double,
-    ldc: i64,
+    ldc: *const i64,
 );
 
 /// BLAS zgemm function pointer type (ILP64: 64-bit integers)
+///
+/// Signature matches Fortran BLAS zgemm (ILP64):
+/// ```c
+/// void zgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
+///             void *alpha, void *a, long long *lda, void *b, long long *ldb,
+///             void *beta, void *c, long long *ldc);
+/// ```
 pub type Zgemm64FnPtr = unsafe extern "C" fn(
-    order: libc::c_int,
-    transa: libc::c_int,
-    transb: libc::c_int,
-    m: i64,
-    n: i64,
-    k: i64,
+    transa: *const libc::c_char,
+    transb: *const libc::c_char,
+    m: *const i64,
+    n: *const i64,
+    k: *const i64,
     alpha: *const num_complex::Complex<f64>,
     a: *const num_complex::Complex<f64>,
-    lda: i64,
+    lda: *const i64,
     b: *const num_complex::Complex<f64>,
-    ldb: i64,
+    ldb: *const i64,
     beta: *const num_complex::Complex<f64>,
     c: *mut num_complex::Complex<f64>,
-    ldc: i64,
+    ldc: *const i64,
 );
 
 //==============================================================================
-// CBLAS Constants
+// Fortran BLAS Constants
 //==============================================================================
 
-const CBLAS_COL_MAJOR: libc::c_int = 102;
-const CBLAS_NO_TRANS: libc::c_int = 111;
+// Fortran BLAS transpose characters
+const FORTRAN_NO_TRANS: u8 = b'N';
 
 //==============================================================================
 // GemmBackend Trait
@@ -146,17 +145,41 @@ const CBLAS_NO_TRANS: libc::c_int = 111;
 /// GEMM backend trait for runtime dispatch
 pub trait GemmBackend: Send + Sync {
     /// Matrix multiplication: C = A * B (f64)
-    fn dgemm(&self, m: usize, n: usize, k: usize, a: &[f64], b: &[f64], c: &mut [f64]);
-
-    /// Matrix multiplication: C = A * B (Complex<f64>)
-    fn zgemm(
+    /// 
+    /// # Arguments
+    /// * `m`, `n`, `k` - Matrix dimensions (M x K) * (K x N) = (M x N)
+    /// * `a` - Pointer to matrix A (row-major, M x K)
+    /// * `b` - Pointer to matrix B (row-major, K x N)
+    /// * `c` - Pointer to output matrix C (row-major, M x N)
+    /// * `ldc` - Leading dimension of C (typically M for row-major)
+    unsafe fn dgemm(
         &self,
         m: usize,
         n: usize,
         k: usize,
-        a: &[num_complex::Complex<f64>],
-        b: &[num_complex::Complex<f64>],
-        c: &mut [num_complex::Complex<f64>],
+        a: *const f64,
+        b: *const f64,
+        c: *mut f64,
+        ldc: usize,
+    );
+
+    /// Matrix multiplication: C = A * B (Complex<f64>)
+    /// 
+    /// # Arguments
+    /// * `m`, `n`, `k` - Matrix dimensions (M x K) * (K x N) = (M x N)
+    /// * `a` - Pointer to matrix A (row-major, M x K)
+    /// * `b` - Pointer to matrix B (row-major, K x N)
+    /// * `c` - Pointer to output matrix C (row-major, M x N)
+    /// * `ldc` - Leading dimension of C (typically M for row-major)
+    unsafe fn zgemm(
+        &self,
+        m: usize,
+        n: usize,
+        k: usize,
+        a: *const num_complex::Complex<f64>,
+        b: *const num_complex::Complex<f64>,
+        c: *mut num_complex::Complex<f64>,
+        ldc: usize,
     );
 
     /// Returns true if this backend uses 64-bit integers (ILP64)
@@ -176,52 +199,68 @@ pub trait GemmBackend: Send + Sync {
 struct FaerBackend;
 
 impl GemmBackend for FaerBackend {
-    fn dgemm(&self, m: usize, n: usize, k: usize, a: &[f64], b: &[f64], c: &mut [f64]) {
-        use mdarray_linalg::prelude::MatMul;
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg_faer::Faer;
-
-        // Create tensors from slices (row-major order)
-        let a_tensor = DTensor::<f64, 2>::from_fn([m, k], |idx| a[idx[0] * k + idx[1]]);
-        let b_tensor = DTensor::<f64, 2>::from_fn([k, n], |idx| b[idx[0] * n + idx[1]]);
-
-        // Perform matrix multiplication
-        let c_tensor = Faer.matmul(&*a_tensor, &*b_tensor).parallelize().eval();
-
-        // Copy result back to slice
-        for i in 0..m {
-            for j in 0..n {
-                c[i * n + j] = c_tensor[[i, j]];
-            }
-        }
-    }
-
-    fn zgemm(
+    unsafe fn dgemm(
         &self,
         m: usize,
         n: usize,
         k: usize,
-        a: &[num_complex::Complex<f64>],
-        b: &[num_complex::Complex<f64>],
-        c: &mut [num_complex::Complex<f64>],
+        a: *const f64,
+        b: *const f64,
+        c: *mut f64,
+        ldc: usize,
     ) {
         use mdarray_linalg::prelude::MatMul;
         use mdarray_linalg::matmul::MatMulBuilder;
         use mdarray_linalg_faer::Faer;
 
-        // Create tensors from slices (row-major order)
-        let a_tensor =
-            DTensor::<num_complex::Complex<f64>, 2>::from_fn([m, k], |idx| a[idx[0] * k + idx[1]]);
-        let b_tensor =
-            DTensor::<num_complex::Complex<f64>, 2>::from_fn([k, n], |idx| b[idx[0] * n + idx[1]]);
+        // Create tensors from pointers (row-major order)
+        let a_slice = unsafe { std::slice::from_raw_parts(a, m * k) };
+        let b_slice = unsafe { std::slice::from_raw_parts(b, k * n) };
+        let a_tensor = DTensor::<f64, 2>::from_fn([m, k], |idx| a_slice[idx[0] * k + idx[1]]);
+        let b_tensor = DTensor::<f64, 2>::from_fn([k, n], |idx| b_slice[idx[0] * n + idx[1]]);
 
         // Perform matrix multiplication
         let c_tensor = Faer.matmul(&*a_tensor, &*b_tensor).parallelize().eval();
 
-        // Copy result back to slice
+        // Copy result back to output pointer (row-major order)
+        let c_slice = unsafe { std::slice::from_raw_parts_mut(c, m * ldc) };
         for i in 0..m {
             for j in 0..n {
-                c[i * n + j] = c_tensor[[i, j]];
+                c_slice[i * ldc + j] = c_tensor[[i, j]];
+            }
+        }
+    }
+
+    unsafe fn zgemm(
+        &self,
+        m: usize,
+        n: usize,
+        k: usize,
+        a: *const num_complex::Complex<f64>,
+        b: *const num_complex::Complex<f64>,
+        c: *mut num_complex::Complex<f64>,
+        ldc: usize,
+    ) {
+        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg::matmul::MatMulBuilder;
+        use mdarray_linalg_faer::Faer;
+
+        // Create tensors from pointers (row-major order)
+        let a_slice = unsafe { std::slice::from_raw_parts(a, m * k) };
+        let b_slice = unsafe { std::slice::from_raw_parts(b, k * n) };
+        let a_tensor =
+            DTensor::<num_complex::Complex<f64>, 2>::from_fn([m, k], |idx| a_slice[idx[0] * k + idx[1]]);
+        let b_tensor =
+            DTensor::<num_complex::Complex<f64>, 2>::from_fn([k, n], |idx| b_slice[idx[0] * n + idx[1]]);
+
+        // Perform matrix multiplication
+        let c_tensor = Faer.matmul(&*a_tensor, &*b_tensor).parallelize().eval();
+
+        // Copy result back to output pointer (row-major order)
+        let c_slice = unsafe { std::slice::from_raw_parts_mut(c, m * ldc) };
+        for i in 0..m {
+            for j in 0..n {
+                c_slice[i * ldc + j] = c_tensor[[i, j]];
             }
         }
     }
@@ -242,7 +281,16 @@ struct ExternalBlasBackend {
 }
 
 impl GemmBackend for ExternalBlasBackend {
-    fn dgemm(&self, m: usize, n: usize, k: usize, a: &[f64], b: &[f64], c: &mut [f64]) {
+    unsafe fn dgemm(
+        &self,
+        m: usize,
+        n: usize,
+        k: usize,
+        a: *const f64,
+        b: *const f64,
+        c: *mut f64,
+        ldc: usize,
+    ) {
         // Validate dimensions fit in i32
         assert!(
             m <= i32::MAX as usize,
@@ -256,35 +304,51 @@ impl GemmBackend for ExternalBlasBackend {
             k <= i32::MAX as usize,
             "Matrix dimension k too large for LP64 BLAS"
         );
+        assert!(
+            ldc <= i32::MAX as usize,
+            "Leading dimension ldc too large for LP64 BLAS"
+        );
+
+        // Fortran BLAS requires all parameters passed by reference
+        let transa = FORTRAN_NO_TRANS as libc::c_char;
+        let transb = FORTRAN_NO_TRANS as libc::c_char;
+        let m_i32 = m as i32;
+        let n_i32 = n as i32;
+        let k_i32 = k as i32;
+        let alpha = 1.0f64;
+        let lda = m as i32;
+        let ldb = k as i32;
+        let beta = 0.0f64;
+        let ldc_i32 = ldc as i32;
 
         unsafe {
             (self.dgemm)(
-                CBLAS_COL_MAJOR,
-                CBLAS_NO_TRANS,
-                CBLAS_NO_TRANS,
-                m as i32,
-                n as i32,
-                k as i32,
-                1.0, // alpha
-                a.as_ptr(),
-                m as i32, // lda
-                b.as_ptr(),
-                k as i32, // ldb
-                0.0,      // beta
-                c.as_mut_ptr(),
-                m as i32, // ldc
+            &transa,
+            &transb,
+            &m_i32,
+            &n_i32,
+            &k_i32,
+            &alpha,
+            a,
+            &lda,
+            b,
+            &ldb,
+            &beta,
+            c,
+            &ldc_i32,
             );
         }
     }
 
-    fn zgemm(
+    unsafe fn zgemm(
         &self,
         m: usize,
         n: usize,
         k: usize,
-        a: &[num_complex::Complex<f64>],
-        b: &[num_complex::Complex<f64>],
-        c: &mut [num_complex::Complex<f64>],
+        a: *const num_complex::Complex<f64>,
+        b: *const num_complex::Complex<f64>,
+        c: *mut num_complex::Complex<f64>,
+        ldc: usize,
     ) {
         assert!(
             m <= i32::MAX as usize,
@@ -298,26 +362,38 @@ impl GemmBackend for ExternalBlasBackend {
             k <= i32::MAX as usize,
             "Matrix dimension k too large for LP64 BLAS"
         );
+        assert!(
+            ldc <= i32::MAX as usize,
+            "Leading dimension ldc too large for LP64 BLAS"
+        );
 
+        // Fortran BLAS requires all parameters passed by reference
+        let transa = FORTRAN_NO_TRANS as libc::c_char;
+        let transb = FORTRAN_NO_TRANS as libc::c_char;
+        let m_i32 = m as i32;
+        let n_i32 = n as i32;
+        let k_i32 = k as i32;
         let alpha = num_complex::Complex::new(1.0, 0.0);
+        let lda = m as i32;
+        let ldb = k as i32;
         let beta = num_complex::Complex::new(0.0, 0.0);
+        let ldc_i32 = ldc as i32;
 
         unsafe {
             (self.zgemm)(
-                CBLAS_COL_MAJOR,
-                CBLAS_NO_TRANS,
-                CBLAS_NO_TRANS,
-                m as i32,
-                n as i32,
-                k as i32,
-                &alpha,
-                a.as_ptr(),
-                m as i32,
-                b.as_ptr(),
-                k as i32,
-                &beta,
-                c.as_mut_ptr(),
-                m as i32,
+            &transa,
+            &transb,
+            &m_i32,
+            &n_i32,
+            &k_i32,
+            &alpha,
+            a as *const _,
+            &lda,
+            b as *const _,
+            &ldb,
+            &beta,
+            c as *mut _,
+            &ldc_i32,
             );
         }
     }
@@ -334,55 +410,84 @@ struct ExternalBlas64Backend {
 }
 
 impl GemmBackend for ExternalBlas64Backend {
-    fn dgemm(&self, m: usize, n: usize, k: usize, a: &[f64], b: &[f64], c: &mut [f64]) {
-        unsafe {
-            (self.dgemm64)(
-                CBLAS_COL_MAJOR,
-                CBLAS_NO_TRANS,
-                CBLAS_NO_TRANS,
-                m as i64,
-                n as i64,
-                k as i64,
-                1.0,
-                a.as_ptr(),
-                m as i64,
-                b.as_ptr(),
-                k as i64,
-                0.0,
-                c.as_mut_ptr(),
-                m as i64,
-            );
-        }
-    }
-
-    fn zgemm(
+    unsafe fn dgemm(
         &self,
         m: usize,
         n: usize,
         k: usize,
-        a: &[num_complex::Complex<f64>],
-        b: &[num_complex::Complex<f64>],
-        c: &mut [num_complex::Complex<f64>],
+        a: *const f64,
+        b: *const f64,
+        c: *mut f64,
+        ldc: usize,
     ) {
+        // Fortran BLAS requires all parameters passed by reference
+        let transa = FORTRAN_NO_TRANS as libc::c_char;
+        let transb = FORTRAN_NO_TRANS as libc::c_char;
+        let m_i64 = m as i64;
+        let n_i64 = n as i64;
+        let k_i64 = k as i64;
+        let alpha = 1.0f64;
+        let lda = m as i64;
+        let ldb = k as i64;
+        let beta = 0.0f64;
+        let ldc_i64 = ldc as i64;
+
+        unsafe {
+            (self.dgemm64)(
+            &transa,
+            &transb,
+            &m_i64,
+            &n_i64,
+            &k_i64,
+            &alpha,
+            a,
+            &lda,
+            b,
+            &ldb,
+            &beta,
+            c,
+            &ldc_i64,
+            );
+        }
+    }
+
+    unsafe fn zgemm(
+        &self,
+        m: usize,
+        n: usize,
+        k: usize,
+        a: *const num_complex::Complex<f64>,
+        b: *const num_complex::Complex<f64>,
+        c: *mut num_complex::Complex<f64>,
+        ldc: usize,
+    ) {
+        // Fortran BLAS requires all parameters passed by reference
+        let transa = FORTRAN_NO_TRANS as libc::c_char;
+        let transb = FORTRAN_NO_TRANS as libc::c_char;
+        let m_i64 = m as i64;
+        let n_i64 = n as i64;
+        let k_i64 = k as i64;
         let alpha = num_complex::Complex::new(1.0, 0.0);
+        let lda = m as i64;
+        let ldb = k as i64;
         let beta = num_complex::Complex::new(0.0, 0.0);
+        let ldc_i64 = ldc as i64;
 
         unsafe {
             (self.zgemm64)(
-                CBLAS_COL_MAJOR,
-                CBLAS_NO_TRANS,
-                CBLAS_NO_TRANS,
-                m as i64,
-                n as i64,
-                k as i64,
-                &alpha,
-                a.as_ptr(),
-                m as i64,
-                b.as_ptr(),
-                k as i64,
-                &beta,
-                c.as_mut_ptr(),
-                m as i64,
+            &transa,
+            &transb,
+            &m_i64,
+            &n_i64,
+            &k_i64,
+            &alpha,
+            a as *const _,
+            &lda,
+            b as *const _,
+            &ldb,
+            &beta,
+            c as *mut _,
+            &ldc_i64,
             );
         }
     }
@@ -409,12 +514,12 @@ static BLAS_DISPATCHER: Lazy<RwLock<Box<dyn GemmBackend>>> =
 /// # Safety
 /// - Function pointers must be valid and thread-safe
 /// - Must remain valid for the lifetime of the program
-/// - Must follow CBLAS calling convention
+/// - Must follow Fortran BLAS calling convention
 ///
 /// # Example
 /// ```ignore
 /// unsafe {
-///     set_blas_backend(cblas_dgemm as _, cblas_zgemm as _);
+///     set_blas_backend(dgemm_ as _, zgemm_ as _);
 /// }
 /// ```
 pub unsafe fn set_blas_backend(dgemm: DgemmFnPtr, zgemm: ZgemmFnPtr) {
@@ -428,12 +533,12 @@ pub unsafe fn set_blas_backend(dgemm: DgemmFnPtr, zgemm: ZgemmFnPtr) {
 /// # Safety
 /// - Function pointers must be valid, thread-safe, and use 64-bit integers
 /// - Must remain valid for the lifetime of the program
-/// - Must follow CBLAS calling convention with ILP64 interface
+/// - Must follow Fortran BLAS calling convention with ILP64 interface
 ///
 /// # Example
 /// ```ignore
 /// unsafe {
-///     set_ilp64_backend(cblas_dgemm64 as _, cblas_zgemm64 as _);
+///     set_ilp64_backend(dgemm_ as _, zgemm_ as _);
 /// }
 /// ```
 pub unsafe fn set_ilp64_backend(dgemm64: Dgemm64FnPtr, zgemm64: Zgemm64FnPtr) {
@@ -551,12 +656,48 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
         nc, n
     );
 
-    // Use Faer directly to avoid creating intermediate DTensors
-    use mdarray_linalg::prelude::MatMul;
-    use mdarray_linalg::matmul::MatMulBuilder;
-    use mdarray_linalg_faer::Faer;
+    // Get dispatcher
+    let dispatcher = BLAS_DISPATCHER.read().unwrap();
 
-    Faer.matmul(a, b).parallelize().overwrite(c);
+    // Type dispatch: f64 or Complex<f64>
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        // f64 case
+        // Get pointers directly from DTensors (row-major order)
+        let a_ptr = a.as_ptr() as *const f64;
+        let b_ptr = b.as_ptr() as *const f64;
+        let c_ptr = c.as_mut_ptr() as *mut f64;
+        
+        // Get leading dimension of c (for row-major, this is typically n, but we use the actual stride)
+        // For DSlice, we need to determine the stride. For row-major, stride[1] = 1, stride[0] = n
+        // We'll use n as ldc for row-major output
+        let ldc = n;
+        
+        // Call backend directly with pointers (no temporary buffer needed)
+        unsafe {
+            dispatcher.dgemm(m, n, k, a_ptr, b_ptr, c_ptr, ldc);
+        }
+    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<num_complex::Complex<f64>>() {
+        // Complex<f64> case
+        // Get pointers directly from DTensors (row-major order)
+        let a_ptr = a.as_ptr() as *const num_complex::Complex<f64>;
+        let b_ptr = b.as_ptr() as *const num_complex::Complex<f64>;
+        let c_ptr = c.as_mut_ptr() as *mut num_complex::Complex<f64>;
+        
+        // Get leading dimension of c (for row-major, this is typically n)
+        let ldc = n;
+        
+        // Call backend directly with pointers (no temporary buffer needed)
+        unsafe {
+            dispatcher.zgemm(m, n, k, a_ptr, b_ptr, c_ptr, ldc);
+        }
+    } else {
+        // Fallback to Faer for unsupported types
+        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg::matmul::MatMulBuilder;
+        use mdarray_linalg_faer::Faer;
+
+        Faer.matmul(a, b).parallelize().overwrite(c);
+    }
 }
 
 #[cfg(test)]

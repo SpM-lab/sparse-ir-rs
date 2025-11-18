@@ -10,15 +10,16 @@
 //!
 //! # Example (C)
 //! ```c
-//! #include <cblas.h>
+//! // Link against BLAS library (e.g., OpenBLAS, MKL, Accelerate)
+//! // Fortran BLAS functions typically have trailing underscore
 //!
-//! // Register OpenBLAS
+//! // Register Fortran BLAS
 //! spir_register_dgemm_zgemm_lp64(
-//!     (void*)cblas_dgemm,
-//!     (void*)cblas_zgemm
+//!     (void*)dgemm_,
+//!     (void*)zgemm_
 //! );
 //!
-//! // Now all matrix operations use OpenBLAS
+//! // Now all matrix operations use the registered BLAS
 //! ```
 
 use crate::StatusCode;
@@ -31,8 +32,8 @@ use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT};
 /// GEMM operations in the library.
 ///
 /// # Arguments
-/// * `cblas_dgemm` - Function pointer to CBLAS dgemm (double precision)
-/// * `cblas_zgemm` - Function pointer to CBLAS zgemm (complex double precision)
+/// * `dgemm` - Function pointer to Fortran BLAS dgemm (double precision)
+/// * `zgemm` - Function pointer to Fortran BLAS zgemm (complex double precision)
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -40,19 +41,20 @@ use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT};
 ///
 /// # Safety
 /// The provided function pointers must:
-/// - Be valid CBLAS function pointers following the standard CBLAS interface
+/// - Be valid Fortran BLAS function pointers following the standard Fortran BLAS interface
 /// - Use 32-bit integers for all dimension parameters (LP64 interface)
 /// - Be thread-safe (will be called from multiple threads)
 /// - Remain valid for the entire lifetime of the program
 ///
 /// # Example (from C)
 /// ```c
-/// #include <cblas.h>
+/// // Link against BLAS library (e.g., -lblas or -lopenblas)
+/// // Fortran BLAS functions typically have trailing underscore
 ///
-/// // Register OpenBLAS
+/// // Register Fortran BLAS
 /// int status = spir_register_dgemm_zgemm_lp64(
-///     (void*)cblas_dgemm,
-///     (void*)cblas_zgemm
+///     (void*)dgemm_,
+///     (void*)zgemm_
 /// );
 ///
 /// if (status != SPIR_COMPUTATION_SUCCESS) {
@@ -60,46 +62,33 @@ use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT};
 /// }
 /// ```
 ///
-/// # CBLAS Interface
+/// # Fortran BLAS Interface
 /// The function pointers must match these signatures:
 /// ```c
-/// void cblas_dgemm(
-///     CblasOrder order,       // 102 for ColMajor
-///     CblasTranspose transa,  // 111 for NoTrans
-///     CblasTranspose transb,  // 111 for NoTrans
-///     int m, int n, int k,
-///     double alpha,
-///     const double *a, int lda,
-///     const double *b, int ldb,
-///     double beta,
-///     double *c, int ldc
-/// );
+/// void dgemm_(char *transa, char *transb, int *m, int *n, int *k,
+///             double *alpha, double *a, int *lda, double *b, int *ldb,
+///             double *beta, double *c, int *ldc);
 ///
-/// void cblas_zgemm(
-///     CblasOrder order,
-///     CblasTranspose transa,
-///     CblasTranspose transb,
-///     int m, int n, int k,
-///     const void *alpha,      // complex<double>*
-///     const void *a, int lda,
-///     const void *b, int ldb,
-///     const void *beta,       // complex<double>*
-///     void *c, int ldc
-/// );
+/// void zgemm_(char *transa, char *transb, int *m, int *n, int *k,
+///             void *alpha, void *a, int *lda, void *b, int *ldb,
+///             void *beta, void *c, int *ldc);
 /// ```
+/// Note: All parameters are passed by reference (pointers).
+/// Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
-    cblas_dgemm: *const libc::c_void,
-    cblas_zgemm: *const libc::c_void,
+    dgemm: *const libc::c_void,  // Fortran BLAS dgemm_ function pointer
+    zgemm: *const libc::c_void,  // Fortran BLAS zgemm_ function pointer
 ) -> StatusCode {
     // Validate input
-    if cblas_dgemm.is_null() || cblas_zgemm.is_null() {
+    if dgemm.is_null() || zgemm.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    // Cast to function pointers
-    let dgemm_fn: sparseir_rust::gemm::DgemmFnPtr = unsafe { std::mem::transmute(cblas_dgemm) };
-    let zgemm_fn: sparseir_rust::gemm::ZgemmFnPtr = unsafe { std::mem::transmute(cblas_zgemm) };
+    // Cast to Fortran BLAS function pointer types
+    // Safe because the caller guarantees these are valid Fortran BLAS function pointers
+    let dgemm_fn: sparseir_rust::gemm::DgemmFnPtr = unsafe { std::mem::transmute(dgemm) };
+    let zgemm_fn: sparseir_rust::gemm::ZgemmFnPtr = unsafe { std::mem::transmute(zgemm) };
 
     // Register with the Rust backend
     unsafe { sparseir_rust::gemm::set_blas_backend(dgemm_fn, zgemm_fn); }
@@ -114,8 +103,8 @@ pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
 /// enabling support for very large matrices (> 2^31 elements).
 ///
 /// # Arguments
-/// * `cblas_dgemm64` - Function pointer to ILP64 CBLAS dgemm (double precision)
-/// * `cblas_zgemm64` - Function pointer to ILP64 CBLAS zgemm (complex double precision)
+/// * `dgemm64` - Function pointer to ILP64 Fortran BLAS dgemm (double precision)
+/// * `zgemm64` - Function pointer to ILP64 Fortran BLAS zgemm (complex double precision)
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -123,7 +112,7 @@ pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
 ///
 /// # Safety
 /// The provided function pointers must:
-/// - Be valid CBLAS function pointers following the standard CBLAS interface with ILP64
+/// - Be valid Fortran BLAS function pointers following the standard Fortran BLAS interface with ILP64
 /// - Use 64-bit integers for all dimension parameters (ILP64 interface)
 /// - Be thread-safe (will be called from multiple threads)
 /// - Remain valid for the entire lifetime of the program
@@ -133,10 +122,10 @@ pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
 /// #define MKL_ILP64
 /// #include <mkl.h>
 ///
-/// // Register MKL ILP64
+/// // Register MKL ILP64 Fortran BLAS
 /// int status = spir_register_dgemm_zgemm_ilp64(
-///     (void*)cblas_dgemm,  // MKL's ILP64 version
-///     (void*)cblas_zgemm   // MKL's ILP64 version
+///     (void*)dgemm_,  // MKL's ILP64 Fortran BLAS version
+///     (void*)zgemm_   // MKL's ILP64 Fortran BLAS version
 /// );
 ///
 /// if (status != SPIR_COMPUTATION_SUCCESS) {
@@ -144,46 +133,33 @@ pub unsafe extern "C" fn spir_register_dgemm_zgemm_lp64(
 /// }
 /// ```
 ///
-/// # CBLAS ILP64 Interface
+/// # Fortran BLAS ILP64 Interface
 /// The function pointers must match these signatures (note: long long = 64-bit int):
 /// ```c
-/// void cblas_dgemm(
-///     CblasOrder order,
-///     CblasTranspose transa,
-///     CblasTranspose transb,
-///     long long m, long long n, long long k,
-///     double alpha,
-///     const double *a, long long lda,
-///     const double *b, long long ldb,
-///     double beta,
-///     double *c, long long ldc
-/// );
+/// void dgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
+///             double *alpha, double *a, long long *lda, double *b, long long *ldb,
+///             double *beta, double *c, long long *ldc);
 ///
-/// void cblas_zgemm(
-///     CblasOrder order,
-///     CblasTranspose transa,
-///     CblasTranspose transb,
-///     long long m, long long n, long long k,
-///     const void *alpha,
-///     const void *a, long long lda,
-///     const void *b, long long ldb,
-///     const void *beta,
-///     void *c, long long ldc
-/// );
+/// void zgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
+///             void *alpha, void *a, long long *lda, void *b, long long *ldb,
+///             void *beta, void *c, long long *ldc);
 /// ```
+/// Note: All parameters are passed by reference (pointers).
+/// Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_register_dgemm_zgemm_ilp64(
-    cblas_dgemm64: *const libc::c_void,
-    cblas_zgemm64: *const libc::c_void,
+    dgemm64: *const libc::c_void,  // Fortran BLAS dgemm_ function pointer (ILP64)
+    zgemm64: *const libc::c_void,  // Fortran BLAS zgemm_ function pointer (ILP64)
 ) -> StatusCode {
     // Validate input
-    if cblas_dgemm64.is_null() || cblas_zgemm64.is_null() {
+    if dgemm64.is_null() || zgemm64.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    // Cast to function pointers
-    let dgemm64_fn: sparseir_rust::gemm::Dgemm64FnPtr = unsafe { std::mem::transmute(cblas_dgemm64) };
-    let zgemm64_fn: sparseir_rust::gemm::Zgemm64FnPtr = unsafe { std::mem::transmute(cblas_zgemm64) };
+    // Cast to Fortran BLAS function pointer types (ILP64)
+    // Safe because the caller guarantees these are valid Fortran BLAS function pointers
+    let dgemm64_fn: sparseir_rust::gemm::Dgemm64FnPtr = unsafe { std::mem::transmute(dgemm64) };
+    let zgemm64_fn: sparseir_rust::gemm::Zgemm64FnPtr = unsafe { std::mem::transmute(zgemm64) };
 
     // Register with the Rust backend
     unsafe { sparseir_rust::gemm::set_ilp64_backend(dgemm64_fn, zgemm64_fn); }
@@ -195,79 +171,75 @@ pub unsafe extern "C" fn spir_register_dgemm_zgemm_ilp64(
 mod tests {
     use super::*;
 
-    // Mock BLAS functions for testing
+    // Mock Fortran BLAS functions for testing
     unsafe extern "C" fn mock_dgemm(
-        _order: libc::c_int,
-        _transa: libc::c_int,
-        _transb: libc::c_int,
-        _m: libc::c_int,
-        _n: libc::c_int,
-        _k: libc::c_int,
-        _alpha: libc::c_double,
+        _transa: *const libc::c_char,
+        _transb: *const libc::c_char,
+        _m: *const libc::c_int,
+        _n: *const libc::c_int,
+        _k: *const libc::c_int,
+        _alpha: *const libc::c_double,
         _a: *const libc::c_double,
-        _lda: libc::c_int,
+        _lda: *const libc::c_int,
         _b: *const libc::c_double,
-        _ldb: libc::c_int,
-        _beta: libc::c_double,
+        _ldb: *const libc::c_int,
+        _beta: *const libc::c_double,
         _c: *mut libc::c_double,
-        _ldc: libc::c_int,
+        _ldc: *const libc::c_int,
     ) {
         // Mock implementation - does nothing
     }
 
     unsafe extern "C" fn mock_zgemm(
-        _order: libc::c_int,
-        _transa: libc::c_int,
-        _transb: libc::c_int,
-        _m: libc::c_int,
-        _n: libc::c_int,
-        _k: libc::c_int,
+        _transa: *const libc::c_char,
+        _transb: *const libc::c_char,
+        _m: *const libc::c_int,
+        _n: *const libc::c_int,
+        _k: *const libc::c_int,
         _alpha: *const num_complex::Complex<f64>,
         _a: *const num_complex::Complex<f64>,
-        _lda: libc::c_int,
+        _lda: *const libc::c_int,
         _b: *const num_complex::Complex<f64>,
-        _ldb: libc::c_int,
+        _ldb: *const libc::c_int,
         _beta: *const num_complex::Complex<f64>,
         _c: *mut num_complex::Complex<f64>,
-        _ldc: libc::c_int,
+        _ldc: *const libc::c_int,
     ) {
         // Mock implementation - does nothing
     }
 
     unsafe extern "C" fn mock_dgemm64(
-        _order: libc::c_int,
-        _transa: libc::c_int,
-        _transb: libc::c_int,
-        _m: i64,
-        _n: i64,
-        _k: i64,
-        _alpha: libc::c_double,
+        _transa: *const libc::c_char,
+        _transb: *const libc::c_char,
+        _m: *const i64,
+        _n: *const i64,
+        _k: *const i64,
+        _alpha: *const libc::c_double,
         _a: *const libc::c_double,
-        _lda: i64,
+        _lda: *const i64,
         _b: *const libc::c_double,
-        _ldb: i64,
-        _beta: libc::c_double,
+        _ldb: *const i64,
+        _beta: *const libc::c_double,
         _c: *mut libc::c_double,
-        _ldc: i64,
+        _ldc: *const i64,
     ) {
         // Mock implementation - does nothing
     }
 
     unsafe extern "C" fn mock_zgemm64(
-        _order: libc::c_int,
-        _transa: libc::c_int,
-        _transb: libc::c_int,
-        _m: i64,
-        _n: i64,
-        _k: i64,
+        _transa: *const libc::c_char,
+        _transb: *const libc::c_char,
+        _m: *const i64,
+        _n: *const i64,
+        _k: *const i64,
         _alpha: *const num_complex::Complex<f64>,
         _a: *const num_complex::Complex<f64>,
-        _lda: i64,
+        _lda: *const i64,
         _b: *const num_complex::Complex<f64>,
-        _ldb: i64,
+        _ldb: *const i64,
         _beta: *const num_complex::Complex<f64>,
         _c: *mut num_complex::Complex<f64>,
-        _ldc: i64,
+        _ldc: *const i64,
     ) {
         // Mock implementation - does nothing
     }
