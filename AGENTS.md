@@ -17,3 +17,10 @@ Name precision tests after the component under scrutiny (e.g., `kernel_interpola
 
 ## Commit & Pull Request Guidelines
 Write commits that describe the final outcome (“Add centrosymmetric kernel SVE hints”), not the intermediate investigation. Reference related issues and include reproduction snippets for bug fixes. Pull requests should summarize motivation, outline verification steps (build/test status, numeric baselines), and highlight any BLAS configuration requirements so reviewers can reproduce results.
+
+**Before committing, always verify that build artifacts and other unnecessary files are not included:**
+- Check `git status` to see what files are staged
+- Ensure build directories (e.g., `target/`, `_build/`, `_install/`, `build/`) are not included
+- Verify that backup files (e.g., `*.backup.*`, `*_backup.*`, `*.old`) are not included
+- Make sure test binaries and temporary files are excluded
+- Use `git status --short` to quickly review staged changes before committing

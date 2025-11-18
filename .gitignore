@@ -28,5 +28,10 @@ test_user_install.*
 cxx_tests/_build/
 cxx_tests/_install/
 
+# C API benchmark build artifacts
+capi_benchmark/_build/
+capi_benchmark/_install/
+capi_benchmark/build/
+
 # Keepalive tests
 keepalive_tests/
