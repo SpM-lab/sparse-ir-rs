@@ -1,3 +1,6 @@
 [submodule "xprec-rs"]
 	path = xprec-rs
 	url = git@github.com:tuwien-cms/xprec-rs.git
+[submodule "libsparseir"]
+	path = libsparseir
+	url = https://github.com/SpM-lab/libsparseir
