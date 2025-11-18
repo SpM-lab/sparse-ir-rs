@@ -17,7 +17,12 @@ jobs:
     steps:
     - uses: actions/checkout@v5
       with:
-        submodules: true
+        submodules: false
+    - name: Initialize and update submodules (non-recursive)
+      run: |
+        git submodule update --init --jobs 4
+        # Initialize libsparseir submodules but skip nested ones that may have issues
+        cd libsparseir && git submodule update --init --jobs 4 || true
     - name: Build
       run: cargo build --verbose
     - name: Run tests
