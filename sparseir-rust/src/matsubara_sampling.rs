@@ -5,6 +5,7 @@
 
 use crate::fitter::{ComplexMatrixFitter, ComplexToRealFitter};
 use crate::freq::MatsubaraFreq;
+use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Tensor};
 use num_complex::Complex;
@@ -158,7 +159,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// # Returns
     /// Complex values at Matsubara frequencies (length = n_sampling_points)
     pub fn evaluate(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        self.fitter.evaluate(coeffs)
+        self.fitter.evaluate(None, coeffs)
     }
 
     /// Fit complex basis coefficients from values at sampling points
@@ -169,7 +170,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// # Returns
     /// Fitted complex basis coefficients (length = basis_size)
     pub fn fit(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        self.fitter.fit(values)
+        self.fitter.fit(None, values)
     }
 
     /// Evaluate N-dimensional array of complex basis coefficients at sampling points
@@ -182,6 +183,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// N-dimensional tensor of complex values at Matsubara frequencies
     pub fn evaluate_nd(
         &self,
+        backend: Option<&GemmBackendHandle>,
         coeffs: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
@@ -214,7 +216,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
 
         // Use fitter's efficient 2D evaluate (GEMM-based)
         let n_points = self.n_sampling_points();
-        let result_2d = self.fitter.evaluate_2d(&coeffs_2d);
+        let result_2d = self.fitter.evaluate_2d(backend, &coeffs_2d);
 
         // 4. Reshape back to N-D with n_points at position 0
         let mut result_shape = vec![n_points];
@@ -236,6 +238,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// working with symmetry-exploiting representations or real-valued IR coefficients.
     ///
     /// # Arguments
+    /// * `backend` - Optional GEMM backend handle (None uses default)
     /// * `coeffs` - N-dimensional tensor of real basis coefficients
     /// * `dim` - Dimension along which to evaluate (must have size = basis_size)
     ///
@@ -243,6 +246,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// N-dimensional tensor of complex values at Matsubara frequencies
     pub fn evaluate_nd_real(
         &self,
+        backend: Option<&GemmBackendHandle>,
         coeffs: &Tensor<f64, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
@@ -274,7 +278,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         });
 
         // 4. Evaluate: values = A * coeffs (A is complex, coeffs is real)
-        let values_2d = self.fitter.evaluate_2d_real(&coeffs_2d);
+        let values_2d = self.fitter.evaluate_2d_real(backend, &coeffs_2d);
 
         // 5. Reshape result back to N-D with first dimension = n_sampling_points
         let n_points = self.n_sampling_points();
@@ -295,6 +299,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// Fit N-dimensional array of complex values to complex basis coefficients
     ///
     /// # Arguments
+    /// * `backend` - Optional GEMM backend handle (None uses default)
     /// * `values` - N-dimensional tensor of complex values at Matsubara frequencies
     /// * `dim` - Dimension along which to fit (must have size = n_sampling_points)
     ///
@@ -302,6 +307,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// N-dimensional tensor of complex basis coefficients
     pub fn fit_nd(
         &self,
+        backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
@@ -330,7 +336,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         });
 
         // Use fitter's efficient 2D fit (GEMM-based)
-        let coeffs_2d = self.fitter.fit_2d(&values_2d);
+        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d);
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
@@ -353,6 +359,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// Takes the real part of the least-squares solution.
     ///
     /// # Arguments
+    /// * `backend` - Optional GEMM backend handle (None uses default)
     /// * `values` - N-dimensional tensor of complex values at Matsubara frequencies
     /// * `dim` - Dimension along which to fit (must have size = n_sampling_points)
     ///
@@ -360,6 +367,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// N-dimensional tensor of real basis coefficients
     pub fn fit_nd_real(
         &self,
+        backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<f64, DynRank> {
@@ -388,7 +396,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         });
 
         // Use fitter's fit_2d_real method
-        let coeffs_2d = self.fitter.fit_2d_real(&values_2d);
+        let coeffs_2d = self.fitter.fit_2d_real(backend, &values_2d);
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
@@ -512,12 +520,12 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
 
     /// Evaluate basis coefficients at sampling points
     pub fn evaluate(&self, coeffs: &[f64]) -> Vec<Complex<f64>> {
-        self.fitter.evaluate(coeffs)
+        self.fitter.evaluate(None, coeffs)
     }
 
     /// Fit basis coefficients from values at sampling points
     pub fn fit(&self, values: &[Complex<f64>]) -> Vec<f64> {
-        self.fitter.fit(values)
+        self.fitter.fit(None, values)
     }
 
     /// Evaluate N-dimensional array of real basis coefficients at sampling points
@@ -530,6 +538,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// N-dimensional tensor of complex values at Matsubara frequencies
     pub fn evaluate_nd(
         &self,
+        backend: Option<&GemmBackendHandle>,
         coeffs: &Tensor<f64, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
@@ -561,7 +570,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         });
 
         // Use fitter's efficient 2D evaluate (GEMM-based)
-        let result_2d = self.fitter.evaluate_2d(&coeffs_2d);
+        let result_2d = self.fitter.evaluate_2d(backend, &coeffs_2d);
 
         // 4. Reshape back to N-D with n_points at position 0
         let n_points = self.n_sampling_points();
@@ -581,6 +590,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// Fit N-dimensional array of complex values to real basis coefficients
     ///
     /// # Arguments
+    /// * `backend` - Optional GEMM backend handle (None uses default)
     /// * `values` - N-dimensional tensor of complex values at Matsubara frequencies
     /// * `dim` - Dimension along which to fit (must have size = n_sampling_points)
     ///
@@ -588,6 +598,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// N-dimensional tensor of real basis coefficients
     pub fn fit_nd(
         &self,
+        backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<f64, DynRank> {
@@ -616,7 +627,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         });
 
         // Use fitter's efficient 2D fit (GEMM-based)
-        let coeffs_2d = self.fitter.fit_2d(&values_2d);
+        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d);
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();

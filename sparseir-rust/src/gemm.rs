@@ -24,7 +24,7 @@
 
 use mdarray::{DSlice, DTensor, Layout};
 use once_cell::sync::Lazy;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 //==============================================================================
 // BLAS Function Pointer Types
@@ -303,9 +303,15 @@ impl GemmBackend for FaerBackend {
 ///   - ldc = n (leading dimension of Ct: n×m in column-major, ldc = n)
 
 /// External BLAS backend (LP64: 32-bit integers)
-struct ExternalBlasBackend {
+pub struct ExternalBlasBackend {
     dgemm: DgemmFnPtr,
     zgemm: ZgemmFnPtr,
+}
+
+impl ExternalBlasBackend {
+    pub fn new(dgemm: DgemmFnPtr, zgemm: ZgemmFnPtr) -> Self {
+        Self { dgemm, zgemm }
+    }
 }
 
 impl GemmBackend for ExternalBlasBackend {
@@ -430,9 +436,15 @@ impl GemmBackend for ExternalBlasBackend {
 }
 
 /// External BLAS backend (ILP64: 64-bit integers)
-struct ExternalBlas64Backend {
+pub struct ExternalBlas64Backend {
     dgemm64: Dgemm64FnPtr,
     zgemm64: Zgemm64FnPtr,
+}
+
+impl ExternalBlas64Backend {
+    pub fn new(dgemm64: Dgemm64FnPtr, zgemm64: Zgemm64FnPtr) -> Self {
+        Self { dgemm64, zgemm64 }
+    }
 }
 
 impl GemmBackend for ExternalBlas64Backend {
@@ -532,10 +544,55 @@ impl GemmBackend for ExternalBlas64Backend {
 }
 
 //==============================================================================
-// Global Dispatcher
+// Backend Handle
+//==============================================================================
+
+/// Thread-safe handle to a GEMM backend
+///
+/// This type wraps an `Arc<dyn GemmBackend>` to allow sharing a backend
+/// across multiple function calls without global state.
+///
+/// # Example
+/// ```ignore
+/// use sparseir_rust::gemm::GemmBackendHandle;
+///
+/// let backend = GemmBackendHandle::default();
+/// let result = matmul_par(&a, &b, Some(&backend));
+/// ```
+#[derive(Clone)]
+pub struct GemmBackendHandle {
+    inner: Arc<dyn GemmBackend>,
+}
+
+impl GemmBackendHandle {
+    /// Create a new backend handle from a boxed backend
+    pub fn new(backend: Box<dyn GemmBackend>) -> Self {
+        Self {
+            inner: Arc::from(backend),
+        }
+    }
+
+    /// Create a default backend handle (Faer backend)
+    pub fn default() -> Self {
+        Self {
+            inner: Arc::new(FaerBackend),
+        }
+    }
+
+    /// Get a reference to the inner backend
+    pub(crate) fn as_ref(&self) -> &dyn GemmBackend {
+        self.inner.as_ref()
+    }
+}
+
+//==============================================================================
+// Global Dispatcher (for backward compatibility)
 //==============================================================================
 
 /// Global BLAS dispatcher (thread-safe)
+///
+/// This is kept for backward compatibility when `None` is passed as backend.
+/// New code should use `GemmBackendHandle` explicitly.
 static BLAS_DISPATCHER: Lazy<RwLock<Box<dyn GemmBackend>>> =
     Lazy::new(|| RwLock::new(Box::new(FaerBackend)));
 
@@ -603,11 +660,12 @@ pub fn get_backend_info() -> (&'static str, bool, bool) {
 
 /// Parallel matrix multiplication: C = A * B
 ///
-/// Dispatches to registered BLAS backend (external or Faer).
+/// Dispatches to the provided backend, or the global dispatcher if `None`.
 ///
 /// # Arguments
 /// * `a` - Left matrix (M x K)
 /// * `b` - Right matrix (K x N)
+/// * `backend` - Optional backend handle. If `None`, uses global dispatcher (for backward compatibility)
 ///
 /// # Returns
 /// Result matrix (M x N)
@@ -618,14 +676,19 @@ pub fn get_backend_info() -> (&'static str, bool, bool) {
 /// # Example
 /// ```ignore
 /// use mdarray::tensor;
-/// use sparseir_rust::gemm::matmul_par;
+/// use sparseir_rust::gemm::{matmul_par, GemmBackendHandle};
 ///
 /// let a = tensor![[1.0, 2.0], [3.0, 4.0]];
 /// let b = tensor![[5.0, 6.0], [7.0, 8.0]];
-/// let c = matmul_par(&a, &b);
+/// let backend = GemmBackendHandle::default();
+/// let c = matmul_par(&a, &b, Some(&backend));
 /// // c = [[19.0, 22.0], [43.0, 50.0]]
 /// ```
-pub fn matmul_par<T>(a: &DTensor<T, 2>, b: &DTensor<T, 2>) -> DTensor<T, 2>
+pub fn matmul_par<T>(
+    a: &DTensor<T, 2>,
+    b: &DTensor<T, 2>,
+    backend: Option<&GemmBackendHandle>,
+) -> DTensor<T, 2>
 where
     T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
 {
@@ -642,7 +705,7 @@ where
     // Use Faer directly to avoid creating intermediate DTensors through backend
     // create _m x _n result tensor
     let mut result = DTensor::<T, 2>::from_elem([_m, _n], T::zero().into());
-    matmul_par_overwrite(a, b, &mut result);
+    matmul_par_overwrite(a, b, &mut result, backend);
     result
 }
 
@@ -655,6 +718,7 @@ where
 /// * `a` - Left matrix (M x K)
 /// * `b` - Right matrix (K x N)
 /// * `c` - Output matrix (M x N) - will be overwritten with result
+/// * `backend` - Optional backend handle. If `None`, uses global dispatcher (for backward compatibility)
 ///
 /// # Panics
 /// Panics if matrix dimensions are incompatible (A.cols != B.rows or C.shape != [M, N])
@@ -662,6 +726,7 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
     a: &DTensor<T, 2>,
     b: &DTensor<T, 2>,
     c: &mut DSlice<T, 2, Lc>,
+    backend: Option<&GemmBackendHandle>,
 ) where
     T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
 {
@@ -686,9 +751,6 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
         nc, n
     );
 
-    // Get dispatcher
-    let dispatcher = BLAS_DISPATCHER.read().unwrap();
-
     // Type dispatch: f64 or Complex<f64>
     if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
         // f64 case
@@ -697,10 +759,22 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
         let b_ptr = b.as_ptr() as *const f64;
         let c_ptr = c.as_mut_ptr() as *mut f64;
         
-        // Call backend directly with pointers (no temporary buffer needed)
-        // Leading dimension is calculated internally in the backend
-        unsafe {
-            dispatcher.dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+        // Get backend: use provided handle or fall back to global dispatcher
+        match backend {
+            Some(handle) => {
+                // Call backend directly with pointers (no temporary buffer needed)
+                // Leading dimension is calculated internally in the backend
+                unsafe {
+                    handle.as_ref().dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+            None => {
+                // Backward compatibility: use global dispatcher
+                let dispatcher = BLAS_DISPATCHER.read().unwrap();
+                unsafe {
+                    dispatcher.dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
         }
     } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<num_complex::Complex<f64>>() {
         // Complex<f64> case
@@ -709,10 +783,22 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
         let b_ptr = b.as_ptr() as *const num_complex::Complex<f64>;
         let c_ptr = c.as_mut_ptr() as *mut num_complex::Complex<f64>;
         
-        // Call backend directly with pointers (no temporary buffer needed)
-        // Leading dimension is calculated internally in the backend
+        // Get backend: use provided handle or fall back to global dispatcher
+        match backend {
+            Some(handle) => {
+                // Call backend directly with pointers (no temporary buffer needed)
+                // Leading dimension is calculated internally in the backend
+                unsafe {
+                    handle.as_ref().zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+            None => {
+                // Backward compatibility: use global dispatcher
+                let dispatcher = BLAS_DISPATCHER.read().unwrap();
         unsafe {
-            dispatcher.zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                    dispatcher.zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
         }
     } else {
         // Fallback to Faer for unsupported types
@@ -751,7 +837,7 @@ mod tests {
 
         let a = DTensor::<f64, 2>::from_fn([2, 3], |idx| a_data[idx[0] * 3 + idx[1]]);
         let b = DTensor::<f64, 2>::from_fn([3, 2], |idx| b_data[idx[0] * 2 + idx[1]]);
-        let c = matmul_par(&a, &b);
+        let c = matmul_par(&a, &b, None);
 
         assert_eq!(*c.shape(), (2, 2));
         // First row: [1*7+2*9+3*11, 1*8+2*10+3*12] = [58, 64]
@@ -767,7 +853,7 @@ mod tests {
         use mdarray::tensor;
         let a: DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0]];
         let b: DTensor<f64, 2> = tensor![[5.0, 6.0], [7.0, 8.0]];
-        let c = matmul_par(&a, &b);
+        let c = matmul_par(&a, &b, None);
 
         // Expected: [[1*5+2*7, 1*6+2*8], [3*5+4*7, 3*6+4*8]]
         //         = [[19, 22], [43, 50]]
@@ -782,7 +868,7 @@ mod tests {
         use mdarray::tensor;
         let a: DTensor<f64, 2> = tensor![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]; // 2x3
         let b: DTensor<f64, 2> = tensor![[7.0], [8.0], [9.0]]; // 3x1
-        let c = matmul_par(&a, &b);
+        let c = matmul_par(&a, &b, None);
 
         // Expected: [[1*7+2*8+3*9], [4*7+5*8+6*9]]
         //         = [[50], [122]]

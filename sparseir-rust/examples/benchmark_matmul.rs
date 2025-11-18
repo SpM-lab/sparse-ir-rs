@@ -39,7 +39,7 @@ fn matmul(
     a: &DTensor<Complex<f64>, 2>,
     b: &DTensor<Complex<f64>, 2>,
 ) -> DTensor<Complex<f64>, 2> {
-    matmul_par(a, b)
+    matmul_par(a, b, None)
 }
 
 fn main() {

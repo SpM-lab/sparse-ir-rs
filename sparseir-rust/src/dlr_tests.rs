@@ -7,8 +7,6 @@ use crate::{
 use mdarray::Tensor;
 use num_complex::Complex;
 
-use crate::test_utils::*;
-
 #[test]
 fn test_dlr_construction_fermionic() {
     let beta = 10.0;
@@ -100,8 +98,8 @@ where
         let gl_3d = crate::test_utils::movedim(&gl_ref, 0, dim);
 
         // Transform: IR → DLR → IR
-        let g_dlr = dlr.from_ir_nd::<T>(&gl_3d, dim);
-        let gl_reconst = dlr.to_ir_nd::<T>(&g_dlr, dim);
+        let g_dlr = dlr.from_ir_nd::<T>(None, &gl_3d, dim);
+        let gl_reconst = dlr.to_ir_nd::<T>(None, &g_dlr, dim);
 
         // Move back to dim=0 for comparison
         let gl_reconst_dim0 = crate::test_utils::movedim(&gl_reconst, dim, 0);
@@ -356,8 +354,8 @@ where
         let gl_3d = crate::test_utils::movedim(&gl_ref, 0, dim);
 
         // Transform: IR → DLR → IR
-        let g_dlr = dlr.from_ir_nd::<T>(&gl_3d, dim);
-        let gl_reconst = dlr.to_ir_nd::<T>(&g_dlr, dim);
+        let g_dlr = dlr.from_ir_nd::<T>(None, &gl_3d, dim);
+        let gl_reconst = dlr.to_ir_nd::<T>(None, &g_dlr, dim);
 
         // Move back to dim=0 for comparison
         let gl_reconst_dim0 = crate::test_utils::movedim(&gl_reconst, dim, 0);

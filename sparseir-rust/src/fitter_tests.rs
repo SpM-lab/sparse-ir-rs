@@ -32,11 +32,11 @@ fn test_real_matrix_fitter_roundtrip() {
     let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64 + 1.0) * 0.5).collect();
 
     // Evaluate
-    let values = fitter.evaluate(&coeffs);
+    let values = fitter.evaluate(None, &coeffs);
     assert_eq!(values.len(), n_points);
 
     // Fit back
-    let fitted_coeffs = fitter.fit(&values);
+    let fitted_coeffs = fitter.fit(None, &values);
     assert_eq!(fitted_coeffs.len(), basis_size);
 
     // Check roundtrip
@@ -64,8 +64,8 @@ fn test_real_matrix_fitter_overdetermined() {
     let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64) * 0.3).collect();
 
     // Roundtrip
-    let values = fitter.evaluate(&coeffs);
-    let fitted_coeffs = fitter.fit(&values);
+    let values = fitter.evaluate(None, &coeffs);
+    let fitted_coeffs = fitter.fit(None, &values);
 
     for (orig, fitted) in coeffs.iter().zip(fitted_coeffs.iter()) {
         let error = (orig - fitted).abs();
@@ -94,14 +94,14 @@ fn test_complex_to_real_fitter_roundtrip() {
     let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64 + 1.0) * 0.5).collect();
 
     // Evaluate: real coeffs → complex values
-    let values = fitter.evaluate(&coeffs);
+    let values = fitter.evaluate(None, &coeffs);
     assert_eq!(values.len(), n_points);
 
     // All values should be complex (non-zero imaginary part expected)
     assert!(values.iter().any(|z| z.im.abs() > 1e-10));
 
     // Fit back: complex values → real coeffs
-    let fitted_coeffs = fitter.fit(&values);
+    let fitted_coeffs = fitter.fit(None, &values);
     assert_eq!(fitted_coeffs.len(), basis_size);
 
     // Check roundtrip
@@ -129,8 +129,8 @@ fn test_complex_to_real_fitter_overdetermined() {
     let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64) * 0.3).collect();
 
     // Roundtrip
-    let values = fitter.evaluate(&coeffs);
-    let fitted_coeffs = fitter.fit(&values);
+    let values = fitter.evaluate(None, &coeffs);
+    let fitted_coeffs = fitter.fit(None, &values);
 
     for (orig, fitted) in coeffs.iter().zip(fitted_coeffs.iter()) {
         let error = (orig - fitted).abs();
@@ -168,7 +168,7 @@ fn test_real_fitter_wrong_coeffs_size() {
     let fitter = RealMatrixFitter::new(matrix);
 
     let wrong_coeffs = vec![1.0; 5]; // Should be 3
-    let _values = fitter.evaluate(&wrong_coeffs);
+    let _values = fitter.evaluate(None, &wrong_coeffs);
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn test_real_fitter_wrong_values_size() {
     let fitter = RealMatrixFitter::new(matrix);
 
     let wrong_values = vec![1.0; 10]; // Should be 5
-    let _coeffs = fitter.fit(&wrong_values);
+    let _coeffs = fitter.fit(None, &wrong_values);
 }
 
 #[test]
@@ -208,8 +208,8 @@ fn test_complex_fitter_real_matrix_equivalence() {
     let coeffs: Vec<f64> = (0..basis_size).map(|i| i as f64 * 0.4).collect();
 
     // Evaluate
-    let values_real = fitter_real.evaluate(&coeffs);
-    let values_complex = fitter_complex.evaluate(&coeffs);
+    let values_real = fitter_real.evaluate(None, &coeffs);
+    let values_complex = fitter_complex.evaluate(None, &coeffs);
 
     // Complex values should have negligible imaginary part
     for (v_real, v_complex) in values_real.iter().zip(values_complex.iter()) {
@@ -221,8 +221,8 @@ fn test_complex_fitter_real_matrix_equivalence() {
     let values_complex_zero_im: Vec<Complex<f64>> =
         values_real.iter().map(|&v| Complex::new(v, 0.0)).collect();
 
-    let fitted_real = fitter_real.fit(&values_real);
-    let fitted_complex = fitter_complex.fit(&values_complex_zero_im);
+    let fitted_real = fitter_real.fit(None, &values_real);
+    let fitted_complex = fitter_complex.fit(None, &values_complex_zero_im);
 
     // Should give same coefficients
     for (real, complex) in fitted_real.iter().zip(fitted_complex.iter()) {
@@ -253,11 +253,11 @@ fn test_complex_matrix_fitter_roundtrip() {
         .collect();
 
     // Evaluate
-    let values = fitter.evaluate(&coeffs);
+    let values = fitter.evaluate(None, &coeffs);
     assert_eq!(values.len(), n_points);
 
     // Fit back
-    let fitted_coeffs = fitter.fit(&values);
+    let fitted_coeffs = fitter.fit(None, &values);
     assert_eq!(fitted_coeffs.len(), basis_size);
 
     // Check roundtrip
@@ -295,10 +295,10 @@ fn test_complex_matrix_fitter_vs_complex_to_real() {
     let coeffs_real: Vec<f64> = (0..basis_size).map(|i| i as f64 * 0.4).collect();
 
     // Evaluate with ComplexToRealFitter
-    let values = fitter_c2r.evaluate(&coeffs_real);
+    let values = fitter_c2r.evaluate(None, &coeffs_real);
 
     // Fit with ComplexMatrixFitter (should give complex coeffs with small imaginary)
-    let fitted_complex = fitter_complex.fit(&values);
+    let fitted_complex = fitter_complex.fit(None, &values);
 
     // Real parts should match, imaginary parts should be small
     for (i, &coeff_real) in coeffs_real.iter().enumerate() {

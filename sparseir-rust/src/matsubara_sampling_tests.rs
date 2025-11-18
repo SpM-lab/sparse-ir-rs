@@ -83,7 +83,7 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
 
     // Use positive-only sampling points
     let sampling_points = basis.default_matsubara_sampling_points(true);
-    let n_matsubara = sampling_points.len();
+    let _n_matsubara = sampling_points.len();
 
     // Create sampling
     let sampling =
@@ -183,8 +183,8 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(&coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(&values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
@@ -256,8 +256,8 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(&coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(&values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
