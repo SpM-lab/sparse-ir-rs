@@ -59,6 +59,9 @@ proptest.workspace = true
 # Math functions
 libm.workspace = true
 
+# Random number generation for examples
+rand.workspace = true
+
 # System BLAS for tests only (not used in library code)
 blas-sys.workspace = true
 
