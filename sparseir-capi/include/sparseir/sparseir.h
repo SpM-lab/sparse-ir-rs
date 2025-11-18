@@ -104,6 +104,18 @@ typedef struct spir_funcs {
   double beta;
 } spir_funcs;
 
+/**
+ * Opaque pointer type for GEMM backend handle
+ *
+ * This type wraps a `GemmBackendHandle` and provides a C-compatible interface.
+ * The handle can be created, cloned, and passed to evaluate/fit functions.
+ *
+ * Note: The internal structure is hidden using a void pointer to prevent exposing GemmBackendHandle to C.
+ */
+typedef struct spir_gemm_backend {
+  void *_private;
+} spir_gemm_backend;
+
 
 
 /**
@@ -605,6 +617,7 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  */
 
 int spir_ir2dlr_dd(const struct spir_basis *dlr,
+                          const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
                           const int *input_dims,
@@ -632,6 +645,7 @@ int spir_ir2dlr_dd(const struct spir_basis *dlr,
  */
 
 int spir_ir2dlr_zz(const struct spir_basis *dlr,
+                          const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
                           const int *input_dims,
@@ -659,6 +673,7 @@ int spir_ir2dlr_zz(const struct spir_basis *dlr,
  */
 
 int spir_dlr2ir_dd(const struct spir_basis *dlr,
+                          const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
                           const int *input_dims,
@@ -686,6 +701,7 @@ int spir_dlr2ir_dd(const struct spir_basis *dlr,
  */
 
 int spir_dlr2ir_zz(const struct spir_basis *dlr,
+                          const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
                           const int *input_dims,
@@ -927,116 +943,71 @@ int spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
                                         int *n_points_returned);
 
 /**
- * Register custom BLAS functions (LP64: 32-bit integers)
+ * Create GEMM backend from Fortran BLAS function pointers (LP64)
  *
- * This function allows you to inject external BLAS implementations (OpenBLAS, MKL, Accelerate, etc.)
- * for matrix multiplication operations. The registered functions will be used for all subsequent
- * GEMM operations in the library.
+ * Creates a new backend handle from Fortran BLAS function pointers.
  *
  * # Arguments
  * * `dgemm` - Function pointer to Fortran BLAS dgemm (double precision)
  * * `zgemm` - Function pointer to Fortran BLAS zgemm (complex double precision)
  *
  * # Returns
- * * `SPIR_COMPUTATION_SUCCESS` (0) on success
- * * `SPIR_INVALID_ARGUMENT` (-6) if function pointers are null
+ * * Pointer to `spir_gemm_backend` on success
+ * * `NULL` if function pointers are null
  *
  * # Safety
  * The provided function pointers must:
  * - Be valid Fortran BLAS function pointers following the standard Fortran BLAS interface
  * - Use 32-bit integers for all dimension parameters (LP64 interface)
  * - Be thread-safe (will be called from multiple threads)
- * - Remain valid for the entire lifetime of the program
+ * - Remain valid for the entire lifetime of the backend handle
  *
- * # Example (from C)
- * ```c
- * // Link against BLAS library (e.g., -lblas or -lopenblas)
- * // Fortran BLAS functions typically have trailing underscore
- *
- * // Register Fortran BLAS
- * int status = spir_register_dgemm_zgemm_lp64(
- *     (void*)dgemm_,
- *     (void*)zgemm_
- * );
- *
- * if (status != SPIR_COMPUTATION_SUCCESS) {
- *     fprintf(stderr, "Failed to register BLAS functions\n");
- * }
- * ```
- *
- * # Fortran BLAS Interface
- * The function pointers must match these signatures:
- * ```c
- * void dgemm_(char *transa, char *transb, int *m, int *n, int *k,
- *             double *alpha, double *a, int *lda, double *b, int *ldb,
- *             double *beta, double *c, int *ldc);
- *
- * void zgemm_(char *transa, char *transb, int *m, int *n, int *k,
- *             void *alpha, void *a, int *lda, void *b, int *ldb,
- *             void *beta, void *c, int *ldc);
- * ```
- * Note: All parameters are passed by reference (pointers).
- * Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
+ * The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
  */
 
-int spir_register_dgemm_zgemm_lp64(const void *dgemm,
-                                          const void *zgemm);
+struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_lp64(const void *dgemm,
+                                                                const void *zgemm);
 
 /**
- * Register ILP64 BLAS functions (64-bit integers)
+ * Create GEMM backend from Fortran BLAS function pointers (ILP64)
  *
- * This function allows you to inject ILP64 BLAS implementations (MKL ILP64, OpenBLAS with ILP64, etc.)
- * for matrix multiplication operations. ILP64 uses 64-bit integers for all dimension parameters,
- * enabling support for very large matrices (> 2^31 elements).
+ * Creates a new backend handle from Fortran BLAS function pointers with 64-bit integers.
  *
  * # Arguments
- * * `dgemm64` - Function pointer to ILP64 Fortran BLAS dgemm (double precision)
- * * `zgemm64` - Function pointer to ILP64 Fortran BLAS zgemm (complex double precision)
+ * * `dgemm64` - Function pointer to Fortran BLAS dgemm (double precision, 64-bit integers)
+ * * `zgemm64` - Function pointer to Fortran BLAS zgemm (complex double precision, 64-bit integers)
  *
  * # Returns
- * * `SPIR_COMPUTATION_SUCCESS` (0) on success
- * * `SPIR_INVALID_ARGUMENT` (-6) if function pointers are null
+ * * Pointer to `spir_gemm_backend` on success
+ * * `NULL` if function pointers are null
  *
  * # Safety
  * The provided function pointers must:
- * - Be valid Fortran BLAS function pointers following the standard Fortran BLAS interface with ILP64
+ * - Be valid Fortran BLAS function pointers following the standard Fortran BLAS interface
  * - Use 64-bit integers for all dimension parameters (ILP64 interface)
  * - Be thread-safe (will be called from multiple threads)
- * - Remain valid for the entire lifetime of the program
+ * - Remain valid for the entire lifetime of the backend handle
  *
- * # Example (from C with MKL ILP64)
- * ```c
- * #define MKL_ILP64
- * #include <mkl.h>
- *
- * // Register MKL ILP64 Fortran BLAS
- * int status = spir_register_dgemm_zgemm_ilp64(
- *     (void*)dgemm_,  // MKL's ILP64 Fortran BLAS version
- *     (void*)zgemm_   // MKL's ILP64 Fortran BLAS version
- * );
- *
- * if (status != SPIR_COMPUTATION_SUCCESS) {
- *     fprintf(stderr, "Failed to register ILP64 BLAS functions\n");
- * }
- * ```
- *
- * # Fortran BLAS ILP64 Interface
- * The function pointers must match these signatures (note: long long = 64-bit int):
- * ```c
- * void dgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
- *             double *alpha, double *a, long long *lda, double *b, long long *ldb,
- *             double *beta, double *c, long long *ldc);
- *
- * void zgemm_(char *transa, char *transb, long long *m, long long *n, long long *k,
- *             void *alpha, void *a, long long *lda, void *b, long long *ldb,
- *             void *beta, void *c, long long *ldc);
- * ```
- * Note: All parameters are passed by reference (pointers).
- * Transpose options: 'N' (no transpose), 'T' (transpose), 'C' (conjugate transpose).
+ * The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
  */
 
-int spir_register_dgemm_zgemm_ilp64(const void *dgemm64,
-                                           const void *zgemm64);
+struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dgemm64,
+                                                                 const void *zgemm64);
+
+/**
+ * Release GEMM backend handle
+ *
+ * Releases the memory associated with a backend handle.
+ *
+ * # Arguments
+ * * `backend` - Pointer to backend handle (can be NULL)
+ *
+ * # Safety
+ * The pointer must have been created by `spir_gemm_backend_new_from_fblas_lp64` or
+ * `spir_gemm_backend_new_from_fblas_ilp64`.
+ * After calling this function, the pointer must not be used again.
+ */
+ void spir_gemm_backend_release(struct spir_gemm_backend *backend);
 
 /**
  * Create a new Logistic kernel
@@ -1376,6 +1347,7 @@ struct spir_sampling *spir_matsu_sampling_new_with_matrix(int order,
  */
 
 int spir_sampling_eval_dd(const struct spir_sampling *s,
+                                 const struct spir_gemm_backend *backend,
                                  int order,
                                  int ndim,
                                  const int *input_dims,
@@ -1390,6 +1362,7 @@ int spir_sampling_eval_dd(const struct spir_sampling *s,
  */
 
 int spir_sampling_eval_dz(const struct spir_sampling *s,
+                                 const struct spir_gemm_backend *backend,
                                  int order,
                                  int ndim,
                                  const int *input_dims,
@@ -1404,6 +1377,7 @@ int spir_sampling_eval_dz(const struct spir_sampling *s,
  */
 
 int spir_sampling_eval_zz(const struct spir_sampling *s,
+                                 const struct spir_gemm_backend *backend,
                                  int order,
                                  int ndim,
                                  const int *input_dims,
@@ -1416,6 +1390,7 @@ int spir_sampling_eval_zz(const struct spir_sampling *s,
  */
 
 int spir_sampling_fit_dd(const struct spir_sampling *s,
+                                const struct spir_gemm_backend *backend,
                                 int order,
                                 int ndim,
                                 const int *input_dims,
@@ -1428,6 +1403,7 @@ int spir_sampling_fit_dd(const struct spir_sampling *s,
  */
 
 int spir_sampling_fit_zz(const struct spir_sampling *s,
+                                const struct spir_gemm_backend *backend,
                                 int order,
                                 int ndim,
                                 const int *input_dims,
@@ -1440,6 +1416,7 @@ int spir_sampling_fit_zz(const struct spir_sampling *s,
  */
 
 int spir_sampling_fit_zd(const struct spir_sampling *s,
+                                const struct spir_gemm_backend *backend,
                                 int order,
                                 int ndim,
                                 const int *input_dims,

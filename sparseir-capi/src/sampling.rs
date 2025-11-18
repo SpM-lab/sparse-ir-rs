@@ -18,6 +18,7 @@ use mdarray::Shape;
 use crate::types::{spir_basis, spir_sampling, BasisType, SamplingType};
 use crate::utils::{convert_dims_for_row_major, copy_tensor_to_c_array, MemoryOrder};
 use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED};
+use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use sparseir_rust::{Bosonic, Fermionic, Tensor};
 
 /// Manual release function (replaces macro-generated one)
@@ -715,6 +716,7 @@ pub unsafe extern "C" fn spir_sampling_get_cond_num(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_eval_dd(
     s: *const spir_sampling,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -765,10 +767,13 @@ pub unsafe extern "C" fn spir_sampling_eval_dd(
             return crate::SPIR_INPUT_DIMENSION_MISMATCH;
         }
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Evaluate based on sampling type (only tau sampling supports dd)
         let result_tensor = match sampling_ref.inner() {
-            SamplingType::TauFermionic(tau) => tau.evaluate_nd(&input_tensor, mdarray_target_dim),
-            SamplingType::TauBosonic(tau) => tau.evaluate_nd(&input_tensor, mdarray_target_dim),
+            SamplingType::TauFermionic(tau) => tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            SamplingType::TauBosonic(tau) => tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED,
         };
 
@@ -787,6 +792,7 @@ pub unsafe extern "C" fn spir_sampling_eval_dd(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_eval_dz(
     s: *const spir_sampling,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -824,21 +830,24 @@ pub unsafe extern "C" fn spir_sampling_eval_dz(
         let flat_tensor = Tensor::<f64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Evaluate based on sampling type (Matsubara, both full and positive-only)
         let result_tensor = match sampling_ref.inner() {
             // Full range Matsubara: use evaluate_nd_real
             SamplingType::MatsubaraFermionic(matsu) => {
-                matsu.evaluate_nd_real(&input_tensor, mdarray_target_dim)
+                matsu.evaluate_nd_real(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraBosonic(matsu) => {
-                matsu.evaluate_nd_real(&input_tensor, mdarray_target_dim)
+                matsu.evaluate_nd_real(backend_handle, &input_tensor, mdarray_target_dim)
             }
             // Positive-only Matsubara: use evaluate_nd (already real → complex)
             SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
-                matsu.evaluate_nd(&input_tensor, mdarray_target_dim)
+                matsu.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
-                matsu.evaluate_nd(&input_tensor, mdarray_target_dim)
+                matsu.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED,
         };
@@ -858,6 +867,7 @@ pub unsafe extern "C" fn spir_sampling_eval_dz(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_eval_zz(
     s: *const spir_sampling,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -894,21 +904,24 @@ pub unsafe extern "C" fn spir_sampling_eval_zz(
         let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Evaluate (Matsubara or tau sampling)
         let result_tensor = match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
-                matsu.evaluate_nd(&input_tensor, mdarray_target_dim)
+                matsu.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraBosonic(matsu) => {
-                matsu.evaluate_nd(&input_tensor, mdarray_target_dim)
+                matsu.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             // Tau sampling: evaluate with complex input, returns complex
             // The transformation matrix is real, but if input has imaginary part, output will also have imaginary part
             SamplingType::TauFermionic(tau) => {
-                tau.evaluate_nd(&input_tensor, mdarray_target_dim)
+                tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::TauBosonic(tau) => {
-                tau.evaluate_nd(&input_tensor, mdarray_target_dim)
+                tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED,
         };
@@ -930,6 +943,7 @@ pub unsafe extern "C" fn spir_sampling_eval_zz(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_fit_dd(
     s: *const spir_sampling,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -966,10 +980,13 @@ pub unsafe extern "C" fn spir_sampling_fit_dd(
         let flat_tensor = Tensor::<f64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Fit (tau sampling only)
         let result_tensor = match sampling_ref.inner() {
-            SamplingType::TauFermionic(tau) => tau.fit_nd(&input_tensor, mdarray_target_dim),
-            SamplingType::TauBosonic(tau) => tau.fit_nd(&input_tensor, mdarray_target_dim),
+            SamplingType::TauFermionic(tau) => tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            SamplingType::TauBosonic(tau) => tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED,
         };
 
@@ -986,6 +1003,7 @@ pub unsafe extern "C" fn spir_sampling_fit_dd(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_fit_zz(
     s: *const spir_sampling,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -1022,17 +1040,20 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
         let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Fit (Matsubara or tau sampling)
         let result_tensor = match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
-                matsu.fit_nd(&input_tensor, mdarray_target_dim)
+                matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraBosonic(matsu) => {
-                matsu.fit_nd(&input_tensor, mdarray_target_dim)
+                matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             // MatsubaraPositiveOnly: fit_nd returns real, convert to complex
             SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
-                let real_result = matsu.fit_nd(&input_tensor, mdarray_target_dim);
+                let real_result = matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim);
                 // Convert Tensor<f64> to Tensor<Complex64> by converting element by element
                 let rank = real_result.rank();
                 let shape_vec: Vec<usize> = (0..rank)
@@ -1058,7 +1079,7 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
                 flat_tensor.into_dyn().reshape(&shape_vec[..]).to_tensor()
             }
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
-                let real_result = matsu.fit_nd(&input_tensor, mdarray_target_dim);
+                let real_result = matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim);
                 // Convert Tensor<f64> to Tensor<Complex64> by converting element by element
                 let rank = real_result.rank();
                 let shape_vec: Vec<usize> = (0..rank)
@@ -1086,11 +1107,12 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
             // Tau sampling: fit with complex input, returns complex
             // The transformation matrix is real, but if input has imaginary part, output will also have imaginary part
             SamplingType::TauFermionic(tau) => {
-                tau.fit_nd(&input_tensor, mdarray_target_dim)
+                tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::TauBosonic(tau) => {
-                tau.fit_nd(&input_tensor, mdarray_target_dim)
+                tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
+            #[allow(unreachable_patterns)]
             _ => return SPIR_NOT_SUPPORTED,
         };
 
@@ -1107,6 +1129,7 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_fit_zd(
     s: *const spir_sampling,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -1143,21 +1166,24 @@ pub unsafe extern "C" fn spir_sampling_fit_zd(
         let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Fit (Matsubara → real coefficients, both full and positive-only)
         let result_tensor = match sampling_ref.inner() {
             // Full range Matsubara: use fit_nd_real
             SamplingType::MatsubaraFermionic(matsu) => {
-                matsu.fit_nd_real(&input_tensor, mdarray_target_dim)
+                matsu.fit_nd_real(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraBosonic(matsu) => {
-                matsu.fit_nd_real(&input_tensor, mdarray_target_dim)
+                matsu.fit_nd_real(backend_handle, &input_tensor, mdarray_target_dim)
             }
             // Positive-only Matsubara: use fit_nd (already complex → real)
             SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
-                matsu.fit_nd(&input_tensor, mdarray_target_dim)
+                matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
-                matsu.fit_nd(&input_tensor, mdarray_target_dim)
+                matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED,
         };

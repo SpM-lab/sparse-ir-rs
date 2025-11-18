@@ -20,6 +20,10 @@ tests_backup/
 *_backup.*
 *.old
 
+# Test binaries and temporary test files
+test_install_*
+test_user_install.*
+
 # C++ test build artifacts
 cxx_tests/_build/
 cxx_tests/_install/
