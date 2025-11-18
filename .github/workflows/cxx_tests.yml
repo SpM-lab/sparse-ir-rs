@@ -1,4 +1,4 @@
-name: Rust-CAPI
+name: Cxx-Tests
 
 on:
   push:
