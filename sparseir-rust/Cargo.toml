@@ -16,8 +16,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 # Core linear algebra - mdarray with Faer backend
 mdarray.workspace = true
-mdarray-linalg = { path = "../mdarray-linalg/mdarray-linalg" }
-mdarray-linalg-faer = { path = "../mdarray-linalg/mdarray-linalg-faer" }
+mdarray-linalg.workspace = true
+mdarray-linalg-faer.workspace = true
 
 # Faer - Pure Rust high-performance linear algebra
 faer.workspace = true

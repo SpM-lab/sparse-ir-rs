@@ -19,13 +19,6 @@ jobs:
       with:
         submodules: false
         token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Initialize and update submodules
-      run: |
-        # Convert SSH URLs to HTTPS for GitHub Actions
-        git config --global url."https://github.com/".insteadOf "git@github.com:"
-        git submodule update --init --jobs 4
-        # Initialize libsparseir submodules but skip nested ones that may have issues
-        cd libsparseir && git submodule update --init --jobs 4 || true
     - name: Build
       run: cargo build
     - name: Run tests
