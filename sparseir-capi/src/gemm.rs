@@ -246,6 +246,8 @@ mod tests {
 
     #[test]
     fn test_register_blas_functions_success() {
+        // Ensure clean state before test
+        sparseir_rust::gemm::clear_blas_backend();
         unsafe {
             let status =
                 spir_register_dgemm_zgemm_lp64(mock_dgemm as *const _, mock_zgemm as *const _);
@@ -264,6 +266,8 @@ mod tests {
 
     #[test]
     fn test_register_ilp64_functions_success() {
+        // Ensure clean state before test
+        sparseir_rust::gemm::clear_blas_backend();
         unsafe {
             let status =
                 spir_register_dgemm_zgemm_ilp64(mock_dgemm64 as *const _, mock_zgemm64 as *const _);
@@ -301,6 +305,190 @@ mod tests {
         unsafe {
             let status = spir_register_dgemm_zgemm_ilp64(std::ptr::null(), std::ptr::null());
             assert_eq!(status, SPIR_INVALID_ARGUMENT);
+        }
+    }
+
+    // System BLAS integration tests (always enabled during tests)
+    #[cfg(test)]
+    mod system_blas_tests {
+        use super::*;
+        use sparseir_rust::gemm::matmul_par;
+        use mdarray::tensor;
+        use blas_sys::{dgemm_, zgemm_, c_double_complex};
+
+        // Helper function to convert Complex<f64> to c_double_complex
+        fn complex_to_c_double_complex(c: num_complex::Complex<f64>) -> c_double_complex {
+            [c.re, c.im]
+        }
+
+        // Helper function to convert c_double_complex to Complex<f64>
+        fn c_double_complex_to_complex(c: c_double_complex) -> num_complex::Complex<f64> {
+            num_complex::Complex::new(c[0], c[1])
+        }
+
+        #[test]
+        fn test_system_blas_registration() {
+            // Ensure clean state before test
+            sparseir_rust::gemm::clear_blas_backend();
+            unsafe {
+                // Register system BLAS functions from blas-sys
+                // Note: zgemm_ uses c_double_complex, but num_complex::Complex<f64> has the same memory layout
+                let status = spir_register_dgemm_zgemm_lp64(
+                    dgemm_ as *const _,
+                    // Cast zgemm_ to match our function pointer type (memory layout is compatible)
+                    std::mem::transmute::<
+                        unsafe extern "C" fn(
+                            *const libc::c_char,
+                            *const libc::c_char,
+                            *const libc::c_int,
+                            *const libc::c_int,
+                            *const libc::c_int,
+                            *const blas_sys::c_double_complex,
+                            *const blas_sys::c_double_complex,
+                            *const libc::c_int,
+                            *const blas_sys::c_double_complex,
+                            *const libc::c_int,
+                            *const blas_sys::c_double_complex,
+                            *mut blas_sys::c_double_complex,
+                            *const libc::c_int,
+                        ),
+                        sparseir_rust::gemm::ZgemmFnPtr,
+                    >(zgemm_) as *const _,
+                );
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+                // Verify backend was registered
+                let (name, is_external, is_ilp64) = sparseir_rust::gemm::get_backend_info();
+                assert!(is_external, "Backend should be external after registration");
+                assert!(!is_ilp64, "Backend should not be ILP64");
+                assert_eq!(name, "External BLAS (LP64)");
+
+                // Clean up: reset to default
+                sparseir_rust::gemm::clear_blas_backend();
+            }
+        }
+
+        // Helper to register blas-sys functions
+        unsafe fn register_blas_sys() -> StatusCode {
+            spir_register_dgemm_zgemm_lp64(
+                dgemm_ as *const _,
+                // Cast zgemm_ to match our function pointer type (memory layout is compatible)
+                std::mem::transmute::<
+                    unsafe extern "C" fn(
+                        *const libc::c_char,
+                        *const libc::c_char,
+                        *const libc::c_int,
+                        *const libc::c_int,
+                        *const libc::c_int,
+                        *const blas_sys::c_double_complex,
+                        *const blas_sys::c_double_complex,
+                        *const libc::c_int,
+                        *const blas_sys::c_double_complex,
+                        *const libc::c_int,
+                        *const blas_sys::c_double_complex,
+                        *mut blas_sys::c_double_complex,
+                        *const libc::c_int,
+                    ),
+                    sparseir_rust::gemm::ZgemmFnPtr,
+                >(zgemm_) as *const _,
+            )
+        }
+
+        #[test]
+        fn test_system_blas_matrix_multiplication_f64() {
+            // Ensure clean state before test
+            sparseir_rust::gemm::clear_blas_backend();
+            unsafe {
+                // Register system BLAS
+                let status = register_blas_sys();
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+                // Test matrix multiplication: C = A * B
+                // A = [[1.0, 2.0], [3.0, 4.0]]
+                // B = [[5.0, 6.0], [7.0, 8.0]]
+                // Expected: C = [[19.0, 22.0], [43.0, 50.0]]
+                let a: mdarray::DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0]];
+                let b: mdarray::DTensor<f64, 2> = tensor![[5.0, 6.0], [7.0, 8.0]];
+                let c = matmul_par(&a, &b);
+
+                // Debug: print actual values
+                eprintln!("Actual result: c = [[{}, {}], [{}, {}]]", c[[0, 0]], c[[0, 1]], c[[1, 0]], c[[1, 1]]);
+                eprintln!("Expected: c = [[19.0, 22.0], [43.0, 50.0]]");
+
+                // Verify results
+                assert!((c[[0, 0]] - 19.0).abs() < 1e-10, "c[0,0] should be 19.0, got {}", c[[0, 0]]);
+                assert!((c[[0, 1]] - 22.0).abs() < 1e-10, "c[0,1] should be 22.0");
+                assert!((c[[1, 0]] - 43.0).abs() < 1e-10, "c[1,0] should be 43.0");
+                assert!((c[[1, 1]] - 50.0).abs() < 1e-10, "c[1,1] should be 50.0");
+
+                // Clean up
+                sparseir_rust::gemm::clear_blas_backend();
+            }
+        }
+
+        #[test]
+        fn test_system_blas_matrix_multiplication_complex() {
+            // Ensure clean state before test
+            sparseir_rust::gemm::clear_blas_backend();
+            unsafe {
+                // Register system BLAS
+                let status = register_blas_sys();
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+                // Test complex matrix multiplication
+                let a: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
+                    [num_complex::Complex::new(1.0, 0.0), num_complex::Complex::new(2.0, 0.0)],
+                    [num_complex::Complex::new(3.0, 0.0), num_complex::Complex::new(4.0, 0.0)]
+                ];
+                let b: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
+                    [num_complex::Complex::new(5.0, 0.0), num_complex::Complex::new(6.0, 0.0)],
+                    [num_complex::Complex::new(7.0, 0.0), num_complex::Complex::new(8.0, 0.0)]
+                ];
+                let c = matmul_par(&a, &b);
+
+                // Verify results (same as real case)
+                assert!((c[[0, 0]].re - 19.0).abs() < 1e-10);
+                assert!((c[[0, 1]].re - 22.0).abs() < 1e-10);
+                assert!((c[[1, 0]].re - 43.0).abs() < 1e-10);
+                assert!((c[[1, 1]].re - 50.0).abs() < 1e-10);
+                assert!(c[[0, 0]].im.abs() < 1e-10);
+
+                // Clean up
+                sparseir_rust::gemm::clear_blas_backend();
+            }
+        }
+
+        #[test]
+        fn test_system_blas_larger_matrix() {
+            // Ensure clean state before test
+            sparseir_rust::gemm::clear_blas_backend();
+            unsafe {
+                // Register system BLAS
+                let status = register_blas_sys();
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+                // Test with larger matrices (3x2 * 2x4 = 3x4)
+                let a: mdarray::DTensor<f64, 2> = tensor![
+                    [1.0, 2.0],
+                    [3.0, 4.0],
+                    [5.0, 6.0]
+                ];
+                let b: mdarray::DTensor<f64, 2> = tensor![
+                    [7.0, 8.0, 9.0, 10.0],
+                    [11.0, 12.0, 13.0, 14.0]
+                ];
+                let c = matmul_par(&a, &b);
+
+                // Verify some results
+                // First row: [1*7+2*11, 1*8+2*12, 1*9+2*13, 1*10+2*14] = [29, 32, 35, 38]
+                assert!((c[[0, 0]] - 29.0).abs() < 1e-10);
+                assert!((c[[0, 1]] - 32.0).abs() < 1e-10);
+                assert!((c[[0, 2]] - 35.0).abs() < 1e-10);
+                assert!((c[[0, 3]] - 38.0).abs() < 1e-10);
+
+                // Clean up
+                sparseir_rust::gemm::clear_blas_backend();
+            }
         }
     }
 }

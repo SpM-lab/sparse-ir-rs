@@ -575,6 +575,8 @@ mod tests {
 
     #[test]
     fn test_dlr_creation() {
+        // Ensure clean state before test (BLAS backend should be default Faer)
+        sparseir_rust::gemm::clear_blas_backend();
         unsafe {
             // Create kernel
             let mut kernel_status = crate::SPIR_INTERNAL_ERROR;
