@@ -81,14 +81,14 @@ TEST_CASE("Test spir_kernel_get_sve_hints_segments_x", "[cinterface]")
     REQUIRE(n_segments > 0);
 
     // Second call: get the actual segments
-    std::vector<double> segments(n_segments);
+    std::vector<double> segments(n_segments + 1);
     int n_segments_out = n_segments;
     status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, segments.data(), &n_segments_out);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(n_segments_out == n_segments);
 
     // Verify segments are valid
-    REQUIRE(segments.size() == static_cast<size_t>(n_segments));
+    REQUIRE(segments.size() == static_cast<size_t>(n_segments + 1));
     REQUIRE(segments[0] == Approx(0.0).margin(1e-10));
     REQUIRE(segments[n_segments] == Approx(1.0).margin(1e-10));
 
@@ -117,14 +117,14 @@ TEST_CASE("Test spir_kernel_get_sve_hints_segments_y", "[cinterface]")
     REQUIRE(n_segments > 0);
 
     // Second call: get the actual segments
-    std::vector<double> segments(n_segments);
+    std::vector<double> segments(n_segments + 1);
     int n_segments_out = n_segments;
     status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, segments.data(), &n_segments_out);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(n_segments_out == n_segments);
 
     // Verify segments are valid
-    REQUIRE(segments.size() == static_cast<size_t>(n_segments));
+    REQUIRE(segments.size() == static_cast<size_t>(n_segments + 1));
     REQUIRE(segments[0] == Approx(0.0).margin(1e-10));
     REQUIRE(segments[n_segments] == Approx(1.0).margin(1e-10));
 
