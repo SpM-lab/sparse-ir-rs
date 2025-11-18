@@ -24,14 +24,10 @@ tests_backup/
 test_install_*
 test_user_install.*
 
-# C++ test build artifacts
-cxx_tests/_build/
-cxx_tests/_install/
-
-# C API benchmark build artifacts
-capi_benchmark/_build/
-capi_benchmark/_install/
-capi_benchmark/build/
+# Build artifacts (any directory with _build or _install subdirectories)
+*/_build/
+*/_install/
+*/build/
 
 # Keepalive tests
 keepalive_tests/
