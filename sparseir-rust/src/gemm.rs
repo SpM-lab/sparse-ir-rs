@@ -22,7 +22,7 @@
 //! let c = matmul_par(&a, &b);  // Now uses custom BLAS
 //! ```
 
-use mdarray::DTensor;
+use mdarray::{DSlice, DTensor, Layout};
 use once_cell::sync::Lazy;
 use std::sync::RwLock;
 
@@ -494,8 +494,8 @@ pub fn matmul_par<T>(a: &DTensor<T, 2>, b: &DTensor<T, 2>) -> DTensor<T, 2>
 where
     T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
 {
-    let (m, k) = *a.shape();
-    let (k2, n) = *b.shape();
+    let (_m, k) = *a.shape();
+    let (k2, _n) = *b.shape();
 
     // Validate dimensions
     assert_eq!(
@@ -504,42 +504,59 @@ where
         k, k2
     );
 
-    let dispatcher = BLAS_DISPATCHER.read().unwrap();
+    // Use Faer directly to avoid creating intermediate DTensors through backend
+    // create _m x _n result tensor
+    let mut result = DTensor::<T, 2>::from_elem([_m, _n], T::zero().into());
+    matmul_par_overwrite(a, b, &mut result);
+    result
+}
 
-    // Type dispatch: f64 or Complex<f64>
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
-        // f64 case
-        let a_slice = unsafe { std::slice::from_raw_parts(a.as_ptr() as *const f64, m * k) };
-        let b_slice = unsafe { std::slice::from_raw_parts(b.as_ptr() as *const f64, k * n) };
+/// Parallel matrix multiplication with overwrite: C = A * B (writes to existing buffer)
+///
+/// This function writes the result directly into the provided buffer `c`,
+/// avoiding memory allocation. This is more memory-efficient for repeated operations.
+///
+/// # Arguments
+/// * `a` - Left matrix (M x K)
+/// * `b` - Right matrix (K x N)
+/// * `c` - Output matrix (M x N) - will be overwritten with result
+///
+/// # Panics
+/// Panics if matrix dimensions are incompatible (A.cols != B.rows or C.shape != [M, N])
+pub fn matmul_par_overwrite<T, Lc: Layout>(
+    a: &DTensor<T, 2>,
+    b: &DTensor<T, 2>,
+    c: &mut DSlice<T, 2, Lc>,
+) where
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+{
+    let (m, k) = *a.shape();
+    let (k2, n) = *b.shape();
+    let (mc, nc) = *c.shape();
 
-        let mut c_vec = vec![0.0f64; m * n];
-        dispatcher.dgemm(m, n, k, a_slice, b_slice, &mut c_vec);
+    // Validate dimensions
+    assert_eq!(
+        k, k2,
+        "Matrix dimension mismatch: A.cols ({}) != B.rows ({})",
+        k, k2
+    );
+    assert_eq!(
+        m, mc,
+        "Output matrix dimension mismatch: C.rows ({}) != A.rows ({})",
+        mc, m
+    );
+    assert_eq!(
+        n, nc,
+        "Output matrix dimension mismatch: C.cols ({}) != B.cols ({})",
+        nc, n
+    );
 
-        // Convert back to DTensor
-        let c_tensor = DTensor::<f64, 2>::from_fn([m, n], |idx| c_vec[idx[0] * n + idx[1]]);
-        unsafe { std::mem::transmute::<DTensor<f64, 2>, DTensor<T, 2>>(c_tensor) }
-    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<num_complex::Complex<f64>>() {
-        // Complex<f64> case
-        let a_slice = unsafe {
-            std::slice::from_raw_parts(a.as_ptr() as *const num_complex::Complex<f64>, m * k)
-        };
-        let b_slice = unsafe {
-            std::slice::from_raw_parts(b.as_ptr() as *const num_complex::Complex<f64>, k * n)
-        };
+    // Use Faer directly to avoid creating intermediate DTensors
+    use mdarray_linalg::prelude::MatMul;
+    use mdarray_linalg::matmul::MatMulBuilder;
+    use mdarray_linalg_faer::Faer;
 
-        let mut c_vec = vec![num_complex::Complex::new(0.0, 0.0); m * n];
-        dispatcher.zgemm(m, n, k, a_slice, b_slice, &mut c_vec);
-
-        // Convert back to DTensor
-        let c_tensor = DTensor::<num_complex::Complex<f64>, 2>::from_fn([m, n], |idx| {
-            c_vec[idx[0] * n + idx[1]]
-        });
-        unsafe {
-            std::mem::transmute::<DTensor<num_complex::Complex<f64>, 2>, DTensor<T, 2>>(c_tensor)
-        }
-    } else {
-        panic!("Unsupported type for matmul_par: only f64 and Complex<f64> are supported");
-    }
+    Faer.matmul(a, b).parallelize().overwrite(c);
 }
 
 #[cfg(test)]
