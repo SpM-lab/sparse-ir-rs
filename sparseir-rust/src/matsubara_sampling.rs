@@ -172,6 +172,23 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         self.fitter.fit(values)
     }
 
+    /// Fit 2D array of complex values to complex basis coefficients
+    ///
+    /// This method directly uses the internal fitter's 2D fit operation,
+    /// which is optimized for batch processing. Useful for benchmarking
+    /// and when working with 2D arrays directly.
+    ///
+    /// # Arguments
+    /// * `values_2d` - 2D tensor of complex values at Matsubara frequencies
+    ///                 Shape: (n_sampling_points, extra_size)
+    ///
+    /// # Returns
+    /// 2D tensor of fitted complex basis coefficients
+    /// Shape: (basis_size, extra_size)
+    pub fn fit_2d(&self, values_2d: &DTensor<Complex<f64>, 2>) -> DTensor<Complex<f64>, 2> {
+        self.fitter.fit_2d(values_2d)
+    }
+
     /// Evaluate N-dimensional array of complex basis coefficients at sampling points
     ///
     /// # Arguments
