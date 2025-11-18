@@ -29,10 +29,6 @@ simba = "0.9"
 num-complex.workspace = true
 num-traits.workspace = true
 
-# High-precision arithmetic
-dashu-float.workspace = true
-dashu-base.workspace = true
-
 # Special functions
 special.workspace = true
 statrs.workspace = true
@@ -56,9 +52,9 @@ libc.workspace = true
 [dev-dependencies]
 approx.workspace = true
 proptest.workspace = true
-# Math functions
-libm.workspace = true
-
+# High-precision arithmetic (for precision tests)
+dashu-float.workspace = true
+dashu-base.workspace = true
 # System BLAS for tests only (not used in library code)
 blas-sys.workspace = true
 

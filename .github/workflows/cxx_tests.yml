@@ -10,8 +10,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
+  test-default-backend:
+    name: C++ tests with default backend
+    runs-on: ubuntu-latest
 
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        submodules: false
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Initialize and update submodules
+      run: |
+        # Convert SSH URLs to HTTPS for GitHub Actions
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git submodule update --init --jobs 4
+        # Initialize libsparseir submodules but skip nested ones that may have issues
+        cd libsparseir && git submodule update --init --jobs 4 || true
+    - name: Run tests with default backend
+      run: cd cxx_tests && ./run_with_rust_capi.sh
+
+  test-openblas:
+    name: C++ tests with OpenBLAS (LP64)
     runs-on: ubuntu-latest
 
     steps:
@@ -30,5 +49,49 @@ jobs:
         git submodule update --init --jobs 4
         # Initialize libsparseir submodules but skip nested ones that may have issues
         cd libsparseir && git submodule update --init --jobs 4 || true
-    - name: Run tests
+    - name: Run tests with OpenBLAS (LP64)
+      env:
+        SPARSEIR_USE_BLAS: ON
       run: cd cxx_tests && ./run_with_rust_capi.sh
+
+  test-openblas-ilp64:
+    name: C++ tests with OpenBLAS (ILP64)
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        submodules: false
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install OpenBLAS with ILP64
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenblas64-0 libopenblas64-dev pkg-config
+    - name: Initialize and update submodules
+      run: |
+        # Convert SSH URLs to HTTPS for GitHub Actions
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
+        git submodule update --init --jobs 4
+        # Initialize libsparseir submodules but skip nested ones that may have issues
+        cd libsparseir && git submodule update --init --jobs 4 || true
+    - name: Run tests with OpenBLAS (ILP64)
+      env:
+        SPARSEIR_USE_BLAS: ON
+        SPARSEIR_USE_BLAS_ILP64: ON
+      run: cd cxx_tests && ./run_with_rust_capi.sh
+
+  test-rollup:
+    name: All C++ tests status
+    runs-on: ubuntu-latest
+    needs:
+      - test-default-backend
+      - test-openblas
+      - test-openblas-ilp64
+    if: always()
+    steps:
+      - name: All tests passed
+        if: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        run: exit 0
+      - name: Some tests failed or cancelled
+        if: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: exit 1

@@ -17,6 +17,7 @@
 // C++ interface removed for C-API test
 #include <sparseir/sparseir.h>   // C interface
 #include "_utils.hpp"
+#include "gemmbackend.hpp"
 
 // Helper function for movedim (replacing sparseir::movedim)
 template <int N>
@@ -282,12 +283,13 @@ template <typename T>
 int dlr_to_IR(spir_basis* dlr, int order, int ndim,
                   const int* dims, int target_dim,
                   const T* coeffs, T* g_IR) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_dlr2ir_dd(dlr, NULL, order, ndim, dims, target_dim,
+        return spir_dlr2ir_dd(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const double*>(coeffs),
                                 reinterpret_cast<double*>(g_IR));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_dlr2ir_zz(dlr, NULL, order, ndim, dims, target_dim,
+        return spir_dlr2ir_zz(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const c_complex*>(coeffs),
                                 reinterpret_cast<c_complex*>(g_IR));
     }
@@ -299,12 +301,13 @@ template <typename T>
 int dlr_from_IR(spir_basis* dlr, int order, int ndim,
                   const int* dims, int target_dim,
                   const T* coeffs, T* g_IR) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_ir2dlr_dd(dlr, NULL, order, ndim, dims, target_dim,
+        return spir_ir2dlr_dd(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const double*>(coeffs),
                                 reinterpret_cast<double*>(g_IR));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_ir2dlr_zz(dlr, NULL, order, ndim, dims, target_dim,
+        return spir_ir2dlr_zz(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const c_complex*>(coeffs),
                                 reinterpret_cast<c_complex*>(g_IR));
     }
@@ -315,12 +318,13 @@ template <typename T>
 int _tau_sampling_evaluate(spir_sampling* sampling, int order, int ndim,
                          const int* dims, int target_dim,
                          const T* gIR, T* gtau) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_sampling_eval_dd(sampling, NULL, order, ndim, dims, target_dim,
+        return spir_sampling_eval_dd(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const double*>(gIR),
                                        reinterpret_cast<double*>(gtau));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_sampling_eval_zz(sampling, NULL, order, ndim, dims, target_dim,
+        return spir_sampling_eval_zz(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const c_complex*>(gIR),
                                        reinterpret_cast<c_complex*>(gtau));
     }
@@ -331,12 +335,13 @@ template <typename T>
 int _tau_sampling_fit(spir_sampling* sampling, int order, int ndim,
                          const int* dims, int target_dim,
                          const T* gtau, T* gIR) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_sampling_fit_dd(sampling, NULL, order, ndim, dims, target_dim,
+        return spir_sampling_fit_dd(sampling, backend, order, ndim, dims, target_dim,
                                   reinterpret_cast<const double*>(gtau),
                                   reinterpret_cast<double*>(gIR));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_sampling_fit_zz(sampling, NULL, order, ndim, dims, target_dim,
+        return spir_sampling_fit_zz(sampling, backend, order, ndim, dims, target_dim,
                                   reinterpret_cast<const c_complex*>(gtau),
                                   reinterpret_cast<c_complex*>(gIR));
     }
@@ -347,12 +352,13 @@ template <typename T>
 int _matsubara_sampling_evaluate(spir_sampling* sampling, int order, int ndim,
                                    const int* dims, int target_dim,
                                    const T* gIR, std::complex<double>* giw) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_sampling_eval_dz(sampling, NULL, order, ndim, dims, target_dim,
+        return spir_sampling_eval_dz(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const double*>(gIR),
                                        reinterpret_cast<c_complex*>(giw));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_sampling_eval_zz(sampling, NULL, order, ndim, dims, target_dim,
+        return spir_sampling_eval_zz(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const c_complex*>(gIR),
                                        reinterpret_cast<c_complex*>(giw));
     }
@@ -580,16 +586,17 @@ void integration_test(double beta, double wmax, double epsilon,
         gtau_from_IR, gtau_from_DLR_reconst, tol));
 
     // Use sampling to evaluate the Greens function at all tau points between IR and DLR
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
         status = spir_sampling_eval_dd(
-            tau_sampling_dlr, NULL, order, ndim,
+            tau_sampling_dlr, backend, order, ndim,
             _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
             target_dim,
             reinterpret_cast<const double*>(coeffs.data()),
             reinterpret_cast<double*>(gtau_from_DLR.data()));
     } else if (std::is_same<T, std::complex<double>>::value) {
         status = spir_sampling_eval_zz(
-            tau_sampling_dlr, NULL, order, ndim,
+            tau_sampling_dlr, backend, order, ndim,
             _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
             target_dim,
             reinterpret_cast<const c_complex*>(coeffs.data()),
@@ -615,16 +622,17 @@ void integration_test(double beta, double wmax, double epsilon,
 
     // Use sampling to evaluate the Greens function at all Matsubara frequencies between IR and DLR
     {
+        spir_gemm_backend* backend = get_backend();
         if (std::is_same<T, double>::value) {
             status = spir_sampling_eval_dz(
-                matsubara_sampling_dlr, NULL, order, ndim,
+                matsubara_sampling_dlr, backend, order, ndim,
                 _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
                 target_dim,
                 reinterpret_cast<const double*>(coeffs.data()),
                 reinterpret_cast<c_complex*>(giw_from_DLR.data()));
         } else if (std::is_same<T, std::complex<double>>::value) {
             status = spir_sampling_eval_zz(
-                matsubara_sampling_dlr, NULL, order, ndim,
+                matsubara_sampling_dlr, backend, order, ndim,
                 _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
                 target_dim,
                 reinterpret_cast<const c_complex*>(coeffs.data()),
@@ -652,10 +660,11 @@ void integration_test(double beta, double wmax, double epsilon,
 
     // Matsubara -> IR
     {
+        spir_gemm_backend* backend = get_backend();
         Eigen::Tensor<std::complex<double>, ndim, ORDER>
             gIR_work( _get_dims<ndim, Eigen::Index>(basis_size, extra_dims, target_dim));
         status = spir_sampling_fit_zz(
-            matsubara_sampling, NULL, order, ndim, dims_matsubara.data(), target_dim,
+            matsubara_sampling, backend, order, ndim, dims_matsubara.data(), target_dim,
             reinterpret_cast<const c_complex *>(giw_from_DLR.data()),
             reinterpret_cast<c_complex *>(gIR_work.data()));
         REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
