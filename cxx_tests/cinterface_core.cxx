@@ -9,6 +9,7 @@
 #include <vector>
 
 #include <sparseir/sparseir.h>   // C interface
+#include "gemmbackend.hpp"
 
 using Catch::Approx;
 
