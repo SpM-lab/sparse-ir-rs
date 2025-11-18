@@ -27,6 +27,6 @@ jobs:
         # Initialize libsparseir submodules but skip nested ones that may have issues
         cd libsparseir && git submodule update --init --jobs 4 || true
     - name: Build
-      run: cargo build --verbose
+      run: cargo build
     - name: Run tests
-      run: cargo test --verbose
+      run: cargo test
