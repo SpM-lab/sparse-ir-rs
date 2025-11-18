@@ -24,7 +24,7 @@ faer.workspace = true
 faer-traits.workspace = true
 
 # Extended precision
-xprec = "0.2"
+xprec = { path = "../xprec-rs" }
 simba = "0.9"
 num-complex.workspace = true
 num-traits.workspace = true

@@ -1,0 +1,3 @@
+[submodule "xprec-rs"]
+	path = xprec-rs
+	url = git@github.com:tuwien-cms/xprec-rs.git
