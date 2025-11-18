@@ -18,8 +18,11 @@ jobs:
     - uses: actions/checkout@v5
       with:
         submodules: false
-    - name: Initialize and update submodules (non-recursive)
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Initialize and update submodules
       run: |
+        # Convert SSH URLs to HTTPS for GitHub Actions
+        git config --global url."https://github.com/".insteadOf "git@github.com:"
         git submodule update --init --jobs 4
         # Initialize libsparseir submodules but skip nested ones that may have issues
         cd libsparseir && git submodule update --init --jobs 4 || true
