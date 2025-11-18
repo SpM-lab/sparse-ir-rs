@@ -8,18 +8,18 @@
 // Fortran BLAS function declarations (with trailing underscore)
 extern "C" {
 #ifdef SPARSEIR_USE_BLAS_ILP64
-    // ILP64 BLAS (64-bit integers)
-    void dgemm64_(const char* transa, const char* transb,
-                  const int64_t* m, const int64_t* n, const int64_t* k,
-                  const double* alpha, const double* a, const int64_t* lda,
-                  const double* b, const int64_t* ldb,
-                  const double* beta, double* c, const int64_t* ldc);
+    // ILP64 BLAS (64-bit integers) - function names are the same, only argument types differ
+    void dgemm_(const char* transa, const char* transb,
+                const int64_t* m, const int64_t* n, const int64_t* k,
+                const double* alpha, const double* a, const int64_t* lda,
+                const double* b, const int64_t* ldb,
+                const double* beta, double* c, const int64_t* ldc);
 
-    void zgemm64_(const char* transa, const char* transb,
-                  const int64_t* m, const int64_t* n, const int64_t* k,
-                  const void* alpha, const void* a, const int64_t* lda,
-                  const void* b, const int64_t* ldb,
-                  const void* beta, void* c, const int64_t* ldc);
+    void zgemm_(const char* transa, const char* transb,
+                const int64_t* m, const int64_t* n, const int64_t* k,
+                const void* alpha, const void* a, const int64_t* lda,
+                const void* b, const int64_t* ldb,
+                const void* beta, void* c, const int64_t* ldc);
 #else
     // LP64 BLAS (32-bit integers)
     void dgemm_(const char* transa, const char* transb,
@@ -46,8 +46,8 @@ static void init_blas_backend() {
         // Use ILP64 BLAS (64-bit integers)
         std::cout << "Initializing BLAS backend: ILP64 (64-bit integers)" << std::endl;
         g_blas_backend = spir_gemm_backend_new_from_fblas_ilp64(
-            reinterpret_cast<const void*>(dgemm64_),
-            reinterpret_cast<const void*>(zgemm64_)
+            reinterpret_cast<const void*>(dgemm_),
+            reinterpret_cast<const void*>(zgemm_)
         );
 #else
         // Use LP64 BLAS (32-bit integers, default)
