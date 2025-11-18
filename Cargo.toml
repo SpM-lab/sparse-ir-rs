@@ -40,8 +40,6 @@ approx = "0.5"
 proptest = "1.0"
 libm = "0.2"
 blas-sys = "0.7"
-lapack-src = { version = "0.11", features = ["openblas"] }
-openblas-src = { version = "0.10.11", features = ["system"] }
 
 [workspace.package]
 version = "0.1.0"

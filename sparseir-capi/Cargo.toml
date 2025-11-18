@@ -40,4 +40,4 @@ strip = false
 [dev-dependencies]
 rstest = "0.22"
 # System BLAS for integration tests (uses blas-sys which links to system BLAS)
-blas-sys = { path = "../blas-sys" }
+blas-sys.workspace = true
