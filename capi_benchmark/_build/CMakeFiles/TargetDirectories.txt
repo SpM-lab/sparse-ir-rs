@@ -1,0 +1,4 @@
+/Users/hiroshi/projects/sparse-ir/sparseir-rust/capi_benchmark/_build/CMakeFiles/benchmark1.dir
+/Users/hiroshi/projects/sparse-ir/sparseir-rust/capi_benchmark/_build/CMakeFiles/benchmark.dir
+/Users/hiroshi/projects/sparse-ir/sparseir-rust/capi_benchmark/_build/CMakeFiles/edit_cache.dir
+/Users/hiroshi/projects/sparse-ir/sparseir-rust/capi_benchmark/_build/CMakeFiles/rebuild_cache.dir

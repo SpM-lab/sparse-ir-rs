@@ -42,11 +42,6 @@ pub trait CustomNumeric:
     /// Can be called as T::convert_from(other_numeric_value)
     fn convert_from<U: CustomNumeric + 'static>(value: U) -> Self;
 
-    /// Convert to DBig with high precision
-    ///
-    /// This allows conversion to arbitrary precision for testing and comparison.
-    /// Can be called as value.to_dbig(precision)
-    fn to_dbig(self, precision: usize) -> dashu_float::DBig;
 
     /// Convert to f64
     fn to_f64(self) -> f64;
@@ -107,14 +102,6 @@ impl CustomNumeric for f64 {
         self
     }
 
-    fn to_dbig(self, precision: usize) -> dashu_float::DBig {
-        // f64 to DBig conversion
-        let val_str = format!("{:.17e}", self);
-        dashu_float::DBig::from_str(&val_str)
-            .unwrap()
-            .with_precision(precision)
-            .unwrap()
-    }
 
     fn epsilon() -> Self {
         f64::EPSILON
@@ -184,22 +171,6 @@ impl CustomNumeric for Df64 {
         hi + lo
     }
 
-    fn to_dbig(self, precision: usize) -> dashu_float::DBig {
-        // Use hi() and lo() methods for better precision
-        let hi = self.hi();
-        let lo = self.lo();
-
-        let hi_dbig = dashu_float::DBig::from_str(&format!("{:.17e}", hi))
-            .unwrap()
-            .with_precision(precision)
-            .unwrap();
-        let lo_dbig = dashu_float::DBig::from_str(&format!("{:.17e}", lo))
-            .unwrap()
-            .with_precision(precision)
-            .unwrap();
-
-        hi_dbig + lo_dbig
-    }
 
     fn epsilon() -> Self {
         // Df64::EPSILON = f64::EPSILON * f64::EPSILON / 2.0

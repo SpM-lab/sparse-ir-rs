@@ -3,7 +3,7 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
-use crate::gemm::matmul_par;
+use crate::gemm::{matmul_par, GemmBackendHandle};
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Tensor};
 
@@ -220,11 +220,11 @@ where
     /// # Panics
     /// Panics if `coeffs.len() != basis_size`
     pub fn evaluate(&self, coeffs: &[f64]) -> Vec<f64> {
-        self.fitter.evaluate(coeffs)
+        self.fitter.evaluate(None, coeffs)
     }
 
     /// Internal generic evaluate_nd implementation
-    fn evaluate_nd_impl<T>(&self, coeffs: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    fn evaluate_nd_impl<T>(&self, backend: Option<&GemmBackendHandle>, coeffs: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
     {
@@ -261,7 +261,7 @@ where
         let matrix_t = DTensor::<T, 2>::from_fn(*self.fitter.matrix.shape(), |idx| {
             self.fitter.matrix[idx].into()
         });
-        let result_2d = matmul_par(&matrix_t, &coeffs_2d);
+        let result_2d = matmul_par(&matrix_t, &coeffs_2d, backend);
 
         // 4. Reshape back to N-D with n_points at position 0
         let mut result_shape = vec![n_points];
@@ -308,17 +308,17 @@ where
     /// // Complex coefficients
     /// let values_complex = sampling.evaluate_nd::<Complex<f64>>(&coeffs_complex, 0);
     /// ```
-    pub fn evaluate_nd<T>(&self, coeffs: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    pub fn evaluate_nd<T>(&self, backend: Option<&GemmBackendHandle>, coeffs: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
     {
-        self.evaluate_nd_impl(coeffs, dim)
+        self.evaluate_nd_impl(backend, coeffs, dim)
     }
 
     /// Internal generic fit_nd implementation
     ///
     /// Delegates to fitter for real values, fits real/imaginary parts separately for complex values
-    fn fit_nd_impl<T>(&self, values: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    fn fit_nd_impl<T>(&self, backend: Option<&GemmBackendHandle>, values: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField
@@ -359,7 +359,7 @@ where
             let values_2d_f64 = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| unsafe {
                 *(&values_2d_dyn[&[idx[0], idx[1]][..]] as *const T as *const f64)
             });
-            let coeffs_2d_f64 = self.fitter.fit_2d(&values_2d_f64);
+            let coeffs_2d_f64 = self.fitter.fit_2d(backend, &values_2d_f64);
             // Convert back to T
             DTensor::<T, 2>::from_fn(*coeffs_2d_f64.shape(), |idx| unsafe {
                 *(&coeffs_2d_f64[idx] as *const f64 as *const T)
@@ -370,7 +370,7 @@ where
                 DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| unsafe {
                     *(&values_2d_dyn[&[idx[0], idx[1]][..]] as *const T as *const Complex<f64>)
                 });
-            let coeffs_2d_c64 = self.fitter.fit_complex_2d(&values_2d_c64);
+            let coeffs_2d_c64 = self.fitter.fit_complex_2d(backend, &values_2d_c64);
             // Convert back to T
             DTensor::<T, 2>::from_fn(*coeffs_2d_c64.shape(), |idx| unsafe {
                 *(&coeffs_2d_c64[idx] as *const Complex<f64> as *const T)
@@ -420,7 +420,7 @@ where
     /// // Complex values
     /// let coeffs_complex = sampling.fit_nd::<Complex<f64>>(&values_complex, 0);
     /// ```
-    pub fn fit_nd<T>(&self, values: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    pub fn fit_nd<T>(&self, backend: Option<&GemmBackendHandle>, values: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField
@@ -429,7 +429,7 @@ where
             + Copy
             + Default,
     {
-        self.fit_nd_impl(values, dim)
+        self.fit_nd_impl(backend, values, dim)
     }
 }
 

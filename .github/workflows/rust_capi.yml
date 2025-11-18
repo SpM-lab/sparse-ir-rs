@@ -19,6 +19,10 @@ jobs:
       with:
         submodules: false
         token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Install OpenBLAS
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libopenblas-dev pkg-config
     - name: Initialize and update submodules
       run: |
         # Convert SSH URLs to HTTPS for GitHub Actions

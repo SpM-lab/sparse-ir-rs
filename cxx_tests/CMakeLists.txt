@@ -40,30 +40,42 @@ if(NOT Eigen3_FOUND)
         GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
         GIT_TAG 3.4.1
         GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
     )
     FetchContent_MakeAvailable(Eigen3)
+    message(STATUS "Eigen3 fetch completed")
 endif()
 
 # Find Threads
 find_package(Threads REQUIRED)
 
-# Find or fetch Catch2
-include(FetchContent)
-FetchContent_Declare(
-    Catch2
-    GIT_REPOSITORY https://github.com/catchorg/Catch2.git
-    GIT_TAG v3.4.0
-)
-FetchContent_MakeAvailable(Catch2)
+message(STATUS "SPARSEIR_USE_BLAS: ${SPARSEIR_USE_BLAS}")
 
-# Fetch XPrec for test utilities
-FetchContent_Declare(XPrec
-    GIT_REPOSITORY https://github.com/tuwien-cms/libxprec
-    GIT_TAG v0.7.0
-)
-FetchContent_GetProperties(XPrec)
-if(NOT xprec_POPULATED)
-    FetchContent_Populate(XPrec)
+# Find Catch2 in system first
+find_package(Catch2 3.4.0 QUIET)
+if(NOT Catch2_FOUND)
+    message(STATUS "Catch2 not found in system, fetching from GitHub...")
+    include(FetchContent)
+    FetchContent_Declare(
+        Catch2
+        GIT_REPOSITORY https://github.com/catchorg/Catch2.git
+        GIT_TAG v3.4.0
+        GIT_SHALLOW TRUE
+        GIT_PROGRESS TRUE
+    )
+    # Set verbose output for FetchContent to see progress
+    set(FETCHCONTENT_QUIET OFF)
+    # Check if Catch2 was already populated (to avoid re-downloading)
+    FetchContent_GetProperties(Catch2)
+    if(NOT Catch2_POPULATED)
+        message(STATUS "Catch2 not yet populated, fetching from GitHub...")
+        FetchContent_MakeAvailable(Catch2)
+        message(STATUS "Catch2 fetch completed")
+    else()
+        message(STATUS "Catch2 already populated at: ${catch2_SOURCE_DIR}")
+    endif()
+else()
+    message(STATUS "Catch2 found in system: ${Catch2_VERSION}")
 endif()
 
 # C-API integration test
@@ -72,7 +84,6 @@ add_executable(cinterface_integration cinterface_integration.cxx)
 target_include_directories(cinterface_integration PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${EIGEN3_INCLUDE_DIR}
-    ${xprec_SOURCE_DIR}/include
 )
 
 target_link_libraries(cinterface_integration PRIVATE
@@ -82,10 +93,6 @@ target_link_libraries(cinterface_integration PRIVATE
     Threads::Threads
 )
 
-# Intel Compiler: disable fastmath optimizations that break xprec's extended precision
-if(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-    target_compile_options(cinterface_integration PRIVATE -fp-model=precise)
-endif()
 
 # C-API core test
 add_executable(cinterface_core cinterface_core.cxx)
@@ -102,25 +109,55 @@ target_link_libraries(cinterface_core PRIVATE
     Threads::Threads
 )
 
-# Intel Compiler: disable fastmath optimizations that break xprec's extended precision
-if(CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-    target_compile_options(cinterface_core PRIVATE -fp-model=precise)
-endif()
-
 # Optional BLAS linking
-# Check if ILP64 BLAS is requested (via environment variable or CMake option)
-if(DEFINED ENV{SPARSEIR_USE_BLAS_ILP64} AND "$ENV{SPARSEIR_USE_BLAS_ILP64}")
-    set(BLA_SIZEOF_INTEGER 8)
-    message(STATUS "capi_test: Using ILP64 BLAS (64-bit integers)")
+# Check environment variable first, then CMake option (default: OFF)
+if(DEFINED ENV{SPARSEIR_USE_BLAS})
+    if("$ENV{SPARSEIR_USE_BLAS}" MATCHES "^(ON|1|YES|TRUE)$")
+        set(SPARSEIR_USE_BLAS ON)
+    else()
+        set(SPARSEIR_USE_BLAS OFF)
+    endif()
 else()
-    set(BLA_SIZEOF_INTEGER 4)
-    message(STATUS "capi_test: Using LP64 BLAS (32-bit integers, default)")
+    option(SPARSEIR_USE_BLAS "Use BLAS" OFF)
 endif()
 
-find_package(BLAS QUIET)
-if(BLAS_FOUND)
-    target_link_libraries(cinterface_integration PRIVATE ${BLAS_LIBRARIES})
-    target_link_libraries(cinterface_core PRIVATE ${BLAS_LIBRARIES})
+# CMake option for ILP64 BLAS (can be set via -DSPARSEIR_USE_BLAS_ILP64=ON or environment variable)
+# Check environment variable first, then CMake option (default: OFF)
+if(DEFINED ENV{SPARSEIR_USE_BLAS_ILP64})
+    if("$ENV{SPARSEIR_USE_BLAS_ILP64}" MATCHES "^(ON|1|YES|TRUE)$")
+        set(SPARSEIR_USE_BLAS_ILP64 ON)
+        message(STATUS "Setting SPARSEIR_USE_BLAS_ILP64 to ON")
+    else()
+        set(SPARSEIR_USE_BLAS_ILP64 OFF)
+        message(STATUS "Setting SPARSEIR_USE_BLAS_ILP64 to OFF")
+    endif()
+else()
+    option(SPARSEIR_USE_BLAS_ILP64 "Use ILP64 BLAS (64-bit integers) instead of LP64 (32-bit integers)" OFF)
+endif()
+
+if (SPARSEIR_USE_BLAS)
+    if(SPARSEIR_USE_BLAS_ILP64)
+        set(BLA_SIZEOF_INTEGER 8)
+        message(STATUS "Using ILP64 BLAS (64-bit integers)")
+    else()
+        set(BLA_SIZEOF_INTEGER 4)
+        message(STATUS "Using LP64 BLAS (32-bit integers, default)")
+    endif()
+
+    find_package(BLAS REQUIRED)
+    if(BLAS_FOUND)
+        target_link_libraries(cinterface_integration PRIVATE ${BLAS_LIBRARIES})
+        target_link_libraries(cinterface_core PRIVATE ${BLAS_LIBRARIES})
+        message(STATUS "Linked BLAS libraries: ${BLAS_LIBRARIES}")
+        # Add compile definition to enable BLAS backend usage
+        target_compile_definitions(cinterface_integration PRIVATE SPARSEIR_USE_BLAS=1)
+        target_compile_definitions(cinterface_core PRIVATE SPARSEIR_USE_BLAS=1)
+        # Add ILP64 definition if requested
+        if(SPARSEIR_USE_BLAS_ILP64)
+            target_compile_definitions(cinterface_integration PRIVATE SPARSEIR_USE_BLAS_ILP64=1)
+            target_compile_definitions(cinterface_core PRIVATE SPARSEIR_USE_BLAS_ILP64=1)
+        endif()
+    endif()
 endif()
 
 # Enable testing
