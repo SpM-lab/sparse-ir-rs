@@ -386,7 +386,7 @@ template <typename T, int ndim, Eigen::StorageOptions ORDER>
 void integration_test(double beta, double wmax, double epsilon,
                       const std::vector<int> &extra_dims, int target_dim,
                       const int order, int stat, spir_kernel* kernel,
-                      double tol, bool positive_only)
+                      spir_sve_result* sve, double tol, bool positive_only)
 {
     // positive_only is not supported for complex numbers
     REQUIRE (!(std::is_same<T, std::complex<double>>::value && positive_only));
@@ -403,13 +403,11 @@ void integration_test(double beta, double wmax, double epsilon,
     }
 
     int status;
-    std::cout << "SVE" << std::endl;
-    spir_sve_result* sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &status);
-    std::cout << "SVE created" << std::endl;
-    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    std::cout << "Creating basis with pre-computed SVE" << std::endl;
     REQUIRE(sve != nullptr);
 
-    spir_basis *basis = _spir_basis_new(stat, beta, wmax, epsilon, &status);
+    int max_size = -1;
+    spir_basis *basis = spir_basis_new(stat, beta, wmax, epsilon, kernel, sve, max_size, &status);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(basis != nullptr);
 
@@ -446,13 +444,19 @@ void integration_test(double beta, double wmax, double epsilon,
     // Matsubara Sampling
     std::cout << "Matsubara sampling" << std::endl;
     int num_matsubara_points_org;
+    std::cout << "spir_basis_get_n_default_matsus" << std::endl;
     status = spir_basis_get_n_default_matsus(basis, positive_only, &num_matsubara_points_org);
+    std::cout << "status = " << status << std::endl;
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(num_matsubara_points_org > 0);
     Eigen::Vector<int64_t, Eigen::Dynamic> matsubara_points_org(num_matsubara_points_org);
+    std::cout << "spir_basis_get_default_matsus" << std::endl;
     status = spir_basis_get_default_matsus(basis, positive_only, matsubara_points_org.data());
+    std::cout << "status = " << status << std::endl;
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    std::cout << "Calling spir_matsu_sampling_new" << std::endl;
     spir_sampling *matsubara_sampling = spir_matsu_sampling_new(basis, positive_only, num_matsubara_points_org, matsubara_points_org.data(), &status);
+    std::cout << "status = " << status << std::endl;
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(matsubara_sampling != nullptr);
     if (positive_only) {
@@ -460,6 +464,7 @@ void integration_test(double beta, double wmax, double epsilon,
     } else {
         REQUIRE(num_matsubara_points_org >= basis_size);
     }
+    std::cout << "num_matsubara_points_org = " << num_matsubara_points_org << std::endl;
 
     int num_matsubara_points;
     status =
@@ -700,16 +705,19 @@ void integration_test(double beta, double wmax, double epsilon,
     spir_sampling_release(tau_sampling);
 }
 
-TEST_CASE("Integration Test", "[cinterface]") {
-    double beta = 1e+3;
-    double wmax = 2.0;
-    double epsilon = 1e-6;
-
-    double tol = 10 * epsilon;
-
+void run_integration_tests(double beta, double wmax, double epsilon, double tol) {
     // Create kernel once for all tests
     spir_kernel* kernel = _kernel_new_logistic(beta * wmax);
-    int stat = SPIR_STATISTICS_BOSONIC; // DEBUG
+
+    // Create SVE once for all tests
+    int status;
+    std::cout << std::endl;
+    std::cout << "Testing with beta = " << beta << ", wmax = " << wmax << ", epsilon = " << epsilon << std::endl;
+    std::cout << "Computing SVE for all tests" << std::endl;
+    spir_sve_result* sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &status);
+    std::cout << "SVE computed" << std::endl;
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(sve != nullptr);
 
     for (int stat : {SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC}) {
         std::string stat_name = stat == SPIR_STATISTICS_FERMIONIC ? "Fermionic" : "Bosonic";
@@ -719,11 +727,11 @@ TEST_CASE("Integration Test", "[cinterface]") {
                 std::vector<int> extra_dims = {};
                 std::cout << "Integration test for " << stat_name << "LogisticKernel" << std::endl;
                 integration_test<double, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, 0,
-                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
 
                 if (!positive_only) {
                     integration_test<std::complex<double>, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, 0,
-                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
                 }
             }
     
@@ -732,10 +740,10 @@ TEST_CASE("Integration Test", "[cinterface]") {
                 std::vector<int> extra_dims = {};
                     std::cout << "Integration test for " << stat_name << "LogisticKernel, ColMajor, target_dim = " << target_dim << std::endl;
                     integration_test<double, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                              SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                              SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
                 if (!positive_only) {
                     integration_test<std::complex<double>, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
                 }
             }
     
@@ -744,31 +752,43 @@ TEST_CASE("Integration Test", "[cinterface]") {
                 std::vector<int> extra_dims = {};
                 std::cout << "Integration test for " << stat_name << "LogisticKernel, RowMajor, target_dim = " << target_dim << std::endl;
                 integration_test<double, 1, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                              SPIR_ORDER_ROW_MAJOR, stat, kernel, tol, positive_only);
+                                              SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
                 if (!positive_only) {
                     integration_test<std::complex<double>, 1, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                                  SPIR_ORDER_ROW_MAJOR, stat, kernel, tol, positive_only);
+                                                  SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
                }
             }
         }
     }
 
     // Multi-dimensional tests (only for fermionic statistics and positive only)
-    stat = SPIR_STATISTICS_FERMIONIC;
+    int stat = SPIR_STATISTICS_FERMIONIC;
     for (bool positive_only : {true}) {
         // extra dims = {2,3,4}
         for (int target_dim = 0; target_dim < 4; ++target_dim) {
             std::vector<int> extra_dims = {2,3,4};
             std::cout << "Integration test for bosonic LogisticKernel, ColMajor, target_dim = " << target_dim << std::endl;
             integration_test<double, 4, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
         }
 
         for (int target_dim = 0; target_dim < 4; ++target_dim) {
             std::vector<int> extra_dims = {2,3,4};
             std::cout << "Integration test for bosonic LogisticKernel, RowMajor, target_dim = " << target_dim << std::endl;
             integration_test<double, 4, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                          SPIR_ORDER_ROW_MAJOR, stat, kernel, tol, positive_only);
+                                          SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
         }
     }
+
+    // Clean up SVE and kernel
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
+TEST_CASE("Integration Test (double-double)") {
+    double beta = 1e+4;
+    double wmax = 2.0;
+    double epsilon = 1e-10;
+    double tol = 10 * epsilon;
+    run_integration_tests(beta, wmax, epsilon, tol);
 }
