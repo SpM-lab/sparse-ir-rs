@@ -27,6 +27,8 @@ jobs:
         # Initialize libsparseir submodules but skip nested ones that may have issues
         cd libsparseir && git submodule update --init --jobs 4 || true
     - name: Run tests with default backend
+      env:
+        SPARSEIR_USE_BLAS: OFF
       run: cd cxx_tests && ./run_with_rust_capi.sh
 
   test-openblas:
