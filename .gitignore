@@ -31,3 +31,5 @@ test_user_install.*
 
 # Keepalive tests
 keepalive_tests/
+
+extern/*

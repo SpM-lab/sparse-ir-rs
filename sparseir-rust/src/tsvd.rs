@@ -4,10 +4,10 @@
 //! with support for extended precision arithmetic.
 
 use nalgebra::{DMatrix, DVector, ComplexField, RealField};
-use nalgebra::linalg::ColPivQR;
 use num_traits::{Zero, One, ToPrimitive};
 use crate::Df64;
 use crate::numeric::CustomNumeric;
+use crate::col_piv_qr::ColPivQR;
 use mdarray::DTensor;
 
 /// Result of SVD decomposition
@@ -228,8 +228,10 @@ where
         )));
     }
 
-    // Step 1: Apply QR decomposition to A using nalgebra
-    let qr = ColPivQR::new(matrix.clone());
+    // Step 1: Apply QR decomposition to A using nalgebra with early termination
+    // Convert config.rtol (T) to T::RealField for QR decomposition
+    let qr_rtol = Some(config.rtol.clone().modulus());
+    let qr = ColPivQR::new_with_rtol(matrix.clone(), qr_rtol);
     let q_matrix = qr.q();
     let r_matrix = qr.r();
     let permutation = qr.p();

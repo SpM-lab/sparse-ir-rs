@@ -17,6 +17,7 @@ pub mod kernel;
 pub mod kernelmatrix;
 pub mod matsubara_sampling; // Sparse sampling in Matsubara frequencies
 pub mod numeric;
+pub mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
 pub mod poly;
 pub mod polyfourier;
 pub mod sampling; // Sparse sampling in imaginary time

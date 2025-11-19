@@ -96,6 +96,17 @@ This implementation is optimized for high performance:
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
+### Third-Party Licenses
+
+The `col_piv_qr` module is based on code from the [nalgebra](https://github.com/dimforge/nalgebra) library, which is licensed under the Apache License 2.0:
+
+- **nalgebra**: Apache License 2.0
+  - Original source: `nalgebra/src/linalg/col_piv_qr.rs`
+  - Copyright 2020 Sébastien Crozet
+  - See [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0) for details
+
+Modifications and additions to the nalgebra code (including early termination support) are licensed under the MIT License as part of this project.
+
 ## Contributing
 
 Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
