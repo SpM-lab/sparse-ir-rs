@@ -90,24 +90,24 @@ mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
 # Temporarily disable Git URL rewriting to ensure HTTPS is used for GitLab and GitHub
-# This prevents Git from rewriting https:// URLs to git@ URLs:
-GIT_CONFIG_GLOBAL_OLD_GITLAB=$(git config --global --get url.git@gitlab.com:.insteadOf 2>/dev/null || echo "")
-GIT_CONFIG_GLOBAL_OLD_GITHUB=$(git config --global --get url.git@github.com:.insteadOf 2>/dev/null || echo "")
-GIT_CONFIG_RESTORE=false
+## This prevents Git from rewriting https:// URLs to git@ URLs:
+#GIT_CONFIG_GLOBAL_OLD_GITLAB=$(git config --global --get url.git@gitlab.com:.insteadOf 2>/dev/null || echo "")
+#GIT_CONFIG_GLOBAL_OLD_GITHUB=$(git config --global --get url.git@github.com:.insteadOf 2>/dev/null || echo "")
+#GIT_CONFIG_RESTORE=false
 
-if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITLAB}" ]; then
-    git config --global --unset url.git@gitlab.com:.insteadOf
-    GIT_CONFIG_RESTORE=true
-fi
-if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITHUB}" ]; then
-    git config --global --unset url.git@github.com:.insteadOf
-    GIT_CONFIG_RESTORE=true
-fi
+#if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITLAB}" ]; then
+    #git config --global --unset url.git@gitlab.com:.insteadOf
+    #GIT_CONFIG_RESTORE=true
+#fi
+#if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITHUB}" ]; then
+    #git config --global --unset url.git@github.com:.insteadOf
+    #GIT_CONFIG_RESTORE=true
+#fi
 
-if [ "${GIT_CONFIG_RESTORE}" = "true" ]; then
-    # Set up trap to restore config on exit (including errors)
-    trap 'if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITLAB}" ]; then git config --global url.git@gitlab.com:.insteadOf https://gitlab.com/; fi; if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITHUB}" ]; then git config --global url.git@github.com:.insteadOf https://github.com/; fi' EXIT
-fi
+#if [ "${GIT_CONFIG_RESTORE}" = "true" ]; then
+    ## Set up trap to restore config on exit (including errors)
+    #trap 'if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITLAB}" ]; then git config --global url.git@gitlab.com:.insteadOf https://gitlab.com/; fi; if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITHUB}" ]; then git config --global url.git@github.com:.insteadOf https://github.com/; fi' EXIT
+#fi
 
 echo -e "${YELLOW}Configuring CMake...${NC}"
 # Enable verbose output for CMake configuration to see what's happening
@@ -116,15 +116,15 @@ cmake "${SCRIPT_DIR}" \
     -DCMAKE_VERBOSE_MAKEFILE=ON
 
 # Restore Git config if it was changed (trap will also handle this on exit)
-if [ "${GIT_CONFIG_RESTORE}" = "true" ]; then
-    if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITLAB}" ]; then
-        git config --global url.git@gitlab.com:.insteadOf https://gitlab.com/
-    fi
-    if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITHUB}" ]; then
-        git config --global url.git@github.com:.insteadOf https://github.com/
-    fi
-    trap - EXIT  # Remove trap since we've restored manually
-fi
+#if [ "${GIT_CONFIG_RESTORE}" = "true" ]; then
+    #if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITLAB}" ]; then
+        #git config --global url.git@gitlab.com:.insteadOf https://gitlab.com/
+    #fi
+    #if [ -n "${GIT_CONFIG_GLOBAL_OLD_GITHUB}" ]; then
+        #git config --global url.git@github.com:.insteadOf https://github.com/
+    #fi
+    #trap - EXIT  # Remove trap since we've restored manually
+#fi
 
 echo -e "${YELLOW}Building C++ tests...${NC}"
 # Use verbose output to see progress
