@@ -5,7 +5,7 @@ set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Find Rust C API library and header
-# Expected layout: _install/include/sparseir/sparseir.h, _install/lib/libsparseir_capi.*
+# Expected layout: _install/include/sparseir/sparseir.h, _install/lib/libsparse_ir_capi.*
 set(SPARSEIR_CAPI_PREFIX "${CMAKE_CURRENT_LIST_DIR}/_install")
 set(SPARSEIR_CAPI_INCLUDE_DIR "${SPARSEIR_CAPI_PREFIX}/include")
 set(SPARSEIR_CAPI_LIB_DIR "${SPARSEIR_CAPI_PREFIX}/lib")
@@ -18,18 +18,18 @@ include_directories("${SPARSEIR_CAPI_INCLUDE_DIR}")
 
 # Find library (supports .so, .dylib, .dll)
 find_library(SPARSEIR_CAPI_LIB
-    NAMES sparseir_capi
+    NAMES sparse_ir_capi
     PATHS "${SPARSEIR_CAPI_LIB_DIR}"
     REQUIRED
     NO_DEFAULT_PATH
 )
 
 if(NOT SPARSEIR_CAPI_LIB)
-    message(FATAL_ERROR "libsparseir_capi not found in ${SPARSEIR_CAPI_LIB_DIR}")
+    message(FATAL_ERROR "libsparse_ir_capi not found in ${SPARSEIR_CAPI_LIB_DIR}")
 endif()
 
 message(STATUS "Found sparseir/sparseir.h at: ${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h")
-message(STATUS "Found libsparseir_capi at: ${SPARSEIR_CAPI_LIB}")
+message(STATUS "Found libsparse_ir_capi at: ${SPARSEIR_CAPI_LIB}")
 
 # Find Eigen3
 find_package(Eigen3 3.4.1 QUIET NO_MODULE)

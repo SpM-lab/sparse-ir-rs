@@ -49,7 +49,7 @@ fi
 echo -e "${YELLOW}Step 1: Building sparseir-capi...${NC}"
 
 # Build release version with shared library
-cargo build --release -p sparseir-capi
+cargo build --release -p sparse-ir-capi
 
 # Determine library extension based on OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
@@ -61,7 +61,7 @@ else
     exit 1
 fi
 
-LIB_NAME="libsparseir_capi.${LIB_EXT}"
+LIB_NAME="libsparse_ir_capi.${LIB_EXT}"
 LIB_SOURCE="${WORKSPACE_ROOT}/target/release/${LIB_NAME}"
 
 if [[ ! -f "${LIB_SOURCE}" ]]; then
@@ -76,7 +76,7 @@ mkdir -p "${INSTALL_DIR}/lib" "${INSTALL_DIR}/include/sparseir"
 
 cp "${LIB_SOURCE}" "${INSTALL_DIR}/lib/"
 # Copy sparseir directory structure
-cp "${WORKSPACE_ROOT}/sparseir-capi/include/sparseir/sparseir.h" "${INSTALL_DIR}/include/sparseir/"
+cp "${WORKSPACE_ROOT}/sparse-ir-capi/include/sparseir/sparseir.h" "${INSTALL_DIR}/include/sparseir/"
 
 echo -e "${GREEN}Installed:${NC}"
 echo -e "  Library: ${INSTALL_DIR}/lib/${LIB_NAME}"

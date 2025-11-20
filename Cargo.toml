@@ -1,7 +1,7 @@
 [workspace]
 members = [
-    "sparseir-rust",
-    "sparseir-capi",
+    "sparse-ir",
+    "sparse-ir-capi",
 ]
 resolver = "2"
 
@@ -12,7 +12,7 @@ mdarray-linalg = "0.1.2"
 mdarray-linalg-faer = "0.1.2"
 
 # Internal dependencies
-sparseir-rust = { path = "sparseir-rust" }
+sparse-ir = { path = "sparse-ir" }
 faer = "0.23"
 faer-traits = "0.23"
 num-complex = "0.4"
@@ -37,7 +37,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
-repository = "https://github.com/sparseir-rust/sparseir-rust"
+repository = "https://github.com/sparse-ir/sparse-ir"
 authors = ["SparseIR Team"]
 description = "Rust implementation of SparseIR functionality"
 
