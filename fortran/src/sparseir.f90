@@ -44,34 +44,34 @@ contains
       !! @param zgemm Fortran BLAS zgemm function (complex double precision)
       !! @return Pointer to spir_gemm_backend, or c_null_ptr on failure
       !-----------------------------------------------------------------------
-      ! Declare BLAS function interfaces
+      ! Declare BLAS function interfaces with bind(c) to explicitly reference dgemm_ and zgemm_
       interface
-         subroutine dgemm_blas(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
+         subroutine dgemm_(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc) bind(c, name='dgemm_')
             import :: c_char, c_int, c_double
             character(c_char), intent(in) :: transa, transb
             integer(c_int), intent(in) :: m, n, k, lda, ldb, ldc
             real(c_double), intent(in) :: alpha, beta
             real(c_double), intent(in) :: a(lda, *), b(ldb, *)
             real(c_double), intent(inout) :: c(ldc, *)
-         end subroutine dgemm_blas
-         subroutine zgemm_blas(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
+         end subroutine dgemm_
+         subroutine zgemm_(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc) bind(c, name='zgemm_')
             import :: c_char, c_int, c_double_complex
             character(c_char), intent(in) :: transa, transb
             integer(c_int), intent(in) :: m, n, k, lda, ldb, ldc
             complex(c_double_complex), intent(in) :: alpha, beta
             complex(c_double_complex), intent(in) :: a(lda, *), b(ldb, *)
             complex(c_double_complex), intent(inout) :: c(ldc, *)
-         end subroutine zgemm_blas
+         end subroutine zgemm_
       end interface
 
-      procedure(dgemm_blas) :: dgemm
-      procedure(zgemm_blas) :: zgemm
+      procedure(dgemm_) :: dgemm
+      procedure(zgemm_) :: zgemm
       type(c_ptr) :: backend_ptr
 
       type(c_funptr) :: dgemm_ptr, zgemm_ptr
       type(c_ptr) :: dgemm_cptr, zgemm_cptr
 
-      ! Get Fortran BLAS function pointers
+      ! Get Fortran BLAS function pointers (now explicitly referencing dgemm_ and zgemm_)
       dgemm_ptr = c_funloc(dgemm)
       zgemm_ptr = c_funloc(zgemm)
 
