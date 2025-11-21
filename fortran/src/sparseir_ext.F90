@@ -80,27 +80,9 @@ MODULE sparseir_ext
   ! Module-level backend pointer (created at module load time)
   TYPE(c_ptr), SAVE :: default_backend_ptr = c_null_ptr
   !
-  ! BLAS function interfaces with bind(c) to explicitly reference dgemm_ and zgemm_
-  INTERFACE
-     SUBROUTINE dgemm_(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc) &
-          BIND(C, NAME='dgemm_')
-        IMPORT :: c_char, c_int, c_double
-        CHARACTER(c_char), INTENT(IN) :: transa, transb
-        INTEGER(c_int), INTENT(IN) :: m, n, k, lda, ldb, ldc
-        REAL(c_double), INTENT(IN) :: alpha, beta
-        REAL(c_double), INTENT(IN) :: a(lda, *), b(ldb, *)
-        REAL(c_double), INTENT(INOUT) :: c(ldc, *)
-     END SUBROUTINE dgemm_
-     SUBROUTINE zgemm_(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc) &
-          BIND(C, NAME='zgemm_')
-        IMPORT :: c_char, c_int, c_double_complex
-        CHARACTER(c_char), INTENT(IN) :: transa, transb
-        INTEGER(c_int), INTENT(IN) :: m, n, k, lda, ldb, ldc
-        COMPLEX(c_double_complex), INTENT(IN) :: alpha, beta
-        COMPLEX(c_double_complex), INTENT(IN) :: a(lda, *), b(ldb, *)
-        COMPLEX(c_double_complex), INTENT(INOUT) :: c(ldc, *)
-     END SUBROUTINE zgemm_
-  END INTERFACE
+  ! BLAS function declarations (using EXTERNAL to avoid name mangling)
+  ! Fortran compiler will automatically look for dgemm_ and zgemm_ symbols
+  EXTERNAL :: dgemm, zgemm
   !
   INTERFACE evaluate_tau
     MODULE PROCEDURE evaluate_tau_zz_1d, evaluate_tau_zz_2d, evaluate_tau_zz_3d, evaluate_tau_zz_4d, &
@@ -432,7 +414,7 @@ MODULE sparseir_ext
     ! Set backend pointer (create if not already created)
     IF (.NOT. c_associated(default_backend_ptr)) THEN
        ! Create backend from Fortran BLAS function pointers
-       default_backend_ptr = spir_gemm_backend_new_from_fblas_lp64(dgemm_, zgemm_)
+       default_backend_ptr = spir_gemm_backend_new_from_fblas_lp64(dgemm, zgemm)
        IF (.NOT. c_associated(default_backend_ptr)) THEN
           CALL errore('init_ir', 'Failed to create GEMM backend from Fortran BLAS pointers', 1)
        ENDIF
