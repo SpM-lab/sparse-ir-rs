@@ -1,6 +1,6 @@
 //! Comparison tests between Rust and Julia SVE implementations
 
-use sparseir_rust::{LogisticKernel, TworkType, compute_sve};
+use sparse_ir::{LogisticKernel, TworkType, compute_sve};
 
 // ============================================================================
 // Reference data for λ=5.0, ε=1.0e-6

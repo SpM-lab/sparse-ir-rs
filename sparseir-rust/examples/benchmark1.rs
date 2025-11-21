@@ -4,7 +4,7 @@
 //! It measures the performance of fit_zz, eval_zz, and eval_dz operations
 //! for both Matsubara and Tau sampling.
 
-use sparseir_rust::{
+use sparse_ir::{
     FiniteTempBasis, Fermionic, LogisticKernel, MatsubaraSampling,
     MatsubaraSamplingPositiveOnly, TauSampling
 };
@@ -130,11 +130,11 @@ fn benchmark(
 
     // Test: tau, fit_zz (complex values -> complex coefficients)
     // First run to warm up
-    let _ = tau_sampling.fit_nd::<Complex<f64>>(&g_tau_z, 0);
+    let _ = tau_sampling.fit_nd::<Complex<f64>>(None, &g_tau_z, 0);
 
     let bench = Benchmark::start("fit_zz (Tau)");
     for _ in 0..nrun {
-        let _ = tau_sampling.fit_nd::<Complex<f64>>(&g_tau_z, 0);
+        let _ = tau_sampling.fit_nd::<Complex<f64>>(None, &g_tau_z, 0);
     }
     let elapsed = bench.end();
     println!("  Average per run: {:10.6} ms", elapsed / nrun as f64);
@@ -142,7 +142,7 @@ fn benchmark(
     // Test: tau, eval_zz (complex coefficients -> complex values)
     let bench = Benchmark::start("eval_zz (Tau)");
     for _ in 0..nrun {
-        let _ = tau_sampling.evaluate_nd::<Complex<f64>>(&g_basis_z, 0);
+        let _ = tau_sampling.evaluate_nd::<Complex<f64>>(None, &g_basis_z, 0);
     }
     let elapsed = bench.end();
     println!("  Average per run: {:10.6} ms", elapsed / nrun as f64);
@@ -155,25 +155,25 @@ trait MatsubaraSamplingTrait {
     fn evaluate_nd_real(&self, coeffs: &Tensor<f64, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank>;
 }
 
-impl<S: sparseir_rust::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraSampling<S> {
+impl<S: sparse_ir::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraSampling<S> {
     fn fit_nd(&self, values: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
-        MatsubaraSampling::fit_nd(self, values, dim)
+        MatsubaraSampling::fit_nd(self, None, values, dim)
     }
 
     fn evaluate_nd(&self, coeffs: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
-        MatsubaraSampling::evaluate_nd(self, coeffs, dim)
+        MatsubaraSampling::evaluate_nd(self, None, coeffs, dim)
     }
 
     fn evaluate_nd_real(&self, coeffs: &Tensor<f64, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
-        MatsubaraSampling::evaluate_nd_real(self, coeffs, dim)
+        MatsubaraSampling::evaluate_nd_real(self, None, coeffs, dim)
     }
 }
 
-impl<S: sparseir_rust::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraSamplingPositiveOnly<S> {
+impl<S: sparse_ir::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraSamplingPositiveOnly<S> {
     fn fit_nd(&self, values: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
         // For positive_only, fit returns real coefficients, but we need complex
         // So we convert real to complex
-        let real_coeffs = MatsubaraSamplingPositiveOnly::fit_nd(self, values, dim);
+        let real_coeffs = MatsubaraSamplingPositiveOnly::fit_nd(self, None, values, dim);
         let shape_vec: Vec<usize> = real_coeffs.shape().dims().to_vec();
         let mut complex_coeffs = Tensor::<Complex<f64>, DynRank>::zeros(&shape_vec[..]);
         for i in 0..real_coeffs.len() {
@@ -189,11 +189,11 @@ impl<S: sparseir_rust::traits::StatisticsType> MatsubaraSamplingTrait for Matsub
         for i in 0..coeffs.len() {
             real_coeffs[i] = coeffs[i].re;
         }
-        MatsubaraSamplingPositiveOnly::evaluate_nd(self, &real_coeffs, dim)
+        MatsubaraSamplingPositiveOnly::evaluate_nd(self, None, &real_coeffs, dim)
     }
 
     fn evaluate_nd_real(&self, coeffs: &Tensor<f64, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
-        MatsubaraSamplingPositiveOnly::evaluate_nd(self, coeffs, dim)
+        MatsubaraSamplingPositiveOnly::evaluate_nd(self, None, coeffs, dim)
     }
 }
 

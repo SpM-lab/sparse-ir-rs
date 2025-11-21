@@ -1,0 +1,37 @@
+# cbindgen configuration for sparseir-capi
+# This file configures cbindgen to generate C header files from Rust code
+
+language = "C"
+
+[export]
+# Include these types in the generated header
+# Note: c_complex is now added manually in build.rs for libsparseir compatibility
+include = []
+
+# Exclude internal implementation details
+exclude = [
+    # Internal types that should not be exposed
+    "BasisType",
+    "FuncsType", 
+    "KernelType",
+    "SamplingType",
+    "SVEResultType",
+    "Arc_SVEResult",
+    # Internal struct fields
+    "inner",
+]
+
+[fn]
+# Export all functions without additional prefix (functions already have spir_ prefix)
+prefix = ""
+
+[enum]
+# Export enums that are marked with #[repr(C)]
+rename_variants = "ScreamingSnakeCase"
+
+[const]
+# Export all public constants
+allow_static_const = true
+
+
+

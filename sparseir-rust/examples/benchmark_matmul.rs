@@ -6,7 +6,7 @@
 use mdarray::DTensor;
 use num_complex::Complex;
 use std::time::Instant;
-use sparseir_rust::gemm::matmul_par;
+use sparse_ir::gemm::matmul_par;
 use faer::rand;
 
 // Memory usage reporting
@@ -39,7 +39,7 @@ fn matmul(
     a: &DTensor<Complex<f64>, 2>,
     b: &DTensor<Complex<f64>, 2>,
 ) -> DTensor<Complex<f64>, 2> {
-    matmul_par(a, b)
+    matmul_par(a, b, None)
 }
 
 fn main() {

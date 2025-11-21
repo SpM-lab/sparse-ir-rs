@@ -45,7 +45,7 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
     ///
     /// # Examples
     /// ```
-    /// use sparseir_rust::freq::{FermionicFreq, BosonicFreq};
+    /// use sparse_ir::freq::{FermionicFreq, BosonicFreq};
     ///
     /// let fermionic = FermionicFreq::new(1).unwrap();  // OK: odd n for fermionic
     /// let bosonic = BosonicFreq::new(0).unwrap();      // OK: even n for bosonic
