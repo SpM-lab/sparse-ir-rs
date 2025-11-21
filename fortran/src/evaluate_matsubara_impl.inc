@@ -48,7 +48,7 @@ SUBROUTINE evaluate_matsubara_zz_1d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_zz_1d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_zz_1d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -98,7 +98,7 @@ SUBROUTINE evaluate_matsubara_zz_2d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_zz_2d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_zz_2d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -148,7 +148,7 @@ SUBROUTINE evaluate_matsubara_zz_3d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_zz_3d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_zz_3d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -198,7 +198,7 @@ SUBROUTINE evaluate_matsubara_zz_4d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_zz_4d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_zz_4d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -248,7 +248,7 @@ SUBROUTINE evaluate_matsubara_zz_5d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_zz_5d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_zz_5d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -298,7 +298,7 @@ SUBROUTINE evaluate_matsubara_zz_6d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_zz_6d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_zz_6d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -348,7 +348,7 @@ SUBROUTINE evaluate_matsubara_zz_7d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_zz_7d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_zz_7d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -398,7 +398,7 @@ SUBROUTINE evaluate_matsubara_dz_1d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_dz_1d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_dz_1d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -448,7 +448,7 @@ SUBROUTINE evaluate_matsubara_dz_2d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_dz_2d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_dz_2d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -498,7 +498,7 @@ SUBROUTINE evaluate_matsubara_dz_3d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_dz_3d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_dz_3d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -548,7 +548,7 @@ SUBROUTINE evaluate_matsubara_dz_4d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_dz_4d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_dz_4d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -598,7 +598,7 @@ SUBROUTINE evaluate_matsubara_dz_5d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_dz_5d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_dz_5d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -648,7 +648,7 @@ SUBROUTINE evaluate_matsubara_dz_6d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_dz_6d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_dz_6d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -698,6 +698,6 @@ SUBROUTINE evaluate_matsubara_dz_7d(obj, statistics, target_dim, arr, res)
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_dz_7d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_dz_7d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE

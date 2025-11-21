@@ -170,7 +170,7 @@ MODULE sparseir_ext
     status_c = 0
     sve_ptr = c_spir_sve_result_new(k_ptr, eps_c, -1_c_int, -1_c_int, -1_c_int, c_loc(status_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_sve_result', 'Error creating SVE result', status_c)
+       CALL errore('create_sve_result', 'Error creating SVE result', INT(status_c))
     ENDIF
   END FUNCTION create_sve_result
 
@@ -198,7 +198,7 @@ MODULE sparseir_ext
     eps_c = eps
     basis_ptr = c_spir_basis_new(statistics_c, beta_c, wmax_c, eps_c, k_ptr, sve_ptr, max_size, c_loc(status_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_basis', 'Error creating basis', status_c)
+       CALL errore('create_basis', 'Error creating basis', INT(status_c))
     ENDIF
   END FUNCTION create_basis
 
@@ -251,7 +251,7 @@ MODULE sparseir_ext
     !
     status_c = c_spir_basis_get_n_default_taus(basis_ptr, c_loc(ntau_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_tau_smpl', 'Error getting number of tau points', status_c)
+       CALL errore('create_tau_smpl', 'Error getting number of tau points', INT(status_c))
     ENDIF
     !
     ALLOCATE(tau_c(ntau_c))
@@ -260,13 +260,13 @@ MODULE sparseir_ext
     !
     status_c = c_spir_basis_get_default_taus(basis_ptr, c_loc(tau_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_tau_smpl', 'Error getting tau points', status_c)
+       CALL errore('create_tau_smpl', 'Error getting tau points', INT(status_c))
     ENDIF
     tau = REAL(tau_c, KIND=8)
     !
     tau_smpl_ptr = c_spir_tau_sampling_new(basis_ptr, ntau_c, c_loc(tau_c), c_loc(status_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_tau_smpl', 'Error creating tau sampling points', status_c)
+       CALL errore('create_tau_smpl', 'Error creating tau sampling points', INT(status_c))
     ENDIF
     !
     DEALLOCATE(tau_c)
@@ -287,14 +287,14 @@ MODULE sparseir_ext
     !
     status_c = c_spir_basis_get_n_default_matsus(basis_ptr, positive_only_c, c_loc(nfreq_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_matsu_smpl', 'Error getting number of fermionic frequencies', status_c)
+       CALL errore('create_matsu_smpl', 'Error getting number of fermionic frequencies', INT(status_c))
     ENDIF
     !
     ALLOCATE(matsus_c(nfreq_c))
     !
     status_c = c_spir_basis_get_default_matsus(basis_ptr, positive_only_c, c_loc(matsus_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_matsu_smpl', 'Error getting frequencies', status_c)
+       CALL errore('create_matsu_smpl', 'Error getting frequencies', INT(status_c))
     ENDIF
     !
     IF (ALLOCATED(matsus)) DEALLOCATE(matsus)
@@ -304,7 +304,7 @@ MODULE sparseir_ext
     ! Create sampling object
     matsu_smpl_ptr = c_spir_matsu_sampling_new(basis_ptr, positive_only_c, nfreq_c, c_loc(matsus_c), c_loc(status_c))
     IF (status_c /= 0) THEN
-       CALL errore('create_matsu_smpl', 'Error creating sampling object', status_c)
+       CALL errore('create_matsu_smpl', 'Error creating sampling object', INT(status_c))
     ENDIF
     !
     DEALLOCATE(matsus_c)
@@ -388,18 +388,18 @@ MODULE sparseir_ext
     ! Create DLR objects
     dlr_f_ptr = c_spir_dlr_new(basis_f_ptr, c_loc(status_c))
     IF (status_c /= 0 .OR. .NOT. c_associated(dlr_f_ptr)) THEN
-       CALL errore('init_ir', 'Error creating fermionic DLR', status_c)
+       CALL errore('init_ir', 'Error creating fermionic DLR', INT(status_c))
     ENDIF
     !
     dlr_b_ptr = c_spir_dlr_new(basis_b_ptr, c_loc(status_c))
     IF (status_c /= 0 .OR. .NOT. c_associated(dlr_b_ptr)) THEN
-       CALL errore('init_ir', 'Error creating bosonic DLR', status_c)
+       CALL errore('init_ir', 'Error creating bosonic DLR', INT(status_c))
     ENDIF
     !
     ! Get number of poles
     status_c = c_spir_dlr_get_npoles(dlr_f_ptr, c_loc(npoles_c))
     IF (status_c /= 0) THEN
-       CALL errore('init_ir', 'Error getting number of poles', status_c)
+       CALL errore('init_ir', 'Error getting number of poles', INT(status_c))
     ENDIF
     !
     obj%positive_only = lpositive
@@ -554,13 +554,13 @@ MODULE sparseir_ext
     !
     u_tau_ptr = c_spir_basis_get_u(obj%basis_f_ptr, c_loc(status_c))
     IF (.NOT. c_associated(u_tau_ptr)) THEN
-       CALL errore('eval_u_tau', 'Error getting u_tau pointer', status_c)
+       CALL errore('eval_u_tau', 'Error getting u_tau pointer', INT(status_c))
     END IF
     !
     ALLOCATE(res_c(obj%size))
     status_c = c_spir_funcs_eval(u_tau_ptr, tau, c_loc(res_c))
     IF (status_c /= 0) THEN
-       CALL errore('eval_u_tau', 'Error evaluating u_tau', status_c)
+       CALL errore('eval_u_tau', 'Error evaluating u_tau', INT(status_c))
     END IF
     !
     res = REAL(res_c, KIND=DP)

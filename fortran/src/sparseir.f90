@@ -44,9 +44,9 @@ contains
       !! @param zgemm Fortran BLAS zgemm function (complex double precision)
       !! @return Pointer to spir_gemm_backend, or c_null_ptr on failure
       !-----------------------------------------------------------------------
-      ! Declare BLAS function interfaces
+      ! Declare BLAS function interfaces with bind(c) to match sparseir_ext.F90
       interface
-         subroutine dgemm_blas(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
+         subroutine dgemm_blas(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc) bind(c)
             import :: c_char, c_int, c_double
             character(c_char), intent(in) :: transa, transb
             integer(c_int), intent(in) :: m, n, k, lda, ldb, ldc
@@ -54,7 +54,7 @@ contains
             real(c_double), intent(in) :: a(lda, *), b(ldb, *)
             real(c_double), intent(inout) :: c(ldc, *)
          end subroutine dgemm_blas
-         subroutine zgemm_blas(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc)
+         subroutine zgemm_blas(transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc) bind(c)
             import :: c_char, c_int, c_double_complex
             character(c_char), intent(in) :: transa, transb
             integer(c_int), intent(in) :: m, n, k, lda, ldb, ldc

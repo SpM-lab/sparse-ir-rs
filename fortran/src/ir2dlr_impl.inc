@@ -31,7 +31,7 @@ SUBROUTINE ir2dlr_dd_1d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_dd(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_dd_1d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_dd_1d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -64,7 +64,7 @@ SUBROUTINE ir2dlr_dd_2d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_dd(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_dd_2d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_dd_2d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -97,7 +97,7 @@ SUBROUTINE ir2dlr_dd_3d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_dd(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_dd_3d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_dd_3d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -130,7 +130,7 @@ SUBROUTINE ir2dlr_dd_4d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_dd(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_dd_4d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_dd_4d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -163,7 +163,7 @@ SUBROUTINE ir2dlr_dd_5d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_dd(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_dd_5d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_dd_5d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -196,7 +196,7 @@ SUBROUTINE ir2dlr_dd_6d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_dd(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_dd_6d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_dd_6d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -229,7 +229,7 @@ SUBROUTINE ir2dlr_dd_7d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_dd(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_dd_7d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_dd_7d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -262,7 +262,7 @@ SUBROUTINE ir2dlr_zz_1d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_zz(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_zz_1d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_zz_1d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -295,7 +295,7 @@ SUBROUTINE ir2dlr_zz_2d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_zz(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_zz_2d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_zz_2d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -328,7 +328,7 @@ SUBROUTINE ir2dlr_zz_3d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_zz(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_zz_3d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_zz_3d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -361,7 +361,7 @@ SUBROUTINE ir2dlr_zz_4d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_zz(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_zz_4d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_zz_4d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -394,7 +394,7 @@ SUBROUTINE ir2dlr_zz_5d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_zz(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_zz_5d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_zz_5d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -427,7 +427,7 @@ SUBROUTINE ir2dlr_zz_6d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_zz(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_zz_6d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_zz_6d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -460,6 +460,6 @@ SUBROUTINE ir2dlr_zz_7d(obj, target_dim, arr, res)
   status_c = c_spir_ir2dlr_zz(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_zz_7d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_zz_7d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE

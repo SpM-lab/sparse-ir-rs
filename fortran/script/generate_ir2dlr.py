@@ -86,7 +86,7 @@ def generate_ir2dlr_function(ndim, input_type, output_type):
   status_c = {c_function}(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('ir2dlr_{func_suffix}_{ndim}d', 'Error converting IR to DLR', status_c)
+    CALL errore('ir2dlr_{func_suffix}_{ndim}d', 'Error converting IR to DLR', INT(status_c))
   ENDIF
 END SUBROUTINE"""
     

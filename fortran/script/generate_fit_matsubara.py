@@ -104,7 +104,7 @@ def generate_fit_matsubara_function(ndim, input_type, output_type):
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_{func_suffix}_{ndim}d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_{func_suffix}_{ndim}d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE"""
     

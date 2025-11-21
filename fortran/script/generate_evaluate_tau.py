@@ -90,7 +90,7 @@ def generate_evaluate_tau_function(ndim, input_type, output_type):
   status_c = {c_function}(obj%tau_smpl_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Error evaluating on tau sampling points', status_c)
+    CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Error evaluating on tau sampling points', INT(status_c))
   ENDIF
 
 END SUBROUTINE"""

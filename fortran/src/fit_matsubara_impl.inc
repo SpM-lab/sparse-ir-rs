@@ -49,7 +49,7 @@ SUBROUTINE fit_matsubara_zz_1d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zz_1d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zz_1d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -100,7 +100,7 @@ SUBROUTINE fit_matsubara_zz_2d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zz_2d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zz_2d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -151,7 +151,7 @@ SUBROUTINE fit_matsubara_zz_3d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zz_3d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zz_3d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -202,7 +202,7 @@ SUBROUTINE fit_matsubara_zz_4d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zz_4d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zz_4d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -253,7 +253,7 @@ SUBROUTINE fit_matsubara_zz_5d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zz_5d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zz_5d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -304,7 +304,7 @@ SUBROUTINE fit_matsubara_zz_6d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zz_6d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zz_6d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -355,7 +355,7 @@ SUBROUTINE fit_matsubara_zz_7d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zz_7d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zz_7d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -406,7 +406,7 @@ SUBROUTINE fit_matsubara_zd_1d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zd_1d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zd_1d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -457,7 +457,7 @@ SUBROUTINE fit_matsubara_zd_2d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zd_2d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zd_2d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -508,7 +508,7 @@ SUBROUTINE fit_matsubara_zd_3d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zd_3d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zd_3d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -559,7 +559,7 @@ SUBROUTINE fit_matsubara_zd_4d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zd_4d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zd_4d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -610,7 +610,7 @@ SUBROUTINE fit_matsubara_zd_5d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zd_5d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zd_5d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -661,7 +661,7 @@ SUBROUTINE fit_matsubara_zd_6d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zd_6d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zd_6d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE
 
@@ -712,6 +712,6 @@ SUBROUTINE fit_matsubara_zd_7d(obj, statistics, target_dim, arr, res)
       ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('fit_matsubara_zd_7d', 'Error fitting on Matsubara frequencies', status_c)
+    CALL errore('fit_matsubara_zd_7d', 'Error fitting on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE

@@ -107,7 +107,7 @@ def generate_evaluate_matsubara_function(ndim, input_type, output_type):
     RETURN
   END SELECT
   IF (status_c /= 0) THEN
-    CALL errore('evaluate_matsubara_{func_suffix}_{ndim}d', 'Error evaluating on Matsubara frequencies', status_c)
+    CALL errore('evaluate_matsubara_{func_suffix}_{ndim}d', 'Error evaluating on Matsubara frequencies', INT(status_c))
   ENDIF
 END SUBROUTINE"""
     
