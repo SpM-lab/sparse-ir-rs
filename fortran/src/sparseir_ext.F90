@@ -80,9 +80,6 @@ MODULE sparseir_ext
   ! Module-level backend pointer (created at module load time)
   TYPE(c_ptr), SAVE :: default_backend_ptr = c_null_ptr
   !
-  ! BLAS function declarations (using EXTERNAL to avoid name mangling)
-  ! Fortran compiler will automatically look for dgemm_ and zgemm_ symbols
-  EXTERNAL :: dgemm, zgemm
   !
   INTERFACE evaluate_tau
     MODULE PROCEDURE evaluate_tau_zz_1d, evaluate_tau_zz_2d, evaluate_tau_zz_3d, evaluate_tau_zz_4d, &
@@ -414,7 +411,7 @@ MODULE sparseir_ext
     ! Set backend pointer (create if not already created)
     IF (.NOT. c_associated(default_backend_ptr)) THEN
        ! Create backend from Fortran BLAS function pointers
-       default_backend_ptr = spir_gemm_backend_new_from_fblas_lp64(dgemm, zgemm)
+       default_backend_ptr = spir_gemm_backend_new_from_fblas_lp64()
        IF (.NOT. c_associated(default_backend_ptr)) THEN
           CALL errore('init_ir', 'Failed to create GEMM backend from Fortran BLAS pointers', 1)
        ENDIF
