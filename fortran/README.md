@@ -182,36 +182,70 @@ The following sections are only relevant if you need to modify the C-API binding
 
 ### Prerequisites for Code Generation
 
-- Python 3 with `libclang` package
+- Python 3.10 or later
+- `uv` package manager (recommended) or `pip`
 - `libclang` library (for parsing C headers)
 
-**Installing libclang:**
+**Setting up the environment with `uv` (recommended):**
+
+The project includes a `pyproject.toml` file that defines all required dependencies. To set up the environment:
+
+```sh
+cd fortran
+
+# Install uv if not already installed
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Sync dependencies (creates virtual environment and installs libclang)
+uv sync
+```
+
+This will automatically:
+- Create a virtual environment
+- Install `libclang` Python package
+- Set up the correct Python version
+
+**Installing libclang system library:**
+
+The `libclang` Python package requires the system `libclang` library to be installed:
 
 On macOS:
 ```sh
 brew install llvm
 export DYLD_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib:$DYLD_LIBRARY_PATH
-pip install libclang
 ```
 
 On Linux:
 ```sh
 sudo apt-get install libclang-dev
+```
+
+**Alternative: Using pip (not recommended):**
+
+If you prefer to use `pip` instead of `uv`:
+
+```sh
 pip install libclang
 ```
+
+However, using `uv` is recommended as it ensures consistent dependency versions and automatic virtual environment management.
 
 ### Updating C-API Bindings
 
 If the C-API header (`sparseir.h`) changes, you need to regenerate the Fortran bindings:
 
 ```sh
-# Set library path for libclang (macOS)
-export DYLD_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib:$DYLD_LIBRARY_PATH
-
-# Generate bindings
 cd fortran
+
+# Set library path for libclang (macOS only)
+# On Linux, this is usually not needed if libclang-dev is installed
+export DYLD_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib:$DYLD_LIBRARY_PATH  # macOS only
+
+# Generate bindings using uv (automatically uses the virtual environment)
 uv run script/generate_c_binding.py ../sparse-ir-capi/include/sparseir/sparseir.h
 ```
+
+**Note:** If you're using `uv`, the `uv run` command automatically activates the virtual environment and uses the dependencies defined in `pyproject.toml`. If you're using `pip`, make sure to activate your virtual environment first.
 
 This will update:
 - `src/_cbinding.inc` - C function bindings
@@ -242,6 +276,8 @@ uv run script/generate_ir2dlr.py
 # Generate dlr2ir implementation
 uv run script/generate_dlr2ir.py
 ```
+
+**Note:** All scripts can be run with `uv run`, which automatically uses the virtual environment and dependencies defined in `pyproject.toml`.
 
 All generated files are written to the `src/` directory.
 
