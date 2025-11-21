@@ -1,0 +1,14 @@
+[project]
+name = "sparse-ir-fortran-scripts"
+version = "0.1.0"
+description = "Code generation scripts for Fortran bindings"
+requires-python = ">=3.10"
+dependencies = [
+    "libclang>=18.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "libclang>=18.0.0",
+]
+
