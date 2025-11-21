@@ -154,6 +154,7 @@ fn test_integration_1d_fermionic(#[case] epsilon: f64) {
         let dims = [basis_size];
         let status = spir_sampling_eval_dd(
             tau_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dims.as_ptr(),
@@ -169,6 +170,7 @@ fn test_integration_1d_fermionic(#[case] epsilon: f64) {
         let dims_tau = [num_tau];
         let status = spir_sampling_fit_dd(
             tau_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dims_tau.as_ptr(),
@@ -191,6 +193,7 @@ fn test_integration_1d_fermionic(#[case] epsilon: f64) {
         let mut giw = vec![Complex64::new(0.0, 0.0); num_matsu as usize];
         let status = spir_sampling_eval_dz(
             matsu_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dims.as_ptr(),
@@ -206,6 +209,7 @@ fn test_integration_1d_fermionic(#[case] epsilon: f64) {
         let dims_matsu = [num_matsu];
         let status = spir_sampling_fit_zd(
             matsu_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dims_matsu.as_ptr(),
@@ -277,6 +281,7 @@ fn test_dlr_conversion_1d(#[case] epsilon: f64) {
         let dlr_dims = [npoles];
         let status = spir_dlr2ir_dd(
             dlr,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dlr_dims.as_ptr(),
@@ -292,6 +297,7 @@ fn test_dlr_conversion_1d(#[case] epsilon: f64) {
         let ir_dims = [basis_size];
         let status = spir_ir2dlr_dd(
             dlr,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             ir_dims.as_ptr(),
@@ -400,6 +406,7 @@ fn test_dlr_sampling_integration(#[case] epsilon: f64) {
         let dlr_dims = [npoles];
         let status = spir_dlr2ir_dd(
             dlr,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dlr_dims.as_ptr(),
@@ -481,6 +488,7 @@ fn test_column_major_order(#[case] epsilon: f64) {
         let dims = [basis_size];
         let status = spir_sampling_eval_dd(
             tau_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dims.as_ptr(),
@@ -494,6 +502,7 @@ fn test_column_major_order(#[case] epsilon: f64) {
         let mut gtau_col = vec![0.0; num_tau as usize];
         let status = spir_sampling_eval_dd(
             tau_sampling,
+            std::ptr::null(),
             SPIR_ORDER_COLUMN_MAJOR,
             1,
             dims.as_ptr(),
@@ -554,6 +563,7 @@ fn test_2d_tensor_operations(#[case] epsilon: f64) {
         let dims = [basis_size as i32, batch_size as i32];
         let status = spir_sampling_eval_dd(
             tau_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             2,
             dims.as_ptr(),
@@ -569,6 +579,7 @@ fn test_2d_tensor_operations(#[case] epsilon: f64) {
         let dims_tau = [num_tau as i32, batch_size as i32];
         let status = spir_sampling_fit_dd(
             tau_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             2,
             dims_tau.as_ptr(),
@@ -601,6 +612,7 @@ fn test_2d_tensor_operations(#[case] epsilon: f64) {
         let mut gtau_2d_t1 = vec![0.0; num_tau * batch_size];
         let status = spir_sampling_eval_dd(
             tau_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             2,
             dims_swapped.as_ptr(),
@@ -656,6 +668,7 @@ fn test_complex_coefficients(#[case] epsilon: f64) {
         let dims = [basis_size as i32];
         let status = spir_sampling_eval_zz(
             matsu_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dims.as_ptr(),
@@ -671,6 +684,7 @@ fn test_complex_coefficients(#[case] epsilon: f64) {
         let dims_matsu = [num_matsu as i32];
         let status = spir_sampling_fit_zz(
             matsu_sampling,
+            std::ptr::null(),
             SPIR_ORDER_ROW_MAJOR,
             1,
             dims_matsu.as_ptr(),

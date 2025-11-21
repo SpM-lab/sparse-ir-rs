@@ -1053,6 +1053,7 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 pub extern "C" fn spir_basis_get_n_default_matsus_ext(
     b: *const spir_basis,
     positive_only: bool,
+    #[allow(non_snake_case)]
     L: libc::c_int,
     num_points_returned: *mut libc::c_int,
 ) -> StatusCode {

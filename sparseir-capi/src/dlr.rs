@@ -16,6 +16,7 @@ use std::sync::Arc;
 use crate::types::{spir_basis, BasisType};
 use crate::utils::{convert_dims_for_row_major, copy_tensor_to_c_array, MemoryOrder};
 use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED};
+use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use sparseir_rust::dlr::DiscreteLehmannRepresentation;
 use sparseir_rust::Tensor;
 
@@ -288,6 +289,7 @@ pub unsafe extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_ir2dlr_dd(
     dlr: *const spir_basis,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -326,10 +328,13 @@ pub unsafe extern "C" fn spir_ir2dlr_dd(
         let flat_tensor = Tensor::<f64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Convert IR to DLR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
@@ -361,6 +366,7 @@ pub unsafe extern "C" fn spir_ir2dlr_dd(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_ir2dlr_zz(
     dlr: *const spir_basis,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -399,10 +405,13 @@ pub unsafe extern "C" fn spir_ir2dlr_zz(
         let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Convert IR to DLR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
@@ -434,6 +443,7 @@ pub unsafe extern "C" fn spir_ir2dlr_zz(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_dlr2ir_dd(
     dlr: *const spir_basis,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -472,10 +482,13 @@ pub unsafe extern "C" fn spir_dlr2ir_dd(
         let flat_tensor = Tensor::<f64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Convert DLR to IR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
@@ -507,6 +520,7 @@ pub unsafe extern "C" fn spir_dlr2ir_dd(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_dlr2ir_zz(
     dlr: *const spir_basis,
+    backend: *const spir_gemm_backend,
     order: libc::c_int,
     ndim: libc::c_int,
     input_dims: *const libc::c_int,
@@ -545,10 +559,13 @@ pub unsafe extern "C" fn spir_dlr2ir_zz(
         let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
+        // Get backend handle (NULL means use default)
+        let backend_handle = unsafe { get_backend_handle(backend) };
+
         // Convert DLR to IR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(&input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
@@ -575,6 +592,8 @@ mod tests {
 
     #[test]
     fn test_dlr_creation() {
+        // Ensure clean state before test (BLAS backend should be default Faer)
+        sparseir_rust::gemm::clear_blas_backend();
         unsafe {
             // Create kernel
             let mut kernel_status = crate::SPIR_INTERNAL_ERROR;

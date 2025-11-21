@@ -273,6 +273,7 @@ where
 /// This strategy works with non-centrosymmetric kernels by directly computing
 /// the kernel matrix over the full domain [-xmax, xmax] × [-ymax, ymax].
 /// No symmetry exploitation is performed.
+#[allow(dead_code)]
 pub struct NonCentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + 'static,

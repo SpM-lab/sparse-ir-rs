@@ -130,13 +130,13 @@ int benchmark(double beta, double omega_max, double epsilon, int extra_size, int
 
     // Test: matsubara, fit_zz
     int32_t dims[2] = {n_matsubara, extra_size};
-    status = spir_sampling_fit_zz(matsubara_sampling, SPIR_ORDER_COLUMN_MAJOR,
+    status = spir_sampling_fit_zz(matsubara_sampling, NULL, SPIR_ORDER_COLUMN_MAJOR,
                                   ndim, dims, target_dim, g_matsu_z,
                                   g_basis_z); // First run to warm up the cache
     benchmark_start(&bench, "fit_zz (Matsubara)");
     for (int i = 0; i < nrun; ++i) {
         status =
-            spir_sampling_fit_zz(matsubara_sampling, SPIR_ORDER_COLUMN_MAJOR, ndim,
+            spir_sampling_fit_zz(matsubara_sampling, NULL, SPIR_ORDER_COLUMN_MAJOR, ndim,
                                  dims, target_dim, g_matsu_z, g_basis_z);
         assert(status == SPIR_COMPUTATION_SUCCESS);
     }
@@ -148,7 +148,7 @@ int benchmark(double beta, double omega_max, double epsilon, int extra_size, int
     dims[1] = extra_size;
     benchmark_start(&bench, "eval_zz (Matsubara)");
     for (int i = 0; i < nrun; ++i) {
-        status = spir_sampling_eval_zz(matsubara_sampling, SPIR_ORDER_COLUMN_MAJOR,
+        status = spir_sampling_eval_zz(matsubara_sampling, NULL, SPIR_ORDER_COLUMN_MAJOR,
                                        ndim, dims, target_dim, g_basis_z, g_matsu_z);
         assert(status == SPIR_COMPUTATION_SUCCESS);
     }
@@ -157,7 +157,7 @@ int benchmark(double beta, double omega_max, double epsilon, int extra_size, int
     // Test: matsubara, eval_dz
     benchmark_start(&bench, "eval_dz (Matsubara)");
     for (int i = 0; i < nrun; ++i) {
-        status = spir_sampling_eval_dz(matsubara_sampling, SPIR_ORDER_COLUMN_MAJOR,
+        status = spir_sampling_eval_dz(matsubara_sampling, NULL, SPIR_ORDER_COLUMN_MAJOR,
                                        ndim, dims, target_dim, g_basis_d, g_matsu_z);
         assert(status == SPIR_COMPUTATION_SUCCESS);
     }
@@ -166,10 +166,10 @@ int benchmark(double beta, double omega_max, double epsilon, int extra_size, int
     benchmark_start(&bench, "fit_zz (Tau)");
     dims[0] = n_tau;
     dims[1] = extra_size;
-    status = spir_sampling_fit_zz(tau_sampling, SPIR_ORDER_COLUMN_MAJOR,
+    status = spir_sampling_fit_zz(tau_sampling, NULL, SPIR_ORDER_COLUMN_MAJOR,
                                   ndim, dims, target_dim, g_tau_z, g_basis_z); // First run to warm up the cache
     for (int i = 0; i < nrun; ++i) {
-        status = spir_sampling_fit_zz(tau_sampling, SPIR_ORDER_COLUMN_MAJOR, ndim,
+        status = spir_sampling_fit_zz(tau_sampling, NULL, SPIR_ORDER_COLUMN_MAJOR, ndim,
                                       dims, target_dim, g_tau_z, g_basis_z);
         assert(status == SPIR_COMPUTATION_SUCCESS);
     }
@@ -180,7 +180,7 @@ int benchmark(double beta, double omega_max, double epsilon, int extra_size, int
     dims[1] = extra_size;
     benchmark_start(&bench, "eval_zz (Tau)");
     for (int i = 0; i < nrun; ++i) {
-        status = spir_sampling_eval_zz(tau_sampling, SPIR_ORDER_COLUMN_MAJOR, ndim,
+        status = spir_sampling_eval_zz(tau_sampling, NULL, SPIR_ORDER_COLUMN_MAJOR, ndim,
                                        dims, target_dim, g_basis_z, g_tau_z);
         assert(status == SPIR_COMPUTATION_SUCCESS);
     }

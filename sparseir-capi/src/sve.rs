@@ -334,7 +334,9 @@ pub extern "C" fn spir_sve_result_get_svals(
 /// Pointer to SVE result on success, nullptr on failure
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sve_result_from_matrix(
+    #[allow(non_snake_case)]
     K_high: *const f64,
+    #[allow(non_snake_case)]
     K_low: *const f64,
     nx: libc::c_int,
     ny: libc::c_int,
@@ -619,9 +621,13 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// Pointer to SVE result on success, nullptr on failure
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
+    #[allow(non_snake_case)]
     K_even_high: *const f64,
+    #[allow(non_snake_case)]
     K_even_low: *const f64,
+    #[allow(non_snake_case)]
     K_odd_high: *const f64,
+    #[allow(non_snake_case)]
     K_odd_low: *const f64,
     nx: libc::c_int,
     ny: libc::c_int,

@@ -52,10 +52,10 @@ where
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
 
         // Evaluate along target dimension (using generic API)
-        let evaluated_values = sampling.evaluate_nd::<T>(&coeffs_dim, dim);
+        let evaluated_values = sampling.evaluate_nd::<T>(None, &coeffs_dim, dim);
 
         // Fit back along target dimension (using generic API)
-        let fitted_coeffs_dim = sampling.fit_nd::<T>(&evaluated_values, dim);
+        let fitted_coeffs_dim = sampling.fit_nd::<T>(None, &evaluated_values, dim);
 
         // Move back to dim=0 for comparison
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
@@ -152,10 +152,10 @@ where
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
 
         // Evaluate along target dimension
-        let evaluated_values = sampling.evaluate_nd::<T>(&coeffs_dim, dim);
+        let evaluated_values = sampling.evaluate_nd::<T>(None, &coeffs_dim, dim);
 
         // Fit back along target dimension
-        let fitted_coeffs_dim = sampling.fit_nd::<T>(&evaluated_values, dim);
+        let fitted_coeffs_dim = sampling.fit_nd::<T>(None, &evaluated_values, dim);
 
         // Move back to dim=0 for comparison
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);

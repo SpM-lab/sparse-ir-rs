@@ -6,6 +6,7 @@
 
 use crate::fitter::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
+use crate::gemm::GemmBackendHandle;
 use crate::kernel::AbstractKernel;
 use crate::traits::{Statistics, StatisticsType};
 use mdarray::DTensor;
@@ -303,6 +304,7 @@ where
     /// DLR coefficients as N-D tensor
     pub fn from_ir_nd<T>(
         &self,
+        backend: Option<&GemmBackendHandle>,
         gl: &mdarray::Tensor<T, mdarray::DynRank>,
         dim: usize,
     ) -> mdarray::Tensor<T, mdarray::DynRank>
@@ -342,7 +344,7 @@ where
         });
 
         // Fit using fitter's generic 2D method
-        let g_dlr_2d = self.fitter.fit_2d_generic::<T>(&gl_2d);
+        let g_dlr_2d = self.fitter.fit_2d_generic::<T>(backend, &gl_2d);
 
         // Reshape back
         let n_poles = self.poles.len();
@@ -370,6 +372,7 @@ where
     /// IR coefficients as N-D tensor
     pub fn to_ir_nd<T>(
         &self,
+        backend: Option<&GemmBackendHandle>,
         g_dlr: &mdarray::Tensor<T, mdarray::DynRank>,
         dim: usize,
     ) -> mdarray::Tensor<T, mdarray::DynRank>
@@ -409,7 +412,7 @@ where
         });
 
         // Evaluate using fitter's generic 2D method
-        let gl_2d = self.fitter.evaluate_2d_generic::<T>(&g_dlr_2d);
+        let gl_2d = self.fitter.evaluate_2d_generic::<T>(backend, &g_dlr_2d);
 
         // Reshape back
         let basis_size = self.fitmat.shape().0;

@@ -17,6 +17,7 @@
 // C++ interface removed for C-API test
 #include <sparseir/sparseir.h>   // C interface
 #include "_utils.hpp"
+#include "gemmbackend.hpp"
 
 // Helper function for movedim (replacing sparseir::movedim)
 template <int N>
@@ -282,12 +283,13 @@ template <typename T>
 int dlr_to_IR(spir_basis* dlr, int order, int ndim,
                   const int* dims, int target_dim,
                   const T* coeffs, T* g_IR) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_dlr2ir_dd(dlr, order, ndim, dims, target_dim,
+        return spir_dlr2ir_dd(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const double*>(coeffs),
                                 reinterpret_cast<double*>(g_IR));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_dlr2ir_zz(dlr, order, ndim, dims, target_dim,
+        return spir_dlr2ir_zz(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const c_complex*>(coeffs),
                                 reinterpret_cast<c_complex*>(g_IR));
     }
@@ -299,12 +301,13 @@ template <typename T>
 int dlr_from_IR(spir_basis* dlr, int order, int ndim,
                   const int* dims, int target_dim,
                   const T* coeffs, T* g_IR) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_ir2dlr_dd(dlr, order, ndim, dims, target_dim,
+        return spir_ir2dlr_dd(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const double*>(coeffs),
                                 reinterpret_cast<double*>(g_IR));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_ir2dlr_zz(dlr, order, ndim, dims, target_dim,
+        return spir_ir2dlr_zz(dlr, backend, order, ndim, dims, target_dim,
                                 reinterpret_cast<const c_complex*>(coeffs),
                                 reinterpret_cast<c_complex*>(g_IR));
     }
@@ -315,12 +318,13 @@ template <typename T>
 int _tau_sampling_evaluate(spir_sampling* sampling, int order, int ndim,
                          const int* dims, int target_dim,
                          const T* gIR, T* gtau) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_sampling_eval_dd(sampling, order, ndim, dims, target_dim,
+        return spir_sampling_eval_dd(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const double*>(gIR),
                                        reinterpret_cast<double*>(gtau));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_sampling_eval_zz(sampling, order, ndim, dims, target_dim,
+        return spir_sampling_eval_zz(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const c_complex*>(gIR),
                                        reinterpret_cast<c_complex*>(gtau));
     }
@@ -331,12 +335,13 @@ template <typename T>
 int _tau_sampling_fit(spir_sampling* sampling, int order, int ndim,
                          const int* dims, int target_dim,
                          const T* gtau, T* gIR) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_sampling_fit_dd(sampling, order, ndim, dims, target_dim,
+        return spir_sampling_fit_dd(sampling, backend, order, ndim, dims, target_dim,
                                   reinterpret_cast<const double*>(gtau),
                                   reinterpret_cast<double*>(gIR));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_sampling_fit_zz(sampling, order, ndim, dims, target_dim,
+        return spir_sampling_fit_zz(sampling, backend, order, ndim, dims, target_dim,
                                   reinterpret_cast<const c_complex*>(gtau),
                                   reinterpret_cast<c_complex*>(gIR));
     }
@@ -347,12 +352,13 @@ template <typename T>
 int _matsubara_sampling_evaluate(spir_sampling* sampling, int order, int ndim,
                                    const int* dims, int target_dim,
                                    const T* gIR, std::complex<double>* giw) {
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
-        return spir_sampling_eval_dz(sampling, order, ndim, dims, target_dim,
+        return spir_sampling_eval_dz(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const double*>(gIR),
                                        reinterpret_cast<c_complex*>(giw));
     } else if (std::is_same<T, std::complex<double>>::value) {
-        return spir_sampling_eval_zz(sampling, order, ndim, dims, target_dim,
+        return spir_sampling_eval_zz(sampling, backend, order, ndim, dims, target_dim,
                                        reinterpret_cast<const c_complex*>(gIR),
                                        reinterpret_cast<c_complex*>(giw));
     }
@@ -380,7 +386,7 @@ template <typename T, int ndim, Eigen::StorageOptions ORDER>
 void integration_test(double beta, double wmax, double epsilon,
                       const std::vector<int> &extra_dims, int target_dim,
                       const int order, int stat, spir_kernel* kernel,
-                      double tol, bool positive_only)
+                      spir_sve_result* sve, double tol, bool positive_only)
 {
     // positive_only is not supported for complex numbers
     REQUIRE (!(std::is_same<T, std::complex<double>>::value && positive_only));
@@ -397,13 +403,11 @@ void integration_test(double beta, double wmax, double epsilon,
     }
 
     int status;
-    std::cout << "SVE" << std::endl;
-    spir_sve_result* sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &status);
-    std::cout << "SVE created" << std::endl;
-    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    std::cout << "Creating basis with pre-computed SVE" << std::endl;
     REQUIRE(sve != nullptr);
 
-    spir_basis *basis = _spir_basis_new(stat, beta, wmax, epsilon, &status);
+    int max_size = -1;
+    spir_basis *basis = spir_basis_new(stat, beta, wmax, epsilon, kernel, sve, max_size, &status);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(basis != nullptr);
 
@@ -440,13 +444,19 @@ void integration_test(double beta, double wmax, double epsilon,
     // Matsubara Sampling
     std::cout << "Matsubara sampling" << std::endl;
     int num_matsubara_points_org;
+    std::cout << "spir_basis_get_n_default_matsus" << std::endl;
     status = spir_basis_get_n_default_matsus(basis, positive_only, &num_matsubara_points_org);
+    std::cout << "status = " << status << std::endl;
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(num_matsubara_points_org > 0);
     Eigen::Vector<int64_t, Eigen::Dynamic> matsubara_points_org(num_matsubara_points_org);
+    std::cout << "spir_basis_get_default_matsus" << std::endl;
     status = spir_basis_get_default_matsus(basis, positive_only, matsubara_points_org.data());
+    std::cout << "status = " << status << std::endl;
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    std::cout << "Calling spir_matsu_sampling_new" << std::endl;
     spir_sampling *matsubara_sampling = spir_matsu_sampling_new(basis, positive_only, num_matsubara_points_org, matsubara_points_org.data(), &status);
+    std::cout << "status = " << status << std::endl;
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(matsubara_sampling != nullptr);
     if (positive_only) {
@@ -454,6 +464,7 @@ void integration_test(double beta, double wmax, double epsilon,
     } else {
         REQUIRE(num_matsubara_points_org >= basis_size);
     }
+    std::cout << "num_matsubara_points_org = " << num_matsubara_points_org << std::endl;
 
     int num_matsubara_points;
     status =
@@ -580,16 +591,17 @@ void integration_test(double beta, double wmax, double epsilon,
         gtau_from_IR, gtau_from_DLR_reconst, tol));
 
     // Use sampling to evaluate the Greens function at all tau points between IR and DLR
+    spir_gemm_backend* backend = get_backend();
     if (std::is_same<T, double>::value) {
         status = spir_sampling_eval_dd(
-            tau_sampling_dlr, order, ndim,
+            tau_sampling_dlr, backend, order, ndim,
             _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
             target_dim,
             reinterpret_cast<const double*>(coeffs.data()),
             reinterpret_cast<double*>(gtau_from_DLR.data()));
     } else if (std::is_same<T, std::complex<double>>::value) {
         status = spir_sampling_eval_zz(
-            tau_sampling_dlr, order, ndim,
+            tau_sampling_dlr, backend, order, ndim,
             _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
             target_dim,
             reinterpret_cast<const c_complex*>(coeffs.data()),
@@ -615,16 +627,17 @@ void integration_test(double beta, double wmax, double epsilon,
 
     // Use sampling to evaluate the Greens function at all Matsubara frequencies between IR and DLR
     {
+        spir_gemm_backend* backend = get_backend();
         if (std::is_same<T, double>::value) {
             status = spir_sampling_eval_dz(
-                matsubara_sampling_dlr, order, ndim,
+                matsubara_sampling_dlr, backend, order, ndim,
                 _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
                 target_dim,
                 reinterpret_cast<const double*>(coeffs.data()),
                 reinterpret_cast<c_complex*>(giw_from_DLR.data()));
         } else if (std::is_same<T, std::complex<double>>::value) {
             status = spir_sampling_eval_zz(
-                matsubara_sampling_dlr, order, ndim,
+                matsubara_sampling_dlr, backend, order, ndim,
                 _get_dims<ndim, int>(npoles, extra_dims, target_dim).data(),
                 target_dim,
                 reinterpret_cast<const c_complex*>(coeffs.data()),
@@ -652,10 +665,11 @@ void integration_test(double beta, double wmax, double epsilon,
 
     // Matsubara -> IR
     {
+        spir_gemm_backend* backend = get_backend();
         Eigen::Tensor<std::complex<double>, ndim, ORDER>
             gIR_work( _get_dims<ndim, Eigen::Index>(basis_size, extra_dims, target_dim));
         status = spir_sampling_fit_zz(
-            matsubara_sampling, order, ndim, dims_matsubara.data(), target_dim,
+            matsubara_sampling, backend, order, ndim, dims_matsubara.data(), target_dim,
             reinterpret_cast<const c_complex *>(giw_from_DLR.data()),
             reinterpret_cast<c_complex *>(gIR_work.data()));
         REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
@@ -691,16 +705,19 @@ void integration_test(double beta, double wmax, double epsilon,
     spir_sampling_release(tau_sampling);
 }
 
-TEST_CASE("Integration Test", "[cinterface]") {
-    double beta = 1e+3;
-    double wmax = 2.0;
-    double epsilon = 1e-6;
-
-    double tol = 10 * epsilon;
-
+void run_integration_tests(double beta, double wmax, double epsilon, double tol) {
     // Create kernel once for all tests
     spir_kernel* kernel = _kernel_new_logistic(beta * wmax);
-    int stat = SPIR_STATISTICS_BOSONIC; // DEBUG
+
+    // Create SVE once for all tests
+    int status;
+    std::cout << std::endl;
+    std::cout << "Testing with beta = " << beta << ", wmax = " << wmax << ", epsilon = " << epsilon << std::endl;
+    std::cout << "Computing SVE for all tests" << std::endl;
+    spir_sve_result* sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &status);
+    std::cout << "SVE computed" << std::endl;
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(sve != nullptr);
 
     for (int stat : {SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC}) {
         std::string stat_name = stat == SPIR_STATISTICS_FERMIONIC ? "Fermionic" : "Bosonic";
@@ -710,11 +727,11 @@ TEST_CASE("Integration Test", "[cinterface]") {
                 std::vector<int> extra_dims = {};
                 std::cout << "Integration test for " << stat_name << "LogisticKernel" << std::endl;
                 integration_test<double, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, 0,
-                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
 
                 if (!positive_only) {
                     integration_test<std::complex<double>, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, 0,
-                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
                 }
             }
     
@@ -723,10 +740,10 @@ TEST_CASE("Integration Test", "[cinterface]") {
                 std::vector<int> extra_dims = {};
                     std::cout << "Integration test for " << stat_name << "LogisticKernel, ColMajor, target_dim = " << target_dim << std::endl;
                     integration_test<double, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                              SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                              SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
                 if (!positive_only) {
                     integration_test<std::complex<double>, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
                 }
             }
     
@@ -735,31 +752,43 @@ TEST_CASE("Integration Test", "[cinterface]") {
                 std::vector<int> extra_dims = {};
                 std::cout << "Integration test for " << stat_name << "LogisticKernel, RowMajor, target_dim = " << target_dim << std::endl;
                 integration_test<double, 1, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                              SPIR_ORDER_ROW_MAJOR, stat, kernel, tol, positive_only);
+                                              SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
                 if (!positive_only) {
                     integration_test<std::complex<double>, 1, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                                  SPIR_ORDER_ROW_MAJOR, stat, kernel, tol, positive_only);
+                                                  SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
                }
             }
         }
     }
 
     // Multi-dimensional tests (only for fermionic statistics and positive only)
-    stat = SPIR_STATISTICS_FERMIONIC;
+    int stat = SPIR_STATISTICS_FERMIONIC;
     for (bool positive_only : {true}) {
         // extra dims = {2,3,4}
         for (int target_dim = 0; target_dim < 4; ++target_dim) {
             std::vector<int> extra_dims = {2,3,4};
             std::cout << "Integration test for bosonic LogisticKernel, ColMajor, target_dim = " << target_dim << std::endl;
             integration_test<double, 4, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, tol, positive_only);
+                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
         }
 
         for (int target_dim = 0; target_dim < 4; ++target_dim) {
             std::vector<int> extra_dims = {2,3,4};
             std::cout << "Integration test for bosonic LogisticKernel, RowMajor, target_dim = " << target_dim << std::endl;
             integration_test<double, 4, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                          SPIR_ORDER_ROW_MAJOR, stat, kernel, tol, positive_only);
+                                          SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
         }
     }
+
+    // Clean up SVE and kernel
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
+TEST_CASE("Integration Test (double-double)") {
+    double beta = 1e+4;
+    double wmax = 2.0;
+    double epsilon = 1e-10;
+    double tol = 10 * epsilon;
+    run_integration_tests(beta, wmax, epsilon, tol);
 }

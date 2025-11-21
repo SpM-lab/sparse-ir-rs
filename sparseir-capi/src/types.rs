@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 /// Convert Statistics enum to C-API integer
 #[inline]
+#[allow(dead_code)]
 pub(crate) fn statistics_to_c(stats: Statistics) -> i32 {
     match stats {
         Statistics::Fermionic => 1,
@@ -25,6 +26,7 @@ pub(crate) fn statistics_to_c(stats: Statistics) -> i32 {
 
 /// Convert C-API integer to Statistics enum
 #[inline]
+#[allow(dead_code)]
 pub(crate) fn statistics_from_c(value: i32) -> Statistics {
     match value {
         1 => Statistics::Fermionic,
@@ -43,11 +45,13 @@ pub(crate) enum FunctionDomain {
 
 impl FunctionDomain {
     /// Check if this is a tau function with the given statistics
+    #[allow(dead_code)]
     pub(crate) fn is_tau_with_statistics(&self, stats: Statistics) -> bool {
         matches!(self, FunctionDomain::Tau(s) if *s == stats)
     }
 
     /// Check if this is an omega function
+    #[allow(dead_code)]
     pub(crate) fn is_omega(&self) -> bool {
         matches!(self, FunctionDomain::Omega)
     }
@@ -208,10 +212,12 @@ impl spir_sve_result {
         &self.inner_arc().s
     }
 
+    #[allow(dead_code)]
     pub(crate) fn epsilon(&self) -> f64 {
         self.inner_arc().epsilon
     }
 
+    #[allow(dead_code)]
     pub(crate) fn truncate(&self, epsilon: f64, max_size: Option<usize>) -> Self {
         let (u_part, s_part, v_part) = self.inner_arc().part(Some(epsilon), max_size);
         let truncated = SVEResult::new(u_part, s_part, v_part, epsilon);
@@ -353,6 +359,7 @@ impl spir_basis {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn wmax(&self) -> f64 {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.wmax(),

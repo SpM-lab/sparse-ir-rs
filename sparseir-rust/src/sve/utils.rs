@@ -170,14 +170,22 @@ pub fn svd_to_polynomials<T: CustomNumeric>(
 ) -> Vec<PiecewiseLegendrePoly> {
     let n_segments = segments.len() - 1;
     let n_svals = u_or_v.shape().1;
+    let n_rows = u_or_v.shape().0;
 
     // Reshape to 3D: (n_gauss, n_segments, n_svals)
+    // Note: Due to QR early termination, u_or_v may have fewer rows than expected
+    // We need to handle the case where row_idx exceeds the actual number of rows
     let mut tensor_3d = DTensor::<f64, 3>::zeros([n_gauss, n_segments, n_svals]);
     for i in 0..n_gauss {
         for j in 0..n_segments {
             for k in 0..n_svals {
                 let row_idx = j * n_gauss + i;
-                tensor_3d[[i, j, k]] = u_or_v[[row_idx, k]].to_f64();
+                if row_idx < n_rows {
+                    tensor_3d[[i, j, k]] = u_or_v[[row_idx, k]].to_f64();
+                } else {
+                    // If row_idx is out of bounds, set to zero (due to early termination)
+                    tensor_3d[[i, j, k]] = 0.0;
+                }
             }
         }
     }
