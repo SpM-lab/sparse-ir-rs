@@ -41,10 +41,10 @@ set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -cpp")
 set(CMAKE_Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fortran)
 
 add_library(sparseir_fortran SHARED
-    sparseir.f90
-    sparseir_ext.F90
-    _cbinding.inc
-    _cbinding_public.inc
+    src/sparseir.f90
+    src/sparseir_ext.F90
+    src/_cbinding.inc
+    src/_cbinding_public.inc
     ${TYPE_FILES}
 )
 
@@ -58,7 +58,7 @@ endif()
 
 # Add include directory
 target_include_directories(sparseir_fortran PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
 )
 
@@ -75,6 +75,23 @@ set_target_properties(sparseir_fortran PROPERTIES
     BUILD_WITH_INSTALL_RPATH ON
     INSTALL_RPATH_USE_LINK_PATH ON
 )
+
+# Find BLAS library
+if(APPLE)
+    # On macOS, use Accelerate framework
+    find_library(ACCELERATE_LIB Accelerate)
+    if(ACCELERATE_LIB)
+        target_link_libraries(sparseir_fortran PUBLIC ${ACCELERATE_LIB})
+    else()
+        # Fallback to OpenBLAS if Accelerate not found
+        find_package(BLAS REQUIRED)
+        target_link_libraries(sparseir_fortran PUBLIC ${BLAS_LIBRARIES})
+    endif()
+else()
+    # On Linux, use standard BLAS
+    find_package(BLAS REQUIRED)
+    target_link_libraries(sparseir_fortran PUBLIC ${BLAS_LIBRARIES})
+endif()
 
 # Link Rust C API library
 target_link_libraries(sparseir_fortran PUBLIC ${SPARSEIR_CAPI_LIB})

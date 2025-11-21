@@ -1,0 +1,6 @@
+# The fortran modules provided by this target.
+provides
+ constants.mod
+ fftw3_run.mod
+ input_variables.mod
+ kinds.mod

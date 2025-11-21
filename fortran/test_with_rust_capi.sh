@@ -46,8 +46,33 @@ fi
 # Step 1: Build Rust C API library
 echo -e "${YELLOW}Step 1: Building sparseir-capi...${NC}"
 
-# Build release version with shared library
+# Ensure we're in the workspace root directory
 cd "${WORKSPACE_ROOT}"
+if [ ! -f "Cargo.toml" ]; then
+    echo -e "${RED}Error: Cargo.toml not found at ${WORKSPACE_ROOT}${NC}"
+    exit 1
+fi
+
+# Check if xprec-rs exists and has Cargo.toml, initialize submodule if needed
+if [ ! -f "xprec-rs/Cargo.toml" ]; then
+    echo -e "${YELLOW}xprec-rs submodule not initialized, initializing...${NC}"
+    if [ -f ".gitmodules" ] && grep -q "xprec-rs" .gitmodules; then
+        git submodule update --init --force --recursive xprec-rs || {
+            echo -e "${RED}Error: Failed to initialize xprec-rs submodule${NC}"
+            exit 1
+        }
+        # Verify Cargo.toml exists after initialization
+        if [ ! -f "xprec-rs/Cargo.toml" ]; then
+            echo -e "${RED}Error: xprec-rs/Cargo.toml still not found after submodule initialization${NC}"
+            exit 1
+        fi
+    else
+        echo -e "${RED}Error: xprec-rs/Cargo.toml not found and not a git submodule${NC}"
+        exit 1
+    fi
+fi
+
+echo -e "${GREEN}Building from workspace root: ${WORKSPACE_ROOT}${NC}"
 cargo build --release -p sparse-ir-capi
 
 # Determine library extension based on OS

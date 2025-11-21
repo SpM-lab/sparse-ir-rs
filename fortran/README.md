@@ -1,18 +1,251 @@
 # Fortran API documentation
 
-## How to update `_cbinding.inc`
+## Directory Structure
 
-We assume we are using M-series macOS.
-Install `llvm` via homebrew:
+```
+fortran/
+├── src/                    # Source files and generated .inc files
+│   ├── sparseir.f90        # Main Fortran module
+│   ├── sparseir_ext.F90    # Extended Fortran module
+│   └── *.inc               # Auto-generated include files
+├── script/                 # Code generation scripts (for developers)
+│   └── generate_*.py       # Scripts to generate .inc files
+├── test/                   # Test programs
+├── sample/                 # Sample programs
+├── CMakeLists.txt          # CMake build configuration
+└── test_with_rust_capi.sh # Main test script
+```
+
+## Prerequisites
+
+- Fortran compiler (gfortran 15.1.0 or compatible)
+  - **Fortran 2003 or later** (required for `iso_c_binding` and `procedure` statements)
+- CMake (3.15 or later)
+- Rust toolchain (for building the C-API)
+- BLAS/LAPACK library with **LP64 interface (32-bit integers)**
+  - macOS: Accelerate framework (automatic)
+  - Linux: OpenBLAS, MKL, or any LP64-compatible BLAS library
+  - The wrapper accepts any BLAS library that provides `dgemm` and `zgemm` with 32-bit integer arguments
+
+## Building and Testing
+
+### Quick Start: Run All Tests
+
+The easiest way to build and test the Fortran wrapper is to use the main test script:
 
 ```sh
-% brew install llvm
+cd fortran
+./test_with_rust_capi.sh
 ```
 
-Then, run the following commands
+This script will:
+1. Build the Rust C-API library (`sparse-ir-capi`)
+2. Install it to `fortran/_install/`
+3. Build the Fortran bindings
+4. Run all tests
 
-```zsh
-% export DYLD_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib:$DYLD_LIBRARY_PATH
-% uv run generate_c_binding.py ../include/sparseir/sparseir.h
+**Note:** Code generation is not required for using the Fortran wrapper. The generated `.inc` files are already included in the repository.
+
+### Clean Build
+
+To start from scratch, use the `--clean` option:
+
+```sh
+./test_with_rust_capi.sh --clean
 ```
 
+This will remove the `_build/` and `_install/` directories before building.
+
+### Running Sample Programs
+
+To build and run the sample program:
+
+```sh
+cd sample
+./build_and_run.sh
+```
+
+This script will:
+1. Build the Rust C-API library if needed
+2. Build the Fortran sample program
+3. Run the sample program
+
+The sample program demonstrates:
+- Creating an IR basis
+- Computing Green's functions
+- Transforming between different representations
+- Second-order perturbation theory calculations
+
+## Manual Build Process
+
+If you prefer to build manually:
+
+### Step 1: Build Rust C-API
+
+```sh
+cd ../sparseir-rust
+cargo build --release -p sparse-ir-capi
+```
+
+### Step 2: Install C-API
+
+```sh
+cd fortran
+mkdir -p _install/lib _install/include/sparseir
+cp ../target/release/libsparse_ir_capi.* _install/lib/
+cp ../sparse-ir-capi/include/sparseir/sparseir.h _install/include/sparseir/
+```
+
+### Step 3: Build Fortran Bindings
+
+```sh
+mkdir -p _build
+cd _build
+cmake .. -DCMAKE_PREFIX_PATH=../_install
+cmake --build .
+```
+
+### Step 4: Run Tests
+
+```sh
+# Set library path
+export DYLD_LIBRARY_PATH=../_install/lib:.:$DYLD_LIBRARY_PATH  # macOS
+# or
+export LD_LIBRARY_PATH=../_install/lib:.:$LD_LIBRARY_PATH      # Linux
+
+# Run tests
+ctest --output-on-failure
+```
+
+## Troubleshooting
+
+### Library Not Found Errors
+
+If you get library not found errors at runtime:
+
+**macOS:**
+```sh
+export DYLD_LIBRARY_PATH=/path/to/fortran/_install/lib:$DYLD_LIBRARY_PATH
+```
+
+**Linux:**
+```sh
+export LD_LIBRARY_PATH=/path/to/fortran/_install/lib:$LD_LIBRARY_PATH
+```
+
+### BLAS/LAPACK Errors
+
+Make sure BLAS/LAPACK libraries are available with LP64 interface (32-bit integers):
+
+**macOS:** Accelerate framework is used automatically
+
+**Linux:** Install OpenBLAS or another LP64-compatible BLAS:
+```sh
+sudo apt-get install libopenblas-dev  # Debian/Ubuntu
+```
+
+The wrapper works with any BLAS library that provides `dgemm` and `zgemm` functions with 32-bit integer arguments (LP64 interface).
+
+### Code Generation Errors
+
+If you encounter code generation errors (only relevant for developers modifying the C-API):
+1. Ensure `libclang` is installed and accessible
+2. Check that the C-API header path is correct
+3. Verify Python environment has `libclang` package installed
+
+## API Usage
+
+See the `sample/` directory for example usage of the Fortran API.
+
+The main modules are:
+- `sparseir` - Core C-API bindings
+- `sparseir_ext` - Extended Fortran-friendly interface
+
+Key types:
+- `IR` - IR basis object containing sampling points and basis functions
+
+Key functions:
+- `init_ir` - Initialize IR basis
+- `evaluate_tau` - Evaluate functions on tau sampling points
+- `evaluate_matsubara` - Evaluate functions on Matsubara frequencies
+- `fit_tau` - Fit data on tau sampling points
+- `fit_matsubara` - Fit data on Matsubara frequencies
+- `ir2dlr` - Convert IR coefficients to DLR coefficients
+- `dlr2ir` - Convert DLR coefficients to IR coefficients
+- `finalize_ir` - Clean up IR basis object
+
+---
+
+## For Developers: Code Generation
+
+The following sections are only relevant if you need to modify the C-API bindings or regenerate the implementation files.
+
+### Prerequisites for Code Generation
+
+- Python 3 with `libclang` package
+- `libclang` library (for parsing C headers)
+
+**Installing libclang:**
+
+On macOS:
+```sh
+brew install llvm
+export DYLD_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib:$DYLD_LIBRARY_PATH
+pip install libclang
+```
+
+On Linux:
+```sh
+sudo apt-get install libclang-dev
+pip install libclang
+```
+
+### Updating C-API Bindings
+
+If the C-API header (`sparseir.h`) changes, you need to regenerate the Fortran bindings:
+
+```sh
+# Set library path for libclang (macOS)
+export DYLD_LIBRARY_PATH=/opt/homebrew/opt/llvm/lib:$DYLD_LIBRARY_PATH
+
+# Generate bindings
+cd fortran
+uv run script/generate_c_binding.py ../sparse-ir-capi/include/sparseir/sparseir.h
+```
+
+This will update:
+- `src/_cbinding.inc` - C function bindings
+- `src/_cbinding_public.inc` - Public declarations
+
+### Generating Implementation Files
+
+The implementation files (`*_impl.inc`) are generated by scripts in the `script/` directory:
+
+```sh
+cd fortran
+
+# Generate evaluate_tau implementation
+uv run script/generate_evaluate_tau.py
+
+# Generate evaluate_matsubara implementation
+uv run script/generate_evaluate_matsubara.py
+
+# Generate fit_tau implementation
+uv run script/generate_fit_tau.py
+
+# Generate fit_matsubara implementation
+uv run script/generate_fit_matsubara.py
+
+# Generate ir2dlr implementation
+uv run script/generate_ir2dlr.py
+
+# Generate dlr2ir implementation
+uv run script/generate_dlr2ir.py
+```
+
+All generated files are written to the `src/` directory.
+
+**Important:** After regenerating files, make sure to test the build:
+```sh
+./test_with_rust_capi.sh
+```

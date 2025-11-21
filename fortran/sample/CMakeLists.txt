@@ -1,9 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(second_order_perturbation_fort LANGUAGES Fortran C CXX)
-
-# Set C++ standard
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+project(second_order_perturbation_fort LANGUAGES Fortran C)
 
 # Set Fortran standard
 set(CMAKE_Fortran_STANDARD 90)
@@ -14,54 +10,67 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# Options
-option(BUILD_TESTING "Build tests" OFF)
-option(USE_SYSTEM_LIBSPARSEIR "Use system-installed libsparseir" ON)
+# Find Rust C-API library
+# SPARSEIR_CAPI_PREFIX should be set via CMAKE_PREFIX_PATH
+find_library(SPARSEIR_CAPI_LIB
+    NAMES sparse_ir_capi
+    PATHS ${CMAKE_PREFIX_PATH}/lib
+          ${CMAKE_PREFIX_PATH}/lib64
+    NO_DEFAULT_PATH
+)
 
-# Setup libsparseir dependency
-if(USE_SYSTEM_LIBSPARSEIR)
-    find_package(SparseIR REQUIRED)
-    list(GET SPARSEIR_PREFIX 0 SPARSEIR_PREFIX)
-else()
-    # Fetch and build libsparseir from source
-    include(FetchContent)
-
-    FetchContent_Declare(
-        libsparseir
-        SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../..
-    )
-
-    # Set options for libsparseir build
-    set(SPARSEIR_BUILD_FORTRAN ON CACHE BOOL "Build Fortran bindings for libsparseir")
-    set(SPARSEIR_BUILD_TESTING OFF CACHE BOOL "Disable libsparseir tests")
-
-    FetchContent_MakeAvailable(libsparseir)
+if(NOT SPARSEIR_CAPI_LIB)
+    # Fallback: try standard system paths
+    find_library(SPARSEIR_CAPI_LIB NAMES sparse_ir_capi)
 endif()
+
+if(NOT SPARSEIR_CAPI_LIB)
+    message(FATAL_ERROR "Could not find libsparse_ir_capi. Set CMAKE_PREFIX_PATH to point to the Rust C-API installation directory.")
+endif()
+
+# Find include directory
+find_path(SPARSEIR_CAPI_INCLUDE_DIR
+    NAMES sparseir/sparseir.h
+    PATHS ${CMAKE_PREFIX_PATH}/include
+    NO_DEFAULT_PATH
+)
+
+if(NOT SPARSEIR_CAPI_INCLUDE_DIR)
+    find_path(SPARSEIR_CAPI_INCLUDE_DIR NAMES sparseir/sparseir.h)
+endif()
+
+if(NOT SPARSEIR_CAPI_INCLUDE_DIR)
+    message(FATAL_ERROR "Could not find sparseir/sparseir.h. Set CMAKE_PREFIX_PATH to point to the Rust C-API installation directory.")
+endif()
+
+# Add parent directory to build sparseir_fortran
+add_subdirectory(.. ${CMAKE_CURRENT_BINARY_DIR}/sparseir_fortran)
 
 find_library(FFTW3_LIB fftw3)
 find_path(FFTW3_INCLUDE_DIR fftw3.f)
 
-# Create a simple Fortran test
+# Create executable
 add_executable(second_order_perturbation_fort second_order_perturbation_fort.f90)
 
-# Add compiler-specific flags for heap arrays
-if(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
-    # Intel Fortran: Put all arrays on heap to avoid stack overflow
-    #target_compile_options(second_order_perturbation_fort PRIVATE -heap-arrays 0)
-endif()
+# Get module directory from sparseir_fortran
+get_target_property(SPARSEIR_FORTRAN_MODDIR sparseir_fortran Fortran_MODULE_DIRECTORY)
+
+target_include_directories(second_order_perturbation_fort PRIVATE
+    ${SPARSEIR_FORTRAN_MODDIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
+    ${FFTW3_INCLUDE_DIR}
+)
+
+# Link with sparseir_fortran (which links to Rust C-API) and FFTW3
+target_link_libraries(second_order_perturbation_fort PRIVATE
+    sparseir_fortran
+    ${FFTW3_LIB}
+)
 
 # Set RPATH for both Linux and macOS
 set_target_properties(second_order_perturbation_fort PROPERTIES
-    INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib"
-    BUILD_RPATH "${CMAKE_INSTALL_PREFIX}/lib"
-    INSTALL_RPATH_USE_LINK_PATH TRUE
-    # macOS specific: use @rpath for better portability
+    BUILD_WITH_INSTALL_RPATH ON
+    INSTALL_RPATH_USE_LINK_PATH ON
+    INSTALL_RPATH "$<TARGET_FILE_DIR:sparseir_fortran>"
     MACOSX_RPATH TRUE
-)
-
-# Link with libsparseir
-target_link_libraries(second_order_perturbation_fort PRIVATE SparseIR::sparseir_fortran ${FFTW3_LIB})
-
-target_include_directories(second_order_perturbation_fort PRIVATE
-    ${FFTW3_INCLUDE_DIR}
 )

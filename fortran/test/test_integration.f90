@@ -71,10 +71,14 @@ stop 1
 
       ! Create a new SVE result
       print *, "Creating SVE result"
-
-      sve_ptr = c_spir_sve_result_new(k_ptr, epsilon, -1.0_c_double, -1_c_int, -1_c_int, SPIR_TWORK_AUTO, c_loc(status))
+      status = 0
+      sve_ptr = c_spir_sve_result_new(k_ptr, epsilon, -1_c_int, -1_c_int, SPIR_TWORK_AUTO, c_loc(status))
       if (status /= 0) then
-         print *, "Error creating SVE result"
+         print *, "Error creating SVE result, status:", status
+stop 1
+      end if
+      if (.not. c_associated(sve_ptr)) then
+         print *, "Error: SVE result is not assigned"
 stop 1
       end if
       if (.not. c_associated(sve_ptr)) then
@@ -260,7 +264,7 @@ stop 1
 
       ! Convert DLR coefficients to IR coefficients
       input_dims = [npoles, extra_size]
-      status = c_spir_dlr2ir_dd(dlr_ptr, order, ndim, c_loc(input_dims), target_dim, &
+      status = c_spir_dlr2ir_dd(dlr_ptr, c_null_ptr, order, ndim, c_loc(input_dims), target_dim, &
          c_loc(coeffs), c_loc(g_ir))
       if (status /= 0) then
          print *, "Error converting DLR to IR"
@@ -269,7 +273,7 @@ stop 1
 
       ! Evaluate Green's function at Matsubara frequencies from IR
       input_dims = [basis_size, extra_size]
-      status = c_spir_sampling_eval_dz(matsu_sampling_ptr, order, ndim, &
+      status = c_spir_sampling_eval_dz(matsu_sampling_ptr, c_null_ptr, order, ndim, &
          c_loc(input_dims), target_dim, &
          c_loc(g_ir), c_loc(giw))
       if (status /= 0) then
@@ -279,7 +283,7 @@ stop 1
 
       ! Convert Matsubara frequencies back to IR
       input_dims = [nmatsus, extra_size]
-      status = c_spir_sampling_fit_zz(matsu_sampling_ptr, order, ndim, c_loc(input_dims), target_dim, &
+      status = c_spir_sampling_fit_zz(matsu_sampling_ptr, c_null_ptr, order, ndim, c_loc(input_dims), target_dim, &
          c_loc(giw), c_loc(g_ir2_z))
       if (status /= 0) then
          print *, "Error converting Matsubara frequencies back to IR"
@@ -294,7 +298,7 @@ stop 1
 
       ! Evaluate Green's function at tau points
       input_dims = [basis_size, extra_size]
-      status = c_spir_sampling_eval_zz(tau_sampling_ptr, order, ndim, c_loc(input_dims), target_dim, &
+      status = c_spir_sampling_eval_zz(tau_sampling_ptr, c_null_ptr, order, ndim, c_loc(input_dims), target_dim, &
          c_loc(g_ir2_z), c_loc(gtau_z))
       if (status /= 0) then
          print *, "Error evaluating Green's function at tau points"
@@ -303,7 +307,7 @@ stop 1
 
       ! Convert tau points back to IR
       input_dims = [ntaus, extra_size]
-      status = c_spir_sampling_fit_zz(tau_sampling_ptr, order, ndim, c_loc(input_dims), target_dim, &
+      status = c_spir_sampling_fit_zz(tau_sampling_ptr, c_null_ptr, order, ndim, c_loc(input_dims), target_dim, &
          c_loc(gtau_z), c_loc(g_ir2_z))
       if (status /= 0) then
          print *, "Error converting tau points back to IR"
@@ -312,7 +316,7 @@ stop 1
 
       ! Evaluate Green's function at Matsubara frequencies again
       input_dims = [basis_size, extra_size]
-      status = c_spir_sampling_eval_zz(matsu_sampling_ptr, order, ndim, c_loc(input_dims), target_dim, &
+      status = c_spir_sampling_eval_zz(matsu_sampling_ptr, c_null_ptr, order, ndim, c_loc(input_dims), target_dim, &
          c_loc(g_ir2_z), c_loc(giw_reconst))
       if (status /= 0) then
          print *, "Error evaluating Green's function at Matsubara frequencies again"
