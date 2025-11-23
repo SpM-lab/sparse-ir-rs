@@ -240,6 +240,7 @@ where
     }
 
     #[must_use]
+    #[allow(dead_code)] // Used in tests
     pub(crate) const fn diag_internal(&self) -> &OVector<T, DimMinimum<R, C>> {
         &self.diag
     }
