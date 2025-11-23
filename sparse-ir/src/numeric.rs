@@ -6,7 +6,6 @@
 use crate::Df64;
 use simba::scalar::ComplexField;
 use std::fmt::Debug;
-use std::str::FromStr;
 
 /// Custom numeric trait for high-precision numerical computation
 ///

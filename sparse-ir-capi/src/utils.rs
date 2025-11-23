@@ -3,7 +3,7 @@
 //! This module provides helper functions for order conversion and dimension handling.
 
 use crate::{
-    SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
+    SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
     SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2,
 };
 use sparse_ir::numeric::CustomNumeric;
