@@ -3,12 +3,12 @@
 //! This module provides QR + SVD based truncated SVD decomposition
 //! with support for extended precision arithmetic.
 
-use nalgebra::{DMatrix, DVector, ComplexField, RealField};
-use num_traits::{Zero, One, ToPrimitive};
 use crate::Df64;
-use crate::numeric::CustomNumeric;
 use crate::col_piv_qr::ColPivQR;
+use crate::numeric::CustomNumeric;
 use mdarray::DTensor;
+use nalgebra::{ComplexField, DMatrix, DVector, RealField};
+use num_traits::{One, ToPrimitive, Zero};
 
 /// Result of SVD decomposition
 #[derive(Debug, Clone)]
@@ -54,7 +54,7 @@ pub enum TSVDError {
 #[inline]
 fn get_epsilon_for_svd<T: RealField + Copy>() -> T {
     use std::any::TypeId;
-    
+
     if TypeId::of::<T>() == TypeId::of::<f64>() {
         // f64::EPSILON ≈ 2.22e-16
         unsafe { std::ptr::read(&f64::EPSILON as *const f64 as *const T) }
@@ -88,7 +88,7 @@ where
     // Note: We use EPSILON (machine epsilon) instead of default_epsilon() (from approx trait)
     // because default_epsilon() may return MIN_POSITIVE for Df64, which is too small.
     let eps = get_epsilon_for_svd::<T>();
-    
+
     // Perform FULL SVD decomposition with explicit epsilon
     // try_svd automatically sorts singular values in descending order
     // max_niter = 0 means iterate indefinitely until convergence
@@ -99,7 +99,7 @@ where
 
     // Extract U, S, V matrices (already sorted by nalgebra)
     let u_matrix = svd.u.unwrap();
-    let s_vector = svd.singular_values;  // Sorted in descending order
+    let s_vector = svd.singular_values; // Sorted in descending order
     let v_t_matrix = svd.v_t.unwrap();
 
     // Calculate effective rank from sorted singular values
@@ -111,12 +111,7 @@ where
     let s = DVector::from(s_vector.rows(0, rank));
     let v = DMatrix::from(v_t_matrix.rows(0, rank).transpose());
 
-    SVDResult {
-        u,
-        s,
-        v,
-        rank,
-    }
+    SVDResult { u, s, v, rank }
 }
 
 /// Calculate effective rank from sorted singular values
@@ -157,10 +152,7 @@ where
 }
 
 /// Calculate rank from R matrix diagonal elements
-fn calculate_rank_from_r<T: RealField>(
-    r_matrix: &DMatrix<T>,
-    rtol: T,
-) -> usize
+fn calculate_rank_from_r<T: RealField>(r_matrix: &DMatrix<T>, rtol: T) -> usize
 where
     T: ComplexField + RealField + Copy,
 {
@@ -208,12 +200,15 @@ where
 ///
 /// # Returns
 /// * `SVDResult` - Truncated SVD result
-pub fn tsvd<T>(
-    matrix: &DMatrix<T>,
-    config: TSVDConfig<T>,
-) -> Result<SVDResult<T>, TSVDError>
+pub fn tsvd<T>(matrix: &DMatrix<T>, config: TSVDConfig<T>) -> Result<SVDResult<T>, TSVDError>
 where
-    T: ComplexField + RealField + Copy + nalgebra::RealField + std::fmt::Debug + ToPrimitive + CustomNumeric,
+    T: ComplexField
+        + RealField
+        + Copy
+        + nalgebra::RealField
+        + std::fmt::Debug
+        + ToPrimitive
+        + CustomNumeric,
 {
     let (m, n) = matrix.shape();
 
@@ -238,8 +233,11 @@ where
 
     // Step 2: Apply QR-based rank estimation first
     // Use type-specific epsilon for QR diagonal elements (more conservative than rtol)
-    let qr_rank = calculate_rank_from_r(&r_matrix, T::from_f64_unchecked(2.0) * get_epsilon_for_svd::<T>());
-    
+    let qr_rank = calculate_rank_from_r(
+        &r_matrix,
+        T::from_f64_unchecked(2.0) * get_epsilon_for_svd::<T>(),
+    );
+
     if qr_rank == 0 {
         // Matrix has zero rank
         return Ok(SVDResult {
@@ -256,7 +254,7 @@ where
     let rtol_t = config.rtol;
     let rtol_f64 = rtol_t.to_f64();
     let svd_result = svd_decompose(&r_truncated, rtol_f64);
-    
+
     if svd_result.rank == 0 {
         // Matrix has zero rank
         return Ok(SVDResult {
@@ -315,8 +313,8 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
 pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
     matrix: &DTensor<T, 2>,
 ) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
-    use std::any::TypeId;
     use nalgebra::DMatrix;
+    use std::any::TypeId;
 
     // Dispatch based on type: convert to appropriate DMatrix type
     if TypeId::of::<T>() == TypeId::of::<f64>() {
@@ -328,7 +326,6 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
         // Use TSVD with appropriate tolerance for f64
         let rtol = 2.0 * f64::EPSILON;
         let result = tsvd(&matrix_f64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
-
 
         // Convert back to DTensor<T>
         let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
@@ -347,10 +344,11 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
     } else if TypeId::of::<T>() == TypeId::of::<Df64>() {
         // Convert to DMatrix<Df64> without going through f64 to preserve precision
         // TypeId check ensures T == Df64 at runtime, so we can safely cast
-        let matrix_df64: DMatrix<Df64> = DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
-            // Safe: TypeId check guarantees T == Df64
-            unsafe { std::mem::transmute_copy(&matrix[[i, j]]) }
-        });
+        let matrix_df64: DMatrix<Df64> =
+            DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
+                // Safe: TypeId check guarantees T == Df64
+                unsafe { std::mem::transmute_copy(&matrix[[i, j]]) }
+            });
 
         // Use TSVD with appropriate tolerance for Df64
         let rtol = Df64::from(2.0) * Df64::epsilon();
@@ -362,11 +360,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
             T::convert_from(result.u[(i, j)])
         });
 
-        let s: Vec<T> = result
-            .s
-            .iter()
-            .map(|x| T::convert_from(*x))
-            .collect();
+        let s: Vec<T> = result.s.iter().map(|x| T::convert_from(*x)).collect();
 
         let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
@@ -389,7 +383,7 @@ mod tests {
     fn test_svd_identity_matrix() {
         let matrix = DMatrix::<f64>::identity(3, 3);
         let result = svd_decompose(&matrix, 1e-12);
-        
+
         assert_eq!(result.rank, 3);
         assert_eq!(result.s.len(), 3);
         assert_eq!(result.u.nrows(), 3);
@@ -402,7 +396,7 @@ mod tests {
     fn test_tsvd_identity_matrix() {
         let matrix = DMatrix::<f64>::identity(3, 3);
         let result = tsvd_f64(&matrix, 1e-12).unwrap();
-        
+
         assert_eq!(result.rank, 3);
         assert_eq!(result.s.len(), 3);
     }
@@ -411,7 +405,7 @@ mod tests {
     fn test_tsvd_rank_one() {
         let matrix = DMatrix::<f64>::from_fn(3, 3, |i, j| (i + 1) as f64 * (j + 1) as f64);
         let result = tsvd_f64(&matrix, 1e-12).unwrap();
-        
+
         assert_eq!(result.rank, 1);
     }
 
@@ -419,7 +413,7 @@ mod tests {
     fn test_tsvd_empty_matrix() {
         let matrix = DMatrix::<f64>::zeros(0, 0);
         let result = tsvd_f64(&matrix, 1e-12);
-        
+
         assert!(matches!(result, Err(TSVDError::EmptyMatrix)));
     }
 
@@ -469,7 +463,12 @@ mod tests {
     /// Generic Hilbert matrix reconstruction test
     fn test_hilbert_reconstruction_generic<T>(n: usize, rtol: f64, expected_max_error: f64)
     where
-        T: nalgebra::RealField + From<f64> + Copy + ToPrimitive + std::fmt::Debug + crate::numeric::CustomNumeric,
+        T: nalgebra::RealField
+            + From<f64>
+            + Copy
+            + ToPrimitive
+            + std::fmt::Debug
+            + crate::numeric::CustomNumeric,
     {
         let h = create_hilbert_matrix_generic::<T>(n);
 
@@ -479,16 +478,19 @@ mod tests {
 
         // Reconstruct matrix
         let h_reconstructed = reconstruct_matrix_generic(&result.u, &result.s, &result.v);
-        
+
         // Calculate reconstruction error (in the same type T to preserve precision)
         let error_matrix = &h - &h_reconstructed;
         let error_norm = frobenius_norm_generic(&error_matrix);
         let relative_error = error_norm / frobenius_norm_generic(&h);
 
         // Check that reconstruction error is within expected bounds
-        assert!(relative_error <= expected_max_error, 
-                "Relative reconstruction error {} exceeds expected maximum {}", 
-                relative_error, expected_max_error);
+        assert!(
+            relative_error <= expected_max_error,
+            "Relative reconstruction error {} exceeds expected maximum {}",
+            relative_error,
+            expected_max_error
+        );
     }
 
     #[test]

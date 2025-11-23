@@ -105,7 +105,12 @@ where
         S: 'static,
     {
         let fence = mitigate;
-        let freqs = Self::default_matsubara_sampling_points_impl(&self.uhat_full, n_points, fence, positive_only);
+        let freqs = Self::default_matsubara_sampling_points_impl(
+            &self.uhat_full,
+            n_points,
+            fence,
+            positive_only,
+        );
         freqs.into_iter().map(|f| f.n()).collect()
     }
 
@@ -341,7 +346,12 @@ where
         S: 'static,
     {
         let fence = false;
-        Self::default_matsubara_sampling_points_impl(&self.uhat_full, self.size(), fence, positive_only)
+        Self::default_matsubara_sampling_points_impl(
+            &self.uhat_full,
+            self.size(),
+            fence,
+            positive_only,
+        )
     }
 
     /// Fence Matsubara sampling points to improve conditioning
@@ -388,7 +398,13 @@ where
 
             // Sign function: returns +1 if n > 0, -1 if n < 0, 0 if n == 0
             // Matches C++ implementation: (a.get_n() > 0) - (a.get_n() < 0)
-            let sign_val = if outer_val > 0 { 1 } else if outer_val < 0 { -1 } else { 0 };
+            let sign_val = if outer_val > 0 {
+                1
+            } else if outer_val < 0 {
+                -1
+            } else {
+                0
+            };
 
             // Check original size before adding (C++ checks wn.size() before each push)
             let original_size = omega_n.len();
@@ -409,8 +425,7 @@ where
         }
 
         // Sort and remove duplicates using BTreeSet
-        let omega_n_set: std::collections::BTreeSet<MatsubaraFreq<S>> =
-            omega_n.drain(..).collect();
+        let omega_n_set: std::collections::BTreeSet<MatsubaraFreq<S>> = omega_n.drain(..).collect();
         *omega_n = omega_n_set.into_iter().collect();
     }
 
@@ -633,4 +648,3 @@ pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
 #[cfg(test)]
 #[path = "basis_tests.rs"]
 mod basis_tests;
-

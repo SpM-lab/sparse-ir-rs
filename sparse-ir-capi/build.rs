@@ -6,7 +6,7 @@ use std::process::Command;
 fn main() {
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=src/lib.rs");
-    
+
     // Track source files for rebuild detection
     let src_dir = PathBuf::from("src");
     for entry in fs::read_dir(&src_dir).unwrap() {
@@ -18,9 +18,7 @@ fn main() {
     }
 
     // Check if cbindgen is available
-    let cbindgen_output = Command::new("cbindgen")
-        .arg("--version")
-        .output();
+    let cbindgen_output = Command::new("cbindgen").arg("--version").output();
 
     if cbindgen_output.is_err() {
         println!("cargo:warning=cbindgen not found. Install with: cargo install cbindgen");
@@ -34,8 +32,7 @@ fn main() {
     let sparseir_header = sparseir_subdir.join("sparseir.h");
 
     // Create sparseir subdirectory if it doesn't exist
-    fs::create_dir_all(&sparseir_subdir)
-        .expect("Failed to create include/sparseir directory");
+    fs::create_dir_all(&sparseir_subdir).expect("Failed to create include/sparseir directory");
 
     // Generate sparseir.h directly
     let output = Command::new("cbindgen")
@@ -57,8 +54,7 @@ fn main() {
 }
 
 fn add_header_guard(header_path: &PathBuf) {
-    let mut content = fs::read_to_string(header_path)
-        .expect("Failed to read generated header");
+    let mut content = fs::read_to_string(header_path).expect("Failed to read generated header");
 
     // Replace StatusCode with int
     content = content.replace("StatusCode", "int");
@@ -72,7 +68,7 @@ fn add_header_guard(header_path: &PathBuf) {
             content.replace_range(comment_start..comment_end_pos, "");
         }
     }
-    
+
     // Then remove the typedef struct Complex64 { ... } definition
     if let Some(start) = content.find("typedef struct Complex64") {
         if let Some(end) = content[start..].find("} Complex64;") {
@@ -81,7 +77,7 @@ fn add_header_guard(header_path: &PathBuf) {
             content.replace_range(start..end_pos, "");
         }
     }
-    
+
     // Replace all references to "struct Complex64" with "c_complex"
     content = content.replace("struct Complex64", "c_complex");
 
@@ -99,7 +95,7 @@ fn add_header_guard(header_path: &PathBuf) {
             content = content[..endif_pos].trim_end().to_string();
         }
     }
-    
+
     // Add header comment, #pragma once, and c_complex typedef
     let header_comment = r#"/**
  * @file sparseir.h
@@ -143,7 +139,7 @@ typedef double _Complex c_complex;
     } else {
         0
     };
-    
+
     // Remove existing includes from content
     let content_without_includes = if includes_end > 0 {
         content[includes_end..].trim_start().to_string()
@@ -158,10 +154,14 @@ typedef double _Complex c_complex;
     for (i, line) in lines.iter().enumerate() {
         let trimmed = line.trim();
         // Check if this line starts a function declaration (not a typedef or struct definition)
-        if (trimmed.starts_with("int ") || trimmed.starts_with("void ") || trimmed.starts_with("struct ") || trimmed.starts_with("spir_"))
+        if (trimmed.starts_with("int ")
+            || trimmed.starts_with("void ")
+            || trimmed.starts_with("struct ")
+            || trimmed.starts_with("spir_"))
             && !trimmed.starts_with("typedef")
             && !trimmed.starts_with("struct _")
-            && trimmed.contains('(') {
+            && trimmed.contains('(')
+        {
             func_start = i;
             break;
         }
@@ -193,8 +193,10 @@ typedef double _Complex c_complex;
         ""
     };
 
-    let new_content = format!("{}{}{}{}{}", header_comment, before_funcs, extern_c_start, funcs_and_after, extern_c_end);
+    let new_content = format!(
+        "{}{}{}{}{}",
+        header_comment, before_funcs, extern_c_start, funcs_and_after, extern_c_end
+    );
 
-    fs::write(header_path, new_content)
-        .expect("Failed to write sparseir.h");
+    fs::write(header_path, new_content).expect("Failed to write sparseir.h");
 }

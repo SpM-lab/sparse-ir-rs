@@ -114,9 +114,7 @@ pub(crate) enum KernelType {
 impl spir_kernel {
     /// Get a reference to the inner KernelType
     pub(crate) fn inner(&self) -> &KernelType {
-        unsafe {
-            &*(self._private as *const KernelType)
-        }
+        unsafe { &*(self._private as *const KernelType) }
     }
 
     pub(crate) fn new_logistic(lambda: f64) -> Self {
@@ -192,9 +190,7 @@ impl Drop for spir_kernel {
 impl spir_sve_result {
     /// Get a reference to the inner Arc<SVEResult>
     fn inner_arc(&self) -> &Arc<SVEResult> {
-        unsafe {
-            &*(self._private as *const Arc<SVEResult>)
-        }
+        unsafe { &*(self._private as *const Arc<SVEResult>) }
     }
 
     pub(crate) fn new(sve_result: SVEResult) -> Self {
@@ -253,9 +249,7 @@ impl Drop for spir_sve_result {
 impl spir_basis {
     /// Get a reference to the inner BasisType (for internal use by other modules)
     pub(crate) fn inner(&self) -> &BasisType {
-        unsafe {
-            &*(self._private as *const BasisType)
-        }
+        unsafe { &*(self._private as *const BasisType) }
     }
 
     fn inner_type(&self) -> &BasisType {
@@ -406,18 +400,29 @@ impl spir_basis {
         n_points: usize,
     ) -> Vec<i64> {
         match self.inner_type() {
-            BasisType::LogisticFermionic(b) => {
-                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
-            }
-            BasisType::LogisticBosonic(b) => {
-                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
-            }
-            BasisType::RegularizedBoseFermionic(b) => {
-                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
-            }
-            BasisType::RegularizedBoseBosonic(b) => {
-                b.default_matsubara_sampling_points_i64_with_mitigate(positive_only, mitigate, n_points)
-            }
+            BasisType::LogisticFermionic(b) => b
+                .default_matsubara_sampling_points_i64_with_mitigate(
+                    positive_only,
+                    mitigate,
+                    n_points,
+                ),
+            BasisType::LogisticBosonic(b) => b.default_matsubara_sampling_points_i64_with_mitigate(
+                positive_only,
+                mitigate,
+                n_points,
+            ),
+            BasisType::RegularizedBoseFermionic(b) => b
+                .default_matsubara_sampling_points_i64_with_mitigate(
+                    positive_only,
+                    mitigate,
+                    n_points,
+                ),
+            BasisType::RegularizedBoseBosonic(b) => b
+                .default_matsubara_sampling_points_i64_with_mitigate(
+                    positive_only,
+                    mitigate,
+                    n_points,
+                ),
             // DLR: no default Matsubara sampling points
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
         }
@@ -655,9 +660,7 @@ pub struct spir_funcs {
 impl spir_funcs {
     /// Get a reference to the inner FuncsType
     pub(crate) fn inner_type(&self) -> &FuncsType {
-        unsafe {
-            &*(self._private as *const FuncsType)
-        }
+        unsafe { &*(self._private as *const FuncsType) }
     }
 
     /// Create u funcs (tau-domain, Fermionic)
@@ -1174,9 +1177,7 @@ pub struct spir_sampling {
 impl spir_sampling {
     /// Get a reference to the inner SamplingType (for internal use by other modules)
     pub(crate) fn inner(&self) -> &SamplingType {
-        unsafe {
-            &*(self._private as *const SamplingType)
-        }
+        unsafe { &*(self._private as *const SamplingType) }
     }
 }
 

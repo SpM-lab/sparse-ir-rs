@@ -144,25 +144,17 @@ pub type Zgemm64FnPtr = unsafe extern "C" fn(
 /// GEMM backend trait for runtime dispatch
 pub trait GemmBackend: Send + Sync {
     /// Matrix multiplication: C = A * B (f64)
-    /// 
+    ///
     /// # Arguments
     /// * `m`, `n`, `k` - Matrix dimensions (M x K) * (K x N) = (M x N)
     /// * `a` - Pointer to matrix A (row-major, M x K)
     /// * `b` - Pointer to matrix B (row-major, K x N)
     /// * `c` - Pointer to output matrix C (row-major, M x N)
     /// Note: Leading dimension is calculated internally based on row-major to column-major conversion
-    unsafe fn dgemm(
-        &self,
-        m: usize,
-        n: usize,
-        k: usize,
-        a: *const f64,
-        b: *const f64,
-        c: *mut f64,
-    );
+    unsafe fn dgemm(&self, m: usize, n: usize, k: usize, a: *const f64, b: *const f64, c: *mut f64);
 
     /// Matrix multiplication: C = A * B (Complex<f64>)
-    /// 
+    ///
     /// # Arguments
     /// * `m`, `n`, `k` - Matrix dimensions (M x K) * (K x N) = (M x N)
     /// * `a` - Pointer to matrix A (row-major, M x K)
@@ -205,8 +197,8 @@ impl GemmBackend for FaerBackend {
         b: *const f64,
         c: *mut f64,
     ) {
-        use mdarray_linalg::prelude::MatMul;
         use mdarray_linalg::matmul::MatMulBuilder;
+        use mdarray_linalg::prelude::MatMul;
         use mdarray_linalg_faer::Faer;
 
         // Create tensors from pointers (row-major order)
@@ -238,17 +230,19 @@ impl GemmBackend for FaerBackend {
         b: *const num_complex::Complex<f64>,
         c: *mut num_complex::Complex<f64>,
     ) {
-        use mdarray_linalg::prelude::MatMul;
         use mdarray_linalg::matmul::MatMulBuilder;
+        use mdarray_linalg::prelude::MatMul;
         use mdarray_linalg_faer::Faer;
 
         // Create tensors from pointers (row-major order)
         let a_slice = unsafe { std::slice::from_raw_parts(a, m * k) };
         let b_slice = unsafe { std::slice::from_raw_parts(b, k * n) };
-        let a_tensor =
-            DTensor::<num_complex::Complex<f64>, 2>::from_fn([m, k], |idx| a_slice[idx[0] * k + idx[1]]);
-        let b_tensor =
-            DTensor::<num_complex::Complex<f64>, 2>::from_fn([k, n], |idx| b_slice[idx[0] * n + idx[1]]);
+        let a_tensor = DTensor::<num_complex::Complex<f64>, 2>::from_fn([m, k], |idx| {
+            a_slice[idx[0] * k + idx[1]]
+        });
+        let b_tensor = DTensor::<num_complex::Complex<f64>, 2>::from_fn([k, n], |idx| {
+            b_slice[idx[0] * n + idx[1]]
+        });
 
         // Perform matrix multiplication
         let c_tensor = Faer.matmul(&*a_tensor, &*b_tensor).parallelize().eval();
@@ -340,36 +334,26 @@ impl GemmBackend for ExternalBlasBackend {
 
         // Fortran BLAS requires all parameters passed by reference
         // Apply row-major to column-major conversion (see conversion rules above)
-        let transa = b'N' as libc::c_char;  // Bt is already transposed-looking
-        let transb = b'N' as libc::c_char;  // At is already transposed-looking
-        let m_i32 = n as i32;  // m_blas = n (Ct rows = Bt rows)
-        let n_i32 = m as i32;  // n_blas = m (Ct cols = At cols)
-        let k_i32 = k as i32;  // k_blas = k (common dimension)
+        let transa = b'N' as libc::c_char; // Bt is already transposed-looking
+        let transb = b'N' as libc::c_char; // At is already transposed-looking
+        let m_i32 = n as i32; // m_blas = n (Ct rows = Bt rows)
+        let n_i32 = m as i32; // n_blas = m (Ct cols = At cols)
+        let k_i32 = k as i32; // k_blas = k (common dimension)
         let alpha = 1.0f64;
-        let lda = n as i32;   // lda = n (leading dimension of Bt: n×k in column-major)
-        let ldb = k as i32;   // ldb = k (leading dimension of At: k×m in column-major)
+        let lda = n as i32; // lda = n (leading dimension of Bt: n×k in column-major)
+        let ldb = k as i32; // ldb = k (leading dimension of At: k×m in column-major)
         let beta = 0.0f64;
         // For row-major C (m×n) viewed as column-major Ct (n×m):
         // Leading dimension in column-major is the stride between rows
         // In row-major, stride between rows = number of columns = n
         // So ldc = n (the number of columns in the original row-major matrix)
-        let ldc_i32 = n as i32;  // ldc = n (leading dimension of Ct: n×m in column-major)
+        let ldc_i32 = n as i32; // ldc = n (leading dimension of Ct: n×m in column-major)
 
         unsafe {
             (self.dgemm)(
-            &transa,
-            &transb,
-            &m_i32,
-            &n_i32,
-            &k_i32,
-            &alpha,
-            b,  // B first (Bt)
-            &lda,
-            a,  // A second (At)
-            &ldb,
-            &beta,
-            c,
-            &ldc_i32,
+                &transa, &transb, &m_i32, &n_i32, &k_i32, &alpha, b, // B first (Bt)
+                &lda, a, // A second (At)
+                &ldb, &beta, c, &ldc_i32,
             );
         }
     }
@@ -398,34 +382,34 @@ impl GemmBackend for ExternalBlasBackend {
 
         // Fortran BLAS requires all parameters passed by reference
         // Apply row-major to column-major conversion (see conversion rules above)
-        let transa = b'N' as libc::c_char;  // Bt is already transposed-looking
-        let transb = b'N' as libc::c_char;  // At is already transposed-looking
-        let m_i32 = n as i32;  // m_blas = n (Ct rows = Bt rows)
-        let n_i32 = m as i32;  // n_blas = m (Ct cols = At cols)
-        let k_i32 = k as i32;  // k_blas = k (common dimension)
+        let transa = b'N' as libc::c_char; // Bt is already transposed-looking
+        let transb = b'N' as libc::c_char; // At is already transposed-looking
+        let m_i32 = n as i32; // m_blas = n (Ct rows = Bt rows)
+        let n_i32 = m as i32; // n_blas = m (Ct cols = At cols)
+        let k_i32 = k as i32; // k_blas = k (common dimension)
         let alpha = num_complex::Complex::new(1.0, 0.0);
-        let lda = n as i32;   // lda = n (leading dimension of Bt: n×k in column-major)
-        let ldb = k as i32;   // ldb = k (leading dimension of At: k×m in column-major)
+        let lda = n as i32; // lda = n (leading dimension of Bt: n×k in column-major)
+        let ldb = k as i32; // ldb = k (leading dimension of At: k×m in column-major)
         let beta = num_complex::Complex::new(0.0, 0.0);
         // For row-major C (m×n) viewed as column-major Ct (n×m):
         // Leading dimension in column-major is the stride between rows = n
-        let ldc_i32 = n as i32;  // ldc = n (leading dimension of Ct: n×m in column-major)
+        let ldc_i32 = n as i32; // ldc = n (leading dimension of Ct: n×m in column-major)
 
         unsafe {
             (self.zgemm)(
-            &transa,
-            &transb,
-            &m_i32,
-            &n_i32,
-            &k_i32,
+                &transa,
+                &transb,
+                &m_i32,
+                &n_i32,
+                &k_i32,
                 &alpha,
-            b as *const _,  // B first (Bt)
-            &lda,
-            a as *const _,  // A second (At)
-            &ldb,
+                b as *const _, // B first (Bt)
+                &lda,
+                a as *const _, // A second (At)
+                &ldb,
                 &beta,
-            c as *mut _,
-            &ldc_i32,
+                c as *mut _,
+                &ldc_i32,
             );
         }
     }
@@ -459,34 +443,24 @@ impl GemmBackend for ExternalBlas64Backend {
     ) {
         // Fortran BLAS requires all parameters passed by reference
         // Apply row-major to column-major conversion (see conversion rules above)
-        let transa = b'N' as libc::c_char;  // Bt is already transposed-looking
-        let transb = b'N' as libc::c_char;  // At is already transposed-looking
-        let m_i64 = n as i64;  // m_blas = n (Ct rows = Bt rows)
-        let n_i64 = m as i64;  // n_blas = m (Ct cols = At cols)
-        let k_i64 = k as i64;  // k_blas = k (common dimension)
+        let transa = b'N' as libc::c_char; // Bt is already transposed-looking
+        let transb = b'N' as libc::c_char; // At is already transposed-looking
+        let m_i64 = n as i64; // m_blas = n (Ct rows = Bt rows)
+        let n_i64 = m as i64; // n_blas = m (Ct cols = At cols)
+        let k_i64 = k as i64; // k_blas = k (common dimension)
         let alpha = 1.0f64;
-        let lda = n as i64;   // lda = n (leading dimension of Bt: n×k in column-major)
-        let ldb = k as i64;   // ldb = k (leading dimension of At: k×m in column-major)
+        let lda = n as i64; // lda = n (leading dimension of Bt: n×k in column-major)
+        let ldb = k as i64; // ldb = k (leading dimension of At: k×m in column-major)
         let beta = 0.0f64;
         // For row-major C (m×n) viewed as column-major Ct (n×m):
         // Leading dimension in column-major is the stride between rows = n
-        let ldc_i64 = n as i64;  // ldc = n (leading dimension of Ct: n×m in column-major)
+        let ldc_i64 = n as i64; // ldc = n (leading dimension of Ct: n×m in column-major)
 
         unsafe {
             (self.dgemm64)(
-            &transa,
-            &transb,
-            &m_i64,
-            &n_i64,
-            &k_i64,
-            &alpha,
-            b,  // B first (Bt)
-            &lda,
-            a,  // A second (At)
-            &ldb,
-            &beta,
-            c,
-            &ldc_i64,
+                &transa, &transb, &m_i64, &n_i64, &k_i64, &alpha, b, // B first (Bt)
+                &lda, a, // A second (At)
+                &ldb, &beta, c, &ldc_i64,
             );
         }
     }
@@ -502,34 +476,34 @@ impl GemmBackend for ExternalBlas64Backend {
     ) {
         // Fortran BLAS requires all parameters passed by reference
         // Apply row-major to column-major conversion (see conversion rules above)
-        let transa = b'N' as libc::c_char;  // Bt is already transposed-looking
-        let transb = b'N' as libc::c_char;  // At is already transposed-looking
-        let m_i64 = n as i64;  // m_blas = n (Ct rows = Bt rows)
-        let n_i64 = m as i64;  // n_blas = m (Ct cols = At cols)
-        let k_i64 = k as i64;  // k_blas = k (common dimension)
+        let transa = b'N' as libc::c_char; // Bt is already transposed-looking
+        let transb = b'N' as libc::c_char; // At is already transposed-looking
+        let m_i64 = n as i64; // m_blas = n (Ct rows = Bt rows)
+        let n_i64 = m as i64; // n_blas = m (Ct cols = At cols)
+        let k_i64 = k as i64; // k_blas = k (common dimension)
         let alpha = num_complex::Complex::new(1.0, 0.0);
-        let lda = n as i64;   // lda = n (leading dimension of Bt: n×k in column-major)
-        let ldb = k as i64;   // ldb = k (leading dimension of At: k×m in column-major)
+        let lda = n as i64; // lda = n (leading dimension of Bt: n×k in column-major)
+        let ldb = k as i64; // ldb = k (leading dimension of At: k×m in column-major)
         let beta = num_complex::Complex::new(0.0, 0.0);
         // For row-major C (m×n) viewed as column-major Ct (n×m):
         // Leading dimension in column-major is the stride between rows = n
-        let ldc_i64 = n as i64;  // ldc = n (leading dimension of Ct: n×m in column-major)
+        let ldc_i64 = n as i64; // ldc = n (leading dimension of Ct: n×m in column-major)
 
         unsafe {
             (self.zgemm64)(
-            &transa,
-            &transb,
-            &m_i64,
-            &n_i64,
-            &k_i64,
+                &transa,
+                &transb,
+                &m_i64,
+                &n_i64,
+                &k_i64,
                 &alpha,
-            b as *const _,  // B first (Bt)
-            &lda,
-            a as *const _,  // A second (At)
-            &ldb,
+                b as *const _, // B first (Bt)
+                &lda,
+                a as *const _, // A second (At)
+                &ldb,
                 &beta,
-            c as *mut _,
-            &ldc_i64,
+                c as *mut _,
+                &ldc_i64,
             );
         }
     }
@@ -758,7 +732,7 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
         let a_ptr = a.as_ptr() as *const f64;
         let b_ptr = b.as_ptr() as *const f64;
         let c_ptr = c.as_mut_ptr() as *mut f64;
-        
+
         // Get backend: use provided handle or fall back to global dispatcher
         match backend {
             Some(handle) => {
@@ -782,7 +756,7 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
         let a_ptr = a.as_ptr() as *const num_complex::Complex<f64>;
         let b_ptr = b.as_ptr() as *const num_complex::Complex<f64>;
         let c_ptr = c.as_mut_ptr() as *mut num_complex::Complex<f64>;
-        
+
         // Get backend: use provided handle or fall back to global dispatcher
         match backend {
             Some(handle) => {
@@ -795,15 +769,15 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
             None => {
                 // Backward compatibility: use global dispatcher
                 let dispatcher = BLAS_DISPATCHER.read().unwrap();
-        unsafe {
+                unsafe {
                     dispatcher.zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
                 }
             }
         }
     } else {
         // Fallback to Faer for unsupported types
-        use mdarray_linalg::prelude::MatMul;
         use mdarray_linalg::matmul::MatMulBuilder;
+        use mdarray_linalg::prelude::MatMul;
         use mdarray_linalg_faer::Faer;
 
         Faer.matmul(a, b).parallelize().overwrite(c);

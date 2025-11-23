@@ -6,13 +6,12 @@
 use crate::Df64;
 use simba::scalar::ComplexField;
 use std::fmt::Debug;
-use std::str::FromStr;
 
 /// Custom numeric trait for high-precision numerical computation
 ///
 /// This trait provides the essential numeric operations needed for gauss module
 /// and matrix_from_gauss functions. Supports both f64 and Df64 types.
-/// 
+///
 /// Uses standard traits for common operations:
 /// - num_traits::Zero for zero()
 /// - simba::scalar::ComplexField for mathematical functions (abs, sqrt, cos, sin, exp, etc.)
@@ -102,7 +101,6 @@ impl CustomNumeric for f64 {
         self
     }
 
-
     fn epsilon() -> Self {
         f64::EPSILON
     }
@@ -122,7 +120,6 @@ impl CustomNumeric for f64 {
     fn is_valid(&self) -> bool {
         num_traits::Float::is_finite(*self)
     }
-
 
     fn abs_as_same_type(self) -> Self {
         Self::convert_from(self.abs())
@@ -171,7 +168,6 @@ impl CustomNumeric for Df64 {
         hi + lo
     }
 
-
     fn epsilon() -> Self {
         // Df64::EPSILON = f64::EPSILON * f64::EPSILON / 2.0
         let epsilon_value = f64::EPSILON * f64::EPSILON / 2.0;
@@ -194,7 +190,6 @@ impl CustomNumeric for Df64 {
         let value = *self;
         f64::from(value).is_finite() && !f64::from(value).is_nan()
     }
-
 
     fn abs_as_same_type(self) -> Self {
         Self::convert_from(self.abs())
@@ -276,4 +271,3 @@ mod tests {
         assert!((pi_back - pi_f64).abs() < f64::EPSILON);
     }
 }
-

@@ -1,6 +1,6 @@
 use crate::gauss::legendre_generic;
 use crate::interpolation2d::{evaluate_2d_legendre_polynomial, interpolate_2d_legendre};
-use crate::{CustomNumeric, Interpolate2D, Df64};
+use crate::{CustomNumeric, Df64, Interpolate2D};
 use mdarray::DTensor;
 use simba::scalar::ComplexField;
 
@@ -60,10 +60,14 @@ fn test_interpolate_2d_object() {
 fn test_interpolate_2d_quadratic_polynomial() {
     // Test with 2D quadratic function: f(x,y) = x^2 + y^2 + x*y
     // degree 3 (4 Gauss points) should exactly interpolate quadratic polynomials
-    let gauss_x =
-        legendre_generic::<Df64>(4).reseat(Df64::from_f64_unchecked(-1.0), Df64::from_f64_unchecked(1.0));
-    let gauss_y =
-        legendre_generic::<Df64>(4).reseat(Df64::from_f64_unchecked(-1.0), Df64::from_f64_unchecked(1.0));
+    let gauss_x = legendre_generic::<Df64>(4).reseat(
+        Df64::from_f64_unchecked(-1.0),
+        Df64::from_f64_unchecked(1.0),
+    );
+    let gauss_y = legendre_generic::<Df64>(4).reseat(
+        Df64::from_f64_unchecked(-1.0),
+        Df64::from_f64_unchecked(1.0),
+    );
 
     // Create test values for f(x,y) = x^2 + y^2 + x*y
     let mut values = DTensor::<Df64, 2>::from_elem([4, 4], num_traits::Zero::zero());
@@ -97,10 +101,16 @@ fn test_interpolate_2d_quadratic_polynomial() {
 
     // Test interpolation at intermediate points (should also be exact for quadratic)
     let test_points = vec![
-        (Df64::from_f64_unchecked(-0.5), Df64::from_f64_unchecked(-0.3)),
+        (
+            Df64::from_f64_unchecked(-0.5),
+            Df64::from_f64_unchecked(-0.3),
+        ),
         (Df64::from_f64_unchecked(0.0), Df64::from_f64_unchecked(0.0)),
         (Df64::from_f64_unchecked(0.3), Df64::from_f64_unchecked(0.7)),
-        (Df64::from_f64_unchecked(0.8), Df64::from_f64_unchecked(-0.4)),
+        (
+            Df64::from_f64_unchecked(0.8),
+            Df64::from_f64_unchecked(-0.4),
+        ),
     ];
 
     println!("Df64 2D interpolation error analysis:");
@@ -134,8 +144,10 @@ fn test_interpolate2d_struct() {
 /// Generic test for Interpolate2D struct
 fn test_interpolate2d_struct_generic<T: CustomNumeric + 'static>() {
     let n = 3;
-    let gauss_x = legendre_generic::<T>(n).reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
-    let gauss_y = legendre_generic::<T>(n).reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
+    let gauss_x =
+        legendre_generic::<T>(n).reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
+    let gauss_y =
+        legendre_generic::<T>(n).reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
 
     // Create test function values: f(x,y) = x^2 + y^2
     let mut values = DTensor::<T, 2>::from_elem([n, n], T::zero());

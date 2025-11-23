@@ -10,15 +10,15 @@
 //! - Conversion: spir_ir2dlr_dd, spir_ir2dlr_zz, spir_dlr2ir_dd, spir_dlr2ir_zz
 
 use num_complex::Complex64;
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use crate::types::{spir_basis, BasisType};
-use crate::utils::{convert_dims_for_row_major, copy_tensor_to_c_array, MemoryOrder};
-use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED};
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
-use sparse_ir::dlr::DiscreteLehmannRepresentation;
+use crate::types::{BasisType, spir_basis};
+use crate::utils::{MemoryOrder, convert_dims_for_row_major, copy_tensor_to_c_array};
+use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
 use sparse_ir::Tensor;
+use sparse_ir::dlr::DiscreteLehmannRepresentation;
 
 // ============================================================================
 // Creation Functions
@@ -73,12 +73,8 @@ pub unsafe extern "C" fn spir_dlr_new(
         };
 
         let dlr_basis = match dlr_type {
-            BasisType::DLRFermionic(arc_dlr) => {
-                spir_basis::new_dlr_fermionic(arc_dlr)
-            }
-            BasisType::DLRBosonic(arc_dlr) => {
-                spir_basis::new_dlr_bosonic(arc_dlr)
-            }
+            BasisType::DLRFermionic(arc_dlr) => spir_basis::new_dlr_fermionic(arc_dlr),
+            BasisType::DLRBosonic(arc_dlr) => spir_basis::new_dlr_bosonic(arc_dlr),
             _ => unreachable!(), // We know it's one of the DLR types
         };
 
@@ -88,13 +84,17 @@ pub unsafe extern "C" fn spir_dlr_new(
     match result {
         Ok((ptr, code)) => {
             if !status.is_null() {
-                unsafe { *status = code; }
+                unsafe {
+                    *status = code;
+                }
             }
             ptr
         }
         Err(_) => {
             if !status.is_null() {
-                unsafe { *status = crate::SPIR_INTERNAL_ERROR; }
+                unsafe {
+                    *status = crate::SPIR_INTERNAL_ERROR;
+                }
             }
             std::ptr::null_mut()
         }
@@ -159,12 +159,8 @@ pub unsafe extern "C" fn spir_dlr_new_with_poles(
         };
 
         let dlr_basis = match dlr_type {
-            BasisType::DLRFermionic(arc_dlr) => {
-                spir_basis::new_dlr_fermionic(arc_dlr)
-            }
-            BasisType::DLRBosonic(arc_dlr) => {
-                spir_basis::new_dlr_bosonic(arc_dlr)
-            }
+            BasisType::DLRFermionic(arc_dlr) => spir_basis::new_dlr_fermionic(arc_dlr),
+            BasisType::DLRBosonic(arc_dlr) => spir_basis::new_dlr_bosonic(arc_dlr),
             _ => unreachable!(), // We know it's one of the DLR types
         };
 
@@ -174,13 +170,17 @@ pub unsafe extern "C" fn spir_dlr_new_with_poles(
     match result {
         Ok((ptr, code)) => {
             if !status.is_null() {
-                unsafe { *status = code; }
+                unsafe {
+                    *status = code;
+                }
             }
             ptr
         }
         Err(_) => {
             if !status.is_null() {
-                unsafe { *status = crate::SPIR_INTERNAL_ERROR; }
+                unsafe {
+                    *status = crate::SPIR_INTERNAL_ERROR;
+                }
             }
             std::ptr::null_mut()
         }
@@ -221,7 +221,9 @@ pub unsafe extern "C" fn spir_dlr_get_npoles(
             _ => return SPIR_INVALID_ARGUMENT, // Not a DLR
         };
 
-        unsafe { *num_poles = npoles as libc::c_int; }
+        unsafe {
+            *num_poles = npoles as libc::c_int;
+        }
         SPIR_COMPUTATION_SUCCESS
     }));
 
@@ -257,7 +259,9 @@ pub unsafe extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut 
 
         // Copy poles to output array
         for (i, &pole) in pole_vec.iter().enumerate() {
-            unsafe { *poles.add(i) = pole; }
+            unsafe {
+                *poles.add(i) = pole;
+            }
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -333,13 +337,19 @@ pub unsafe extern "C" fn spir_ir2dlr_dd(
 
         // Convert IR to DLR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => {
+                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
+            BasisType::DLRBosonic(dlr) => {
+                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
         // Copy result to output
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -410,13 +420,19 @@ pub unsafe extern "C" fn spir_ir2dlr_zz(
 
         // Convert IR to DLR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => {
+                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
+            BasisType::DLRBosonic(dlr) => {
+                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
         // Copy result to output
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -487,13 +503,19 @@ pub unsafe extern "C" fn spir_dlr2ir_dd(
 
         // Convert DLR to IR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => {
+                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
+            BasisType::DLRBosonic(dlr) => {
+                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
         // Copy result to output
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -564,13 +586,19 @@ pub unsafe extern "C" fn spir_dlr2ir_zz(
 
         // Convert DLR to IR based on DLR type
         let result_tensor = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
-            BasisType::DLRBosonic(dlr) => dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            BasisType::DLRFermionic(dlr) => {
+                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
+            BasisType::DLRBosonic(dlr) => {
+                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
         // Copy result to output
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -585,10 +613,10 @@ pub unsafe extern "C" fn spir_dlr2ir_zz(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SPIR_COMPUTATION_SUCCESS;
     use crate::basis::spir_basis_new;
     use crate::kernel::spir_logistic_kernel_new;
     use crate::sve::spir_sve_result_new;
-    use crate::SPIR_COMPUTATION_SUCCESS;
 
     #[test]
     fn test_dlr_creation() {

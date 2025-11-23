@@ -3,11 +3,11 @@
 //! Run with:
 //!     cargo run --example benchmark_matmul --release
 
+use faer::rand;
 use mdarray::DTensor;
 use num_complex::Complex;
-use std::time::Instant;
 use sparse_ir::gemm::matmul_par;
-use faer::rand;
+use std::time::Instant;
 
 // Memory usage reporting
 fn get_memory_usage() -> usize {
@@ -25,7 +25,6 @@ fn get_memory_usage() -> usize {
                 .parse::<usize>()
                 .unwrap_or(0)
         } else {
-
             0
         }
     }
@@ -35,10 +34,7 @@ fn get_memory_usage() -> usize {
     }
 }
 
-fn matmul(
-    a: &DTensor<Complex<f64>, 2>,
-    b: &DTensor<Complex<f64>, 2>,
-) -> DTensor<Complex<f64>, 2> {
+fn matmul(a: &DTensor<Complex<f64>, 2>, b: &DTensor<Complex<f64>, 2>) -> DTensor<Complex<f64>, 2> {
     matmul_par(a, b, None)
 }
 
@@ -61,14 +57,21 @@ fn main() {
         // Report memory every 2000 iterations
         if i % 2000 == 0 && i > 0 {
             let mem_now = get_memory_usage();
-            println!("Iteration {}: Memory = {} KB (delta: {} KB)",
-                     i, mem_now, mem_now as i64 - mem_before as i64);
+            println!(
+                "Iteration {}: Memory = {} KB (delta: {} KB)",
+                i,
+                mem_now,
+                mem_now as i64 - mem_before as i64
+            );
         }
     }
     let elapsed = start.elapsed();
 
     let mem_after = get_memory_usage();
     println!("Time taken: {:?}", elapsed);
-    println!("Memory after loop: {} KB (delta: {} KB)",
-             mem_after, mem_after as i64 - mem_before as i64);
+    println!(
+        "Memory after loop: {} KB (delta: {} KB)",
+        mem_after,
+        mem_after as i64 - mem_before as i64
+    );
 }

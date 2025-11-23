@@ -451,7 +451,8 @@ impl Rule<crate::Df64> {
     /// Reseat the rule to a new interval [a, b] (Df64 version).
     pub fn reseat_twofloat(&self, a: crate::Df64, b: crate::Df64) -> Self {
         let scaling = (b - a) / (self.b - self.a);
-        let midpoint_old = (self.b + self.a) * <crate::Df64 as CustomNumeric>::from_f64_unchecked(0.5);
+        let midpoint_old =
+            (self.b + self.a) * <crate::Df64 as CustomNumeric>::from_f64_unchecked(0.5);
         let midpoint_new = (b + a) * <crate::Df64 as CustomNumeric>::from_f64_unchecked(0.5);
 
         // Transform x: scaling * (xi - midpoint_old) + midpoint_new
@@ -877,8 +878,16 @@ pub fn legendre_generic<T: CustomNumeric + 'static>(n: usize) -> Rule<T> {
         // For f64, use the existing legendre function
         let rule_f64 = legendre::<f64>(n);
         Rule::new(
-            rule_f64.x.iter().map(|&x| T::from_f64_unchecked(x)).collect(),
-            rule_f64.w.iter().map(|&w| T::from_f64_unchecked(w)).collect(),
+            rule_f64
+                .x
+                .iter()
+                .map(|&x| T::from_f64_unchecked(x))
+                .collect(),
+            rule_f64
+                .w
+                .iter()
+                .map(|&w| T::from_f64_unchecked(w))
+                .collect(),
             T::from_f64_unchecked(rule_f64.a),
             T::from_f64_unchecked(rule_f64.b),
         )

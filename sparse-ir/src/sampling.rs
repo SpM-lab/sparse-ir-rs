@@ -3,7 +3,7 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
-use crate::gemm::{matmul_par, GemmBackendHandle};
+use crate::gemm::{GemmBackendHandle, matmul_par};
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Tensor};
 
@@ -224,7 +224,12 @@ where
     }
 
     /// Internal generic evaluate_nd implementation
-    fn evaluate_nd_impl<T>(&self, backend: Option<&GemmBackendHandle>, coeffs: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    fn evaluate_nd_impl<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Tensor<T, DynRank>,
+        dim: usize,
+    ) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
     {
@@ -308,7 +313,12 @@ where
     /// // Complex coefficients
     /// let values_complex = sampling.evaluate_nd::<Complex<f64>>(&coeffs_complex, 0);
     /// ```
-    pub fn evaluate_nd<T>(&self, backend: Option<&GemmBackendHandle>, coeffs: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    pub fn evaluate_nd<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Tensor<T, DynRank>,
+        dim: usize,
+    ) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
     {
@@ -318,7 +328,12 @@ where
     /// Internal generic fit_nd implementation
     ///
     /// Delegates to fitter for real values, fits real/imaginary parts separately for complex values
-    fn fit_nd_impl<T>(&self, backend: Option<&GemmBackendHandle>, values: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    fn fit_nd_impl<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Tensor<T, DynRank>,
+        dim: usize,
+    ) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField
@@ -420,7 +435,12 @@ where
     /// // Complex values
     /// let coeffs_complex = sampling.fit_nd::<Complex<f64>>(&values_complex, 0);
     /// ```
-    pub fn fit_nd<T>(&self, backend: Option<&GemmBackendHandle>, values: &Tensor<T, DynRank>, dim: usize) -> Tensor<T, DynRank>
+    pub fn fit_nd<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Tensor<T, DynRank>,
+        dim: usize,
+    ) -> Tensor<T, DynRank>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField

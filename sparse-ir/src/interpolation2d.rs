@@ -58,8 +58,10 @@ impl<T: CustomNumeric + Debug + 'static> Interpolate2D<T> {
 
         // Create normalized Gauss rules for coefficient computation
         // interpolate_2d_legendre expects Gauss points in [-1, 1] range
-        let normalized_gauss_x = gauss_x.reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
-        let normalized_gauss_y = gauss_y.reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
+        let normalized_gauss_x =
+            gauss_x.reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
+        let normalized_gauss_y =
+            gauss_y.reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
 
         let coeffs = interpolate_2d_legendre(values, &normalized_gauss_x, &normalized_gauss_y);
 
@@ -197,8 +199,10 @@ pub fn evaluate_2d_legendre_polynomial<T: CustomNumeric>(
     let n_y = shape.1;
 
     // Normalize coordinates from [a,b] to [-1,1] where [a,b] is the cell domain
-    let x_norm = T::from_f64_unchecked(2.0) * (x - gauss_x.a) / (gauss_x.b - gauss_x.a) - T::from_f64_unchecked(1.0);
-    let y_norm = T::from_f64_unchecked(2.0) * (y - gauss_y.a) / (gauss_y.b - gauss_y.a) - T::from_f64_unchecked(1.0);
+    let x_norm = T::from_f64_unchecked(2.0) * (x - gauss_x.a) / (gauss_x.b - gauss_x.a)
+        - T::from_f64_unchecked(1.0);
+    let y_norm = T::from_f64_unchecked(2.0) * (y - gauss_y.a) / (gauss_y.b - gauss_y.a)
+        - T::from_f64_unchecked(1.0);
 
     // Evaluate Legendre polynomials at normalized coordinates
     let p_x = evaluate_legendre_basis(x_norm, n_x);

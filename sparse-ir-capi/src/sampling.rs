@@ -10,15 +10,15 @@
 //! - Fitting: fit_dd, fit_zz, fit_zd (sampling points → coefficients)
 //! - Memory: release, clone, is_assigned (via macro)
 
-use num_complex::Complex64;
-use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::Arc;
 use mdarray::Shape;
+use num_complex::Complex64;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::Arc;
 
-use crate::types::{spir_basis, spir_sampling, BasisType, SamplingType};
-use crate::utils::{convert_dims_for_row_major, copy_tensor_to_c_array, MemoryOrder};
-use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED};
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
+use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
+use crate::utils::{MemoryOrder, convert_dims_for_row_major, copy_tensor_to_c_array};
+use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
 use sparse_ir::{Bosonic, Fermionic, Tensor};
 
 /// Manual release function (replaces macro-generated one)
@@ -159,13 +159,17 @@ pub unsafe extern "C" fn spir_tau_sampling_new(
     match result {
         Ok((ptr, code)) => {
             if !status.is_null() {
-                unsafe { *status = code; }
+                unsafe {
+                    *status = code;
+                }
             }
             ptr
         }
         Err(_) => {
             if !status.is_null() {
-                unsafe { *status = crate::SPIR_INTERNAL_ERROR; }
+                unsafe {
+                    *status = crate::SPIR_INTERNAL_ERROR;
+                }
             }
             std::ptr::null_mut()
         }
@@ -293,13 +297,17 @@ pub unsafe extern "C" fn spir_matsu_sampling_new(
     match result {
         Ok((ptr, code)) => {
             if !status.is_null() {
-                unsafe { *status = code; }
+                unsafe {
+                    *status = code;
+                }
             }
             ptr
         }
         Err(_) => {
             if !status.is_null() {
-                unsafe { *status = crate::SPIR_INTERNAL_ERROR; }
+                unsafe {
+                    *status = crate::SPIR_INTERNAL_ERROR;
+                }
             }
             std::ptr::null_mut()
         }
@@ -365,8 +373,7 @@ pub unsafe extern "C" fn spir_tau_sampling_new_with_matrix(
         let dyn_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
 
         // Convert DynRank to fixed 2D shape
-        let matrix_tensor: sparse_ir::DTensor<f64, 2> =
-            unsafe { std::mem::transmute(dyn_tensor) };
+        let matrix_tensor: sparse_ir::DTensor<f64, 2> = unsafe { std::mem::transmute(dyn_tensor) };
 
         // Create sampling based on statistics
         let sampling_type = match statistics {
@@ -400,13 +407,17 @@ pub unsafe extern "C" fn spir_tau_sampling_new_with_matrix(
     match result {
         Ok((ptr, code)) => {
             if !status.is_null() {
-                unsafe { *status = code; }
+                unsafe {
+                    *status = code;
+                }
             }
             ptr
         }
         Err(_) => {
             if !status.is_null() {
-                unsafe { *status = crate::SPIR_INTERNAL_ERROR; }
+                unsafe {
+                    *status = crate::SPIR_INTERNAL_ERROR;
+                }
             }
             std::ptr::null_mut()
         }
@@ -500,11 +511,10 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
                     .iter()
                     .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
                     .collect();
-                let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                        matsu_freqs,
-                        matrix_tensor.clone(),
-                    );
+                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                    matsu_freqs,
+                    matrix_tensor.clone(),
+                );
                 SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
             }
             (1, true) => {
@@ -526,11 +536,10 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
                     .iter()
                     .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
                     .collect();
-                let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                        matsu_freqs,
-                        matrix_tensor.clone(),
-                    );
+                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                    matsu_freqs,
+                    matrix_tensor.clone(),
+                );
                 SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
             }
             _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
@@ -547,13 +556,17 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
     match result {
         Ok((ptr, code)) => {
             if !status.is_null() {
-                unsafe { *status = code; }
+                unsafe {
+                    *status = code;
+                }
             }
             ptr
         }
         Err(_) => {
             if !status.is_null() {
-                unsafe { *status = crate::SPIR_INTERNAL_ERROR; }
+                unsafe {
+                    *status = crate::SPIR_INTERNAL_ERROR;
+                }
             }
             std::ptr::null_mut()
         }
@@ -586,7 +599,9 @@ pub unsafe extern "C" fn spir_sampling_get_npoints(
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => matsu.n_sampling_points(),
         };
 
-        unsafe { *num_points = n_points as libc::c_int; }
+        unsafe {
+            *num_points = n_points as libc::c_int;
+        }
         SPIR_COMPUTATION_SUCCESS
     }));
 
@@ -642,7 +657,8 @@ pub unsafe extern "C" fn spir_sampling_get_matsus(
         match sampling_ref.inner() {
             SamplingType::MatsubaraFermionic(matsu) => {
                 let matsu_freqs = matsu.sampling_points();
-                let out_slice = unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
+                let out_slice =
+                    unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
                 for (i, freq) in matsu_freqs.iter().enumerate() {
                     out_slice[i] = freq.n();
                 }
@@ -650,7 +666,8 @@ pub unsafe extern "C" fn spir_sampling_get_matsus(
             }
             SamplingType::MatsubaraBosonic(matsu) => {
                 let matsu_freqs = matsu.sampling_points();
-                let out_slice = unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
+                let out_slice =
+                    unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
                 for (i, freq) in matsu_freqs.iter().enumerate() {
                     out_slice[i] = freq.n();
                 }
@@ -658,7 +675,8 @@ pub unsafe extern "C" fn spir_sampling_get_matsus(
             }
             SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
                 let matsu_freqs = matsu.sampling_points();
-                let out_slice = unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
+                let out_slice =
+                    unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
                 for (i, freq) in matsu_freqs.iter().enumerate() {
                     out_slice[i] = freq.n();
                 }
@@ -666,7 +684,8 @@ pub unsafe extern "C" fn spir_sampling_get_matsus(
             }
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
                 let matsu_freqs = matsu.sampling_points();
-                let out_slice = unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
+                let out_slice =
+                    unsafe { std::slice::from_raw_parts_mut(points, matsu_freqs.len()) };
                 for (i, freq) in matsu_freqs.iter().enumerate() {
                     out_slice[i] = freq.n();
                 }
@@ -695,7 +714,9 @@ pub unsafe extern "C" fn spir_sampling_get_cond_num(
 
         // TODO: Calculate actual condition number from SVD
         // For now, return a reasonable placeholder
-        unsafe { *cond_num = 1.0; }
+        unsafe {
+            *cond_num = 1.0;
+        }
         SPIR_COMPUTATION_SUCCESS
     }));
 
@@ -772,13 +793,19 @@ pub unsafe extern "C" fn spir_sampling_eval_dd(
 
         // Evaluate based on sampling type (only tau sampling supports dd)
         let result_tensor = match sampling_ref.inner() {
-            SamplingType::TauFermionic(tau) => tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim),
-            SamplingType::TauBosonic(tau) => tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            SamplingType::TauFermionic(tau) => {
+                tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
+            SamplingType::TauBosonic(tau) => {
+                tau.evaluate_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
             _ => return SPIR_NOT_SUPPORTED,
         };
 
         // Copy result to output (order-independent: flat copy)
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -853,7 +880,9 @@ pub unsafe extern "C" fn spir_sampling_eval_dz(
         };
 
         // Copy result to output (order-independent: flat copy)
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -927,7 +956,9 @@ pub unsafe extern "C" fn spir_sampling_eval_zz(
         };
 
         // Copy result to output (order-independent: flat copy)
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -985,13 +1016,19 @@ pub unsafe extern "C" fn spir_sampling_fit_dd(
 
         // Fit (tau sampling only)
         let result_tensor = match sampling_ref.inner() {
-            SamplingType::TauFermionic(tau) => tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim),
-            SamplingType::TauBosonic(tau) => tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim),
+            SamplingType::TauFermionic(tau) => {
+                tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
+            SamplingType::TauBosonic(tau) => {
+                tau.fit_nd(backend_handle, &input_tensor, mdarray_target_dim)
+            }
             _ => return SPIR_NOT_SUPPORTED,
         };
 
         // Copy result to output (order-independent: flat copy)
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -1056,11 +1093,9 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
                 let real_result = matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim);
                 // Convert Tensor<f64> to Tensor<Complex64> by converting element by element
                 let rank = real_result.rank();
-                let shape_vec: Vec<usize> = (0..rank)
-                    .map(|i| real_result.shape().dim(i))
-                    .collect();
+                let shape_vec: Vec<usize> = (0..rank).map(|i| real_result.shape().dim(i)).collect();
                 let total_size: usize = shape_vec.iter().product();
-                
+
                 // Create a vector of complex values
                 let mut complex_vec = Vec::with_capacity(total_size);
                 for i in 0..total_size {
@@ -1073,7 +1108,7 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
                     }
                     complex_vec.push(Complex64::new(real_result[&idx[..]], 0.0));
                 }
-                
+
                 // Create Tensor from vector
                 let flat_tensor = Tensor::<Complex64, (usize,)>::from(complex_vec);
                 flat_tensor.into_dyn().reshape(&shape_vec[..]).to_tensor()
@@ -1082,11 +1117,9 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
                 let real_result = matsu.fit_nd(backend_handle, &input_tensor, mdarray_target_dim);
                 // Convert Tensor<f64> to Tensor<Complex64> by converting element by element
                 let rank = real_result.rank();
-                let shape_vec: Vec<usize> = (0..rank)
-                    .map(|i| real_result.shape().dim(i))
-                    .collect();
+                let shape_vec: Vec<usize> = (0..rank).map(|i| real_result.shape().dim(i)).collect();
                 let total_size: usize = shape_vec.iter().product();
-                
+
                 // Create a vector of complex values
                 let mut complex_vec = Vec::with_capacity(total_size);
                 for i in 0..total_size {
@@ -1099,7 +1132,7 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
                     }
                     complex_vec.push(Complex64::new(real_result[&idx[..]], 0.0));
                 }
-                
+
                 // Create Tensor from vector
                 let flat_tensor = Tensor::<Complex64, (usize,)>::from(complex_vec);
                 flat_tensor.into_dyn().reshape(&shape_vec[..]).to_tensor()
@@ -1117,7 +1150,9 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
         };
 
         // Copy result to output (order-independent: flat copy)
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -1189,7 +1224,9 @@ pub unsafe extern "C" fn spir_sampling_fit_zd(
         };
 
         // Copy result to output (order-independent: flat copy)
-        unsafe { copy_tensor_to_c_array(result_tensor, out); }
+        unsafe {
+            copy_tensor_to_c_array(result_tensor, out);
+        }
 
         SPIR_COMPUTATION_SUCCESS
     }));
