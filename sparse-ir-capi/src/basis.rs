@@ -2,12 +2,12 @@
 //!
 //! Functions for creating and manipulating finite temperature basis objects.
 
-use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use sparse_ir::basis::FiniteTempBasis;
 
 use crate::types::{spir_basis, spir_funcs, spir_kernel, spir_sve_result};
-use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
+use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, StatusCode};
 
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
@@ -334,24 +334,30 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
         // This is a limitation compared to the C++ version
         if statistics == 1 {
             // Fermionic
-            let basis = FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Fermionic>::from_sve_result(
-                kernel,
-                beta,
-                sve_result,
-                Some(epsilon),
-                max_size_opt,
-            );
-            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(spir_basis::new_logistic_fermionic(basis))))
+            let basis =
+                FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Fermionic>::from_sve_result(
+                    kernel,
+                    beta,
+                    sve_result,
+                    Some(epsilon),
+                    max_size_opt,
+                );
+            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
+                spir_basis::new_logistic_fermionic(basis),
+            )))
         } else {
             // Bosonic
-            let basis = FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Bosonic>::from_sve_result(
-                kernel,
-                beta,
-                sve_result,
-                Some(epsilon),
-                max_size_opt,
-            );
-            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(spir_basis::new_logistic_bosonic(basis))))
+            let basis =
+                FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Bosonic>::from_sve_result(
+                    kernel,
+                    beta,
+                    sve_result,
+                    Some(epsilon),
+                    max_size_opt,
+                );
+            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
+                spir_basis::new_logistic_bosonic(basis),
+            )))
         }
     }));
 
@@ -603,7 +609,7 @@ pub unsafe extern "C" fn spir_basis_get_u(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{spir_funcs, BasisType};
+    use crate::types::{BasisType, spir_funcs};
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -691,7 +697,7 @@ pub unsafe extern "C" fn spir_basis_get_v(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{spir_funcs, BasisType};
+    use crate::types::{BasisType, spir_funcs};
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -715,8 +721,7 @@ pub unsafe extern "C" fn spir_basis_get_v(
             BasisType::RegularizedBoseFermionic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
             BasisType::RegularizedBoseBosonic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
             // DLR: no continuous functions (v)
-            BasisType::DLRFermionic(_)
-            | BasisType::DLRBosonic(_) => {
+            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => {
                 return Result::<*mut spir_funcs, String>::Err(
                     "DLR does not support continuous functions".to_string(),
                 );
@@ -823,7 +828,7 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{spir_funcs, BasisType};
+    use crate::types::{BasisType, spir_funcs};
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -923,8 +928,8 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{spir_funcs, BasisType};
     use crate::SPIR_NOT_SUPPORTED;
+    use crate::types::{BasisType, spir_funcs};
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -1053,8 +1058,7 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 pub extern "C" fn spir_basis_get_n_default_matsus_ext(
     b: *const spir_basis,
     positive_only: bool,
-    #[allow(non_snake_case)]
-    L: libc::c_int,
+    #[allow(non_snake_case)] L: libc::c_int,
     num_points_returned: *mut libc::c_int,
 ) -> StatusCode {
     if b.is_null() || num_points_returned.is_null() {
@@ -1138,7 +1142,9 @@ mod tests {
     use super::*;
     use crate::kernel::*;
     use crate::sve::*;
-    use crate::{spir_funcs_get_size, spir_funcs_release, spir_gauss_legendre_rule_piecewise_double};
+    use crate::{
+        spir_funcs_get_size, spir_funcs_release, spir_gauss_legendre_rule_piecewise_double,
+    };
     use std::ptr;
 
     #[test]
@@ -1405,7 +1411,7 @@ mod tests {
         let mut matsu_returned = 0;
         let status = spir_basis_get_default_matsus_ext(
             basis,
-            true, // positive_only
+            true,  // positive_only
             false, // mitigate
             matsu_count as libc::c_int,
             matsu_points.as_mut_ptr(),
@@ -1490,7 +1496,10 @@ mod tests {
 
     #[test]
     fn test_basis_new_from_sve_and_inv_weight() {
-        use crate::{spir_funcs_from_piecewise_legendre, spir_funcs_release, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR};
+        use crate::{
+            SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, spir_funcs_from_piecewise_legendre,
+            spir_funcs_release,
+        };
         let lambda = 10.0;
         let beta = 1.0;
         let omega_max = lambda / beta;
@@ -1533,16 +1542,16 @@ mod tests {
         // For LogisticKernel: ypower=0, conv_radius=1.0 (typical values)
         let mut basis_status = SPIR_INTERNAL_ERROR;
         let basis = spir_basis_new_from_sve_and_inv_weight(
-            1,    // Fermionic
+            1, // Fermionic
             beta,
             omega_max,
             epsilon,
             lambda,
-            0,    // ypower=0
-            1.0,  // conv_radius=1.0
+            0,   // ypower=0
+            1.0, // conv_radius=1.0
             sve,
             inv_weight_funcs,
-            -1,   // no max_size
+            -1, // no max_size
             &mut basis_status,
         );
 

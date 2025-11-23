@@ -1,8 +1,8 @@
 //! Tests for SVE module functions
 
+use super::utils::extend_to_full_domain;
 use crate::kernel::SymmetryType;
 use crate::poly::PiecewiseLegendrePoly;
-use super::utils::extend_to_full_domain;
 use mdarray::DTensor;
 
 /// Create a simple polynomial on positive domain [0, 1]

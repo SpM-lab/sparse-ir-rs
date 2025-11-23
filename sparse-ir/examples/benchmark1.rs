@@ -4,12 +4,12 @@
 //! It measures the performance of fit_zz, eval_zz, and eval_dz operations
 //! for both Matsubara and Tau sampling.
 
-use sparse_ir::{
-    FiniteTempBasis, Fermionic, LogisticKernel, MatsubaraSampling,
-    MatsubaraSamplingPositiveOnly, TauSampling
-};
-use num_complex::Complex;
 use mdarray::{DynRank, Tensor};
+use num_complex::Complex;
+use sparse_ir::{
+    Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling, MatsubaraSamplingPositiveOnly,
+    TauSampling,
+};
 use std::time::Instant;
 
 /// Simple benchmark timer
@@ -78,11 +78,15 @@ fn benchmark(
 
     // Create sampling object for Matsubara domain
     let matsubara_sampling = if positive_only {
-        Box::new(MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, matsubara_points))
-            as Box<dyn MatsubaraSamplingTrait>
+        Box::new(MatsubaraSamplingPositiveOnly::with_sampling_points(
+            &basis,
+            matsubara_points,
+        )) as Box<dyn MatsubaraSamplingTrait>
     } else {
-        Box::new(MatsubaraSampling::with_sampling_points(&basis, matsubara_points))
-            as Box<dyn MatsubaraSamplingTrait>
+        Box::new(MatsubaraSampling::with_sampling_points(
+            &basis,
+            matsubara_points,
+        )) as Box<dyn MatsubaraSamplingTrait>
     };
 
     // Create test data arrays
@@ -150,27 +154,57 @@ fn benchmark(
 
 /// Trait to unify MatsubaraSampling and MatsubaraSamplingPositiveOnly
 trait MatsubaraSamplingTrait {
-    fn fit_nd(&self, values: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank>;
-    fn evaluate_nd(&self, coeffs: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank>;
-    fn evaluate_nd_real(&self, coeffs: &Tensor<f64, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank>;
+    fn fit_nd(
+        &self,
+        values: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank>;
+    fn evaluate_nd(
+        &self,
+        coeffs: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank>;
+    fn evaluate_nd_real(
+        &self,
+        coeffs: &Tensor<f64, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank>;
 }
 
 impl<S: sparse_ir::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraSampling<S> {
-    fn fit_nd(&self, values: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
+    fn fit_nd(
+        &self,
+        values: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
         MatsubaraSampling::fit_nd(self, None, values, dim)
     }
 
-    fn evaluate_nd(&self, coeffs: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
+    fn evaluate_nd(
+        &self,
+        coeffs: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
         MatsubaraSampling::evaluate_nd(self, None, coeffs, dim)
     }
 
-    fn evaluate_nd_real(&self, coeffs: &Tensor<f64, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
+    fn evaluate_nd_real(
+        &self,
+        coeffs: &Tensor<f64, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
         MatsubaraSampling::evaluate_nd_real(self, None, coeffs, dim)
     }
 }
 
-impl<S: sparse_ir::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraSamplingPositiveOnly<S> {
-    fn fit_nd(&self, values: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
+impl<S: sparse_ir::traits::StatisticsType> MatsubaraSamplingTrait
+    for MatsubaraSamplingPositiveOnly<S>
+{
+    fn fit_nd(
+        &self,
+        values: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
         // For positive_only, fit returns real coefficients, but we need complex
         // So we convert real to complex
         let real_coeffs = MatsubaraSamplingPositiveOnly::fit_nd(self, None, values, dim);
@@ -182,7 +216,11 @@ impl<S: sparse_ir::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraS
         complex_coeffs
     }
 
-    fn evaluate_nd(&self, coeffs: &Tensor<Complex<f64>, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
+    fn evaluate_nd(
+        &self,
+        coeffs: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
         // For positive_only, we need to convert complex to real first
         let shape_vec: Vec<usize> = coeffs.shape().dims().to_vec();
         let mut real_coeffs = Tensor::<f64, DynRank>::zeros(&shape_vec[..]);
@@ -192,7 +230,11 @@ impl<S: sparse_ir::traits::StatisticsType> MatsubaraSamplingTrait for MatsubaraS
         MatsubaraSamplingPositiveOnly::evaluate_nd(self, None, &real_coeffs, dim)
     }
 
-    fn evaluate_nd_real(&self, coeffs: &Tensor<f64, DynRank>, dim: usize) -> Tensor<Complex<f64>, DynRank> {
+    fn evaluate_nd_real(
+        &self,
+        coeffs: &Tensor<f64, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
         MatsubaraSamplingPositiveOnly::evaluate_nd(self, None, coeffs, dim)
     }
 }
@@ -251,4 +293,3 @@ fn main() {
     println!("Benchmark (beta = 1e+5, epsilon = 1e-10)");
     benchmark_internal(1e+5, 1e-10);
 }
-

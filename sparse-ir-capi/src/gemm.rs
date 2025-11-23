@@ -27,7 +27,10 @@
 //! spir_gemm_backend_release(backend);
 //! ```
 
-use sparse_ir::gemm::{GemmBackendHandle, ExternalBlasBackend, ExternalBlas64Backend, DgemmFnPtr, ZgemmFnPtr, Dgemm64FnPtr, Zgemm64FnPtr};
+use sparse_ir::gemm::{
+    Dgemm64FnPtr, DgemmFnPtr, ExternalBlas64Backend, ExternalBlasBackend, GemmBackendHandle,
+    Zgemm64FnPtr, ZgemmFnPtr,
+};
 
 //==============================================================================
 // Backend Handle C-API
@@ -47,9 +50,7 @@ pub struct spir_gemm_backend {
 impl spir_gemm_backend {
     /// Get a reference to the inner GemmBackendHandle
     pub(crate) fn inner(&self) -> &GemmBackendHandle {
-        unsafe {
-            &*(self._private as *const GemmBackendHandle)
-        }
+        unsafe { &*(self._private as *const GemmBackendHandle) }
     }
 
     pub(crate) fn new(handle: GemmBackendHandle) -> Self {
@@ -187,13 +188,13 @@ pub unsafe extern "C" fn spir_gemm_backend_release(backend: *mut spir_gemm_backe
 /// The pointer must be valid and not null.
 /// The returned reference is only valid while the backend pointer is valid.
 /// The caller must ensure the backend pointer remains valid for the lifetime of the returned reference.
-pub(crate) unsafe fn get_backend_handle<'a>(backend: *const spir_gemm_backend) -> Option<&'a GemmBackendHandle> {
+pub(crate) unsafe fn get_backend_handle<'a>(
+    backend: *const spir_gemm_backend,
+) -> Option<&'a GemmBackendHandle> {
     if backend.is_null() {
         None
     } else {
-        unsafe {
-            Some((*backend).inner())
-        }
+        unsafe { Some((*backend).inner()) }
     }
 }
 
@@ -301,33 +302,36 @@ mod tests {
     #[test]
     fn test_backend_new_from_fblas_lp64_null_dgemm() {
         unsafe {
-            let backend = spir_gemm_backend_new_from_fblas_lp64(
-                std::ptr::null(),
-                mock_zgemm as *const _,
+            let backend =
+                spir_gemm_backend_new_from_fblas_lp64(std::ptr::null(), mock_zgemm as *const _);
+            assert!(
+                backend.is_null(),
+                "Backend should be null when dgemm is null"
             );
-            assert!(backend.is_null(), "Backend should be null when dgemm is null");
         }
     }
 
     #[test]
     fn test_backend_new_from_fblas_lp64_null_zgemm() {
         unsafe {
-            let backend = spir_gemm_backend_new_from_fblas_lp64(
-                mock_dgemm as *const _,
-                std::ptr::null(),
+            let backend =
+                spir_gemm_backend_new_from_fblas_lp64(mock_dgemm as *const _, std::ptr::null());
+            assert!(
+                backend.is_null(),
+                "Backend should be null when zgemm is null"
             );
-            assert!(backend.is_null(), "Backend should be null when zgemm is null");
         }
     }
 
     #[test]
     fn test_backend_new_from_fblas_ilp64_null_pointers() {
         unsafe {
-            let backend = spir_gemm_backend_new_from_fblas_ilp64(
-                std::ptr::null(),
-                std::ptr::null(),
+            let backend =
+                spir_gemm_backend_new_from_fblas_ilp64(std::ptr::null(), std::ptr::null());
+            assert!(
+                backend.is_null(),
+                "Backend should be null when pointers are null"
             );
-            assert!(backend.is_null(), "Backend should be null when pointers are null");
         }
     }
 
@@ -343,9 +347,9 @@ mod tests {
     #[cfg(test)]
     mod system_blas_tests {
         use super::*;
-        use sparse_ir::gemm::matmul_par;
+        use blas_sys::{c_double_complex, dgemm_, zgemm_};
         use mdarray::tensor;
-        use blas_sys::{dgemm_, zgemm_, c_double_complex};
+        use sparse_ir::gemm::matmul_par;
 
         // Helper function to convert Complex<f64> to c_double_complex
         fn complex_to_c_double_complex(c: num_complex::Complex<f64>) -> c_double_complex {
@@ -356,7 +360,6 @@ mod tests {
         fn c_double_complex_to_complex(c: c_double_complex) -> num_complex::Complex<f64> {
             num_complex::Complex::new(c[0], c[1])
         }
-
 
         // Helper to create backend from blas-sys functions
         unsafe fn create_blas_backend() -> *mut spir_gemm_backend {
@@ -404,7 +407,11 @@ mod tests {
                 let c = matmul_par(&a, &b, backend_handle);
 
                 // Verify results
-                assert!((c[[0, 0]] - 19.0).abs() < 1e-10, "c[0,0] should be 19.0, got {}", c[[0, 0]]);
+                assert!(
+                    (c[[0, 0]] - 19.0).abs() < 1e-10,
+                    "c[0,0] should be 19.0, got {}",
+                    c[[0, 0]]
+                );
                 assert!((c[[0, 1]] - 22.0).abs() < 1e-10, "c[0,1] should be 22.0");
                 assert!((c[[1, 0]] - 43.0).abs() < 1e-10, "c[1,0] should be 43.0");
                 assert!((c[[1, 1]] - 50.0).abs() < 1e-10, "c[1,1] should be 50.0");
@@ -428,7 +435,11 @@ mod tests {
                 let c = matmul_par(&a, &b, backend_handle);
 
                 // Verify results
-                assert!((c[[0, 0]] - 19.0).abs() < 1e-10, "c[0,0] should be 19.0, got {}", c[[0, 0]]);
+                assert!(
+                    (c[[0, 0]] - 19.0).abs() < 1e-10,
+                    "c[0,0] should be 19.0, got {}",
+                    c[[0, 0]]
+                );
                 assert!((c[[0, 1]] - 22.0).abs() < 1e-10, "c[0,1] should be 22.0");
                 assert!((c[[1, 0]] - 43.0).abs() < 1e-10, "c[1,0] should be 43.0");
                 assert!((c[[1, 1]] - 50.0).abs() < 1e-10, "c[1,1] should be 50.0");
@@ -446,12 +457,24 @@ mod tests {
 
                 // Test complex matrix multiplication
                 let a: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
-                    [num_complex::Complex::new(1.0, 0.0), num_complex::Complex::new(2.0, 0.0)],
-                    [num_complex::Complex::new(3.0, 0.0), num_complex::Complex::new(4.0, 0.0)]
+                    [
+                        num_complex::Complex::new(1.0, 0.0),
+                        num_complex::Complex::new(2.0, 0.0)
+                    ],
+                    [
+                        num_complex::Complex::new(3.0, 0.0),
+                        num_complex::Complex::new(4.0, 0.0)
+                    ]
                 ];
                 let b: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
-                    [num_complex::Complex::new(5.0, 0.0), num_complex::Complex::new(6.0, 0.0)],
-                    [num_complex::Complex::new(7.0, 0.0), num_complex::Complex::new(8.0, 0.0)]
+                    [
+                        num_complex::Complex::new(5.0, 0.0),
+                        num_complex::Complex::new(6.0, 0.0)
+                    ],
+                    [
+                        num_complex::Complex::new(7.0, 0.0),
+                        num_complex::Complex::new(8.0, 0.0)
+                    ]
                 ];
                 let backend_handle = get_backend_handle(backend);
                 let c = matmul_par(&a, &b, backend_handle);
@@ -474,12 +497,24 @@ mod tests {
 
                 // Test complex matrix multiplication
                 let a: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
-                    [num_complex::Complex::new(1.0, 0.0), num_complex::Complex::new(2.0, 0.0)],
-                    [num_complex::Complex::new(3.0, 0.0), num_complex::Complex::new(4.0, 0.0)]
+                    [
+                        num_complex::Complex::new(1.0, 0.0),
+                        num_complex::Complex::new(2.0, 0.0)
+                    ],
+                    [
+                        num_complex::Complex::new(3.0, 0.0),
+                        num_complex::Complex::new(4.0, 0.0)
+                    ]
                 ];
                 let b: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
-                    [num_complex::Complex::new(5.0, 0.0), num_complex::Complex::new(6.0, 0.0)],
-                    [num_complex::Complex::new(7.0, 0.0), num_complex::Complex::new(8.0, 0.0)]
+                    [
+                        num_complex::Complex::new(5.0, 0.0),
+                        num_complex::Complex::new(6.0, 0.0)
+                    ],
+                    [
+                        num_complex::Complex::new(7.0, 0.0),
+                        num_complex::Complex::new(8.0, 0.0)
+                    ]
                 ];
                 let backend_handle = get_backend_handle(backend);
                 let c = matmul_par(&a, &b, backend_handle);
@@ -503,15 +538,9 @@ mod tests {
                 let backend = std::ptr::null();
 
                 // Test with larger matrices (3x2 * 2x4 = 3x4)
-                let a: mdarray::DTensor<f64, 2> = tensor![
-                    [1.0, 2.0],
-                    [3.0, 4.0],
-                    [5.0, 6.0]
-                ];
-                let b: mdarray::DTensor<f64, 2> = tensor![
-                    [7.0, 8.0, 9.0, 10.0],
-                    [11.0, 12.0, 13.0, 14.0]
-                ];
+                let a: mdarray::DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
+                let b: mdarray::DTensor<f64, 2> =
+                    tensor![[7.0, 8.0, 9.0, 10.0], [11.0, 12.0, 13.0, 14.0]];
                 let backend_handle = get_backend_handle(backend);
                 let c = matmul_par(&a, &b, backend_handle);
 
@@ -532,15 +561,9 @@ mod tests {
                 assert!(!backend.is_null());
 
                 // Test with larger matrices (3x2 * 2x4 = 3x4)
-                let a: mdarray::DTensor<f64, 2> = tensor![
-                    [1.0, 2.0],
-                    [3.0, 4.0],
-                    [5.0, 6.0]
-                ];
-                let b: mdarray::DTensor<f64, 2> = tensor![
-                    [7.0, 8.0, 9.0, 10.0],
-                    [11.0, 12.0, 13.0, 14.0]
-                ];
+                let a: mdarray::DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
+                let b: mdarray::DTensor<f64, 2> =
+                    tensor![[7.0, 8.0, 9.0, 10.0], [11.0, 12.0, 13.0, 14.0]];
                 let backend_handle = get_backend_handle(backend);
                 let c = matmul_par(&a, &b, backend_handle);
 

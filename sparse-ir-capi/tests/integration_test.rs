@@ -6,15 +6,15 @@
 use num_complex::Complex64;
 use rstest::rstest;
 use sparse_ir_capi::{
+    SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
     spir_basis, spir_basis_get_default_matsus, spir_basis_get_default_taus,
     spir_basis_get_n_default_matsus, spir_basis_get_n_default_taus, spir_basis_get_size,
-    spir_basis_get_u, spir_basis_get_uhat, spir_basis_new, spir_basis_release, spir_dlr2ir_dd,
-    spir_dlr_get_npoles, spir_dlr_get_poles, spir_dlr_new, spir_funcs_eval, spir_funcs_eval_matsu,
+    spir_basis_get_u, spir_basis_get_uhat, spir_basis_new, spir_basis_release, spir_dlr_get_npoles,
+    spir_dlr_get_poles, spir_dlr_new, spir_dlr2ir_dd, spir_funcs_eval, spir_funcs_eval_matsu,
     spir_funcs_release, spir_ir2dlr_dd, spir_kernel, spir_kernel_release, spir_logistic_kernel_new,
     spir_matsu_sampling_new, spir_sampling_eval_dd, spir_sampling_eval_dz, spir_sampling_eval_zz,
     spir_sampling_fit_dd, spir_sampling_fit_zd, spir_sampling_fit_zz, spir_sampling_release,
     spir_sve_result, spir_sve_result_new, spir_sve_result_release, spir_tau_sampling_new,
-    SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
 };
 
 // ============================================================================
@@ -710,4 +710,3 @@ fn test_complex_coefficients(#[case] epsilon: f64) {
         spir_kernel_release(kernel);
     }
 }
-

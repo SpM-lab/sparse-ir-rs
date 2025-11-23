@@ -86,9 +86,12 @@ where
 
     // Dispatch based on working precision
     match twork_actual {
-        TworkType::Float64 => {
-            compute_sve_general_with_precision::<f64, K>(kernel, safe_epsilon, cutoff, max_num_svals)
-        }
+        TworkType::Float64 => compute_sve_general_with_precision::<f64, K>(
+            kernel,
+            safe_epsilon,
+            cutoff,
+            max_num_svals,
+        ),
         TworkType::Float64X2 => compute_sve_general_with_precision::<crate::Df64, K>(
             kernel,
             safe_epsilon,

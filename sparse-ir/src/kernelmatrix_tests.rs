@@ -117,7 +117,9 @@ fn test_kernel_interpolation_precision_generic<T, K>(
                 let y = y_min + T::from_f64_unchecked(rel_y) * (y_max - y_min);
 
                 // Skip if point is outside kernel domain
-                if x > T::from_f64_unchecked(kernel.xmax()) || y > T::from_f64_unchecked(kernel.ymax()) {
+                if x > T::from_f64_unchecked(kernel.xmax())
+                    || y > T::from_f64_unchecked(kernel.ymax())
+                {
                     continue;
                 }
 

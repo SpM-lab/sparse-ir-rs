@@ -4,10 +4,10 @@
 
 use std::panic::catch_unwind;
 
-use sparse_ir::sve::{compute_sve, TworkType};
+use sparse_ir::sve::{TworkType, compute_sve};
 
 use crate::types::{spir_kernel, spir_sve_result};
-use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
+use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, StatusCode};
 
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
@@ -21,7 +21,9 @@ pub extern "C" fn spir_sve_result_release(sve: *mut spir_sve_result) {
 
 /// Manual clone function (replaces macro-generated one)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sve_result_clone(src: *const spir_sve_result) -> *mut spir_sve_result {
+pub unsafe extern "C" fn spir_sve_result_clone(
+    src: *const spir_sve_result,
+) -> *mut spir_sve_result {
     if src.is_null() {
         return std::ptr::null_mut();
     }
@@ -119,12 +121,14 @@ pub extern "C" fn spir_sve_result_new(
         // cutoff is automatically set to 2*sqrt(machine_epsilon) internally
         let sve_result = if let Some(logistic) = kernel.as_logistic() {
             compute_sve(
-                **logistic, epsilon, None, None, // cutoff=None (auto), max_num_svals auto-determined
+                **logistic, epsilon, None,
+                None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else if let Some(reg_bose) = kernel.as_regularized_bose() {
             compute_sve(
-                **reg_bose, epsilon, None, None, // cutoff=None (auto), max_num_svals auto-determined
+                **reg_bose, epsilon, None,
+                None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else {
@@ -334,10 +338,8 @@ pub extern "C" fn spir_sve_result_get_svals(
 /// Pointer to SVE result on success, nullptr on failure
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sve_result_from_matrix(
-    #[allow(non_snake_case)]
-    K_high: *const f64,
-    #[allow(non_snake_case)]
-    K_low: *const f64,
+    #[allow(non_snake_case)] K_high: *const f64,
+    #[allow(non_snake_case)] K_low: *const f64,
     nx: libc::c_int,
     ny: libc::c_int,
     order: libc::c_int,
@@ -385,12 +387,10 @@ pub extern "C" fn spir_sve_result_from_matrix(
         // Convert segments to Vec
         // Note: n_segments_x is the number of segments (boundary points - 1),
         // matching C++ API behavior: C++ uses segments_x[0..n_segments_x] (n_segments_x + 1 elements)
-        let segs_x_slice = unsafe {
-            std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize)
-        };
-        let segs_y_slice = unsafe {
-            std::slice::from_raw_parts(segments_y, (n_segments_y + 1) as usize)
-        };
+        let segs_x_slice =
+            unsafe { std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize) };
+        let segs_y_slice =
+            unsafe { std::slice::from_raw_parts(segments_y, (n_segments_y + 1) as usize) };
 
         // Verify segments are monotonically increasing
         // C++: for (int i = 1; i <= n_segments_x; ++i) checks segments_x[1..n_segments_x]
@@ -432,7 +432,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
             // Convert matrix from C array to DTensor
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix = mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
+            let mut matrix =
+                mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
 
             let k_high_slice = unsafe { std::slice::from_raw_parts(K_high, (nx * ny) as usize) };
             let k_low_slice = unsafe { std::slice::from_raw_parts(K_low, (nx * ny) as usize) };
@@ -443,7 +444,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
                         for j in 0..(ny as usize) {
                             let idx = i * (ny as usize) + j;
                             // Use unsafe new_full since K_high and K_low are already properly compensated
-                            matrix[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                            matrix[[i, j]] =
+                                unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                         }
                     }
                 }
@@ -452,7 +454,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
                         for j in 0..(ny as usize) {
                             let idx = j * (nx as usize) + i;
                             // Use unsafe new_full since K_high and K_low are already properly compensated
-                            matrix[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                            matrix[[i, j]] =
+                                unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                         }
                     }
                 }
@@ -474,8 +477,12 @@ pub extern "C" fn spir_sve_result_from_matrix(
             let v_unweighted = remove_weights(&v, gauss_y_dd.w.as_slice(), true);
 
             // Convert U and V to f64 for polynomial conversion
-            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| u_unweighted[idx].to_f64());
-            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| v_unweighted[idx].to_f64());
+            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| {
+                u_unweighted[idx].to_f64()
+            });
+            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| {
+                v_unweighted[idx].to_f64()
+            });
 
             let u_polys = sparse_ir::sve::utils::svd_to_polynomials(
                 &u_f64,
@@ -621,14 +628,10 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// Pointer to SVE result on success, nullptr on failure
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
-    #[allow(non_snake_case)]
-    K_even_high: *const f64,
-    #[allow(non_snake_case)]
-    K_even_low: *const f64,
-    #[allow(non_snake_case)]
-    K_odd_high: *const f64,
-    #[allow(non_snake_case)]
-    K_odd_low: *const f64,
+    #[allow(non_snake_case)] K_even_high: *const f64,
+    #[allow(non_snake_case)] K_even_low: *const f64,
+    #[allow(non_snake_case)] K_odd_high: *const f64,
+    #[allow(non_snake_case)] K_odd_low: *const f64,
     nx: libc::c_int,
     ny: libc::c_int,
     order: libc::c_int,
@@ -644,15 +647,16 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
     use sparse_ir::gauss::legendre;
     use sparse_ir::kernel::SymmetryType;
     use sparse_ir::poly::PiecewiseLegendrePolyVector;
-    use sparse_ir::tsvd::compute_svd_dtensor;
     use sparse_ir::sve::utils::{extend_to_full_domain, merge_results};
+    use sparse_ir::tsvd::compute_svd_dtensor;
     use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
     }
 
-    if K_even_high.is_null() || K_odd_high.is_null() || segments_x.is_null() || segments_y.is_null() {
+    if K_even_high.is_null() || K_odd_high.is_null() || segments_x.is_null() || segments_y.is_null()
+    {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -677,12 +681,10 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         // Convert segments to Vec
         // Note: n_segments_x is the number of segments (boundary points - 1),
         // matching C++ API behavior: C++ uses segments_x[0..n_segments_x] (n_segments_x + 1 elements)
-        let segs_x_slice = unsafe {
-            std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize)
-        };
-        let segs_y_slice = unsafe {
-            std::slice::from_raw_parts(segments_y, (n_segments_y + 1) as usize)
-        };
+        let segs_x_slice =
+            unsafe { std::slice::from_raw_parts(segments_x, (n_segments_x + 1) as usize) };
+        let segs_y_slice =
+            unsafe { std::slice::from_raw_parts(segments_y, (n_segments_y + 1) as usize) };
 
         // Verify segments are monotonically increasing
         // C++: for (int i = 1; i <= n_segments_x; ++i) checks segments_x[1..n_segments_x]
@@ -720,20 +722,31 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
 
         // Helper function to convert matrix and compute SVD
-        let compute_svd_for_symmetry = |k_high: *const f64, k_low: *const f64| -> Option<(mdarray::DTensor<f64, 2>, Vec<f64>, mdarray::DTensor<f64, 2>)> {
+        let compute_svd_for_symmetry = |k_high: *const f64,
+                                        k_low: *const f64|
+         -> Option<(
+            mdarray::DTensor<f64, 2>,
+            Vec<f64>,
+            mdarray::DTensor<f64, 2>,
+        )> {
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
             let matrix = if use_ddouble {
                 use sparse_ir::Df64;
                 use sparse_ir::numeric::CustomNumeric;
-                let mut matrix_dd = mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
-                let k_high_slice = unsafe { std::slice::from_raw_parts(k_high, (nx * ny) as usize) };
+                let mut matrix_dd = mdarray::DTensor::<Df64, 2>::from_elem(
+                    [nx as usize, ny as usize],
+                    Df64::new(0.0),
+                );
+                let k_high_slice =
+                    unsafe { std::slice::from_raw_parts(k_high, (nx * ny) as usize) };
                 let k_low_slice = unsafe { std::slice::from_raw_parts(k_low, (nx * ny) as usize) };
                 match memory_order {
                     MemoryOrder::RowMajor => {
                         for i in 0..(nx as usize) {
                             for j in 0..(ny as usize) {
                                 let idx = i * (ny as usize) + j;
-                                matrix_dd[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                                matrix_dd[[i, j]] =
+                                    unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                             }
                         }
                     }
@@ -741,16 +754,20 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                         for i in 0..(nx as usize) {
                             for j in 0..(ny as usize) {
                                 let idx = j * (nx as usize) + i;
-                                matrix_dd[[i, j]] = unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                                matrix_dd[[i, j]] =
+                                    unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
                             }
                         }
                     }
                 }
                 // Convert to f64 for SVD
-                mdarray::DTensor::<f64, 2>::from_fn(*matrix_dd.shape(), |idx| matrix_dd[idx].to_f64())
+                mdarray::DTensor::<f64, 2>::from_fn(*matrix_dd.shape(), |idx| {
+                    matrix_dd[idx].to_f64()
+                })
             } else {
                 let mut matrix_f64 = mdarray::DTensor::<f64, 2>::zeros([nx as usize, ny as usize]);
-                let k_high_slice = unsafe { std::slice::from_raw_parts(k_high, (nx * ny) as usize) };
+                let k_high_slice =
+                    unsafe { std::slice::from_raw_parts(k_high, (nx * ny) as usize) };
                 match memory_order {
                     MemoryOrder::RowMajor => {
                         for i in 0..(nx as usize) {
@@ -838,27 +855,11 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         );
 
         // Extend to full domain
-        let u_even_full = extend_to_full_domain(
-            u_even_polys,
-            SymmetryType::Even,
-            xmax,
-        );
-        let v_even_full = extend_to_full_domain(
-            v_even_polys,
-            SymmetryType::Even,
-            ymax,
-        );
+        let u_even_full = extend_to_full_domain(u_even_polys, SymmetryType::Even, xmax);
+        let v_even_full = extend_to_full_domain(v_even_polys, SymmetryType::Even, ymax);
 
-        let u_odd_full = extend_to_full_domain(
-            u_odd_polys,
-            SymmetryType::Odd,
-            xmax,
-        );
-        let v_odd_full = extend_to_full_domain(
-            v_odd_polys,
-            SymmetryType::Odd,
-            ymax,
-        );
+        let u_odd_full = extend_to_full_domain(u_odd_polys, SymmetryType::Odd, xmax);
+        let v_odd_full = extend_to_full_domain(v_odd_polys, SymmetryType::Odd, ymax);
 
         // Merge even and odd results
         let result_even = (
@@ -898,7 +899,10 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
 mod tests {
     use super::*;
     use crate::kernel::*;
-    use crate::{SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, spir_gauss_legendre_rule_piecewise_double};
+    use crate::{
+        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR,
+        SPIR_ORDER_ROW_MAJOR, spir_gauss_legendre_rule_piecewise_double,
+    };
     use std::ptr;
 
     #[test]
@@ -1009,22 +1013,42 @@ mod tests {
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let mut n_segments_x = 0;
-        let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, ptr::null_mut(), &mut n_segments_x);
+        let status = spir_kernel_get_sve_hints_segments_x(
+            kernel,
+            epsilon,
+            ptr::null_mut(),
+            &mut n_segments_x,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let mut n_segments_y = 0;
-        let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, ptr::null_mut(), &mut n_segments_y);
+        let status = spir_kernel_get_sve_hints_segments_y(
+            kernel,
+            epsilon,
+            ptr::null_mut(),
+            &mut n_segments_y,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         // Get segments
         let mut segments_x = vec![0.0; (n_segments_x + 1) as usize];
         let mut n_segments_x_out = n_segments_x + 1;
-        let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, segments_x.as_mut_ptr(), &mut n_segments_x_out);
+        let status = spir_kernel_get_sve_hints_segments_x(
+            kernel,
+            epsilon,
+            segments_x.as_mut_ptr(),
+            &mut n_segments_x_out,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let mut segments_y = vec![0.0; (n_segments_y + 1) as usize];
         let mut n_segments_y_out = n_segments_y + 1;
-        let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, segments_y.as_mut_ptr(), &mut n_segments_y_out);
+        let status = spir_kernel_get_sve_hints_segments_y(
+            kernel,
+            epsilon,
+            segments_y.as_mut_ptr(),
+            &mut n_segments_y_out,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         assert_eq!(segments_x.len(), (n_segments_x + 1) as usize);
@@ -1180,22 +1204,42 @@ mod tests {
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let mut n_segments_x = 0;
-        let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, ptr::null_mut(), &mut n_segments_x);
+        let status = spir_kernel_get_sve_hints_segments_x(
+            kernel,
+            epsilon,
+            ptr::null_mut(),
+            &mut n_segments_x,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let mut n_segments_y = 0;
-        let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, ptr::null_mut(), &mut n_segments_y);
+        let status = spir_kernel_get_sve_hints_segments_y(
+            kernel,
+            epsilon,
+            ptr::null_mut(),
+            &mut n_segments_y,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         // Get segments
         let mut segments_x = vec![0.0; (n_segments_x + 1) as usize];
         let mut n_segments_x_out = n_segments_x + 1;
-        let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, segments_x.as_mut_ptr(), &mut n_segments_x_out);
+        let status = spir_kernel_get_sve_hints_segments_x(
+            kernel,
+            epsilon,
+            segments_x.as_mut_ptr(),
+            &mut n_segments_x_out,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let mut segments_y = vec![0.0; (n_segments_y + 1) as usize];
         let mut n_segments_y_out = n_segments_y + 1;
-        let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, segments_y.as_mut_ptr(), &mut n_segments_y_out);
+        let status = spir_kernel_get_sve_hints_segments_y(
+            kernel,
+            epsilon,
+            segments_y.as_mut_ptr(),
+            &mut n_segments_y_out,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         // Get Gauss points and weights
@@ -1303,9 +1347,11 @@ mod tests {
 
     #[test]
     fn test_sve_result_from_matrix_centrosymmetric_vs_from_matrix() {
-        use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints, SymmetryType};
-        use sparse_ir::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
         use sparse_ir::gauss::legendre;
+        use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints, SymmetryType};
+        use sparse_ir::kernelmatrix::{
+            matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
+        };
 
         let lambda = 10.0;
         let epsilon = 1e-6;
@@ -1363,12 +1409,8 @@ mod tests {
         let gauss_y_full = gauss_rule.piecewise(&segments_y_full);
 
         // Compute full domain matrix
-        let discretized_full = matrix_from_gauss_noncentrosymmetric(
-            &kernel,
-            &gauss_x_full,
-            &gauss_y_full,
-            &hints,
-        );
+        let discretized_full =
+            matrix_from_gauss_noncentrosymmetric(&kernel, &gauss_x_full, &gauss_y_full, &hints);
         let k_full_weighted = discretized_full.apply_weights_for_sve();
 
         // Convert matrices to C arrays (row-major)
@@ -1452,9 +1494,12 @@ mod tests {
         spir_sve_result_get_size(sve_noncentrosymm, &mut size_noncentrosymm);
 
         // Sizes should be similar (may differ slightly due to numerical precision)
-        assert!((size_centrosymm as i32 - size_noncentrosymm as i32).abs() <= 1,
+        assert!(
+            (size_centrosymm as i32 - size_noncentrosymm as i32).abs() <= 1,
             "Size mismatch: centrosymmetric={}, noncentrosymmetric={}",
-            size_centrosymm, size_noncentrosymm);
+            size_centrosymm,
+            size_noncentrosymm
+        );
 
         // Get singular values
         let mut svals_centrosymm = vec![0.0; size_centrosymm as usize];
@@ -1470,12 +1515,21 @@ mod tests {
         for i in 0..min_size {
             let diff = (svals_centrosymm[i] - svals_noncentrosymm[i]).abs();
             let rel_diff = diff / svals_centrosymm[i].max(svals_noncentrosymm[i]);
-            assert!(diff < tolerance || rel_diff < tolerance,
+            assert!(
+                diff < tolerance || rel_diff < tolerance,
                 "Singular value mismatch at index {}: centrosymmetric={}, noncentrosymmetric={}, diff={}, rel_diff={}",
-                i, svals_centrosymm[i], svals_noncentrosymm[i], diff, rel_diff);
+                i,
+                svals_centrosymm[i],
+                svals_noncentrosymm[i],
+                diff,
+                rel_diff
+            );
         }
 
-        println!("Comparison successful: {} singular values match within tolerance", min_size);
+        println!(
+            "Comparison successful: {} singular values match within tolerance",
+            min_size
+        );
 
         // Cleanup
         spir_sve_result_release(sve_centrosymm);

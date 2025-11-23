@@ -7,7 +7,7 @@ use std::panic::catch_unwind;
 use sparse_ir::kernel::SVEHints;
 
 use crate::types::spir_kernel;
-use crate::{StatusCode, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
+use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, StatusCode};
 
 // Generate common opaque type functions: release, clone, is_assigned, get_raw_ptr
 
@@ -660,14 +660,20 @@ mod tests {
 
         // First call: get the number of segments
         let mut n_segments = 0;
-        let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, ptr::null_mut(), &mut n_segments);
+        let status =
+            spir_kernel_get_sve_hints_segments_x(kernel, epsilon, ptr::null_mut(), &mut n_segments);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_segments > 0);
 
         // Second call: get the actual segments
         let mut segments = vec![0.0; (n_segments + 1) as usize];
         let mut n_segments_out = n_segments + 1;
-        let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, segments.as_mut_ptr(), &mut n_segments_out);
+        let status = spir_kernel_get_sve_hints_segments_x(
+            kernel,
+            epsilon,
+            segments.as_mut_ptr(),
+            &mut n_segments_out,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(n_segments_out, n_segments);
 
@@ -696,14 +702,20 @@ mod tests {
 
         // First call: get the number of segments
         let mut n_segments = 0;
-        let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, ptr::null_mut(), &mut n_segments);
+        let status =
+            spir_kernel_get_sve_hints_segments_y(kernel, epsilon, ptr::null_mut(), &mut n_segments);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_segments > 0);
 
         // Second call: get the actual segments
         let mut segments = vec![0.0; (n_segments + 1) as usize];
         let mut n_segments_out = n_segments + 1;
-        let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, segments.as_mut_ptr(), &mut n_segments_out);
+        let status = spir_kernel_get_sve_hints_segments_y(
+            kernel,
+            epsilon,
+            segments.as_mut_ptr(),
+            &mut n_segments_out,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(n_segments_out, n_segments);
 
@@ -744,13 +756,23 @@ mod tests {
 
         // Test segments_x
         let mut n_segments_x = 0;
-        let status = spir_kernel_get_sve_hints_segments_x(kernel, epsilon, ptr::null_mut(), &mut n_segments_x);
+        let status = spir_kernel_get_sve_hints_segments_x(
+            kernel,
+            epsilon,
+            ptr::null_mut(),
+            &mut n_segments_x,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_segments_x > 0);
 
         // Test segments_y
         let mut n_segments_y = 0;
-        let status = spir_kernel_get_sve_hints_segments_y(kernel, epsilon, ptr::null_mut(), &mut n_segments_y);
+        let status = spir_kernel_get_sve_hints_segments_y(
+            kernel,
+            epsilon,
+            ptr::null_mut(),
+            &mut n_segments_y,
+        );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_segments_y > 0);
 

@@ -105,7 +105,9 @@ pub fn legendre_collocation_matrix<T: CustomNumeric>(gauss_rule: &Rule<T>) -> DT
     let v = legendre_vandermonde(&gauss_rule.x, n - 1);
 
     // Create normalization factors: range(0.5; length=n) in Julia
-    let invnorm: Vec<T> = (0..n).map(|i| T::from_f64_unchecked(0.5 + i as f64)).collect();
+    let invnorm: Vec<T> = (0..n)
+        .map(|i| T::from_f64_unchecked(0.5 + i as f64))
+        .collect();
 
     // Compute: res = permutedims(V .* w) .* invnorm
     // This is equivalent to: result[i,j] = V[j,i] * w[j] * invnorm[i]
@@ -200,7 +202,8 @@ pub fn evaluate_legendre_basis<T: CustomNumeric>(x: T, n: usize) -> Vec<T> {
     // Recurrence relation: (n+1) * P_{n+1}(x) = (2n+1) * x * P_n(x) - n * P_{n-1}(x)
     for i in 1..n - 1 {
         let i_f64 = i as f64;
-        let next_p = (T::from_f64_unchecked(2.0 * i_f64 + 1.0) * x * p[i] - T::from_f64_unchecked(i_f64) * p[i - 1])
+        let next_p = (T::from_f64_unchecked(2.0 * i_f64 + 1.0) * x * p[i]
+            - T::from_f64_unchecked(i_f64) * p[i - 1])
             / T::from_f64_unchecked(i_f64 + 1.0);
         p.push(next_p);
     }

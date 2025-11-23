@@ -1,8 +1,8 @@
 use super::*;
+use crate::Df64;
 use dashu_base::Approximation;
 use dashu_float::{Context, DBig, round::mode::HalfAway};
 use std::str::FromStr;
-use crate::Df64;
 
 // Configuration for precision tests
 const DBIG_DIGITS: usize = 100;
@@ -60,15 +60,15 @@ impl KernelDbigCompute for RegularizedBoseKernel {
             let term1 = half * x.clone() * y.clone();
             return term0 - term1;
         }
-        
+
         // exp(-Λy(x+1)/2)
         let exp_arg = -lambda.clone() * y.clone() * (x.clone() + one.clone()) * half;
         let numerator = y.clone() * exp_arg.exp();
-        
+
         // 1 - exp(-Λy)
         let exp_neg_lambda_y = (-lambda * y.clone()).exp();
         let denominator = one - exp_neg_lambda_y;
-        
+
         // K(x, y) = numerator / denominator
         numerator / denominator
     }
@@ -328,29 +328,63 @@ fn test_kernel_precision_different_lambdas<K, F, T>(
             // Convert test points to Df64 (as they would be stored in Gauss quadrature rules)
             let x_dd = Df64::convert_from(x);
             let y_dd = Df64::convert_from(y);
-            
+
             // Test compute() precision
             test_kernel_compute_precision_generic::<K, f64>(
-                &kernel, lambda, x_dd, y_dd, TOLERANCE_F64, kernel_name,
+                &kernel,
+                lambda,
+                x_dd,
+                y_dd,
+                TOLERANCE_F64,
+                kernel_name,
             );
             test_kernel_compute_precision_generic::<K, Df64>(
-                &kernel, lambda, x_dd, y_dd, TOLERANCE_DF64, kernel_name,
+                &kernel,
+                lambda,
+                x_dd,
+                y_dd,
+                TOLERANCE_DF64,
+                kernel_name,
             );
-            
+
             // Test compute_reduced() precision for Even symmetry
             test_kernel_compute_reduced_precision_generic::<K, f64>(
-                &kernel, lambda, x_dd, y_dd, SymmetryType::Even, TOLERANCE_F64, kernel_name,
+                &kernel,
+                lambda,
+                x_dd,
+                y_dd,
+                SymmetryType::Even,
+                TOLERANCE_F64,
+                kernel_name,
             );
             test_kernel_compute_reduced_precision_generic::<K, Df64>(
-                &kernel, lambda, x_dd, y_dd, SymmetryType::Even, TOLERANCE_DF64, kernel_name,
+                &kernel,
+                lambda,
+                x_dd,
+                y_dd,
+                SymmetryType::Even,
+                TOLERANCE_DF64,
+                kernel_name,
             );
-            
+
             // Test compute_reduced() precision for Odd symmetry
             test_kernel_compute_reduced_precision_generic::<K, f64>(
-                &kernel, lambda, x_dd, y_dd, SymmetryType::Odd, TOLERANCE_F64, kernel_name,
+                &kernel,
+                lambda,
+                x_dd,
+                y_dd,
+                SymmetryType::Odd,
+                TOLERANCE_F64,
+                kernel_name,
             );
             test_kernel_compute_reduced_precision_generic::<K, Df64>(
-                &kernel, lambda, x_dd, y_dd, SymmetryType::Odd, TOLERANCE_DF64, kernel_name,
+                &kernel,
+                lambda,
+                x_dd,
+                y_dd,
+                SymmetryType::Odd,
+                TOLERANCE_DF64,
+                kernel_name,
             );
         }
     }
@@ -364,20 +398,20 @@ fn test_logistic_kernel_precision_critical_points() {
     // x = y = 0.01 was the point where the bug was discovered
     // Store test points as Df64 (as they would be stored in Gauss quadrature rules)
     let test_points_dd: [(Df64, Df64); 10] = [
-        (Df64::from(0.0), Df64::from(0.0)),      // Origin
-        (Df64::from(0.01), Df64::from(0.01)),    // Small values (bug discovery point)
-        (Df64::from(0.1), Df64::from(0.1)),      // Medium-small values
-        (Df64::from(0.5), Df64::from(0.5)),      // Medium values
-        (Df64::from(0.9), Df64::from(0.9)),      // Near boundary
-        (Df64::from(0.01), Df64::from(0.1)),     // Asymmetric small x
-        (Df64::from(0.1), Df64::from(0.01)),     // Asymmetric small y
-        (Df64::from(0.99), Df64::from(0.99)),    // Very near boundary (symmetric)
-        (Df64::from(0.99), Df64::from(0.01)),    // Very near boundary (asymmetric large x)
-        (Df64::from(0.01), Df64::from(0.99)),    // Very near boundary (asymmetric large y)
+        (Df64::from(0.0), Df64::from(0.0)),   // Origin
+        (Df64::from(0.01), Df64::from(0.01)), // Small values (bug discovery point)
+        (Df64::from(0.1), Df64::from(0.1)),   // Medium-small values
+        (Df64::from(0.5), Df64::from(0.5)),   // Medium values
+        (Df64::from(0.9), Df64::from(0.9)),   // Near boundary
+        (Df64::from(0.01), Df64::from(0.1)),  // Asymmetric small x
+        (Df64::from(0.1), Df64::from(0.01)),  // Asymmetric small y
+        (Df64::from(0.99), Df64::from(0.99)), // Very near boundary (symmetric)
+        (Df64::from(0.99), Df64::from(0.01)), // Very near boundary (asymmetric large x)
+        (Df64::from(0.01), Df64::from(0.99)), // Very near boundary (asymmetric large y)
     ];
-    
+
     let lambdas = [10.0, 1e2, 1e3, 1e4];
-    
+
     // Test with Df64 test points
     test_kernel_precision_different_lambdas::<LogisticKernel, _, Df64>(
         |lambda| LogisticKernel::new(lambda),
@@ -385,13 +419,12 @@ fn test_logistic_kernel_precision_critical_points() {
         &test_points_dd,
         &lambdas,
     );
-    
+
     // Also test with f64 test points for completeness
     // Convert from Df64 to f64
-    let test_points_f64: [(f64, f64); 10] = test_points_dd.map(|(x_dd, y_dd)| {
-        (x_dd.hi() + x_dd.lo(), y_dd.hi() + y_dd.lo())
-    });
-    
+    let test_points_f64: [(f64, f64); 10] =
+        test_points_dd.map(|(x_dd, y_dd)| (x_dd.hi() + x_dd.lo(), y_dd.hi() + y_dd.lo()));
+
     test_kernel_precision_different_lambdas::<LogisticKernel, _, f64>(
         |lambda| LogisticKernel::new(lambda),
         "LogisticKernel",
@@ -407,20 +440,20 @@ fn test_logistic_kernel_precision_critical_points() {
 fn test_regularized_bose_kernel_precision_critical_points() {
     // Store test points as Df64 (as they would be stored in Gauss quadrature rules)
     let test_points_dd: [(Df64, Df64); 10] = [
-        (Df64::from(0.0), Df64::from(0.0)),      // Origin
-        (Df64::from(0.01), Df64::from(0.01)),    // Small values
-        (Df64::from(0.1), Df64::from(0.1)),      // Medium-small values
-        (Df64::from(0.5), Df64::from(0.5)),      // Medium values
-        (Df64::from(0.9), Df64::from(0.9)),      // Near boundary
-        (Df64::from(0.01), Df64::from(0.1)),     // Asymmetric small x
-        (Df64::from(0.1), Df64::from(0.01)),     // Asymmetric small y
-        (Df64::from(0.99), Df64::from(0.99)),    // Very near boundary (symmetric)
-        (Df64::from(0.99), Df64::from(0.01)),    // Very near boundary (asymmetric large x)
-        (Df64::from(0.01), Df64::from(0.99)),    // Very near boundary (asymmetric large y)
+        (Df64::from(0.0), Df64::from(0.0)),   // Origin
+        (Df64::from(0.01), Df64::from(0.01)), // Small values
+        (Df64::from(0.1), Df64::from(0.1)),   // Medium-small values
+        (Df64::from(0.5), Df64::from(0.5)),   // Medium values
+        (Df64::from(0.9), Df64::from(0.9)),   // Near boundary
+        (Df64::from(0.01), Df64::from(0.1)),  // Asymmetric small x
+        (Df64::from(0.1), Df64::from(0.01)),  // Asymmetric small y
+        (Df64::from(0.99), Df64::from(0.99)), // Very near boundary (symmetric)
+        (Df64::from(0.99), Df64::from(0.01)), // Very near boundary (asymmetric large x)
+        (Df64::from(0.01), Df64::from(0.99)), // Very near boundary (asymmetric large y)
     ];
-    
+
     let lambdas = [10.0, 1e2, 1e3];
-    
+
     // Test with Df64 test points
     test_kernel_precision_different_lambdas::<RegularizedBoseKernel, _, Df64>(
         |lambda| RegularizedBoseKernel::new(lambda),
@@ -428,13 +461,12 @@ fn test_regularized_bose_kernel_precision_critical_points() {
         &test_points_dd,
         &lambdas,
     );
-    
+
     // Also test with f64 test points for completeness
     // Convert from Df64 to f64
-    let test_points_f64: [(f64, f64); 10] = test_points_dd.map(|(x_dd, y_dd)| {
-        (x_dd.hi() + x_dd.lo(), y_dd.hi() + y_dd.lo())
-    });
-    
+    let test_points_f64: [(f64, f64); 10] =
+        test_points_dd.map(|(x_dd, y_dd)| (x_dd.hi() + x_dd.lo(), y_dd.hi() + y_dd.lo()));
+
     test_kernel_precision_different_lambdas::<RegularizedBoseKernel, _, f64>(
         |lambda| RegularizedBoseKernel::new(lambda),
         "RegularizedBoseKernel",
@@ -489,4 +521,3 @@ fn test_noncentrosymm_kernel_compute() {
     let result4: f64 = kernel.compute(-0.5, -0.5);
     assert!((result3 - result4).abs() > 1e-10); // Should be different (1.0 vs -1.0)
 }
-

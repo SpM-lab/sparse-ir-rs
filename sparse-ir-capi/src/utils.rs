@@ -2,7 +2,10 @@
 //!
 //! This module provides helper functions for order conversion and dimension handling.
 
-use crate::{SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR, SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2, SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR};
+use crate::{
+    SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
+    SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2,
+};
 use sparse_ir::numeric::CustomNumeric;
 
 /// Memory layout order
@@ -167,7 +170,8 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
 
     let result = catch_unwind(|| {
         // Convert segments to Vec
-        let segments_slice = unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        let segments_slice =
+            unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
         let segs_vec = segments_slice.to_vec();
 
         // Verify segments are monotonically increasing
@@ -258,7 +262,12 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    if segments.is_null() || x_high.is_null() || x_low.is_null() || w_high.is_null() || w_low.is_null() {
+    if segments.is_null()
+        || x_high.is_null()
+        || x_low.is_null()
+        || w_high.is_null()
+        || w_low.is_null()
+    {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -274,7 +283,8 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
 
     let result = catch_unwind(|| {
         // Convert segments to Vec
-        let segments_slice = unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        let segments_slice =
+            unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
         let segs_vec: Vec<sparse_ir::Df64> = segments_slice
             .iter()
             .map(|&x| sparse_ir::Df64::new(x))

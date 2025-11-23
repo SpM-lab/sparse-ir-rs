@@ -482,9 +482,7 @@ mod tests {
     /// Create Hilbert matrix of size nrows x ncols
     /// H[i,j] = 1 / (i + j + 1)
     fn create_hilbert_matrix(nrows: usize, ncols: usize) -> DMatrix<f64> {
-        DMatrix::from_fn(nrows, ncols, |i, j| {
-            1.0 / ((i + j + 1) as f64)
-        })
+        DMatrix::from_fn(nrows, ncols, |i, j| 1.0 / ((i + j + 1) as f64))
     }
 
     /// Reconstruct matrix from QR decomposition: A = Q * R * P^T
@@ -497,7 +495,7 @@ mod tests {
         // A = Q * R * P^T
         // First compute Q * R
         let qr = q * r;
-        
+
         // Apply inverse permutation to columns (P^T applied to columns)
         let mut result = qr.clone();
         p.inv_permute_columns(&mut result);
@@ -519,126 +517,159 @@ mod tests {
     #[test]
     fn test_col_piv_qr_hilbert_with_rtol() {
         let rtol = 1e-10;
-        
+
         // Test square matrix 20x20
         test_hilbert_matrix_with_rtol(20, 20, rtol, "20x20");
-        
+
         // Test rectangular matrices
         test_hilbert_matrix_with_rtol(20, 30, rtol, "20x30");
         test_hilbert_matrix_with_rtol(30, 20, rtol, "30x20");
     }
-    
+
     fn test_hilbert_matrix_with_rtol(nrows: usize, ncols: usize, rtol: f64, label: &str) {
         let h = create_hilbert_matrix(nrows, ncols);
         let min_dim = nrows.min(ncols);
-        
+
         println!("\n=== Testing Hilbert {}x{} ({}) ===", nrows, ncols, label);
-        
+
         // Compute QR with and without early termination
         let qr_with_rtol = ColPivQR::new_with_rtol(h.clone(), Some(rtol));
         let qr_without_rtol = ColPivQR::new_with_rtol(h.clone(), None);
-        
+
         // Check that early termination reduces the effective rank
         let rank_with_rtol = qr_with_rtol.rank_with_rtol(rtol);
         let rank_without_rtol = qr_without_rtol.rank();
-        
-        println!("Hilbert {}x{} ({}): rank with rtol={} is {}, without rtol is {}", 
-                 nrows, ncols, label, rtol, rank_with_rtol, rank_without_rtol);
-        
+
+        println!(
+            "Hilbert {}x{} ({}): rank with rtol={} is {}, without rtol is {}",
+            nrows, ncols, label, rtol, rank_with_rtol, rank_without_rtol
+        );
+
         // Early termination should give a rank <= full rank
-        assert!(rank_with_rtol <= rank_without_rtol,
-                "Early termination rank {} should be <= full rank {}",
-                rank_with_rtol, rank_without_rtol);
-        
+        assert!(
+            rank_with_rtol <= rank_without_rtol,
+            "Early termination rank {} should be <= full rank {}",
+            rank_with_rtol,
+            rank_without_rtol
+        );
+
         // For Hilbert matrix, early termination should reduce rank significantly
         // due to numerical rank deficiency
-        assert!(rank_with_rtol < min_dim,
-                "Early termination should reduce rank for ill-conditioned matrix");
-        
+        assert!(
+            rank_with_rtol < min_dim,
+            "Early termination should reduce rank for ill-conditioned matrix"
+        );
+
         // Check that diagonal values satisfy rtol condition
         let diag = qr_with_rtol.diag_internal();
         let first_diag_abs = diag[0].clone().modulus();
         let threshold = rtol * first_diag_abs;
-        
+
         println!("First diagonal element abs: {}", first_diag_abs);
         println!("Threshold (rtol * first_diag_abs): {}", threshold);
-        
+
         // All elements before rank should be >= threshold
         for i in 0..rank_with_rtol {
             let diag_abs = diag[i].clone().modulus();
-            assert!(diag_abs >= threshold,
-                    "Diagonal element [{}] abs={} should be >= threshold {}",
-                    i, diag_abs, threshold);
+            assert!(
+                diag_abs >= threshold,
+                "Diagonal element [{}] abs={} should be >= threshold {}",
+                i,
+                diag_abs,
+                threshold
+            );
         }
-        
+
         // If rank < full dimension, the element at rank should be < threshold (if early termination occurred)
         if rank_with_rtol < diag.len() {
             let diag_abs_at_rank = diag[rank_with_rtol].clone().modulus();
-            println!("Diagonal element [{}] abs={}", rank_with_rtol, diag_abs_at_rank);
-            
+            println!(
+                "Diagonal element [{}] abs={}",
+                rank_with_rtol, diag_abs_at_rank
+            );
+
             // If early termination occurred, this element should be below threshold
             // (or zero if it was set to zero during early termination)
             if diag_abs_at_rank > 0.0 {
-                assert!(diag_abs_at_rank < threshold,
-                        "Diagonal element [{}] abs={} should be < threshold {} (early termination check)",
-                        rank_with_rtol, diag_abs_at_rank, threshold);
+                assert!(
+                    diag_abs_at_rank < threshold,
+                    "Diagonal element [{}] abs={} should be < threshold {} (early termination check)",
+                    rank_with_rtol,
+                    diag_abs_at_rank,
+                    threshold
+                );
             }
         }
-        
+
         // Reconstruct matrix and check error
         let q = qr_with_rtol.q();
         let r = qr_with_rtol.r();
         let p = qr_with_rtol.p();
-        
+
         // Check that Q's remaining columns are zero after early termination
         if rank_with_rtol < q.ncols() {
-            println!("Checking Q matrix columns after rank {} (total columns: {})", rank_with_rtol, q.ncols());
+            println!(
+                "Checking Q matrix columns after rank {} (total columns: {})",
+                rank_with_rtol,
+                q.ncols()
+            );
             for j in rank_with_rtol..q.ncols() {
                 let q_col = q.column(j);
                 let col_norm = q_col.norm();
                 println!("Q column [{}] norm: {}", j, col_norm);
-                assert!(col_norm < 1e-12,
-                        "Q column [{}] should be zero after early termination, but norm is {}",
-                        j, col_norm);
+                assert!(
+                    col_norm < 1e-12,
+                    "Q column [{}] should be zero after early termination, but norm is {}",
+                    j,
+                    col_norm
+                );
             }
         }
-        
+
         let h_reconstructed = reconstruct_matrix_from_col_piv_qr(&q, &r, p);
-        
+
         // Calculate reconstruction error
         let h_norm = frobenius_norm(&h);
         let error_matrix = &h - &h_reconstructed;
         let error_norm = frobenius_norm(&error_matrix);
         let relative_error = error_norm / h_norm;
-        
-        println!("Hilbert {}x{} ({}): relative reconstruction error = {}", nrows, ncols, label, relative_error);
-        
+
+        println!(
+            "Hilbert {}x{} ({}): relative reconstruction error = {}",
+            nrows, ncols, label, relative_error
+        );
+
         // Check that reconstruction error is reasonable
         // Note: 20x20 Hilbert matrix has very large condition number, so we expect larger errors
-        assert!(relative_error < 1e-6, 
-                "Relative reconstruction error {} exceeds 1e-6", 
-                relative_error);
+        assert!(
+            relative_error < 1e-6,
+            "Relative reconstruction error {} exceeds 1e-6",
+            relative_error
+        );
     }
 
     #[test]
     fn test_col_piv_qr_identity_matrix() {
         let matrix = DMatrix::<f64>::identity(5, 5);
         let rtol = 1e-10;
-        
+
         let qr = ColPivQR::new_with_rtol(matrix.clone(), Some(rtol));
-        
+
         // Identity matrix should have full rank
         let rank = qr.rank_with_rtol(rtol);
         assert_eq!(rank, 5, "Identity matrix should have full rank");
-        
+
         // Reconstruct and verify
         let q = qr.q();
         let r = qr.r();
         let p = qr.p();
         let reconstructed = reconstruct_matrix_from_col_piv_qr(&q, &r, p);
-        
+
         let error = frobenius_norm(&(&matrix - &reconstructed));
-        assert!(error < 1e-12, "Reconstruction error {} should be small", error);
+        assert!(
+            error < 1e-12,
+            "Reconstruction error {} should be small",
+            error
+        );
     }
 }
-

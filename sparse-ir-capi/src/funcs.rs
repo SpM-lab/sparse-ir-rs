@@ -76,9 +76,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
     _order: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
-    use crate::{
-        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT,
-    };
+    use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
     use sparse_ir::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
     use std::panic::catch_unwind;
     use std::sync::Arc;
@@ -103,7 +101,8 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
 
     let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
         // Convert segments to Vec
-        let segments_slice = unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        let segments_slice =
+            unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
         let knots = segments_slice.to_vec();
 
         // Verify segments are monotonically increasing
@@ -124,7 +123,8 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
 
         // Copy coefficients from C array
         // Layout: coeffs[seg * nfuncs + deg]
-        let coeffs_slice = unsafe { std::slice::from_raw_parts(coeffs, (n_segments * nfuncs) as usize) };
+        let coeffs_slice =
+            unsafe { std::slice::from_raw_parts(coeffs, (n_segments * nfuncs) as usize) };
         for seg in 0..n_segments_usize {
             for deg in 0..nfuncs_usize {
                 data[[deg, seg]] = coeffs_slice[seg * nfuncs_usize + deg];
@@ -215,13 +215,17 @@ pub unsafe extern "C" fn spir_funcs_get_slice(
 
     if funcs.is_null() || indices.is_null() || status.is_null() {
         if !status.is_null() {
-            unsafe { *status = SPIR_INVALID_ARGUMENT; }
+            unsafe {
+                *status = SPIR_INVALID_ARGUMENT;
+            }
         }
         return std::ptr::null_mut();
     }
 
     if nslice < 0 {
-        unsafe { *status = SPIR_INVALID_ARGUMENT; }
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
         return std::ptr::null_mut();
     }
 
@@ -234,7 +238,9 @@ pub unsafe extern "C" fn spir_funcs_get_slice(
 
         for &i in indices_slice {
             if i < 0 {
-                unsafe { *status = SPIR_INVALID_ARGUMENT; }
+                unsafe {
+                    *status = SPIR_INVALID_ARGUMENT;
+                }
                 return std::ptr::null_mut();
             }
             rust_indices.push(i as usize);
@@ -243,18 +249,24 @@ pub unsafe extern "C" fn spir_funcs_get_slice(
         // Get the slice
         match funcs_ref.get_slice(&rust_indices) {
             Some(sliced_funcs) => {
-                unsafe { *status = SPIR_COMPUTATION_SUCCESS; }
+                unsafe {
+                    *status = SPIR_COMPUTATION_SUCCESS;
+                }
                 Box::into_raw(Box::new(sliced_funcs))
             }
             None => {
-                unsafe { *status = SPIR_INVALID_ARGUMENT; }
+                unsafe {
+                    *status = SPIR_INVALID_ARGUMENT;
+                }
                 std::ptr::null_mut()
             }
         }
     });
 
     result.unwrap_or_else(|_| {
-        unsafe { *status = SPIR_INTERNAL_ERROR; }
+        unsafe {
+            *status = SPIR_INTERNAL_ERROR;
+        }
         std::ptr::null_mut()
     })
 }
@@ -622,7 +634,9 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     n_points_returned: *mut libc::c_int,
 ) -> crate::StatusCode {
     use crate::types::FuncsType;
-    use crate::{SPIR_INVALID_ARGUMENT, SPIR_COMPUTATION_SUCCESS, SPIR_NOT_SUPPORTED, SPIR_INTERNAL_ERROR};
+    use crate::{
+        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
+    };
     use sparse_ir::basis::FiniteTempBasis;
     use sparse_ir::kernel::LogisticKernel;
     use sparse_ir::traits::{Bosonic, Fermionic};
@@ -650,7 +664,10 @@ pub extern "C" fn spir_uhat_get_default_matsus(
                         fence,
                         positive_only,
                     );
-                    matsubara_points.iter().map(|freq| freq.into_i64()).collect()
+                    matsubara_points
+                        .iter()
+                        .map(|freq| freq.into_i64())
+                        .collect()
                 }
                 // Handle Bosonic case
                 // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
@@ -661,7 +678,10 @@ pub extern "C" fn spir_uhat_get_default_matsus(
                         fence,
                         positive_only,
                     );
-                    matsubara_points.iter().map(|freq| freq.into_i64()).collect()
+                    matsubara_points
+                        .iter()
+                        .map(|freq| freq.into_i64())
+                        .collect()
                 } else {
                     return SPIR_INVALID_ARGUMENT;
                 }
@@ -1111,14 +1131,8 @@ mod tests {
         // Test error handling: invalid arguments
         {
             let mut status = SPIR_INTERNAL_ERROR;
-            let funcs = spir_funcs_from_piecewise_legendre(
-                ptr::null(),
-                1,
-                ptr::null(),
-                1,
-                0,
-                &mut status,
-            );
+            let funcs =
+                spir_funcs_from_piecewise_legendre(ptr::null(), 1, ptr::null(), 1, 0, &mut status);
             assert_ne!(status, SPIR_COMPUTATION_SUCCESS);
             assert!(funcs.is_null());
         }

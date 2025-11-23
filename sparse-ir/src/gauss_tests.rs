@@ -1,10 +1,10 @@
 use super::*;
+use crate::Df64;
 use crate::interpolation1d::{
     evaluate_interpolated_polynomial, interpolate_1d_legendre, legendre_collocation_matrix,
 };
 use crate::numeric::CustomNumeric;
 use mdarray::DTensor;
-use crate::Df64;
 
 #[test]
 fn test_rule_constructor() {
@@ -390,7 +390,7 @@ fn test_twofloat_integration_convergence_analysis_polynomial() {
         let analytical = Df64::from_f64_unchecked(0.0) + 2.0 * Df64::ONE / (2.0 * n as f64 - 1.0);
         let error = (integral - analytical).abs();
 
-            error < Df64::from(1e-30)
+        error < Df64::from(1e-30)
     };
     for n in 1..=200 {
         assert!(poly_degn(n), "Polynomial degree {} failed", n);
@@ -456,7 +456,8 @@ fn test_interpolate_1d_legendre_sin_generic<T: CustomNumeric + 'static>(
     T: std::fmt::Display,
 {
     // Create Gauss rule using generic function
-    let gauss_rule = legendre_generic::<T>(n_points).reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
+    let gauss_rule = legendre_generic::<T>(n_points)
+        .reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
 
     // Sample sin(x) at Gauss points
     let values: Vec<T> = gauss_rule.x.iter().map(|&x| x.sin()).collect();
@@ -510,7 +511,7 @@ fn _test_interpolate_1d_legendre_sin_f64_high_precision() {
 fn _test_interpolate_1d_legendre_sin_twofloat_ultra_high_precision() {
     // Test ultra high-precision interpolation of sin(x) with Df64
     test_interpolate_1d_legendre_sin_generic::<Df64>(
-        200,                       // n_points (higher for better precision)
+        200,                             // n_points (higher for better precision)
         Df64::from_f64_unchecked(1e-19), // tolerance: 1e-19 (achieved maximum precision)
         vec![
             Df64::from_f64_unchecked(-0.8),
@@ -672,8 +673,7 @@ fn legendre_polynomial_twofloat(n: usize, x: Df64) -> Df64 {
                 let k_f = Df64::from(k as f64);
                 let k1_f = Df64::from((k - 1) as f64);
 
-                let p2 =
-                    ((Df64::from(2.0) * k1_f + Df64::from(1.0)) * x * p1 - k1_f * p0) / k_f;
+                let p2 = ((Df64::from(2.0) * k1_f + Df64::from(1.0)) * x * p1 - k1_f * p0) / k_f;
                 p0 = p1;
                 p1 = p2;
             }
