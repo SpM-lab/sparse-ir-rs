@@ -9,40 +9,128 @@ project(SparseIR_Fortran
     LANGUAGES Fortran
 )
 
+# Option to automatically build Rust C API with cargo
+option(SPARSEIR_BUILD_RUST_CAPI "Automatically build Rust C API with cargo" ON)
+
 # Find Rust C API library and header
 # Expected layout: _install/include/sparseir/sparseir.h, _install/lib/libsparse_ir_capi.*
-set(SPARSEIR_CAPI_PREFIX "${CMAKE_CURRENT_LIST_DIR}/_install" CACHE PATH "Path to Rust C API installation")
+# Note: If SPARSEIR_CAPI_PREFIX is set from parent (QE), use that; otherwise use default
+if(NOT DEFINED SPARSEIR_CAPI_PREFIX)
+    if(SPARSEIR_BUILD_RUST_CAPI)
+        # Use build directory for auto-built C API
+        set(SPARSEIR_CAPI_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/_rust_capi_install" CACHE PATH "Path to Rust C API installation")
+    else()
+        # Use default install directory
+        set(SPARSEIR_CAPI_PREFIX "${CMAKE_CURRENT_LIST_DIR}/_install" CACHE PATH "Path to Rust C API installation")
+    endif()
+endif()
 set(SPARSEIR_CAPI_INCLUDE_DIR "${SPARSEIR_CAPI_PREFIX}/include")
 set(SPARSEIR_CAPI_LIB_DIR "${SPARSEIR_CAPI_PREFIX}/lib")
 
-if(NOT EXISTS "${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h")
-    message(FATAL_ERROR "sparseir/sparseir.h not found at ${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h")
+# Determine sparseir-rust source directory (parent directory of fortran/)
+set(SPARSEIR_RUST_SOURCE_DIR "${CMAKE_CURRENT_LIST_DIR}/.." CACHE PATH "Path to sparseir-rust source directory")
+if(NOT EXISTS "${SPARSEIR_RUST_SOURCE_DIR}/Cargo.toml")
+    message(FATAL_ERROR "sparseir-rust source directory not found at ${SPARSEIR_RUST_SOURCE_DIR}. "
+            "Set SPARSEIR_RUST_SOURCE_DIR to the sparseir-rust source directory.")
+endif()
+
+# Build Rust C API automatically if requested
+if(SPARSEIR_BUILD_RUST_CAPI)
+    # Find cargo
+    find_program(CARGO_EXECUTABLE cargo)
+    if(NOT CARGO_EXECUTABLE)
+        message(FATAL_ERROR "cargo not found. Please install Rust toolchain (https://rustup.rs/) or set SPARSEIR_BUILD_RUST_CAPI=OFF")
+    endif()
+    message(STATUS "Found cargo: ${CARGO_EXECUTABLE}")
+    message(STATUS "Will automatically build Rust C API from ${SPARSEIR_RUST_SOURCE_DIR}")
+    
+    # Determine library extension based on platform
+    if(APPLE)
+        set(SPARSEIR_LIB_EXT "dylib")
+    elseif(UNIX)
+        set(SPARSEIR_LIB_EXT "so")
+    elseif(WIN32)
+        set(SPARSEIR_LIB_EXT "dll")
+    else()
+        set(SPARSEIR_LIB_EXT "so")
+    endif()
+    
+    set(SPARSEIR_CAPI_LIB_NAME "libsparse_ir_capi.${SPARSEIR_LIB_EXT}")
+    set(SPARSEIR_CAPI_BUILD_LIB "${SPARSEIR_RUST_SOURCE_DIR}/target/release/${SPARSEIR_CAPI_LIB_NAME}")
+    set(SPARSEIR_CAPI_BUILD_HEADER "${SPARSEIR_RUST_SOURCE_DIR}/sparse-ir-capi/include/sparseir/sparseir.h")
+    
+    # Custom target to build sparse-ir-capi with cargo
+    add_custom_target(sparseir_capi_build
+        COMMAND ${CARGO_EXECUTABLE} build --release -p sparse-ir-capi
+        WORKING_DIRECTORY ${SPARSEIR_RUST_SOURCE_DIR}
+        COMMENT "Building sparse-ir-capi with cargo"
+        BYPRODUCTS
+            "${SPARSEIR_CAPI_BUILD_LIB}"
+            "${SPARSEIR_CAPI_BUILD_HEADER}"
+    )
+    
+    # Custom target to install C-API library and header to build directory
+    add_custom_target(sparseir_capi_install
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SPARSEIR_CAPI_LIB_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${SPARSEIR_CAPI_BUILD_LIB}"
+            "${SPARSEIR_CAPI_LIB_DIR}/${SPARSEIR_CAPI_LIB_NAME}"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${SPARSEIR_CAPI_BUILD_HEADER}"
+            "${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h"
+        DEPENDS sparseir_capi_build
+        COMMENT "Installing sparse-ir-capi library and header to build directory"
+    )
+    
+    # Create directory structure so find_library doesn't fail
+    file(MAKE_DIRECTORY "${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir")
+    file(MAKE_DIRECTORY "${SPARSEIR_CAPI_LIB_DIR}")
+    message(STATUS "sparseir/sparseir.h will be created during build by sparseir_capi_install target")
+else()
+    # Check if header exists (it will be created by sparseir_capi_install during build)
+    if(NOT EXISTS "${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h")
+        # Create directory structure so find_library doesn't fail
+        file(MAKE_DIRECTORY "${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir")
+        file(MAKE_DIRECTORY "${SPARSEIR_CAPI_LIB_DIR}")
+        message(STATUS "sparseir/sparseir.h will be created during build by sparseir_capi_install target")
+    else()
+        message(STATUS "Found sparseir/sparseir.h at: ${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h")
+    endif()
 endif()
 
 # Find library (supports .so, .dylib, .dll)
+# Use NO_DEFAULT_PATH but don't require it - it will be created during build
 find_library(SPARSEIR_CAPI_LIB
     NAMES sparse_ir_capi
     PATHS "${SPARSEIR_CAPI_LIB_DIR}"
-    REQUIRED
     NO_DEFAULT_PATH
 )
 
 if(NOT SPARSEIR_CAPI_LIB)
-    message(FATAL_ERROR "libsparse_ir_capi not found in ${SPARSEIR_CAPI_LIB_DIR}")
+    # Set a placeholder that will be resolved at build time
+    # Determine library extension based on platform
+    if(APPLE)
+        set(SPARSEIR_LIB_EXT "dylib")
+    elseif(UNIX)
+        set(SPARSEIR_LIB_EXT "so")
+    elseif(WIN32)
+        set(SPARSEIR_LIB_EXT "dll")
+    else()
+        set(SPARSEIR_LIB_EXT "so")
+    endif()
+    set(SPARSEIR_CAPI_LIB "${SPARSEIR_CAPI_LIB_DIR}/libsparse_ir_capi.${SPARSEIR_LIB_EXT}")
+    message(STATUS "libsparse_ir_capi will be created during build by sparseir_capi_install target")
+else()
+    message(STATUS "Found libsparse_ir_capi at: ${SPARSEIR_CAPI_LIB}")
 endif()
-
-message(STATUS "Found sparseir/sparseir.h at: ${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h")
-message(STATUS "Found libsparse_ir_capi at: ${SPARSEIR_CAPI_LIB}")
-
-# Enable Fortran preprocessor
-set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -cpp")
 
 # Set Fortran module directory
 set(CMAKE_Fortran_MODULE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/fortran)
 
 add_library(sparseir_fortran SHARED
-    src/sparseir.f90
-    src/sparseir_ext.F90
+    src/sparse_ir_c.f90
+    src/sparse_ir_extension.f90
     src/_cbinding.inc
     src/_cbinding_public.inc
     ${TYPE_FILES}
@@ -114,7 +202,34 @@ else()
 endif()
 
 # Link Rust C API library
-target_link_libraries(sparseir_fortran PUBLIC ${SPARSEIR_CAPI_LIB})
+# SPARSEIR_LIB_EXT is already set above if SPARSEIR_BUILD_RUST_CAPI is ON
+# Otherwise, determine library extension based on platform
+if(NOT DEFINED SPARSEIR_LIB_EXT)
+    if(APPLE)
+        set(SPARSEIR_LIB_EXT "dylib")
+    elseif(UNIX)
+        set(SPARSEIR_LIB_EXT "so")
+    elseif(WIN32)
+        set(SPARSEIR_LIB_EXT "dll")
+    else()
+        set(SPARSEIR_LIB_EXT "so")
+    endif()
+endif()
+
+# Use the library path - it will be created by sparseir_capi_install during build
+if(EXISTS "${SPARSEIR_CAPI_LIB}")
+    target_link_libraries(sparseir_fortran PUBLIC ${SPARSEIR_CAPI_LIB})
+else()
+    # Library doesn't exist yet, but will be created during build
+    # Use the expected path - CMake will resolve it at link time
+    set(SPARSEIR_CAPI_LIB_PATH "${SPARSEIR_CAPI_LIB_DIR}/libsparse_ir_capi.${SPARSEIR_LIB_EXT}")
+    target_link_libraries(sparseir_fortran PUBLIC "${SPARSEIR_CAPI_LIB_PATH}")
+endif()
+
+# Make Fortran library depend on Rust C API build if auto-build is enabled
+if(SPARSEIR_BUILD_RUST_CAPI)
+    add_dependencies(sparseir_fortran sparseir_capi_install)
+endif()
 
 # Add include directory for sparseir.h
 target_include_directories(sparseir_fortran PRIVATE
@@ -147,6 +262,23 @@ install(
     FILES_MATCHING PATTERN "*.mod"
 )
 
+# Install Rust C API library and header
+if(SPARSEIR_BUILD_RUST_CAPI)
+    # Install Rust C API library
+    install(
+        FILES "${SPARSEIR_CAPI_LIB_DIR}/${SPARSEIR_CAPI_LIB_NAME}"
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+        COMPONENT sparseir_capi
+    )
+    
+    # Install Rust C API header
+    install(
+        FILES "${SPARSEIR_CAPI_INCLUDE_DIR}/sparseir/sparseir.h"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/sparseir"
+        COMPONENT sparseir_capi
+    )
+endif()
+
 # CMake package config for Fortran bindings
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(
@@ -160,3 +292,44 @@ install(EXPORT sparseirFortranTargets
     NAMESPACE SparseIR::
     DESTINATION "${CMAKE_INSTALL_DATADIR}/cmake/SparseIRFortran"
 )
+
+# Copy Fortran source files and module files to QE build directory if requested
+# This is used when sparseir-rust/fortran is built as a subdirectory from QE
+if(DEFINED QE_BUILD_DIR)
+    set(SPARSEIR_FORTRAN_QE_DIR "${QE_BUILD_DIR}/include/sparseir_fortran")
+    
+    # Custom target to copy Fortran sources to QE build directory
+    add_custom_target(sparseir_fortran_copy_to_qe
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SPARSEIR_FORTRAN_QE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/sparse_ir_c.f90"
+            "${SPARSEIR_FORTRAN_QE_DIR}/sparse_ir_c.f90"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/sparse_ir_extension.f90"
+            "${SPARSEIR_FORTRAN_QE_DIR}/sparse_ir_extension.f90"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/_cbinding.inc"
+            "${SPARSEIR_FORTRAN_QE_DIR}/_cbinding.inc"
+        COMMAND ${CMAKE_COMMAND} -E copy
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/_cbinding_public.inc"
+            "${SPARSEIR_FORTRAN_QE_DIR}/_cbinding_public.inc"
+        COMMENT "Copying Fortran binding sources to QE build directory: ${SPARSEIR_FORTRAN_QE_DIR}"
+    )
+    
+    # Copy module files after build (only .mod files)
+    add_custom_command(TARGET sparseir_fortran POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${SPARSEIR_FORTRAN_QE_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_Fortran_MODULE_DIRECTORY}/sparse_ir_c.mod"
+            "${SPARSEIR_FORTRAN_QE_DIR}/sparse_ir_c.mod"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_Fortran_MODULE_DIRECTORY}/sparse_ir_extension.mod"
+            "${SPARSEIR_FORTRAN_QE_DIR}/sparse_ir_extension.mod"
+        COMMENT "Copying Fortran module files to QE build directory"
+    )
+    
+    # Ensure copy happens after build
+    add_dependencies(sparseir_fortran_copy_to_qe sparseir_fortran)
+    
+    message(STATUS "Will copy Fortran bindings to QE build directory: ${SPARSEIR_FORTRAN_QE_DIR}")
+endif()

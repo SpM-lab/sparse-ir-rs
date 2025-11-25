@@ -61,14 +61,16 @@ def generate_evaluate_tau_function(ndim, input_type, output_type):
     c_function = f"c_spir_sampling_eval_{func_suffix}"
     
     # Generate the function
-    function = f"""SUBROUTINE evaluate_tau_{func_suffix}_{ndim}d(obj, target_dim, arr, res)
+    function = f"""SUBROUTINE evaluate_tau_{func_suffix}_{ndim}d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
+  INTEGER, INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   {input_fortran_type}, INTENT(IN), TARGET :: arr {shape_str}
   {output_fortran_type}, INTENT(OUT), TARGET :: res {shape_str}
 
   INTEGER(KIND=c_int) :: ndim_c, target_dim_c, status_c
   {dim_array_decl}
+  TYPE(c_ptr) :: tau_smpl_ptr
   input_dims_c = SHAPE(arr)
   output_dims_c = SHAPE(res)
   ndim_c = {ndim}
@@ -78,16 +80,29 @@ def generate_evaluate_tau_function(ndim, input_type, output_type):
   IF (input_dims_c(target_dim) /= obj%size) THEN
     CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Target dimension is not the same as the basis size', 1)
   ENDIF
-  IF (output_dims_c(target_dim) /= obj%ntau) THEN
-    CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Target dimension is not the same as the number of tau sampling points', 1)
-  ENDIF
+  ! Select appropriate sampling object based on statistics
+  SELECT CASE (statistics)
+  CASE (SPIR_STATISTICS_FERMIONIC)
+    IF (output_dims_c(target_dim) /= obj%ntau_f) THEN
+      CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Target dimension is not the same as the number of tau sampling points', 1)
+    ENDIF
+    tau_smpl_ptr = obj%tau_f_smpl_ptr
+  CASE (SPIR_STATISTICS_BOSONIC)
+    IF (output_dims_c(target_dim) /= obj%ntau_b) THEN
+      CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Target dimension is not the same as the number of tau sampling points', 1)
+    ENDIF
+    tau_smpl_ptr = obj%tau_b_smpl_ptr
+  CASE DEFAULT
+    CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Invalid statistics parameter', 1)
+    RETURN
+  END SELECT
   IF (.NOT. check_output_dims(target_dim, input_dims_c, output_dims_c)) THEN
     CALL errore('evaluate_tau_{func_suffix}_{ndim}d', &
         'Output dimensions are not the same as the input dimensions except for the TARGET dimension', 1)
   ENDIF
   target_dim_c = target_dim - 1
 
-  status_c = {c_function}(obj%tau_smpl_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
+  status_c = {c_function}(tau_smpl_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
     CALL errore('evaluate_tau_{func_suffix}_{ndim}d', 'Error evaluating on tau sampling points', INT(status_c))

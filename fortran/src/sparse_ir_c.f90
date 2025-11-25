@@ -1,6 +1,6 @@
 ! Fortran interface for the SparseIR library
 ! This module provides Fortran bindings to the SparseIR C API using iso_c_binding
-module sparseir
+module sparse_ir_c
    use, intrinsic :: iso_c_binding
    implicit none
    private
@@ -165,4 +165,4 @@ contains
       call c_spir_gemm_backend_release(backend_ptr)
    end subroutine spir_gemm_backend_release
 
-end module sparseir
+end module sparse_ir_c
