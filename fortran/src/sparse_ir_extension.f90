@@ -1,12 +1,14 @@
 ! Extends the SparseIR library with additional functionality
-MODULE sparseir_ext
+MODULE sparse_ir_extension
   USE, INTRINSIC :: iso_c_binding
-  USE sparseir
+  USE sparse_ir_c
   IMPLICIT NONE
   PRIVATE
   !
   PUBLIC :: IR, evaluate_tau, evaluate_matsubara, fit_tau, fit_matsubara, ir2dlr, dlr2ir
-  PUBLIC :: init_ir, finalize_ir, eval_u_tau
+  PUBLIC :: init_ir, finalize_ir, eval_u_tau, set_beta, deallocate_ir
+  ! Re-export constants from sparseir module
+  PUBLIC :: SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC
   !
   INTEGER, PARAMETER :: DP = KIND(1.0D0)
   !
@@ -22,6 +24,10 @@ MODULE sparseir_ext
     !! total number of IR basis functions (size of s)
     INTEGER :: ntau
     !! total number of sampling points of imaginary time
+    INTEGER :: ntau_f
+    !! total number of sampling points of imaginary time (Fermionic) - alias for ntau
+    INTEGER :: ntau_b
+    !! total number of sampling points of imaginary time (Bosonic) - alias for ntau
     INTEGER :: nfreq_f
     !! total number of sampling Matsubara freqs (Fermionic)
     INTEGER :: nfreq_b
@@ -61,8 +67,10 @@ MODULE sparseir_ext
     !! pointer to the SVE result
     TYPE(c_ptr) :: k_ptr
     !! pointer to the kernel
-    TYPE(c_ptr) :: tau_smpl_ptr
-    !! pointer to the tau sampling points
+    TYPE(c_ptr) :: tau_f_smpl_ptr
+    !! pointer to the tau sampling points (Fermionic)
+    TYPE(c_ptr) :: tau_b_smpl_ptr
+    !! pointer to the tau sampling points (Bosonic)
     TYPE(c_ptr) :: matsu_f_smpl_ptr
     !! pointer to the fermionic frequency sampling points
     TYPE(c_ptr) :: matsu_b_smpl_ptr
@@ -396,10 +404,14 @@ MODULE sparseir_ext
     !
     obj%size = get_basis_size(basis_f_ptr)
     !
-    CALL create_tau_smpl(basis_f_ptr, obj%tau, obj%tau_smpl_ptr)
+    ! Create tau sampling objects for both fermionic and bosonic
+    CALL create_tau_smpl(basis_f_ptr, obj%tau, obj%tau_f_smpl_ptr)
+    CALL create_tau_smpl(basis_b_ptr, obj%tau, obj%tau_b_smpl_ptr)
     !
     obj%s = basis_get_svals(basis_f_ptr)
     obj%ntau = size(obj%tau)
+    obj%ntau_f = obj%ntau  ! For compatibility with EPW code
+    obj%ntau_b = obj%ntau  ! For compatibility with EPW code
     CALL create_matsu_smpl(basis_f_ptr, lpositive, obj%freq_f, obj%matsu_f_smpl_ptr)
     CALL create_matsu_smpl(basis_b_ptr, lpositive, obj%freq_b, obj%matsu_b_smpl_ptr)
     obj%nfreq_f = size(obj%freq_f)
@@ -456,8 +468,11 @@ MODULE sparseir_ext
     IF (c_associated(obj%k_ptr)) THEN
        CALL c_spir_kernel_release(obj%k_ptr)
     ENDIF
-    IF (c_associated(obj%tau_smpl_ptr)) THEN
-       CALL c_spir_sampling_release(obj%tau_smpl_ptr)
+    IF (c_associated(obj%tau_f_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%tau_f_smpl_ptr)
+    ENDIF
+    IF (c_associated(obj%tau_b_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%tau_b_smpl_ptr)
     ENDIF
     IF (c_associated(obj%matsu_f_smpl_ptr)) THEN
        CALL c_spir_sampling_release(obj%matsu_f_smpl_ptr)
@@ -474,6 +489,168 @@ MODULE sparseir_ext
     ! Note: backend_ptr is shared (default_backend_ptr), so we don't release it here
     ! It will be released when the module is unloaded or explicitly released
   END SUBROUTINE finalize_ir
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE set_beta(obj, beta)
+  !-----------------------------------------------------------------------
+    !!
+    !! This routine updates IR-basis objects for a given beta.
+    !!
+    !
+    TYPE(IR), INTENT(INOUT) :: obj
+    !! contains all the IR-basis objects
+    REAL(KIND=DP), INTENT(IN) :: beta
+    !! inverse temperature
+    !
+    REAL(KIND=DP) :: wmax
+    INTEGER(KIND=c_int), TARGET :: status_c, npoles_c
+    !
+    TYPE(c_ptr) :: basis_f_ptr, basis_b_ptr, dlr_f_ptr, dlr_b_ptr
+    !
+    ! Release old basis and DLR objects if they exist
+    IF (c_associated(obj%basis_f_ptr)) THEN
+       CALL c_spir_basis_release(obj%basis_f_ptr)
+    ENDIF
+    IF (c_associated(obj%basis_b_ptr)) THEN
+       CALL c_spir_basis_release(obj%basis_b_ptr)
+    ENDIF
+    IF (c_associated(obj%dlr_f_ptr)) THEN
+       CALL c_spir_basis_release(obj%dlr_f_ptr)
+    ENDIF
+    IF (c_associated(obj%dlr_b_ptr)) THEN
+       CALL c_spir_basis_release(obj%dlr_b_ptr)
+    ENDIF
+    !
+    wmax = obj%lambda / beta
+    !
+    basis_f_ptr = create_basis(SPIR_STATISTICS_FERMIONIC, beta, wmax, obj%eps, obj%k_ptr, obj%sve_ptr)
+    IF (.NOT. c_associated(basis_f_ptr)) THEN
+       CALL errore('set_beta', 'Fermionic basis is not assigned', 1)
+    ENDIF
+    !
+    basis_b_ptr = create_basis(SPIR_STATISTICS_BOSONIC, beta, wmax, obj%eps, obj%k_ptr, obj%sve_ptr)
+    IF (.NOT. c_associated(basis_b_ptr)) THEN
+       CALL errore('set_beta', 'Bosonic basis is not assigned', 1)
+    ENDIF
+    !
+    ! Create DLR objects
+    dlr_f_ptr = c_spir_dlr_new(basis_f_ptr, c_loc(status_c))
+    IF (status_c /= 0 .OR. .NOT. c_associated(dlr_f_ptr)) THEN
+       CALL errore('set_beta', 'Error creating fermionic DLR', INT(status_c))
+    ENDIF
+    !
+    dlr_b_ptr = c_spir_dlr_new(basis_b_ptr, c_loc(status_c))
+    IF (status_c /= 0 .OR. .NOT. c_associated(dlr_b_ptr)) THEN
+       CALL errore('set_beta', 'Error creating bosonic DLR', INT(status_c))
+    ENDIF
+    !
+    ! Get number of poles
+    status_c = c_spir_dlr_get_npoles(dlr_f_ptr, c_loc(npoles_c))
+    IF (status_c /= 0) THEN
+       CALL errore('set_beta', 'Error getting number of poles', INT(status_c))
+    ENDIF
+    !
+    obj%beta = beta
+    obj%wmax = wmax
+    !
+    obj%basis_f_ptr = basis_f_ptr
+    obj%basis_b_ptr = basis_b_ptr
+    obj%dlr_f_ptr = dlr_f_ptr
+    obj%dlr_b_ptr = dlr_b_ptr
+    obj%npoles = npoles_c
+    !
+    obj%size = get_basis_size(basis_f_ptr)
+    !
+    ! Release old sampling objects if they exist
+    IF (c_associated(obj%tau_f_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%tau_f_smpl_ptr)
+    ENDIF
+    IF (c_associated(obj%tau_b_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%tau_b_smpl_ptr)
+    ENDIF
+    IF (c_associated(obj%matsu_f_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%matsu_f_smpl_ptr)
+    ENDIF
+    IF (c_associated(obj%matsu_b_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%matsu_b_smpl_ptr)
+    ENDIF
+    !
+    ! Create tau sampling objects for both fermionic and bosonic
+    CALL create_tau_smpl(basis_f_ptr, obj%tau, obj%tau_f_smpl_ptr)
+    CALL create_tau_smpl(basis_b_ptr, obj%tau, obj%tau_b_smpl_ptr)
+    !
+    obj%s = basis_get_svals(basis_f_ptr)
+    obj%ntau = size(obj%tau)
+    obj%ntau_f = obj%ntau  ! For compatibility with EPW code
+    obj%ntau_b = obj%ntau  ! For compatibility with EPW code
+    CALL create_matsu_smpl(basis_f_ptr, obj%positive_only, obj%freq_f, obj%matsu_f_smpl_ptr)
+    CALL create_matsu_smpl(basis_b_ptr, obj%positive_only, obj%freq_b, obj%matsu_b_smpl_ptr)
+    obj%nfreq_f = size(obj%freq_f)
+    obj%nfreq_b = size(obj%freq_b)
+    obj%omega = basis_get_ws(basis_f_ptr)
+    obj%nomega = size(obj%omega)
+  END SUBROUTINE set_beta
+  !
+  !-----------------------------------------------------------------------
+  SUBROUTINE deallocate_ir(obj)
+  !-----------------------------------------------------------------------
+    !!
+    !! This routine deallocates beta-dependent IR-basis objects contained in obj
+    !!
+    !
+    TYPE(IR), INTENT(INOUT) :: obj
+    !! contains all the IR-basis objects
+    INTEGER :: ierr
+    !! Error status
+    !
+    ! Deallocate arrays
+    IF (ALLOCATED(obj%s)) THEN
+       DEALLOCATE(obj%s, STAT = ierr)
+       IF (ierr /= 0) CALL errore('deallocate_ir', 'Error deallocating IR%s', 1)
+    ENDIF
+    IF (ALLOCATED(obj%tau)) THEN
+       DEALLOCATE(obj%tau, STAT = ierr)
+       IF (ierr /= 0) CALL errore('deallocate_ir', 'Error deallocating IR%tau', 1)
+    ENDIF
+    IF (ALLOCATED(obj%omega)) THEN
+       DEALLOCATE(obj%omega, STAT = ierr)
+       IF (ierr /= 0) CALL errore('deallocate_ir', 'Error deallocating IR%omega', 1)
+    ENDIF
+    IF (ALLOCATED(obj%freq_f)) THEN
+       DEALLOCATE(obj%freq_f, STAT = ierr)
+       IF (ierr /= 0) CALL errore('deallocate_ir', 'Error deallocating IR%freq_f', 1)
+    ENDIF
+    IF (ALLOCATED(obj%freq_b)) THEN
+       DEALLOCATE(obj%freq_b, STAT = ierr)
+       IF (ierr /= 0) CALL errore('deallocate_ir', 'Error deallocating IR%freq_b', 1)
+    ENDIF
+    !
+    ! Release C API objects
+    IF (c_associated(obj%basis_f_ptr)) THEN
+       CALL c_spir_basis_release(obj%basis_f_ptr)
+       obj%basis_f_ptr = c_null_ptr
+    ENDIF
+    IF (c_associated(obj%basis_b_ptr)) THEN
+       CALL c_spir_basis_release(obj%basis_b_ptr)
+       obj%basis_b_ptr = c_null_ptr
+    ENDIF
+    IF (c_associated(obj%dlr_f_ptr)) THEN
+       CALL c_spir_basis_release(obj%dlr_f_ptr)
+       obj%dlr_f_ptr = c_null_ptr
+    ENDIF
+    IF (c_associated(obj%dlr_b_ptr)) THEN
+       CALL c_spir_basis_release(obj%dlr_b_ptr)
+       obj%dlr_b_ptr = c_null_ptr
+    ENDIF
+    IF (c_associated(obj%matsu_f_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%matsu_f_smpl_ptr)
+       obj%matsu_f_smpl_ptr = c_null_ptr
+    ENDIF
+    IF (c_associated(obj%matsu_b_smpl_ptr)) THEN
+       CALL c_spir_sampling_release(obj%matsu_b_smpl_ptr)
+       obj%matsu_b_smpl_ptr = c_null_ptr
+    ENDIF
+  END SUBROUTINE deallocate_ir
   !
   !----------------------------------------------------------------------------
   SUBROUTINE errore( calling_routine, message, ierr )
@@ -521,8 +698,9 @@ MODULE sparseir_ext
   !
   END SUBROUTINE errore
 
-  FUNCTION eval_u_tau(obj, tau) RESULT(res)
+  FUNCTION eval_u_tau(obj, statistics, tau) RESULT(res)
     TYPE(IR), INTENT(IN) :: obj
+    INTEGER, INTENT(IN) :: statistics
     REAL(KIND=DP), INTENT(IN) :: tau
     !
     REAL(KIND=DP), ALLOCATABLE :: res(:)
@@ -530,8 +708,19 @@ MODULE sparseir_ext
     INTEGER(KIND=c_int), TARGET :: status_c
     !
     TYPE(c_ptr) :: u_tau_ptr
+    TYPE(c_ptr) :: basis_ptr
     !
-    u_tau_ptr = c_spir_basis_get_u(obj%basis_f_ptr, c_loc(status_c))
+    ! Select appropriate basis based on statistics
+    IF (statistics == SPIR_STATISTICS_FERMIONIC) THEN
+      basis_ptr = obj%basis_f_ptr
+    ELSE IF (statistics == SPIR_STATISTICS_BOSONIC) THEN
+      basis_ptr = obj%basis_b_ptr
+    ELSE
+      CALL errore('eval_u_tau', 'Invalid statistics parameter', 1)
+      RETURN
+    END IF
+    !
+    u_tau_ptr = c_spir_basis_get_u(basis_ptr, c_loc(status_c))
     IF (.NOT. c_associated(u_tau_ptr)) THEN
        CALL errore('eval_u_tau', 'Error getting u_tau pointer', INT(status_c))
     END IF
@@ -574,16 +763,16 @@ MODULE sparseir_ext
     is_valid = .true.
   END FUNCTION check_output_dims
 !
-#include "evaluate_tau_impl.inc"
+      INCLUDE 'evaluate_tau_impl.inc'
 !
-#include "evaluate_matsubara_impl.inc"
+      INCLUDE 'evaluate_matsubara_impl.inc'
 !
-#include "fit_tau_impl.inc"
+      INCLUDE 'fit_tau_impl.inc'
 !
-#include "fit_matsubara_impl.inc"
+      INCLUDE 'fit_matsubara_impl.inc'
 !
-#include "ir2dlr_impl.inc"
+      INCLUDE 'ir2dlr_impl.inc'
 !
-#include "dlr2ir_impl.inc"
+      INCLUDE 'dlr2ir_impl.inc'
 !
-END MODULE sparseir_ext
+END MODULE sparse_ir_extension

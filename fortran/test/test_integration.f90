@@ -1,6 +1,6 @@
 ! Simple test program for SparseIR Fortran bindings
 program test_integration
-   use sparseir
+   use sparse_ir_c
    use, intrinsic :: iso_c_binding
    implicit none
    real(c_double),target :: xmin, xmax, ymin, ymax

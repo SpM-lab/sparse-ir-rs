@@ -5,8 +5,8 @@
 ```
 fortran/
 ├── src/                    # Source files and generated .inc files
-│   ├── sparseir.f90        # Main Fortran module
-│   ├── sparseir_ext.F90    # Extended Fortran module
+│   ├── sparse_ir_c.f90        # Main Fortran module (C bindings)
+│   ├── sparse_ir_extension.f90    # Extended Fortran module
 │   └── *.inc               # Auto-generated include files
 ├── script/                 # Code generation scripts (for developers)
 │   └── generate_*.py       # Scripts to generate .inc files
@@ -39,10 +39,9 @@ cd fortran
 ```
 
 This script will:
-1. Build the Rust C-API library (`sparse-ir-capi`)
-2. Install it to `fortran/_install/`
-3. Build the Fortran bindings
-4. Run all tests
+1. Configure CMake (which automatically detects and builds the Rust C-API library with cargo)
+2. Build the Fortran bindings (CMake automatically builds the Rust C-API as a dependency)
+3. Run all tests
 
 **Note:** Code generation is not required for using the Fortran wrapper. The generated `.inc` files are already included in the repository.
 
@@ -54,7 +53,7 @@ To start from scratch, use the `--clean` option:
 ./test_with_rust_capi.sh --clean
 ```
 
-This will remove the `_build/` and `_install/` directories before building.
+This will remove the `_build/` directory and Rust `target/` directory before building.
 
 ### Running Sample Programs
 
@@ -78,16 +77,45 @@ The sample program demonstrates:
 
 ## Manual Build Process
 
-If you prefer to build manually:
+### Option 1: Automatic Build with CMake (Recommended)
 
-### Step 1: Build Rust C-API
+CMake can automatically build the Rust C-API library with cargo. This is the simplest approach:
+
+```sh
+cd fortran
+mkdir -p _build
+cd _build
+cmake .. -DSPARSEIR_BUILD_RUST_CAPI=ON -DSPARSEIR_BUILD_TESTING=ON
+cmake --build .
+ctest --output-on-failure
+```
+
+To install to a custom location:
+
+```sh
+cmake .. -DCMAKE_INSTALL_PREFIX=/path/to/install -DSPARSEIR_BUILD_RUST_CAPI=ON
+cmake --build .
+cmake --install .
+```
+
+This will install:
+- Fortran library: `${CMAKE_INSTALL_PREFIX}/lib/libsparseir_fortran.*`
+- Fortran modules: `${CMAKE_INSTALL_PREFIX}/include/sparseir/*.mod`
+- Rust C-API library: `${CMAKE_INSTALL_PREFIX}/lib/libsparse_ir_capi.*`
+- Rust C-API header: `${CMAKE_INSTALL_PREFIX}/include/sparseir/sparseir.h`
+
+### Option 2: Manual Build (Advanced)
+
+If you prefer to build the Rust C-API manually:
+
+#### Step 1: Build Rust C-API
 
 ```sh
 cd ../sparseir-rust
 cargo build --release -p sparse-ir-capi
 ```
 
-### Step 2: Install C-API
+#### Step 2: Install C-API
 
 ```sh
 cd fortran
@@ -96,16 +124,16 @@ cp ../target/release/libsparse_ir_capi.* _install/lib/
 cp ../sparse-ir-capi/include/sparseir/sparseir.h _install/include/sparseir/
 ```
 
-### Step 3: Build Fortran Bindings
+#### Step 3: Build Fortran Bindings
 
 ```sh
 mkdir -p _build
 cd _build
-cmake .. -DCMAKE_PREFIX_PATH=../_install
+cmake .. -DSPARSEIR_BUILD_RUST_CAPI=OFF -DSPARSEIR_CAPI_PREFIX=../_install
 cmake --build .
 ```
 
-### Step 4: Run Tests
+#### Step 4: Run Tests
 
 ```sh
 # Set library path
@@ -158,8 +186,8 @@ If you encounter code generation errors (only relevant for developers modifying 
 See the `sample/` directory for example usage of the Fortran API.
 
 The main modules are:
-- `sparseir` - Core C-API bindings
-- `sparseir_ext` - Extended Fortran-friendly interface
+- `sparse_ir_c` - Core C-API bindings
+- `sparse_ir_extension` - Extended Fortran-friendly interface
 
 Key types:
 - `IR` - IR basis object containing sampling points and basis functions
