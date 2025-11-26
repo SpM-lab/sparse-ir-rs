@@ -18,7 +18,7 @@ fortran/
 
 ## Prerequisites
 
-- Fortran compiler (gfortran 15.1.0 or compatible)
+- Fortran compiler
   - **Fortran 2003 or later** (required for `iso_c_binding` and `procedure` statements)
 - CMake (3.15 or later)
 - Rust toolchain (for building the C-API)
