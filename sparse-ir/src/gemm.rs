@@ -26,6 +26,9 @@ use mdarray::{DSlice, DTensor, Layout};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
+#[cfg(feature = "system-blas")]
+use blas_sys::dgemm_;
+
 //==============================================================================
 // BLAS Function Pointer Types
 //==============================================================================
@@ -82,6 +85,47 @@ pub type ZgemmFnPtr = unsafe extern "C" fn(
     c: *mut num_complex::Complex<f64>,
     ldc: *const libc::c_int,
 );
+
+// When using system BLAS via `blas-sys`, we need a small wrapper to adapt
+// `blas_sys::zgemm_` (which uses `c_double_complex = [f64; 2]`) to the
+// `ZgemmFnPtr` signature that takes `num_complex::Complex<f64>`.
+#[cfg(feature = "system-blas")]
+unsafe extern "C" fn zgemm_wrapper(
+    transa: *const libc::c_char,
+    transb: *const libc::c_char,
+    m: *const libc::c_int,
+    n: *const libc::c_int,
+    k: *const libc::c_int,
+    alpha: *const num_complex::Complex<f64>,
+    a: *const num_complex::Complex<f64>,
+    lda: *const libc::c_int,
+    b: *const num_complex::Complex<f64>,
+    ldb: *const libc::c_int,
+    beta: *const num_complex::Complex<f64>,
+    c: *mut num_complex::Complex<f64>,
+    ldc: *const libc::c_int,
+) {
+    // Safety: `blas_sys::c_double_complex` is defined as `[f64; 2]` and is
+    // layout-compatible with `num_complex::Complex<f64>` in memory, so we can
+    // cast between the two pointer types here.
+    unsafe {
+        blas_sys::zgemm_(
+            transa,
+            transb,
+            m,
+            n,
+            k,
+            alpha as *const _ as *const blas_sys::c_double_complex,
+            a as *const _ as *const blas_sys::c_double_complex,
+            lda,
+            b as *const _ as *const blas_sys::c_double_complex,
+            ldb,
+            beta as *const _ as *const blas_sys::c_double_complex,
+            c as *mut _ as *mut blas_sys::c_double_complex,
+            ldc,
+        );
+    }
+}
 
 /// BLAS dgemm function pointer type (ILP64: 64-bit integers)
 ///
@@ -567,8 +611,20 @@ impl GemmBackendHandle {
 ///
 /// This is kept for backward compatibility when `None` is passed as backend.
 /// New code should use `GemmBackendHandle` explicitly.
-static BLAS_DISPATCHER: Lazy<RwLock<Box<dyn GemmBackend>>> =
-    Lazy::new(|| RwLock::new(Box::new(FaerBackend)));
+static BLAS_DISPATCHER: Lazy<RwLock<Box<dyn GemmBackend>>> = Lazy::new(|| {
+    #[cfg(feature = "system-blas")]
+    {
+        // Use system BLAS (LP64) by default via `blas-sys`.
+        let backend =
+            ExternalBlasBackend::new(dgemm_ as DgemmFnPtr, zgemm_wrapper as ZgemmFnPtr);
+        RwLock::new(Box::new(backend) as Box<dyn GemmBackend>)
+    }
+    #[cfg(not(feature = "system-blas"))]
+    {
+        // Default to the pure Rust Faer backend.
+        RwLock::new(Box::new(FaerBackend) as Box<dyn GemmBackend>)
+    }
+});
 
 /// Set BLAS backend (LP64: 32-bit integers)
 ///
