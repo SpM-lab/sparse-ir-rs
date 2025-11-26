@@ -5,6 +5,12 @@ edition.workspace = true
 authors.workspace = true
 description = "C API for SparseIR Rust implementation"
 license.workspace = true
+exclude = [
+    ".cargo_vcs_info.json",
+    ".gitignore",
+    "Cargo.lock",
+    "Cargo.toml.orig",
+]
 
 [lib]
 name = "sparse_ir_capi"
@@ -14,8 +20,8 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # build.rs will automatically generate sparseir.h via cbindgen
 
 [dependencies]
-# Main SparseIR library
-sparse-ir = { path = "../sparse-ir" }
+# Main SparseIR library (version from workspace.dependencies, overridden locally via [patch.crates-io])
+sparse-ir.workspace = true
 
 # Array library (for Shape trait)
 mdarray.workspace = true

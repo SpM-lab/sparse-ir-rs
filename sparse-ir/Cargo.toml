@@ -7,6 +7,10 @@ description = "Rust implementation of SparseIR functionality"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+exclude = [
+    ".cargo_vcs_info.json",
+    "Cargo.toml.orig",
+]
 
 # Library configuration for shared library
 [lib]
