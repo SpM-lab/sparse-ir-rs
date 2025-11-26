@@ -38,31 +38,6 @@ if [ "${1:-}" = "--clean" ]; then
     fi
 fi
 
-# Check if xprec-rs exists and has Cargo.toml, initialize submodule if needed
-cd "${WORKSPACE_ROOT}"
-if [ ! -f "Cargo.toml" ]; then
-    echo -e "${RED}Error: Cargo.toml not found at ${WORKSPACE_ROOT}${NC}"
-    exit 1
-fi
-
-if [ ! -f "xprec-rs/Cargo.toml" ]; then
-    echo -e "${YELLOW}xprec-rs submodule not initialized, initializing...${NC}"
-    if [ -f ".gitmodules" ] && grep -q "xprec-rs" .gitmodules; then
-        git submodule update --init --force --recursive xprec-rs || {
-            echo -e "${RED}Error: Failed to initialize xprec-rs submodule${NC}"
-            exit 1
-        }
-        # Verify Cargo.toml exists after initialization
-        if [ ! -f "xprec-rs/Cargo.toml" ]; then
-            echo -e "${RED}Error: xprec-rs/Cargo.toml still not found after submodule initialization${NC}"
-            exit 1
-        fi
-    else
-        echo -e "${RED}Error: xprec-rs/Cargo.toml not found and not a git submodule${NC}"
-        exit 1
-    fi
-fi
-
 # Step 1: Configure and build with CMake (CMake will automatically build Rust C API)
 echo -e "${YELLOW}Step 1: Configuring CMake...${NC}"
 cd "${SCRIPT_DIR}"
