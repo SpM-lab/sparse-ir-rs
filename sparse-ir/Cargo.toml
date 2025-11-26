@@ -37,6 +37,9 @@ libm.workspace = true
 # Error handling
 thiserror.workspace = true
 
+# System BLAS (optional, LP64)
+blas-sys = { workspace = true, optional = true }
+
 # Linear algebra
 nalgebra = "0.33"
 
@@ -65,3 +68,6 @@ pkg-config = "0.3"
 default = []
 # Shared library features
 shared-lib = []
+
+# Use system BLAS (LP64) for GEMM backend by default
+system-blas = ["blas-sys"]
