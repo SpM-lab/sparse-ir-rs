@@ -45,4 +45,15 @@ For details on the Fortran interface and build instructions, see:
 
 - `fortran/README.md`
 
+## License
+
+This workspace is dual-licensed under the terms of the MIT license and the Apache License (Version 2.0).
+
+- You may use the code in this repository under the terms of either license, at your option:
+  - [MIT License](LICENSE)
+  - [Apache License 2.0](LICENSE-APACHE)
+
+Some components incorporate third-party code under Apache-2.0, such as the `col_piv_qr` module in the `sparse-ir` crate, which is based on nalgebra.  
+See [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE` for details.
+
 
