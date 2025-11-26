@@ -44,7 +44,7 @@ use sparse_ir::gemm::{
 /// Note: The internal structure is hidden using a void pointer to prevent exposing GemmBackendHandle to C.
 #[repr(C)]
 pub struct spir_gemm_backend {
-    pub(crate) _private: *mut std::ffi::c_void,
+    pub(crate) _private: *const std::ffi::c_void,
 }
 
 impl spir_gemm_backend {
@@ -55,7 +55,7 @@ impl spir_gemm_backend {
 
     pub(crate) fn new(handle: GemmBackendHandle) -> Self {
         Self {
-            _private: Box::into_raw(Box::new(handle)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(handle)) as *const std::ffi::c_void,
         }
     }
 }
@@ -64,7 +64,9 @@ impl Drop for spir_gemm_backend {
     fn drop(&mut self) {
         if !self._private.is_null() {
             unsafe {
-                let _ = Box::from_raw(self._private as *mut GemmBackendHandle);
+                let _ = Box::from_raw(
+                    self._private as *const GemmBackendHandle as *mut GemmBackendHandle,
+                );
             }
         }
     }
@@ -347,19 +349,9 @@ mod tests {
     #[cfg(test)]
     mod system_blas_tests {
         use super::*;
-        use blas_sys::{c_double_complex, dgemm_, zgemm_};
+        use blas_sys::{dgemm_, zgemm_};
         use mdarray::tensor;
         use sparse_ir::gemm::matmul_par;
-
-        // Helper function to convert Complex<f64> to c_double_complex
-        fn complex_to_c_double_complex(c: num_complex::Complex<f64>) -> c_double_complex {
-            [c.re, c.im]
-        }
-
-        // Helper function to convert c_double_complex to Complex<f64>
-        fn c_double_complex_to_complex(c: c_double_complex) -> num_complex::Complex<f64> {
-            num_complex::Complex::new(c[0], c[1])
-        }
 
         // Helper to create backend from blas-sys functions
         unsafe fn create_blas_backend() -> *mut spir_gemm_backend {
