@@ -22,7 +22,7 @@
 //! limitations under the License.
 //!
 //! Modifications and additions (including early termination support) are licensed under
-//! the MIT License as part of the sparse-ir project.
+//! the same dual license as the sparse-ir crate (MIT OR Apache-2.0).
 
 use num_traits::Zero;
 

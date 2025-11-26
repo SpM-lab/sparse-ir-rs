@@ -94,7 +94,11 @@ This implementation is optimized for high performance:
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This crate is dual-licensed under the terms of the MIT license and the Apache License (Version 2.0).
+
+- You may use this crate under the terms of either license, at your option:
+  - [MIT License](../LICENSE)
+  - [Apache License 2.0](../LICENSE-APACHE)
 
 ### Third-Party Licenses
 
@@ -105,7 +109,7 @@ The `col_piv_qr` module is based on code from the [nalgebra](https://github.com/
   - Copyright 2020 Sébastien Crozet
   - See [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0) for details
 
-Modifications and additions to the nalgebra code (including early termination support) are licensed under the MIT License as part of this project.
+Modifications and additions to the nalgebra code (including early termination support) are available under the same dual license as this crate (MIT OR Apache-2.0).
 
 ## Contributing
 
