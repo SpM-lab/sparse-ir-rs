@@ -11,8 +11,8 @@ mdarray = "0.7.1"
 mdarray-linalg = "0.1.2"
 mdarray-linalg-faer = "0.1.2"
 
-# Internal dependencies
-sparse-ir = { path = "sparse-ir" }
+# Crates published on crates.io (versions must match published ones)
+sparse-ir = "0.7.0"
 faer = "0.23"
 faer-traits = "0.23"
 num-complex = "0.4"
@@ -31,6 +31,10 @@ libm = "0.2"
 blas-sys = "0.7"
 dashu-float = "0.4"
 dashu-base = "0.4"
+
+[patch.crates-io]
+# During workspace development, use the local sparse-ir implementation
+sparse-ir = { path = "sparse-ir" }
 
 [workspace.package]
 version = "0.7.0"
