@@ -66,7 +66,7 @@ impl FunctionDomain {
 /// The internal structure is hidden using a void pointer to prevent exposing KernelType to C.
 #[repr(C)]
 pub struct spir_kernel {
-    pub(crate) _private: *mut std::ffi::c_void,
+    pub(crate) _private: *const std::ffi::c_void,
 }
 
 /// Opaque SVE result type for C API (compatible with libsparseir)
@@ -77,7 +77,7 @@ pub struct spir_kernel {
 /// The internal structure is hidden using a void pointer to prevent exposing Arc<SVEResult> to C.
 #[repr(C)]
 pub struct spir_sve_result {
-    pub(crate) _private: *mut std::ffi::c_void,
+    pub(crate) _private: *const std::ffi::c_void,
 }
 
 /// Opaque basis type for C API (compatible with libsparseir)
@@ -88,7 +88,7 @@ pub struct spir_sve_result {
 /// The internal structure is hidden using a void pointer to prevent exposing BasisType to C.
 #[repr(C)]
 pub struct spir_basis {
-    pub(crate) _private: *mut std::ffi::c_void,
+    pub(crate) _private: *const std::ffi::c_void,
 }
 
 /// Internal basis type (not exposed to C)
@@ -120,14 +120,14 @@ impl spir_kernel {
     pub(crate) fn new_logistic(lambda: f64) -> Self {
         let inner = KernelType::Logistic(Arc::new(LogisticKernel::new(lambda)));
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
     pub(crate) fn new_regularized_bose(lambda: f64) -> Self {
         let inner = KernelType::RegularizedBose(Arc::new(RegularizedBoseKernel::new(lambda)));
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
@@ -172,7 +172,7 @@ impl Clone for spir_kernel {
         // Cheap clone: KernelType::clone internally uses Arc::clone which is cheap
         let inner = self.inner().clone();
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 }
@@ -181,7 +181,7 @@ impl Drop for spir_kernel {
     fn drop(&mut self) {
         unsafe {
             if !self._private.is_null() {
-                let _ = Box::from_raw(self._private as *mut KernelType);
+                let _ = Box::from_raw(self._private as *const KernelType as *mut KernelType);
             }
         }
     }
@@ -196,7 +196,7 @@ impl spir_sve_result {
     pub(crate) fn new(sve_result: SVEResult) -> Self {
         let inner = Arc::new(sve_result);
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
@@ -231,7 +231,7 @@ impl Clone for spir_sve_result {
         // Cheap clone: Arc::clone just increments reference count
         let inner = self.inner_arc().clone();
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 }
@@ -240,7 +240,8 @@ impl Drop for spir_sve_result {
     fn drop(&mut self) {
         unsafe {
             if !self._private.is_null() {
-                let _ = Box::from_raw(self._private as *mut Arc<SVEResult>);
+                let _ =
+                    Box::from_raw(self._private as *const Arc<SVEResult> as *mut Arc<SVEResult>);
             }
         }
     }
@@ -261,14 +262,14 @@ impl spir_basis {
     ) -> Self {
         let inner = BasisType::LogisticFermionic(Arc::new(basis));
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
     pub(crate) fn new_logistic_bosonic(basis: FiniteTempBasis<LogisticKernel, Bosonic>) -> Self {
         let inner = BasisType::LogisticBosonic(Arc::new(basis));
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
@@ -277,7 +278,7 @@ impl spir_basis {
     ) -> Self {
         let inner = BasisType::RegularizedBoseFermionic(Arc::new(basis));
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
@@ -286,7 +287,7 @@ impl spir_basis {
     ) -> Self {
         let inner = BasisType::RegularizedBoseBosonic(Arc::new(basis));
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
@@ -295,7 +296,7 @@ impl spir_basis {
     ) -> Self {
         let inner = BasisType::DLRFermionic(dlr);
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
@@ -304,7 +305,7 @@ impl spir_basis {
     ) -> Self {
         let inner = BasisType::DLRBosonic(dlr);
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 
@@ -446,7 +447,7 @@ impl Clone for spir_basis {
         // Cheap clone: BasisType::clone internally uses Arc::clone which is cheap
         let inner = self.inner_type().clone();
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 }
@@ -455,7 +456,7 @@ impl Drop for spir_basis {
     fn drop(&mut self) {
         unsafe {
             if !self._private.is_null() {
-                let _ = Box::from_raw(self._private as *mut BasisType);
+                let _ = Box::from_raw(self._private as *const BasisType as *mut BasisType);
             }
         }
     }
@@ -653,7 +654,7 @@ pub(crate) enum FuncsType {
 /// The internal FuncsType is hidden using a void pointer, but beta is kept as a public field.
 #[repr(C)]
 pub struct spir_funcs {
-    pub(crate) _private: *mut std::ffi::c_void,
+    pub(crate) _private: *const std::ffi::c_void,
     pub(crate) beta: f64,
 }
 
@@ -670,7 +671,7 @@ impl spir_funcs {
             domain: FunctionDomain::Tau(Statistics::Fermionic),
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -682,7 +683,7 @@ impl spir_funcs {
             domain: FunctionDomain::Tau(Statistics::Bosonic),
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -694,7 +695,7 @@ impl spir_funcs {
             domain: FunctionDomain::Omega,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -710,7 +711,7 @@ impl spir_funcs {
             statistics: Statistics::Fermionic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -726,7 +727,7 @@ impl spir_funcs {
             statistics: Statistics::Bosonic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -746,7 +747,7 @@ impl spir_funcs {
             statistics: Statistics::Fermionic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -766,7 +767,7 @@ impl spir_funcs {
             statistics: Statistics::Bosonic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -787,7 +788,7 @@ impl spir_funcs {
             statistics: Statistics::Fermionic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -808,7 +809,7 @@ impl spir_funcs {
             statistics: Statistics::Bosonic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -826,7 +827,7 @@ impl spir_funcs {
             statistics: Statistics::Fermionic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -844,7 +845,7 @@ impl spir_funcs {
             statistics: Statistics::Bosonic,
         });
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta,
         }
     }
@@ -1136,7 +1137,7 @@ impl Clone for spir_funcs {
         // Cheap clone: FuncsType::clone internally uses Arc::clone which is cheap
         let inner = self.inner_type().clone();
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
             beta: self.beta,
         }
     }
@@ -1146,7 +1147,7 @@ impl Drop for spir_funcs {
     fn drop(&mut self) {
         unsafe {
             if !self._private.is_null() {
-                let _ = Box::from_raw(self._private as *mut FuncsType);
+                let _ = Box::from_raw(self._private as *const FuncsType as *mut FuncsType);
             }
         }
     }
@@ -1171,7 +1172,7 @@ mod tests {
 /// The internal structure is hidden using a void pointer to prevent exposing SamplingType to C.
 #[repr(C)]
 pub struct spir_sampling {
-    pub(crate) _private: *mut std::ffi::c_void,
+    pub(crate) _private: *const std::ffi::c_void,
 }
 
 impl spir_sampling {
@@ -1186,7 +1187,7 @@ impl Clone for spir_sampling {
         // Cheap clone: SamplingType::clone internally uses Arc::clone which is cheap
         let inner = self.inner().clone();
         Self {
-            _private: Box::into_raw(Box::new(inner)) as *mut std::ffi::c_void,
+            _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
         }
     }
 }
@@ -1195,7 +1196,7 @@ impl Drop for spir_sampling {
     fn drop(&mut self) {
         unsafe {
             if !self._private.is_null() {
-                let _ = Box::from_raw(self._private as *mut SamplingType);
+                let _ = Box::from_raw(self._private as *const SamplingType as *mut SamplingType);
             }
         }
     }

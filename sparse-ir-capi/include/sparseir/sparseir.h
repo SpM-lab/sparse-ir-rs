@@ -56,7 +56,7 @@ typedef double _Complex c_complex;
  * The internal structure is hidden using a void pointer to prevent exposing BasisType to C.
  */
 typedef struct spir_basis {
-  void *_private;
+  const void *_private;
 } spir_basis;
 
 /**
@@ -69,7 +69,7 @@ typedef struct spir_basis {
  * The internal structure is hidden using a void pointer to prevent exposing KernelType to C.
  */
 typedef struct spir_kernel {
-  void *_private;
+  const void *_private;
 } spir_kernel;
 
 /**
@@ -81,7 +81,7 @@ typedef struct spir_kernel {
  * The internal structure is hidden using a void pointer to prevent exposing Arc<SVEResult> to C.
  */
 typedef struct spir_sve_result {
-  void *_private;
+  const void *_private;
 } spir_sve_result;
 
 /**
@@ -100,7 +100,7 @@ typedef struct spir_sve_result {
  * The internal FuncsType is hidden using a void pointer, but beta is kept as a public field.
  */
 typedef struct spir_funcs {
-  void *_private;
+  const void *_private;
   double beta;
 } spir_funcs;
 
@@ -113,7 +113,7 @@ typedef struct spir_funcs {
  * Note: The internal structure is hidden using a void pointer to prevent exposing GemmBackendHandle to C.
  */
 typedef struct spir_gemm_backend {
-  void *_private;
+  const void *_private;
 } spir_gemm_backend;
 
 
@@ -127,7 +127,7 @@ typedef struct spir_gemm_backend {
  * The internal structure is hidden using a void pointer to prevent exposing SamplingType to C.
  */
 typedef struct spir_sampling {
-  void *_private;
+  const void *_private;
 } spir_sampling;
 
 #define SPIR_COMPUTATION_SUCCESS 0
