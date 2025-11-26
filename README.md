@@ -16,7 +16,14 @@ cargo build            # build all crates in debug mode
 cargo build --release  # optimized build
 ```
 
-The default build uses the pure-Rust `faer` backend for linear algebra.  
+The default build uses the pure-Rust `faer` backend for matrix–matrix products used in fitting and evaluation routines.  
+Faer is reasonably fast, but usually considerably slower than an optimized BLAS implementation.
+To enable system BLAS (LP64) for the Rust `sparse-ir` crate at compile time, use:
+
+```bash
+cargo build -p sparse-ir --features system-blas
+```
+
 Optional BLAS backends (e.g. Accelerate, OpenBLAS/CBLAS) can be injected at runtime via function pointers when using the C API or the internal GEMM dispatcher.
 
 ## Test
