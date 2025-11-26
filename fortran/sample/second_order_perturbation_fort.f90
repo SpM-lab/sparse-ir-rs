@@ -112,8 +112,8 @@ CONTAINS
 END MODULE fftw3_run
 
 PROGRAM main
-  USE sparseir
-  USE sparseir_ext
+  USE sparse_ir_c
+  USE sparse_ir_extension
   USE kinds
   USE input_variables
   USE fftw3_run

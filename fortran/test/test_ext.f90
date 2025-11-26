@@ -1,7 +1,7 @@
 ! Simple test program for SparseIR Fortran bindings
 program test_ext
-   use sparseir
-   use sparseir_ext
+   use sparse_ir_c
+   use sparse_ir_extension
    implicit none
 
    integer, parameter :: dp = KIND(1.0D0)
@@ -124,11 +124,11 @@ stop 1
       end if
 
       ! Evaluate Green's function at tau points
-      call evaluate_tau(obj, target_dim, g_ir2_z, gtau_z)
+      call evaluate_tau(obj, statistics, target_dim, g_ir2_z, gtau_z)
 
       ! Check tau evaluation
       allocate(u_tau(obj%size))
-      u_tau = eval_u_tau(obj, obj%tau(1))
+      u_tau = eval_u_tau(obj, statistics, obj%tau(1))
       allocate(imag_tmp(extra_dim_size))
       imag_tmp = 0.0_DP
       do i = 1, obj%size
@@ -145,7 +145,7 @@ stop 1
       deallocate(imag_tmp)
 
       ! Convert tau points back to IR
-      call fit_tau(obj, target_dim, gtau_z, g_ir2_z)
+      call fit_tau(obj, statistics, target_dim, gtau_z, g_ir2_z)
 
       ! Evaluate Green's function at Matsubara frequencies again
       call evaluate_matsubara(obj, statistics, target_dim, g_ir2_z, giw_reconst)
@@ -235,10 +235,10 @@ stop 1
       end if
 
       ! Evaluate Green's function at tau points
-      call evaluate_tau(obj, target_dim, g_ir2_z, gtau_z)
+      call evaluate_tau(obj, statistics, target_dim, g_ir2_z, gtau_z)
 
       ! Convert tau points back to IR
-      call fit_tau(obj, target_dim, gtau_z, g_ir2_z)
+      call fit_tau(obj, statistics, target_dim, gtau_z, g_ir2_z)
 
       ! Evaluate Green's function at Matsubara frequencies again
       call evaluate_matsubara(obj, statistics, target_dim, g_ir2_z, giw_reconst)
