@@ -37,11 +37,11 @@ dashu-base = "0.4"
 sparse-ir = { path = "sparse-ir" }
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/sparse-ir/sparse-ir"
+repository = "https://github.com/SpM-lab/sparse-ir-rs"
 authors = ["SparseIR Team"]
 description = "Rust implementation of SparseIR functionality"
 

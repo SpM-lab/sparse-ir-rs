@@ -4,7 +4,7 @@ C-compatible interface to the SparseIR Rust library.
 
 ## Overview
 
-This crate provides a **libsparseir-compatible** C API for the SparseIR library, designed as a drop-in replacement for the C++ implementation.
+This crate provides a **libsparseir-compatible** C API for the SparseIR library.
 
 ### Language Support
 - Julia ✅ (tested)
