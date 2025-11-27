@@ -47,9 +47,6 @@ blas-sys = { workspace = true, optional = true }
 # Linear algebra
 nalgebra = "0.33"
 
-# Parallel processing
-rayon.workspace = true
-
 # Lazy static initialization for GEMM dispatcher
 once_cell.workspace = true
 

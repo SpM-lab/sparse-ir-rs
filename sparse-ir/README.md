@@ -2,18 +2,15 @@
 
 [![Crates.io](https://img.shields.io/crates/v/sparse-ir.svg)](https://crates.io/crates/sparse-ir)
 [![Documentation](https://docs.rs/sparse-ir/badge.svg)](https://docs.rs/sparse-ir)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
 
 A high-performance Rust implementation of the SparseIR (Sparse Intermediate Representation) library, providing analytical continuation and sparse representation functionality for quantum many-body physics calculations.
 
 ## Features
 
-- **Finite Temperature Basis**: Bosonic and fermionic basis representations
-- **Singular Value Expansion (SVE)**: Efficient kernel decomposition
-- **Discrete Lehmann Representation (DLR)**: Sparse representation of Green's functions
-- **Piecewise Legendre Polynomials**: High-precision interpolation
-- **Sparse Sampling**: Efficient sampling in imaginary time and Matsubara frequencies
-- **High-Performance Linear Algebra**: Built on Faer for pure Rust performance
+- Intermediate Representation (IR) basis for fermionic and bosonic statistics
+- Discrete Lehmann Representation (DLR) basis for fermionic and bosonic statistics
+- Sparse Sampling in imaginary time and Matsubara frequencies
 
 ## Installation
 
@@ -26,20 +23,6 @@ Add to your `Cargo.toml`:
 sparse-ir = "0.1.0"
 ```
 
-### As a Shared Library
-
-The library can be built as a shared library (`.so` on Linux, `.dylib` on macOS, `.dll` on Windows) for use with other languages:
-
-```bash
-# Build shared library
-cargo build --release
-
-# The shared library will be available at:
-# target/release/libsparse_ir.so (Linux)
-# target/release/libsparse_ir.dylib (macOS)
-# target/release/sparse_ir.dll (Windows)
-```
-
 ## Usage
 
 ### Basic Example
@@ -48,13 +31,16 @@ cargo build --release
 use sparse_ir::*;
 
 // Create a finite temperature basis
-let basis = FiniteTempBasis::new(10.0, 100, Statistics::Fermionic);
+let beta = 10.0;
+let lambda = 10.0; // beta * omega_max
+let kernel = LogisticKernel::new(lambda);
+let basis = FermionicBasis::new(kernel, beta, None, None);
 
 // Generate sampling points
 let sampling = TauSampling::new(&basis);
 
 // Use the basis for calculations
-let tau_points = sampling.tau_points();
+let tau_points = sampling.sampling_points();
 println!("Generated {} sampling points", tau_points.len());
 ```
 
@@ -64,12 +50,12 @@ println!("Generated {} sampling points", tau_points.len());
 use sparse_ir::*;
 
 // Create a kernel for analytical continuation
-let kernel = LogisticKernel::new(1.0, 0.1);
+let kernel = LogisticKernel::new(1.0);
 
 // Compute SVE
-let sve_result = compute_sve(&kernel, 100, 1e-12);
+let sve_result = compute_sve(kernel, 1e-12, None, Some(100), TworkType::Auto);
 
-println!("SVE computed with {} singular values", sve_result.singular_values.len());
+println!("SVE computed with {} singular values", sve_result.s.len());
 ```
 
 ## API Documentation
@@ -81,16 +67,13 @@ The complete API documentation is available at [docs.rs/sparse-ir](https://docs.
 This implementation is optimized for high performance:
 
 - **Pure Rust**: No external C/C++ dependencies for core functionality
-- **SIMD Optimized**: Uses Faer for vectorized linear algebra
-- **Memory Efficient**: Sparse representations minimize memory usage
-- **Parallel Processing**: Rayon-based parallelization where beneficial
+- **SIMD Optimized**: Uses Faer for matrix-matrix products (evaluate and fit routines). Optionally, system BLAS can be used for these operations for better performance.
 
 ## Dependencies
 
 - **Linear Algebra**: [mdarray](https://crates.io/crates/mdarray) + [Faer](https://crates.io/crates/faer)
 - **Extended Precision**: [xprec-rs](https://github.com/tuwien-cms/xprec-rs)
 - **Special Functions**: [special](https://crates.io/crates/special)
-- **Parallel Processing**: [rayon](https://crates.io/crates/rayon)
 
 ## License
 
@@ -117,6 +100,8 @@ Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) 
 
 ## References
 
-- SparseIR: [arXiv:2007.09002](https://arxiv.org/abs/2007.09002)
-- Original C++ implementation: [libsparseir](https://github.com/SpM-lab/libsparseir)
-- Julia implementation: [SparseIR.jl](https://github.com/SpM-lab/SparseIR.jl)
+- **sparse-ir: optimal compression and sparse sampling of many-body propagators**  
+  Markus Wallerberger, Samuel Badr, Shintaro Hoshino, Fumiya Kakizawa, Takashi Koretsune, Yuki Nagai, Kosuke Nogaki, Takuya Nomoto, Hitoshi Mori, Junya Otsuki, Soshun Ozaki, Rihito Sakurai, Constanze Vogel, Niklas Witt, Kazuyoshi Yoshimi, Hiroshi Shinaoka  
+  [arXiv:2206.11762](https://arxiv.org/abs/2206.11762) | [SoftwareX 21, 101266 (2023)](https://doi.org/10.1016/j.softx.2022.101266)
+- Python wrapper: [sparse-ir](https://github.com/SpM-lab/sparse-ir)
+- Julia wrapper: [SparseIR.jl](https://github.com/SpM-lab/SparseIR.jl)
