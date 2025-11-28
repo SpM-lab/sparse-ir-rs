@@ -42,10 +42,11 @@ capi = []
 
 # cargo-c configuration for cinstall
 [package.metadata.capi]
-# Disable automatic header generation and use existing header file from assets/
+# Use existing header file from assets/ directory
+# Note: assets/sparse_ir_capi.h is a copy of include/sparseir/sparseir.h
+# and is maintained manually or via CI/CD, not by build.rs (to avoid cargo publish issues)
 [package.metadata.capi.header]
 generation = false
-# Header file will be copied from assets/sparse_ir_capi.h
 
 # pkg-config configuration
 [package.metadata.capi.pkg_config]

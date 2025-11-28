@@ -51,13 +51,6 @@ fn main() {
 
     // Post-process to add header guard and fix header comment
     add_header_guard(&sparseir_header);
-    
-    // Copy header to assets/ for cargo-c to use when generation = false
-    let assets_dir = PathBuf::from(&crate_dir).join("assets");
-    fs::create_dir_all(&assets_dir).expect("Failed to create assets directory");
-    let cargo_c_header = assets_dir.join("sparse_ir_capi.h");
-    fs::copy(&sparseir_header, &cargo_c_header)
-        .expect("Failed to copy header to assets/ for cargo-c");
 }
 
 fn add_header_guard(header_path: &PathBuf) {
