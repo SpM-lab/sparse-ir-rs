@@ -20,6 +20,9 @@ jobs:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Check version consistency
+        run: python3 check_version.py
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
@@ -43,6 +46,9 @@ jobs:
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check version consistency
+        run: python3 check_version.py
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
