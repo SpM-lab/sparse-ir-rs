@@ -19,6 +19,9 @@
 #include "_utils.hpp"
 #include "gemmbackend.hpp"
 
+// Compatibility: use Complex64 instead of c_complex
+using c_complex = Complex64;
+
 // Helper function for movedim (replacing sparseir::movedim)
 template <int N>
 Eigen::array<int, N> getperm_local(int src, int dst)

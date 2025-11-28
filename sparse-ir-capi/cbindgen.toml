@@ -2,6 +2,11 @@
 # This file configures cbindgen to generate C header files from Rust code
 
 language = "C"
+# Enable C++ compatibility: adds extern "C" blocks automatically
+cpp_compat = true
+
+# Inserted verbatim at the top of the generated header
+header = "#pragma once\n"
 
 [export]
 # Include these types in the generated header

@@ -1,31 +1,10 @@
-/**
- * @file sparseir.h
- * @brief C API for SparseIR library
- *
- * This header provides C-compatible interface for the SparseIR library.
- * Compatible with libsparseir C API.
- *
- * This header is automatically generated from Rust source code using cbindgen.
- * Do not edit manually - changes will be overwritten on next build.
- */
-
 #pragma once
+
 
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdlib.h>
-
-#if defined(_MSC_VER) || defined(__cplusplus)
-// MSVC doesn't support C99 complex types by default
-// For C++ compilation, use std::complex to avoid C99 extension warnings
-#include <complex>
-typedef std::complex<double> c_complex;
-#else
-#include <complex.h>
-// Define a C-compatible type alias for the C99 complex number.
-typedef double _Complex c_complex;
-#endif
 
 #define SPIR_ORDER_ROW_MAJOR 0
 
@@ -87,7 +66,7 @@ typedef struct spir_sve_result {
 /**
  * Error codes for C API (compatible with libsparseir)
  */
-
+typedef int StatusCode;
 
 /**
  * Opaque funcs type for C API (compatible with libsparseir)
@@ -116,7 +95,16 @@ typedef struct spir_gemm_backend {
   const void *_private;
 } spir_gemm_backend;
 
-
+/**
+ * Complex number type for C API (compatible with C's double complex)
+ *
+ * This type is compatible with C99's `double complex` and C++'s `std::complex<double>`.
+ * Layout: `{double re; double im;}` with standard alignment.
+ */
+typedef struct Complex64 {
+  double re;
+  double im;
+} Complex64;
 
 /**
  * Sampling type for C API (unified type for all domains)
@@ -146,13 +134,13 @@ typedef struct spir_sampling {
 
 #define SPIR_INTERNAL_ERROR -7
 
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
 /**
  * Manual release function (replaces macro-generated one)
  */
-#ifdef __cplusplus
-extern "C" {
-#endif
-
  void spir_basis_release(struct spir_basis *basis);
 
 /**
@@ -192,7 +180,7 @@ struct spir_basis *spir_basis_new(int statistics,
                                   const struct spir_kernel *k,
                                   const struct spir_sve_result *sve,
                                   int max_size,
-                                  int *status);
+                                  StatusCode *status);
 
 /**
  * Create a finite temperature basis from SVE result and custom inv_weight function
@@ -237,7 +225,7 @@ struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
                                                           const struct spir_sve_result *sve,
                                                           const struct spir_funcs *inv_weight_funcs,
                                                           int max_size,
-                                                          int *status);
+                                                          StatusCode *status);
 
 /**
  * Get the number of basis functions
@@ -251,7 +239,7 @@ struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or size is null
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
- int spir_basis_get_size(const struct spir_basis *b, int *size);
+ StatusCode spir_basis_get_size(const struct spir_basis *b, int *size);
 
 /**
  * Get singular values from a basis
@@ -265,7 +253,7 @@ struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or svals is null
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
- int spir_basis_get_svals(const struct spir_basis *b, double *svals);
+ StatusCode spir_basis_get_svals(const struct spir_basis *b, double *svals);
 
 /**
  * Get statistics type (Fermionic or Bosonic) of a basis
@@ -279,12 +267,12 @@ struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or statistics is null
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
- int spir_basis_get_stats(const struct spir_basis *b, int *statistics);
+ StatusCode spir_basis_get_stats(const struct spir_basis *b, int *statistics);
 
 /**
  * Get singular values (alias for spir_basis_get_svals for libsparseir compatibility)
  */
- int spir_basis_get_singular_values(const struct spir_basis *b, double *svals);
+ StatusCode spir_basis_get_singular_values(const struct spir_basis *b, double *svals);
 
 /**
  * Get the number of default tau sampling points
@@ -298,7 +286,7 @@ struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
- int spir_basis_get_n_default_taus(const struct spir_basis *b, int *num_points);
+ StatusCode spir_basis_get_n_default_taus(const struct spir_basis *b, int *num_points);
 
 /**
  * Get default tau sampling points
@@ -312,7 +300,7 @@ struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
- int spir_basis_get_default_taus(const struct spir_basis *b, double *points);
+ StatusCode spir_basis_get_default_taus(const struct spir_basis *b, double *points);
 
 /**
  * Get the number of default Matsubara sampling points
@@ -328,7 +316,7 @@ struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
 
-int spir_basis_get_n_default_matsus(const struct spir_basis *b,
+StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
                                            bool positive_only,
                                            int *num_points);
 
@@ -346,7 +334,7 @@ int spir_basis_get_n_default_matsus(const struct spir_basis *b,
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
 
-int spir_basis_get_default_matsus(const struct spir_basis *b,
+StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
                                          bool positive_only,
                                          int64_t *points);
 
@@ -364,7 +352,7 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * The caller must ensure that `b` is a valid pointer, and must call
  * `spir_funcs_release()` on the returned pointer when done.
  */
- struct spir_funcs *spir_basis_get_u(const struct spir_basis *b, int *status);
+ struct spir_funcs *spir_basis_get_u(const struct spir_basis *b, StatusCode *status);
 
 /**
  * Gets the basis functions in real frequency (ω) domain
@@ -380,7 +368,7 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * The caller must ensure that `b` is a valid pointer, and must call
  * `spir_funcs_release()` on the returned pointer when done.
  */
- struct spir_funcs *spir_basis_get_v(const struct spir_basis *b, int *status);
+ struct spir_funcs *spir_basis_get_v(const struct spir_basis *b, StatusCode *status);
 
 /**
  * Gets the number of default omega (real frequency) sampling points
@@ -395,7 +383,7 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * # Safety
  * The caller must ensure that `b` and `num_points` are valid pointers
  */
- int spir_basis_get_n_default_ws(const struct spir_basis *b, int *num_points);
+ StatusCode spir_basis_get_n_default_ws(const struct spir_basis *b, int *num_points);
 
 /**
  * Gets the default omega (real frequency) sampling points
@@ -410,7 +398,7 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * # Safety
  * The caller must ensure that `points` has size >= `spir_basis_get_n_default_ws(b)`
  */
- int spir_basis_get_default_ws(const struct spir_basis *b, double *points);
+ StatusCode spir_basis_get_default_ws(const struct spir_basis *b, double *points);
 
 /**
  * Gets the basis functions in Matsubara frequency domain
@@ -426,7 +414,7 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * The caller must ensure that `b` is a valid pointer, and must call
  * `spir_funcs_release()` on the returned pointer when done.
  */
- struct spir_funcs *spir_basis_get_uhat(const struct spir_basis *b, int *status);
+ struct spir_funcs *spir_basis_get_uhat(const struct spir_basis *b, StatusCode *status);
 
 /**
  * Gets the full (untruncated) Matsubara-frequency basis functions
@@ -455,7 +443,7 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * The caller must ensure that `b` is a valid pointer, and must call
  * `spir_funcs_release()` on the returned pointer when done.
  */
- struct spir_funcs *spir_basis_get_uhat_full(const struct spir_basis *b, int *status);
+ struct spir_funcs *spir_basis_get_uhat_full(const struct spir_basis *b, StatusCode *status);
 
 /**
  * Get default tau sampling points with custom limit (extended version)
@@ -475,7 +463,7 @@ int spir_basis_get_default_matsus(const struct spir_basis *b,
  * Returns min(n_points, actual_default_points) sampling points
  */
 
-int spir_basis_get_default_taus_ext(const struct spir_basis *b,
+StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
                                            int n_points,
                                            double *points,
                                            int *n_points_returned);
@@ -498,7 +486,7 @@ int spir_basis_get_default_taus_ext(const struct spir_basis *b,
  * Returns min(L, actual_default_points) sampling points
  */
 
-int spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
+StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
                                                bool positive_only,
                                                int L,
                                                int *num_points_returned);
@@ -524,7 +512,7 @@ int spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * When mitigate is true, may return more points than requested due to fencing
  */
 
-int spir_basis_get_default_matsus_ext(const struct spir_basis *b,
+StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
                                              bool positive_only,
                                              bool mitigate,
                                              int n_points,
@@ -544,7 +532,7 @@ int spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  * # Safety
  * Caller must ensure `b` is a valid IR basis pointer
  */
- struct spir_basis *spir_dlr_new(const struct spir_basis *b, int *status);
+ struct spir_basis *spir_dlr_new(const struct spir_basis *b, StatusCode *status);
 
 /**
  * Creates a new DLR with custom poles
@@ -565,7 +553,7 @@ int spir_basis_get_default_matsus_ext(const struct spir_basis *b,
 struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
                                            int npoles,
                                            const double *poles,
-                                           int *status);
+                                           StatusCode *status);
 
 /**
  * Gets the number of poles in a DLR
@@ -580,7 +568,7 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  * # Safety
  * Caller must ensure `dlr` is a valid DLR basis pointer
  */
- int spir_dlr_get_npoles(const struct spir_basis *dlr, int *num_poles);
+ StatusCode spir_dlr_get_npoles(const struct spir_basis *dlr, int *num_poles);
 
 /**
  * Gets the pole locations in a DLR
@@ -595,7 +583,7 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  * # Safety
  * Caller must ensure `dlr` is valid and `poles` has sufficient size
  */
- int spir_dlr_get_poles(const struct spir_basis *dlr, double *poles);
+ StatusCode spir_dlr_get_poles(const struct spir_basis *dlr, double *poles);
 
 /**
  * Convert IR coefficients to DLR (real-valued)
@@ -616,7 +604,7 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  * Caller must ensure pointers are valid and arrays have correct sizes
  */
 
-int spir_ir2dlr_dd(const struct spir_basis *dlr,
+StatusCode spir_ir2dlr_dd(const struct spir_basis *dlr,
                           const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
@@ -644,14 +632,14 @@ int spir_ir2dlr_dd(const struct spir_basis *dlr,
  * Caller must ensure pointers are valid and arrays have correct sizes
  */
 
-int spir_ir2dlr_zz(const struct spir_basis *dlr,
+StatusCode spir_ir2dlr_zz(const struct spir_basis *dlr,
                           const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
                           const int *input_dims,
                           int target_dim,
-                          const c_complex *input,
-                          c_complex *out);
+                          const struct Complex64 *input,
+                          struct Complex64 *out);
 
 /**
  * Convert DLR coefficients to IR (real-valued)
@@ -672,7 +660,7 @@ int spir_ir2dlr_zz(const struct spir_basis *dlr,
  * Caller must ensure pointers are valid and arrays have correct sizes
  */
 
-int spir_dlr2ir_dd(const struct spir_basis *dlr,
+StatusCode spir_dlr2ir_dd(const struct spir_basis *dlr,
                           const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
@@ -700,14 +688,14 @@ int spir_dlr2ir_dd(const struct spir_basis *dlr,
  * Caller must ensure pointers are valid and arrays have correct sizes
  */
 
-int spir_dlr2ir_zz(const struct spir_basis *dlr,
+StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
                           const struct spir_gemm_backend *backend,
                           int order,
                           int ndim,
                           const int *input_dims,
                           int target_dim,
-                          const c_complex *input,
-                          c_complex *out);
+                          const struct Complex64 *input,
+                          struct Complex64 *out);
 
 /**
  * Manual release function (replaces macro-generated one)
@@ -754,7 +742,7 @@ struct spir_funcs *spir_funcs_from_piecewise_legendre(const double *segments,
                                                       const double *coeffs,
                                                       int nfuncs,
                                                       int _order,
-                                                      int *status);
+                                                      StatusCode *status);
 
 /**
  * Extract a subset of functions by indices
@@ -776,7 +764,7 @@ struct spir_funcs *spir_funcs_from_piecewise_legendre(const double *segments,
 struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
                                         int32_t nslice,
                                         const int32_t *indices,
-                                        int *status);
+                                        StatusCode *status);
 
 /**
  * Gets the number of basis functions
@@ -788,7 +776,7 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * # Returns
  * Status code (SPIR_COMPUTATION_SUCCESS on success)
  */
- int spir_funcs_get_size(const struct spir_funcs *funcs, int *size);
+ StatusCode spir_funcs_get_size(const struct spir_funcs *funcs, int *size);
 
 /**
  * Gets the number of knots for continuous functions
@@ -800,7 +788,7 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * # Returns
  * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
  */
- int spir_funcs_get_n_knots(const struct spir_funcs *funcs, int *n_knots);
+ StatusCode spir_funcs_get_n_knots(const struct spir_funcs *funcs, int *n_knots);
 
 /**
  * Gets the knot positions for continuous functions
@@ -815,7 +803,7 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * # Safety
  * The caller must ensure that `knots` has size >= `spir_funcs_get_n_knots(funcs)`
  */
- int spir_funcs_get_knots(const struct spir_funcs *funcs, double *knots);
+ StatusCode spir_funcs_get_knots(const struct spir_funcs *funcs, double *knots);
 
 /**
  * Evaluate functions at a single point (continuous functions only)
@@ -831,7 +819,7 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * # Safety
  * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
  */
- int spir_funcs_eval(const struct spir_funcs *funcs, double x, double *out);
+ StatusCode spir_funcs_eval(const struct spir_funcs *funcs, double x, double *out);
 
 /**
  * Evaluate functions at a single Matsubara frequency
@@ -848,7 +836,7 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
  * Complex numbers are laid out as [real, imag] pairs
  */
- int spir_funcs_eval_matsu(const struct spir_funcs *funcs, int64_t n, c_complex *out);
+ StatusCode spir_funcs_eval_matsu(const struct spir_funcs *funcs, int64_t n, struct Complex64 *out);
 
 /**
  * Batch evaluate functions at multiple points (continuous functions only)
@@ -869,7 +857,7 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * - Layout: row-major = out[point][func], column-major = out[func][point]
  */
 
-int spir_funcs_batch_eval(const struct spir_funcs *funcs,
+StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
                                  int order,
                                  int num_points,
                                  const double *xs,
@@ -895,11 +883,11 @@ int spir_funcs_batch_eval(const struct spir_funcs *funcs,
  * - Layout: row-major = out[freq][func], column-major = out[func][freq]
  */
 
-int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
+StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
                                        int order,
                                        int num_freqs,
                                        const int64_t *ns,
-                                       c_complex *out);
+                                       struct Complex64 *out);
 
 /**
  * Get default Matsubara sampling points from a Matsubara-space spir_funcs
@@ -935,7 +923,7 @@ int spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * The default sampling points are chosen to provide near-optimal conditioning
  */
 
-int spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
+StatusCode spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
                                         int l,
                                         bool positive_only,
                                         bool mitigate,
@@ -1032,7 +1020,7 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
  * }
  * ```
  */
- struct spir_kernel *spir_logistic_kernel_new(double lambda, int *status);
+ struct spir_kernel *spir_logistic_kernel_new(double lambda, StatusCode *status);
 
 /**
  * Create a new RegularizedBose kernel
@@ -1044,7 +1032,7 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
  * # Returns
  * * Pointer to the newly created kernel object, or NULL if creation fails
  */
- struct spir_kernel *spir_reg_bose_kernel_new(double lambda, int *status);
+ struct spir_kernel *spir_reg_bose_kernel_new(double lambda, StatusCode *status);
 
 /**
  * Get the lambda parameter of a kernel
@@ -1058,7 +1046,7 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
  * * `SPIR_INVALID_ARGUMENT` if kernel or lambda_out is null
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
- int spir_kernel_get_lambda(const struct spir_kernel *kernel, double *lambda_out);
+ StatusCode spir_kernel_get_lambda(const struct spir_kernel *kernel, double *lambda_out);
 
 /**
  * Compute kernel value K(x, y)
@@ -1074,7 +1062,7 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
  * * `SPIR_INVALID_ARGUMENT` if kernel or out is null
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
- int spir_kernel_compute(const struct spir_kernel *kernel, double x, double y, double *out);
+ StatusCode spir_kernel_compute(const struct spir_kernel *kernel, double x, double y, double *out);
 
 /**
  * Manual release function (replaces macro-generated one)
@@ -1111,7 +1099,7 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
 
-int spir_kernel_get_domain(const struct spir_kernel *k,
+StatusCode spir_kernel_get_domain(const struct spir_kernel *k,
                                   double *xmin,
                                   double *xmax,
                                   double *ymin,
@@ -1136,7 +1124,7 @@ int spir_kernel_get_domain(const struct spir_kernel *k,
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
 
-int spir_kernel_get_sve_hints_segments_x(const struct spir_kernel *k,
+StatusCode spir_kernel_get_sve_hints_segments_x(const struct spir_kernel *k,
                                                 double epsilon,
                                                 double *segments,
                                                 int *n_segments);
@@ -1160,7 +1148,7 @@ int spir_kernel_get_sve_hints_segments_x(const struct spir_kernel *k,
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
 
-int spir_kernel_get_sve_hints_segments_y(const struct spir_kernel *k,
+StatusCode spir_kernel_get_sve_hints_segments_y(const struct spir_kernel *k,
                                                 double epsilon,
                                                 double *segments,
                                                 int *n_segments);
@@ -1179,7 +1167,7 @@ int spir_kernel_get_sve_hints_segments_y(const struct spir_kernel *k,
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
 
-int spir_kernel_get_sve_hints_nsvals(const struct spir_kernel *k,
+StatusCode spir_kernel_get_sve_hints_nsvals(const struct spir_kernel *k,
                                             double epsilon,
                                             int *nsvals);
 
@@ -1197,7 +1185,7 @@ int spir_kernel_get_sve_hints_nsvals(const struct spir_kernel *k,
  * * `SPIR_INTERNAL_ERROR` if internal panic occurs
  */
 
-int spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
+StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
                                             double epsilon,
                                             int *ngauss);
 
@@ -1235,7 +1223,7 @@ int spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
 struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
                                             int num_points,
                                             const double *points,
-                                            int *status);
+                                            StatusCode *status);
 
 /**
  * Creates a new Matsubara sampling object for sparse sampling in Matsubara frequencies
@@ -1255,7 +1243,7 @@ struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
                                               bool positive_only,
                                               int num_points,
                                               const int64_t *points,
-                                              int *status);
+                                              StatusCode *status);
 
 /**
  * Creates a new tau sampling object with custom sampling points and pre-computed matrix
@@ -1282,7 +1270,7 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
                                                         int num_points,
                                                         const double *points,
                                                         const double *matrix,
-                                                        int *status);
+                                                        StatusCode *status);
 
 /**
  * Creates a new Matsubara sampling object with custom sampling points and pre-computed matrix
@@ -1310,23 +1298,23 @@ struct spir_sampling *spir_matsu_sampling_new_with_matrix(int order,
                                                           bool positive_only,
                                                           int num_points,
                                                           const int64_t *points,
-                                                          const c_complex *matrix,
-                                                          int *status);
+                                                          const struct Complex64 *matrix,
+                                                          StatusCode *status);
 
 /**
  * Gets the number of sampling points in a sampling object
  */
- int spir_sampling_get_npoints(const struct spir_sampling *s, int *num_points);
+ StatusCode spir_sampling_get_npoints(const struct spir_sampling *s, int *num_points);
 
 /**
  * Gets the imaginary time sampling points
  */
- int spir_sampling_get_taus(const struct spir_sampling *s, double *points);
+ StatusCode spir_sampling_get_taus(const struct spir_sampling *s, double *points);
 
 /**
  * Gets the Matsubara frequency sampling points
  */
- int spir_sampling_get_matsus(const struct spir_sampling *s, int64_t *points);
+ StatusCode spir_sampling_get_matsus(const struct spir_sampling *s, int64_t *points);
 
 /**
  * Gets the condition number of the sampling matrix
@@ -1334,7 +1322,7 @@ struct spir_sampling *spir_matsu_sampling_new_with_matrix(int order,
  * Note: Currently returns a placeholder value.
  * TODO: Implement proper condition number calculation from SVD
  */
- int spir_sampling_get_cond_num(const struct spir_sampling *s, double *cond_num);
+ StatusCode spir_sampling_get_cond_num(const struct spir_sampling *s, double *cond_num);
 
 /**
  * Evaluate basis coefficients at sampling points (double → double)
@@ -1346,7 +1334,7 @@ struct spir_sampling *spir_matsu_sampling_new_with_matrix(int order,
  * Row-major support will be added in a future update.
  */
 
-int spir_sampling_eval_dd(const struct spir_sampling *s,
+StatusCode spir_sampling_eval_dd(const struct spir_sampling *s,
                                  const struct spir_gemm_backend *backend,
                                  int order,
                                  int ndim,
@@ -1361,14 +1349,14 @@ int spir_sampling_eval_dd(const struct spir_sampling *s,
  * For Matsubara sampling: transforms real IR coefficients to complex values.
  */
 
-int spir_sampling_eval_dz(const struct spir_sampling *s,
+StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
                                  const struct spir_gemm_backend *backend,
                                  int order,
                                  int ndim,
                                  const int *input_dims,
                                  int target_dim,
                                  const double *input,
-                                 c_complex *out);
+                                 struct Complex64 *out);
 
 /**
  * Evaluate basis coefficients at sampling points (complex → complex)
@@ -1376,20 +1364,20 @@ int spir_sampling_eval_dz(const struct spir_sampling *s,
  * For Matsubara sampling: transforms complex coefficients to complex values.
  */
 
-int spir_sampling_eval_zz(const struct spir_sampling *s,
+StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
                                  const struct spir_gemm_backend *backend,
                                  int order,
                                  int ndim,
                                  const int *input_dims,
                                  int target_dim,
-                                 const c_complex *input,
-                                 c_complex *out);
+                                 const struct Complex64 *input,
+                                 struct Complex64 *out);
 
 /**
  * Fit basis coefficients from sampling point values (double → double)
  */
 
-int spir_sampling_fit_dd(const struct spir_sampling *s,
+StatusCode spir_sampling_fit_dd(const struct spir_sampling *s,
                                 const struct spir_gemm_backend *backend,
                                 int order,
                                 int ndim,
@@ -1402,26 +1390,26 @@ int spir_sampling_fit_dd(const struct spir_sampling *s,
  * Fit basis coefficients from sampling point values (complex → complex)
  */
 
-int spir_sampling_fit_zz(const struct spir_sampling *s,
+StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
                                 const struct spir_gemm_backend *backend,
                                 int order,
                                 int ndim,
                                 const int *input_dims,
                                 int target_dim,
-                                const c_complex *input,
-                                c_complex *out);
+                                const struct Complex64 *input,
+                                struct Complex64 *out);
 
 /**
  * Fit basis coefficients from Matsubara sampling (complex → double, positive only)
  */
 
-int spir_sampling_fit_zd(const struct spir_sampling *s,
+StatusCode spir_sampling_fit_zd(const struct spir_sampling *s,
                                 const struct spir_gemm_backend *backend,
                                 int order,
                                 int ndim,
                                 const int *input_dims,
                                 int target_dim,
-                                const c_complex *input,
+                                const struct Complex64 *input,
                                 double *out);
 
 /**
@@ -1467,7 +1455,7 @@ struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
                                             int _lmax,
                                             int _n_gauss,
                                             int twork,
-                                            int *status);
+                                            StatusCode *status);
 
 /**
  * Get the number of singular values in an SVE result
@@ -1481,7 +1469,7 @@ struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
  * * `SPIR_INVALID_ARGUMENT` (-6) if sve or size is null
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
- int spir_sve_result_get_size(const struct spir_sve_result *sve, int *size);
+ StatusCode spir_sve_result_get_size(const struct spir_sve_result *sve, int *size);
 
 /**
  * Truncate an SVE result based on epsilon and max_size
@@ -1524,7 +1512,7 @@ struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
 struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *sve,
                                                  double epsilon,
                                                  int max_size,
-                                                 int *status);
+                                                 StatusCode *status);
 
 /**
  * Get singular values from an SVE result
@@ -1538,7 +1526,7 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * * `SPIR_INVALID_ARGUMENT` (-6) if sve or svals is null
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
- int spir_sve_result_get_svals(const struct spir_sve_result *sve, double *svals);
+ StatusCode spir_sve_result_get_svals(const struct spir_sve_result *sve, double *svals);
 
 /**
  * Create a SVE result from a discretized kernel matrix
@@ -1577,7 +1565,7 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
                                                     int n_segments_y,
                                                     int n_gauss,
                                                     double epsilon,
-                                                    int *status);
+                                                    StatusCode *status);
 
 /**
  * Create a SVE result from centrosymmetric discretized kernel matrices
@@ -1621,7 +1609,7 @@ struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double
                                                                     int n_segments_y,
                                                                     int n_gauss,
                                                                     double epsilon,
-                                                                    int *status);
+                                                                    StatusCode *status);
 
 /**
  * Choose the working type (Twork) based on epsilon value
@@ -1663,12 +1651,12 @@ struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double
  * - Non-zero error code on failure
  */
 
-int spir_gauss_legendre_rule_piecewise_double(int n,
+StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
                                                      const double *segments,
                                                      int n_segments,
                                                      double *x,
                                                      double *w,
-                                                     int *status);
+                                                     StatusCode *status);
 
 /**
  * Compute piecewise Gauss-Legendre quadrature rule (DDouble precision)
@@ -1698,15 +1686,15 @@ int spir_gauss_legendre_rule_piecewise_double(int n,
  * - Non-zero error code on failure
  */
 
-int spir_gauss_legendre_rule_piecewise_ddouble(int n,
+StatusCode spir_gauss_legendre_rule_piecewise_ddouble(int n,
                                                       const double *segments,
                                                       int n_segments,
                                                       double *x_high,
                                                       double *x_low,
                                                       double *w_high,
                                                       double *w_low,
-                                                      int *status);
+                                                      StatusCode *status);
 
 #ifdef __cplusplus
-}
-#endif
+}  // extern "C"
+#endif  // __cplusplus

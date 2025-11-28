@@ -117,13 +117,13 @@ int benchmark(double beta, double omega_max, double epsilon, int extra_size, int
     assert(status == SPIR_COMPUTATION_SUCCESS);
 
     // [n_matsubara, extra_size]
-    c_complex *g_matsu_z = (c_complex *)malloc(n_matsubara * extra_size * sizeof(c_complex));
+    Complex64 *g_matsu_z = (Complex64 *)malloc(n_matsubara * extra_size * sizeof(Complex64));
 
-    c_complex *g_tau_z = (c_complex *)malloc(n_tau * extra_size * sizeof(c_complex));
+    Complex64 *g_tau_z = (Complex64 *)malloc(n_tau * extra_size * sizeof(Complex64));
 
     // [n_basis, extra_size]
     double *g_basis_d = (double *)malloc(n_basis * extra_size * sizeof(double));
-    c_complex *g_basis_z = (c_complex *)malloc(n_basis * extra_size * sizeof(c_complex));
+    Complex64 *g_basis_z = (Complex64 *)malloc(n_basis * extra_size * sizeof(Complex64));
 
     // target dimension for fit
     int32_t target_dim = 0;
