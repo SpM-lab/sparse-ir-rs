@@ -20,7 +20,6 @@ num-traits = "0.2"
 special = "0.2"
 statrs = "0.16"
 thiserror = "1.0"
-rayon = "1.7"
 once_cell = "1.19"
 libc = "0.2"
 

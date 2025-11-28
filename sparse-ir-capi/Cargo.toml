@@ -38,6 +38,21 @@ paste = "1.0"
 
 [features]
 default = []
+capi = []
+
+# cargo-c configuration for cinstall
+[package.metadata.capi]
+# Disable automatic header generation and use existing header file from assets/
+[package.metadata.capi.header]
+generation = false
+# Header file will be copied from assets/sparse_ir_capi.h
+
+# pkg-config configuration
+[package.metadata.capi.pkg_config]
+name = "sparse-ir-capi"
+description = "C API for SparseIR library"
+# Version must match [package] version (0.7.1 from workspace)
+version = "0.7.1"
 
 [profile.release]
 # Keep symbols for C API (overrides workspace default)

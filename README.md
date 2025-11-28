@@ -36,6 +36,16 @@ cargo test --all-targets
 
 Some doc tests that depend on external BLAS backends are marked as `ignore` and are not executed by default.
 
+## Version Consistency Check
+
+Check that versions in `Cargo.toml` and `sparse-ir-capi/Cargo.toml` are consistent:
+
+```bash
+python3 check_version.py
+```
+
+This script verifies that the workspace version matches the pkg-config version in the C API configuration.
+
 ## C API (sparse-ir-capi)
 
 To build the C-compatible shared library and header:

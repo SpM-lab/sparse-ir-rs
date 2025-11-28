@@ -1,47 +1,25 @@
 # SparseIR C-API
 
-C-compatible interface to the SparseIR Rust library.
+[![Crates.io](https://img.shields.io/crates/v/sparse-ir-capi.svg)](https://crates.io/crates/sparse-ir-capi)
+[![Documentation](https://docs.rs/sparse-ir-capi/badge.svg)](https://docs.rs/sparse-ir-capi)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
 
-## Overview
-
-This crate provides a **libsparseir-compatible** C API for the SparseIR library.
+This crate provides a C API for the SparseIR library.
 
 ### Language Support
-- Julia ✅ (tested)
-- Python (via ctypes/cffi)
 - Fortran (via ISO_C_BINDING)
+- Julia (via ccall)
+- Python (via ctypes)
 - C/C++
-
-### Compatibility with libsparseir C++ 🔄
-
-This API is **100% compatible** with the [libsparseir C++ library](https://github.com/SpM-lab/libsparseir):
-
-| Feature | libsparseir C++ | sparse-ir-capi Rust | Status |
-|---------|----------------|-------------------|--------|
-| Type name | `spir_kernel` | `spir_kernel` | ✅ Identical |
-| Function names | `spir_logistic_kernel_new()` | `spir_logistic_kernel_new()` | ✅ Identical |
-| Error codes | `SPIR_COMPUTATION_SUCCESS`, etc. | Same codes | ✅ Identical |
-| Memory model | Opaque pointers | Opaque pointers | ✅ Compatible |
-| Function signature | `spir_kernel* f(..., int* status)` | `spir_kernel* f(..., int* status)` | ✅ Identical |
-
-**Why choose Rust over C++?**
-- 🔒 **Memory safety** - No use-after-free, no double-free
-- 🛡️ **Panic safety** - `catch_unwind()` prevents crashes
-- 🚀 **Zero-cost abstractions** - Same performance as C++
-- 📦 **Easy deployment** - Single static library, no C++ runtime needed
+- Other languages that can call C ABIs
 
 ## Features
 
-### Currently Implemented ✅
+### Currently Implemented
 
-- **Kernel API** (5 functions) - libsparseir compatible
-  - `spir_logistic_kernel_new()` - Create LogisticKernel
-  - `spir_reg_bose_kernel_new()` - Create RegularizedBoseKernel
-  - `spir_kernel_release()` - Free kernel
-  - `spir_kernel_get_lambda()` - Get λ parameter
-  - `spir_kernel_compute()` - Compute K(x, y)
+See the header file for the complete API: [include/sparseir/sparseir.h](include/sparseir/sparseir.h)
 
-### Error Handling 🛡️
+### Error Handling
 
 All C-API functions use `catch_unwind()` to prevent panics from crossing the FFI boundary:
 - Returns error codes instead of panicking
@@ -59,9 +37,51 @@ cargo build --release
 cargo test
 ```
 
+### Installation
+
+Install the header and shared library to your system:
+
+```bash
+# Install cargo-c (first time only)
+cargo install cargo-c
+
+# Install header and shared library to system directories
+cargo cinstall --release
+
+# Or install to a custom prefix
+cargo cinstall --release --prefix /custom/path
+```
+
+By default, `cargo cinstall` installs to:
+- **Header**: `/usr/local/include/sparse_ir_capi/sparse_ir_capi.h` (Linux/macOS)
+- **Library**: `/usr/local/lib/libsparse_ir_capi.so` (Linux) or `.dylib` (macOS)
+- **Static library**: `/usr/local/lib/libsparse_ir_capi.a`
+- **pkg-config**: `/usr/local/lib/pkgconfig/sparse_ir_capi.pc`
+
+After installation, you can use pkg-config to find the library:
+```bash
+pkg-config --cflags --libs sparse-ir-capi
+```
+
+**Note on Header Files**: 
+
+The header file `include/sparseir/sparseir.h` is automatically generated and updated by `build.rs` during `cargo build`:
+
+1. **Generation**: `cbindgen` generates the header from Rust source code
+2. **Post-processing**: `build.rs` applies custom transformations:
+   - Replaces `Complex64` struct with `c_complex` typedef (C99 `_Complex` type) for libsparseir compatibility
+   - Adds header comments and `#pragma once`
+   - Adds `extern "C"` blocks for C++ compatibility
+   - Replaces `StatusCode` with `int`
+3. **Copy to assets/**: The processed header is copied to `assets/sparse_ir_capi.h` for `cargo-c` to use
+
+The `Cargo.toml` is configured with `generation = false` so that `cargo cinstall` uses the pre-processed header from `assets/` instead of generating a new one.
+
+**Do not manually edit** `include/sparseir/sparseir.h` or `assets/sparse_ir_capi.h` - they are automatically generated and will be overwritten on the next build.
+
 ### Header Generation
 
-The C header (`include/sparseir.h`) is **automatically generated** from Rust source code using [cbindgen](https://github.com/mozilla/cbindgen):
+The C header (`include/sparseir/sparseir.h`) is **automatically generated** from Rust source code using [cbindgen](https://github.com/mozilla/cbindgen):
 
 - **Build time**: Header is regenerated automatically when Rust sources change
 - **Manual regeneration**: `cargo build` (header is created by `build.rs`)
@@ -79,7 +99,7 @@ const lib = "../target/release/libsparse_ir_capi.dylib"
 
 # Create kernel
 kernel_ptr = Ref{Ptr{Cvoid}}()
-status = ccall((:spir_kernel_logistic_new, lib),
+status = ccall((:spir_logistic_kernel_new, lib),
                Int32, (Float64, Ref{Ptr{Cvoid}}),
                10.0, kernel_ptr)
 
@@ -100,7 +120,7 @@ See `examples/test_julia.jl` for a complete example.
 ### C
 
 ```c
-#include "sparseir.h"
+#include "sparseir/sparseir.h"
 #include <stdio.h>
 
 int main() {
@@ -136,50 +156,12 @@ All objects returned by `*_new()` functions **must** be released with their corr
 - `spir_kernel_release()`
 - (more to come: `spir_basis_release()`, etc.)
 
-## Error Codes
-
-| Code | Name | Description |
-|------|------|-------------|
-| `0` | `SPIR_SUCCESS` | Operation succeeded |
-| `-1` | `SPIR_ERROR_NULL_POINTER` | NULL pointer argument |
-| `-2` | `SPIR_ERROR_INVALID_ARGUMENT` | Invalid argument value |
-| `-99` | `SPIR_ERROR_PANIC` | Internal panic (bug) |
-
-## Implementation Status
-
-- [x] Kernel API (5/5 functions) ✅
-- [ ] SVE API (0/10 functions)
-- [ ] Basis API (0/15 functions)
-- [ ] Sampling API (0/15 functions)
-- [ ] DLR API (0/8 functions)
-
-See [C-API_IMPLEMENTATION_PLAN.md](../C-API_IMPLEMENTATION_PLAN.md) for details.
-
-## Architecture
-
-```
-┌──────────────┐
-│ Julia/Python │  ← High-level languages
-└──────┬───────┘
-       │ ccall/ctypes
-┌──────▼───────┐
-│   C-API      │  ← This crate (FFI boundary)
-│ catch_unwind │  ← Panic protection
-└──────┬───────┘
-       │
-┌──────▼───────┐
-│ sparseir-rust│  ← Core Rust implementation
-└──────────────┘
-```
-
-### Safety Features
-
-1. **Input Validation** - User errors return error codes (don't panic)
-2. **Panic Catching** - `catch_unwind()` at FFI boundary prevents UB
-3. **Arc-based Sharing** - Efficient memory management for large objects
-4. **Type Safety** - Opaque pointers hide implementation details
+All objects are immutable and thread-safe.
 
 ## License
 
-MIT
+This crate is dual-licensed under the terms of the MIT license and the Apache License (Version 2.0).
 
+- You may use this crate under the terms of either license, at your option:
+  - [MIT License](../LICENSE)
+  - [Apache License 2.0](../LICENSE-APACHE)
