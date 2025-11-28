@@ -18,7 +18,7 @@ use std::sync::Arc;
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
 use crate::utils::{MemoryOrder, convert_dims_for_row_major, copy_tensor_to_c_array};
-use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
+use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC, StatusCode};
 use sparse_ir::{Bosonic, Fermionic, Tensor};
 
 /// Manual release function (replaces macro-generated one)
@@ -377,7 +377,7 @@ pub unsafe extern "C" fn spir_tau_sampling_new_with_matrix(
 
         // Create sampling based on statistics
         let sampling_type = match statistics {
-            0 => {
+            SPIR_STATISTICS_FERMIONIC => {
                 // SPIR_STATISTICS_FERMIONIC
                 let tau_sampling = sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
                     tau_points,
@@ -385,7 +385,7 @@ pub unsafe extern "C" fn spir_tau_sampling_new_with_matrix(
                 );
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
-            1 => {
+            SPIR_STATISTICS_BOSONIC => {
                 // SPIR_STATISTICS_BOSONIC
                 let tau_sampling = sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(
                     tau_points,
@@ -492,7 +492,7 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
 
         // Create sampling based on statistics and positive_only
         let sampling_type = match (statistics, positive_only) {
-            (0, true) => {
+            (SPIR_STATISTICS_FERMIONIC, true) => {
                 // Fermionic, positive-only
                 let matsu_freqs: Vec<MatsubaraFreq<Fermionic>> = matsu_points
                     .iter()
@@ -505,7 +505,7 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
                     );
                 SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
             }
-            (0, false) => {
+            (SPIR_STATISTICS_FERMIONIC, false) => {
                 // Fermionic, full range
                 let matsu_freqs: Vec<MatsubaraFreq<Fermionic>> = matsu_points
                     .iter()
@@ -517,7 +517,7 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
                 );
                 SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
             }
-            (1, true) => {
+            (SPIR_STATISTICS_BOSONIC, true) => {
                 // Bosonic, positive-only
                 let matsu_freqs: Vec<MatsubaraFreq<Bosonic>> = matsu_points
                     .iter()
@@ -530,7 +530,7 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
                     );
                 SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
             }
-            (1, false) => {
+            (SPIR_STATISTICS_BOSONIC, false) => {
                 // Bosonic, full range
                 let matsu_freqs: Vec<MatsubaraFreq<Bosonic>> = matsu_points
                     .iter()
