@@ -7,7 +7,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use sparse_ir::basis::FiniteTempBasis;
 
 use crate::types::{spir_basis, spir_funcs, spir_kernel, spir_sve_result};
-use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, StatusCode};
+use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC, StatusCode};
 
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
@@ -91,7 +91,7 @@ pub extern "C" fn spir_basis_new(
     }
 
     // Validate statistics
-    if statistics != 0 && statistics != 1 {
+    if statistics != SPIR_STATISTICS_BOSONIC && statistics != SPIR_STATISTICS_FERMIONIC {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -128,7 +128,7 @@ pub extern "C" fn spir_basis_new(
 
         // Dispatch based on kernel type and statistics
         if let Some(logistic) = kernel_ref.as_logistic() {
-            if statistics == 1 {
+            if statistics == SPIR_STATISTICS_FERMIONIC {
                 // Fermionic
                 let basis: FiniteTempBasis<_, _> = if !sve.is_null() {
                     let sve_ref = &*sve;
@@ -164,7 +164,7 @@ pub extern "C" fn spir_basis_new(
                 ))))
             }
         } else if let Some(reg_bose) = kernel_ref.as_regularized_bose() {
-            if statistics == 1 {
+            if statistics == SPIR_STATISTICS_FERMIONIC {
                 // Fermionic
                 let basis: FiniteTempBasis<_, _> = if !sve.is_null() {
                     let sve_ref = &*sve;
@@ -277,7 +277,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
     }
 
     // Validate statistics
-    if statistics != 0 && statistics != 1 {
+    if statistics != SPIR_STATISTICS_BOSONIC && statistics != SPIR_STATISTICS_FERMIONIC {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -332,7 +332,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
         // Create basis using from_sve_result
         // Note: The custom inv_weight is not currently used in the Rust implementation
         // This is a limitation compared to the C++ version
-        if statistics == 1 {
+        if statistics == SPIR_STATISTICS_FERMIONIC {
             // Fermionic
             let basis =
                 FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Fermionic>::from_sve_result(
