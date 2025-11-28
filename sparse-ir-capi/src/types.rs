@@ -12,6 +12,7 @@ use sparse_ir::sve::SVEResult;
 use sparse_ir::taufuncs::normalize_tau;
 use sparse_ir::traits::Statistics;
 use sparse_ir::{Bosonic, Fermionic};
+use crate::{SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
 use std::sync::Arc;
 
 /// Convert Statistics enum to C-API integer
@@ -19,8 +20,8 @@ use std::sync::Arc;
 #[allow(dead_code)]
 pub(crate) fn statistics_to_c(stats: Statistics) -> i32 {
     match stats {
-        Statistics::Fermionic => 1,
-        Statistics::Bosonic => 0,
+        Statistics::Fermionic => SPIR_STATISTICS_FERMIONIC,
+        Statistics::Bosonic => SPIR_STATISTICS_BOSONIC,
     }
 }
 
@@ -29,7 +30,7 @@ pub(crate) fn statistics_to_c(stats: Statistics) -> i32 {
 #[allow(dead_code)]
 pub(crate) fn statistics_from_c(value: i32) -> Statistics {
     match value {
-        1 => Statistics::Fermionic,
+        SPIR_STATISTICS_FERMIONIC => Statistics::Fermionic,
         _ => Statistics::Bosonic, // Default to Bosonic for invalid values
     }
 }
