@@ -51,8 +51,7 @@ generation = false
 [package.metadata.capi.pkg_config]
 name = "sparse-ir-capi"
 description = "C API for SparseIR library"
-# Version must match [package] version (0.7.1 from workspace)
-version = "0.7.1"
+version = "0.7.2"
 
 [profile.release]
 # Keep symbols for C API (overrides workspace default)
