@@ -269,11 +269,12 @@ where
     ///
     /// Returns sampling points in imaginary time τ ∈ [-β/2, β/2].
     pub fn default_tau_sampling_points(&self) -> Vec<f64> {
-        let sz = self.size();
+        self.default_tau_sampling_points_size_requested(self.size())
+    }
 
+    pub fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
         // C++: Eigen::VectorXd x = default_sampling_points(*(this->sve_result->u), sz);
-        let x = default_sampling_points(&self.sve_result.u, sz);
-
+        let x = default_sampling_points(&self.sve_result.u, size_requested);
         // C++: Extract unique half of sampling points
         let mut unique_x = Vec::new();
         if x.len() % 2 == 0 {

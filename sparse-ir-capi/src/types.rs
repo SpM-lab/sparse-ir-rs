@@ -378,6 +378,17 @@ impl spir_basis {
         }
     }
 
+    pub(crate) fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
+        match self.inner_type() {
+            BasisType::LogisticFermionic(b) => b.default_tau_sampling_points_size_requested(size_requested),
+            BasisType::LogisticBosonic(b) => b.default_tau_sampling_points_size_requested(size_requested),
+            BasisType::RegularizedBoseFermionic(b) => b.default_tau_sampling_points_size_requested(size_requested),
+            BasisType::RegularizedBoseBosonic(b) => b.default_tau_sampling_points_size_requested(size_requested),
+            // DLR: no default tau sampling points
+            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+        }
+    }
+
     pub(crate) fn default_matsubara_sampling_points(&self, positive_only: bool) -> Vec<i64> {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => {

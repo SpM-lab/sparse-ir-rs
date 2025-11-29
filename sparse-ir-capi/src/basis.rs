@@ -1026,7 +1026,7 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let tau_points = basis.default_tau_sampling_points();
+        let tau_points = basis.default_tau_sampling_points_size_requested(n_points as usize);
 
         // Return min(requested, available) points
         let n_to_return = std::cmp::min(n_points as usize, tau_points.len());
