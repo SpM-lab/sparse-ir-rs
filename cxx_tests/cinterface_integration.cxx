@@ -10,6 +10,7 @@
 #include <array>
 #include <functional>
 #include <numeric>
+#include <cstdint>
 
 #include <Eigen/Dense>
 #include <unsupported/Eigen/CXX11/Tensor>
@@ -265,6 +266,18 @@ spir_kernel* _kernel_new_reg_bose(double lambda)
     return kernel;
 }
 
+// Stateless simple random number generation function
+// Computes [0, 1] value directly from seed and index
+inline double random_f64(uint64_t seed, uint64_t index) {
+    // Simple hash-like computation
+    uint64_t x = seed + index;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    // Normalize to [0, 1]
+    return static_cast<double>(x) / static_cast<double>(UINT64_MAX);
+}
+
 // Add these template functions before the integration_test function
 template <typename T>
 T generate_random_coeff(double random_value_real, double random_value_imag, double pole) {
@@ -499,17 +512,20 @@ void integration_test(double beta, double wmax, double epsilon,
     // Calculate total size of extra dimensions
     Eigen::Index extra_size = std::accumulate(
         extra_dims.begin(), extra_dims.end(), 1, std::multiplies<>());
-    // Generate random DLR coefficients
+    // Generate random DLR coefficients using simple stateless random function
     Eigen::Tensor<T, ndim, ORDER> coeffs_targetdim0(
         _get_dims<ndim>(npoles, extra_dims, 0));
-    std::mt19937 gen(982743);
-    std::uniform_real_distribution<> dis(0.0, 1.0);
+    uint64_t seed = 982743;
     {
         Eigen::TensorMap<Eigen::Tensor<T, 2, ORDER>> coeffs_2d(
             coeffs_targetdim0.data(), npoles, extra_size);
         for (Eigen::Index i = 0; i < npoles; ++i) {
             for (Eigen::Index j = 0; j < extra_size; ++j) {
-                coeffs_2d(i, j) = generate_random_coeff<T>(dis(gen), dis(gen), poles(i));
+                // Use pole index and extra dimension index as part of the random index
+                uint64_t index = static_cast<uint64_t>(i) * static_cast<uint64_t>(extra_size) + static_cast<uint64_t>(j);
+                double random_value_real = random_f64(seed, index);
+                double random_value_imag = random_f64(seed, index + 1000000); // Offset for imaginary part
+                coeffs_2d(i, j) = generate_random_coeff<T>(random_value_real, random_value_imag, poles(i));
             }
         }
     }

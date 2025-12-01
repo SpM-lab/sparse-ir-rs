@@ -5,7 +5,8 @@
 
 use crate::gemm::{GemmBackendHandle, matmul_par};
 use crate::traits::StatisticsType;
-use mdarray::{DTensor, DynRank, Shape, Tensor};
+use mdarray::{DTensor, DynRank, Shape, Slice, Tensor};
+use num_complex::Complex;
 
 /// Move axis from position `src` to position `dst`
 ///
@@ -13,7 +14,7 @@ use mdarray::{DTensor, DynRank, Shape, Tensor};
 /// It creates a permutation array that moves the specified axis.
 ///
 /// # Arguments
-/// * `arr` - Input tensor
+/// * `arr` - Input array slice (Tensor or View)
 /// * `src` - Source axis position
 /// * `dst` - Destination axis position
 ///
@@ -26,9 +27,9 @@ use mdarray::{DTensor, DynRank, Shape, Tensor};
 /// // movedim(arr, 0, 2) moves axis 0 to position 2
 /// // Result shape: (3, 4, 2, 5) with axes permuted as [1, 2, 0, 3]
 /// ```
-pub fn movedim<T: Clone>(arr: &Tensor<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
+pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
     if src == dst {
-        return arr.clone();
+        return arr.to_tensor();
     }
 
     let rank = arr.rank();
@@ -227,7 +228,7 @@ where
     fn evaluate_nd_impl<T>(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Tensor<T, DynRank>,
+        coeffs: &Slice<T, DynRank>,
         dim: usize,
     ) -> Tensor<T, DynRank>
     where
@@ -316,7 +317,7 @@ where
     pub fn evaluate_nd<T>(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Tensor<T, DynRank>,
+        coeffs: &Slice<T, DynRank>,
         dim: usize,
     ) -> Tensor<T, DynRank>
     where
@@ -325,24 +326,62 @@ where
         self.evaluate_nd_impl(backend, coeffs, dim)
     }
 
-    /// Internal generic fit_nd implementation
-    ///
-    /// Delegates to fitter for real values, fits real/imaginary parts separately for complex values
-    fn fit_nd_impl<T>(
+    /// Fit N-D values for the real case `T = f64`
+    fn fit_nd_impl_real(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Tensor<T, DynRank>,
+        values: &Tensor<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<T, DynRank>
-    where
-        T: num_complex::ComplexFloat
-            + faer_traits::ComplexField
-            + 'static
-            + From<f64>
-            + Copy
-            + Default,
-    {
-        use num_complex::Complex;
+    ) -> Tensor<f64, DynRank> {
+        let rank = values.rank();
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+
+        let n_points = self.n_sampling_points();
+        let basis_size = self.basis_size();
+        let target_dim_size = values.shape().dim(dim);
+
+        assert_eq!(
+            target_dim_size, n_points,
+            "values.shape().dim({}) = {} must equal n_sampling_points = {}",
+            dim, target_dim_size, n_points
+        );
+
+        // 1. Move target dimension to position 0
+        let values_dim0 = movedim(values, dim, 0);
+
+        // 2. Reshape to 2D: (n_points, extra_size)
+        let extra_size: usize = values_dim0.len() / n_points;
+        let values_2d = values_dim0.reshape(&[n_points, extra_size][..]).to_tensor();
+
+        // 3. Fit using real 2D fitter directly on a view
+        // Convert Tensor<f64, DynRank> to DView<f64, 2> by creating DTensor and taking view
+        let values_2d_dtensor = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| {
+            values_2d[&[idx[0], idx[1]][..]]
+        });
+        let values_2d_view_2d = values_2d_dtensor.view(.., ..);
+        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view_2d);
+
+        // 4. Reshape back to N-D with basis_size at position 0
+        let mut coeffs_shape = vec![basis_size];
+        values_dim0.shape().with_dims(|dims| {
+            for i in 1..dims.len() {
+                coeffs_shape.push(dims[i]);
+            }
+        });
+
+        let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&coeffs_shape[..]).to_tensor();
+
+        // 5. Move dimension 0 back to original position dim
+        movedim(&coeffs_dim0, 0, dim)
+    }
+
+    /// Fit N-D values for the complex case `T = Complex<f64>`
+    fn fit_nd_impl_complex(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Tensor<num_complex::Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<num_complex::Complex<f64>, DynRank> {
 
         let rank = values.rank();
         assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
@@ -362,35 +401,15 @@ where
 
         // 2. Reshape to 2D: (n_points, extra_size)
         let extra_size: usize = values_dim0.len() / n_points;
-        let values_2d_dyn = values_dim0.reshape(&[n_points, extra_size][..]).to_tensor();
+        let values_2d = values_dim0.reshape(&[n_points, extra_size][..]).to_tensor();
 
-        // 3. Convert to DTensor<T, 2> and fit using fitter's 2D methods
-        // Use type introspection to dispatch between real and complex
-        use std::any::TypeId;
-        let is_real = TypeId::of::<T>() == TypeId::of::<f64>();
-
-        let coeffs_2d = if is_real {
-            // Real case: convert to f64 tensor and fit
-            let values_2d_f64 = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| unsafe {
-                *(&values_2d_dyn[&[idx[0], idx[1]][..]] as *const T as *const f64)
-            });
-            let coeffs_2d_f64 = self.fitter.fit_2d(backend, &values_2d_f64);
-            // Convert back to T
-            DTensor::<T, 2>::from_fn(*coeffs_2d_f64.shape(), |idx| unsafe {
-                *(&coeffs_2d_f64[idx] as *const f64 as *const T)
-            })
-        } else {
-            // Complex case: convert to Complex<f64> tensor and fit
-            let values_2d_c64 =
-                DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| unsafe {
-                    *(&values_2d_dyn[&[idx[0], idx[1]][..]] as *const T as *const Complex<f64>)
-                });
-            let coeffs_2d_c64 = self.fitter.fit_complex_2d(backend, &values_2d_c64);
-            // Convert back to T
-            DTensor::<T, 2>::from_fn(*coeffs_2d_c64.shape(), |idx| unsafe {
-                *(&coeffs_2d_c64[idx] as *const Complex<f64> as *const T)
-            })
-        };
+        // 3. Fit using complex 2D fitter directly on a view
+        // Convert Tensor<Complex<f64>, DynRank> to DView<Complex<f64>, 2> by creating DTensor and taking view
+        let values_2d_dtensor = DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
+            values_2d[&[idx[0], idx[1]][..]]
+        });
+        let values_2d_view_2d = values_2d_dtensor.view(.., ..);
+        let coeffs_2d = self.fitter.fit_complex_2d(backend, &values_2d_view_2d);
 
         // 4. Reshape back to N-D with basis_size at position 0
         let mut coeffs_shape = vec![basis_size];
@@ -449,7 +468,30 @@ where
             + Copy
             + Default,
     {
-        self.fit_nd_impl(backend, values, dim)
+        use std::any::TypeId;
+
+        if TypeId::of::<T>() == TypeId::of::<f64>() {
+            // Real case: reinterpret as f64 tensor, call real implementation, then cast back to T
+            let values_f64 = unsafe {
+                &*(values as *const Tensor<T, DynRank> as *const Tensor<f64, DynRank>)
+            };
+            let coeffs_f64 = self.fit_nd_impl_real(backend, values_f64, dim);
+            unsafe { std::mem::transmute::<Tensor<f64, DynRank>, Tensor<T, DynRank>>(coeffs_f64) }
+        } else if TypeId::of::<T>() == TypeId::of::<num_complex::Complex<f64>>() {
+            // Complex case: reinterpret as Complex<f64> tensor, call complex implementation, then cast back
+            let values_c64 = unsafe {
+                &*(values as *const Tensor<T, DynRank>
+                    as *const Tensor<num_complex::Complex<f64>, DynRank>)
+            };
+            let coeffs_c64 = self.fit_nd_impl_complex(backend, values_c64, dim);
+            unsafe {
+                std::mem::transmute::<Tensor<num_complex::Complex<f64>, DynRank>, Tensor<T, DynRank>>(
+                    coeffs_c64,
+                )
+            }
+        } else {
+            panic!("Unsupported type for fit_nd: must be f64 or Complex<f64>");
+        }
     }
 }
 

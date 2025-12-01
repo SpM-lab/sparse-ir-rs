@@ -7,14 +7,14 @@ use crate::fitter::{ComplexMatrixFitter, ComplexToRealFitter};
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
-use mdarray::{DTensor, DynRank, Shape, Tensor};
+use mdarray::{DTensor, DynRank, Shape, Slice, Tensor};
 use num_complex::Complex;
 use std::marker::PhantomData;
 
 /// Move axis from position src to position dst
-fn movedim<T: Clone>(arr: &Tensor<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
+fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
     if src == dst {
-        return arr.clone();
+        return arr.to_tensor();
     }
 
     let rank = arr.rank();
@@ -173,18 +173,37 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         self.fitter.fit(None, values)
     }
 
-    /// Evaluate N-dimensional array of complex basis coefficients at sampling points
+    /// Evaluate N-dimensional array of basis coefficients at sampling points
+    ///
+    /// Supports both real (`f64`) and complex (`Complex<f64>`) coefficients.
+    /// Always returns complex values at Matsubara frequencies.
+    ///
+    /// # Type Parameters
+    /// * `T` - Element type (f64 or Complex<f64>)
     ///
     /// # Arguments
-    /// * `coeffs` - N-dimensional tensor of complex basis coefficients
+    /// * `backend` - Optional GEMM backend handle (None uses default)
+    /// * `coeffs` - N-dimensional tensor of basis coefficients
     /// * `dim` - Dimension along which to evaluate (must have size = basis_size)
     ///
     /// # Returns
     /// N-dimensional tensor of complex values at Matsubara frequencies
-    pub fn evaluate_nd(
+    ///
+    /// # Example
+    /// ```ignore
+    /// use num_complex::Complex;
+    ///
+    /// // Real coefficients
+    /// let values = matsubara_sampling.evaluate_nd::<f64>(None, &coeffs_real, 0);
+    ///
+    /// // Complex coefficients
+    /// let values = matsubara_sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_complex, 0);
+    /// ```
+    /// Evaluate N-D coefficients for the real case `T = f64`
+    fn evaluate_nd_impl_real(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Tensor<Complex<f64>, DynRank>,
+        coeffs: &Slice<f64, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
         let rank = coeffs.rank();
@@ -209,16 +228,15 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             .reshape(&[basis_size, extra_size][..])
             .to_tensor();
 
-        // 3. Convert to DTensor and evaluate using GEMM
-        let coeffs_2d = DTensor::<Complex<f64>, 2>::from_fn([basis_size, extra_size], |idx| {
+        // 3. Convert to DTensor and evaluate using evaluate_2d_real
+        let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
             coeffs_2d_dyn[&[idx[0], idx[1]][..]]
         });
-
-        // Use fitter's efficient 2D evaluate (GEMM-based)
-        let n_points = self.n_sampling_points();
-        let result_2d = self.fitter.evaluate_2d(backend, &coeffs_2d);
+        let coeffs_2d_view = coeffs_2d.view(.., ..);
+        let result_2d = self.fitter.evaluate_2d_real(backend, &coeffs_2d_view);
 
         // 4. Reshape back to N-D with n_points at position 0
+        let n_points = self.n_sampling_points();
         let mut result_shape = vec![n_points];
         coeffs_dim0.shape().with_dims(|dims| {
             for i in 1..dims.len() {
@@ -230,6 +248,87 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
 
         // 5. Move dimension 0 back to original position dim
         movedim(&result_dim0, 0, dim)
+    }
+
+    /// Evaluate N-D coefficients for the complex case `T = Complex<f64>`
+    fn evaluate_nd_impl_complex(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
+        let rank = coeffs.rank();
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+
+        let basis_size = self.basis_size();
+        let target_dim_size = coeffs.shape().dim(dim);
+
+        assert_eq!(
+            target_dim_size, basis_size,
+            "coeffs.shape().dim({}) = {} must equal basis_size = {}",
+            dim, target_dim_size, basis_size
+        );
+
+        // 1. Move target dimension to position 0
+        let coeffs_dim0 = movedim(coeffs, dim, 0);
+
+        // 2. Reshape to 2D: (basis_size, extra_size)
+        let extra_size: usize = coeffs_dim0.len() / basis_size;
+
+        let coeffs_2d_dyn = coeffs_dim0
+            .reshape(&[basis_size, extra_size][..])
+            .to_tensor();
+
+        // 3. Convert to DTensor and evaluate using evaluate_2d
+        let coeffs_2d = DTensor::<Complex<f64>, 2>::from_fn([basis_size, extra_size], |idx| {
+            coeffs_2d_dyn[&[idx[0], idx[1]][..]]
+        });
+        let coeffs_2d_view = coeffs_2d.view(.., ..);
+        let result_2d = self.fitter.evaluate_2d(backend, &coeffs_2d_view);
+
+        // 4. Reshape back to N-D with n_points at position 0
+        let n_points = self.n_sampling_points();
+        let mut result_shape = vec![n_points];
+        coeffs_dim0.shape().with_dims(|dims| {
+            for i in 1..dims.len() {
+                result_shape.push(dims[i]);
+            }
+        });
+
+        let result_dim0 = result_2d.into_dyn().reshape(&result_shape[..]).to_tensor();
+
+        // 5. Move dimension 0 back to original position dim
+        movedim(&result_dim0, 0, dim)
+    }
+
+    pub fn evaluate_nd<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<T, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank>
+    where
+        T: Copy + 'static,
+    {
+        use std::any::TypeId;
+
+        if TypeId::of::<T>() == TypeId::of::<f64>() {
+            // Safe: TypeId check ensures T == f64 at runtime
+            // We need unsafe because Rust can't statically prove this
+            let coeffs_f64 = unsafe {
+                &*(coeffs as *const Slice<T, DynRank> as *const Slice<f64, DynRank>)
+            };
+            self.evaluate_nd_impl_real(backend, coeffs_f64, dim)
+        } else if TypeId::of::<T>() == TypeId::of::<Complex<f64>>() {
+            // Safe: TypeId check ensures T == Complex<f64> at runtime
+            // We need unsafe because Rust can't statically prove this
+            let coeffs_complex = unsafe {
+                &*(coeffs as *const Slice<T, DynRank> as *const Slice<Complex<f64>, DynRank>)
+            };
+            self.evaluate_nd_impl_complex(backend, coeffs_complex, dim)
+        } else {
+            panic!("Unsupported type for evaluate_nd: must be f64 or Complex<f64>");
+        }
     }
 
     /// Evaluate real basis coefficients at Matsubara sampling points (N-dimensional)
@@ -278,7 +377,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         });
 
         // 4. Evaluate: values = A * coeffs (A is complex, coeffs is real)
-        let values_2d = self.fitter.evaluate_2d_real(backend, &coeffs_2d);
+        let coeffs_2d_view = coeffs_2d.view(.., ..);
+        let values_2d = self.fitter.evaluate_2d_real(backend, &coeffs_2d_view);
 
         // 5. Reshape result back to N-D with first dimension = n_sampling_points
         let n_points = self.n_sampling_points();
@@ -336,7 +436,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         });
 
         // Use fitter's efficient 2D fit (GEMM-based)
-        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d);
+        let values_2d_view = values_2d.view(.., ..);
+        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view);
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
@@ -396,7 +497,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         });
 
         // Use fitter's fit_2d_real method
-        let coeffs_2d = self.fitter.fit_2d_real(backend, &values_2d);
+        let values_2d_view = values_2d.view(.., ..);
+        let coeffs_2d = self.fitter.fit_2d_real(backend, &values_2d_view);
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
@@ -570,7 +672,8 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         });
 
         // Use fitter's efficient 2D evaluate (GEMM-based)
-        let result_2d = self.fitter.evaluate_2d(backend, &coeffs_2d);
+        let coeffs_2d_view = coeffs_2d.view(.., ..);
+        let result_2d = self.fitter.evaluate_2d(backend, &coeffs_2d_view);
 
         // 4. Reshape back to N-D with n_points at position 0
         let n_points = self.n_sampling_points();
@@ -627,7 +730,8 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         });
 
         // Use fitter's efficient 2D fit (GEMM-based)
-        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d);
+        let values_2d_view = values_2d.view(.., ..);
+        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view);
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
