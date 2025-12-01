@@ -738,64 +738,81 @@ void run_integration_tests(double beta, double wmax, double epsilon, double tol)
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(sve != nullptr);
 
+    // Unified nested loop structure for all test combinations
     for (int stat : {SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC}) {
         std::string stat_name = stat == SPIR_STATISTICS_FERMIONIC ? "Fermionic" : "Bosonic";
         for (bool positive_only : {false, true}) {
             std::cout << "positive_only = " << positive_only << std::endl;
-            {
-                std::vector<int> extra_dims = {};
-                std::cout << "Integration test for " << stat_name << "LogisticKernel" << std::endl;
-                integration_test<double, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, 0,
-                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
-
-                if (!positive_only) {
-                    integration_test<std::complex<double>, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, 0,
-                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
+            
+            // Iterate over extra_dims configurations
+            std::vector<std::vector<int>> extra_dims_configs = {{}, {2, 3, 4}};
+            for (const auto& extra_dims : extra_dims_configs) {
+                int ndim = 1 + extra_dims.size();
+                
+                // Determine target_dim range based on extra_dims
+                int target_dim_start = 0;
+                int target_dim_end = (extra_dims.empty()) ? 0 : ndim - 1;
+                
+                for (int target_dim = target_dim_start; target_dim <= target_dim_end; ++target_dim) {
+                    // Iterate over order (ColMajor and RowMajor)
+                    for (int order_idx = 0; order_idx < 2; ++order_idx) {
+                        bool is_col_major = (order_idx == 0);
+                        int order = is_col_major ? SPIR_ORDER_COLUMN_MAJOR : SPIR_ORDER_ROW_MAJOR;
+                        std::string order_name = is_col_major ? "ColMajor" : "RowMajor";
+                        
+                        // Generate appropriate console output
+                        if (extra_dims.empty() && target_dim == 0 && is_col_major) {
+                            std::cout << "Integration test for " << stat_name << "LogisticKernel" << std::endl;
+                        } else {
+                            std::cout << "Integration test for " << stat_name << "LogisticKernel, " 
+                                      << order_name << ", target_dim = " << target_dim << std::endl;
+                        }
+                        
+                        // Call integration_test with appropriate template parameters
+                        if (ndim == 1) {
+                            if (is_col_major) {
+                                integration_test<double, 1, Eigen::ColMajor>(
+                                    beta, wmax, epsilon, extra_dims, target_dim,
+                                    order, stat, kernel, sve, tol, positive_only);
+                                if (!positive_only) {
+                                    integration_test<std::complex<double>, 1, Eigen::ColMajor>(
+                                        beta, wmax, epsilon, extra_dims, target_dim,
+                                        order, stat, kernel, sve, tol, positive_only);
+                                }
+                            } else {
+                                integration_test<double, 1, Eigen::RowMajor>(
+                                    beta, wmax, epsilon, extra_dims, target_dim,
+                                    order, stat, kernel, sve, tol, positive_only);
+                                if (!positive_only) {
+                                    integration_test<std::complex<double>, 1, Eigen::RowMajor>(
+                                        beta, wmax, epsilon, extra_dims, target_dim,
+                                        order, stat, kernel, sve, tol, positive_only);
+                                }
+                            }
+                        } else if (ndim == 4) {
+                            if (is_col_major) {
+                                integration_test<double, 4, Eigen::ColMajor>(
+                                    beta, wmax, epsilon, extra_dims, target_dim,
+                                    order, stat, kernel, sve, tol, positive_only);
+                                if (!positive_only) {
+                                    integration_test<std::complex<double>, 4, Eigen::ColMajor>(
+                                        beta, wmax, epsilon, extra_dims, target_dim,
+                                        order, stat, kernel, sve, tol, positive_only);
+                                }
+                            } else {
+                                integration_test<double, 4, Eigen::RowMajor>(
+                                    beta, wmax, epsilon, extra_dims, target_dim,
+                                    order, stat, kernel, sve, tol, positive_only);
+                                if (!positive_only) {
+                                    integration_test<std::complex<double>, 4, Eigen::RowMajor>(
+                                        beta, wmax, epsilon, extra_dims, target_dim,
+                                        order, stat, kernel, sve, tol, positive_only);
+                                }
+                            }
+                        }
+                    }
                 }
             }
-    
-            {
-                int target_dim = 0;
-                std::vector<int> extra_dims = {};
-                    std::cout << "Integration test for " << stat_name << "LogisticKernel, ColMajor, target_dim = " << target_dim << std::endl;
-                    integration_test<double, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                              SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
-                if (!positive_only) {
-                    integration_test<std::complex<double>, 1, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                                  SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
-                }
-            }
-    
-            {
-                int target_dim = 0;
-                std::vector<int> extra_dims = {};
-                std::cout << "Integration test for " << stat_name << "LogisticKernel, RowMajor, target_dim = " << target_dim << std::endl;
-                integration_test<double, 1, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                              SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
-                if (!positive_only) {
-                    integration_test<std::complex<double>, 1, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                                  SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
-               }
-            }
-        }
-    }
-
-    // Multi-dimensional tests (only for fermionic statistics and positive only)
-    int stat = SPIR_STATISTICS_FERMIONIC;
-    for (bool positive_only : {true}) {
-        // extra dims = {2,3,4}
-        for (int target_dim = 0; target_dim < 4; ++target_dim) {
-            std::vector<int> extra_dims = {2,3,4};
-            std::cout << "Integration test for bosonic LogisticKernel, ColMajor, target_dim = " << target_dim << std::endl;
-            integration_test<double, 4, Eigen::ColMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                          SPIR_ORDER_COLUMN_MAJOR, stat, kernel, sve, tol, positive_only);
-        }
-
-        for (int target_dim = 0; target_dim < 4; ++target_dim) {
-            std::vector<int> extra_dims = {2,3,4};
-            std::cout << "Integration test for bosonic LogisticKernel, RowMajor, target_dim = " << target_dim << std::endl;
-            integration_test<double, 4, Eigen::RowMajor>(beta, wmax, epsilon, extra_dims, target_dim,
-                                          SPIR_ORDER_ROW_MAJOR, stat, kernel, sve, tol, positive_only);
         }
     }
 
