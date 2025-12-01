@@ -18,7 +18,10 @@ use std::sync::Arc;
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
 use crate::utils::{MemoryOrder, convert_dims_for_row_major, copy_tensor_to_c_array};
-use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC, StatusCode};
+use crate::{
+    SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC,
+    SPIR_STATISTICS_FERMIONIC, StatusCode,
+};
 use sparse_ir::{Bosonic, Fermionic, Tensor};
 
 /// Manual release function (replaces macro-generated one)

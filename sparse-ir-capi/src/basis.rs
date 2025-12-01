@@ -7,7 +7,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use sparse_ir::basis::FiniteTempBasis;
 
 use crate::types::{spir_basis, spir_funcs, spir_kernel, spir_sve_result};
-use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC, StatusCode};
+use crate::{
+    SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_STATISTICS_BOSONIC,
+    SPIR_STATISTICS_FERMIONIC, StatusCode,
+};
 
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]

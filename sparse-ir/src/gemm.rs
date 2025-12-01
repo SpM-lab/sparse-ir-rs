@@ -22,7 +22,7 @@
 //! let c = matmul_par(&a, &b);  // Now uses custom BLAS
 //! ```
 
-use mdarray::{DView, DSlice, DTensor, Layout};
+use mdarray::{DSlice, DTensor, DView, Layout};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
@@ -615,8 +615,7 @@ static BLAS_DISPATCHER: Lazy<RwLock<Box<dyn GemmBackend>>> = Lazy::new(|| {
     #[cfg(feature = "system-blas")]
     {
         // Use system BLAS (LP64) by default via `blas-sys`.
-        let backend =
-            ExternalBlasBackend::new(dgemm_ as DgemmFnPtr, zgemm_wrapper as ZgemmFnPtr);
+        let backend = ExternalBlasBackend::new(dgemm_ as DgemmFnPtr, zgemm_wrapper as ZgemmFnPtr);
         RwLock::new(Box::new(backend) as Box<dyn GemmBackend>)
     }
     #[cfg(not(feature = "system-blas"))]
@@ -862,11 +861,9 @@ pub fn matmul_par_overwrite_view<T>(
 
         // Get backend: use provided handle or fall back to global dispatcher
         match backend {
-            Some(handle) => {
-                unsafe {
-                    handle.as_ref().dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
-                }
-            }
+            Some(handle) => unsafe {
+                handle.as_ref().dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+            },
             None => {
                 let dispatcher = BLAS_DISPATCHER.read().unwrap();
                 unsafe {
@@ -881,11 +878,9 @@ pub fn matmul_par_overwrite_view<T>(
         let c_ptr = c.as_mut_ptr() as *mut num_complex::Complex<f64>;
 
         match backend {
-            Some(handle) => {
-                unsafe {
-                    handle.as_ref().zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
-                }
-            }
+            Some(handle) => unsafe {
+                handle.as_ref().zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+            },
             None => {
                 let dispatcher = BLAS_DISPATCHER.read().unwrap();
                 unsafe {

@@ -4,7 +4,7 @@
 //! where the matrix A and value types can vary.
 
 use crate::gemm::GemmBackendHandle;
-use mdarray::{DView, DTensor};
+use mdarray::{DTensor, DView};
 use num_complex::Complex;
 use std::cell::RefCell;
 
@@ -357,7 +357,8 @@ impl RealMatrixFitter {
         );
 
         // Extract real and imaginary parts (need to convert to DTensor for extract functions)
-        let values_tensor = DTensor::<Complex<f64>, 2>::from_fn(*values_2d.shape(), |idx| values_2d[idx]);
+        let values_tensor =
+            DTensor::<Complex<f64>, 2>::from_fn(*values_2d.shape(), |idx| values_2d[idx]);
         let values_re = extract_real_parts(&values_tensor);
         let values_im = extract_imag_parts(&values_tensor);
 
@@ -395,7 +396,8 @@ impl RealMatrixFitter {
         );
 
         // Extract real and imaginary parts (need to convert to DTensor for extract functions)
-        let coeffs_tensor = DTensor::<Complex<f64>, 2>::from_fn(*coeffs_2d.shape(), |idx| coeffs_2d[idx]);
+        let coeffs_tensor =
+            DTensor::<Complex<f64>, 2>::from_fn(*coeffs_2d.shape(), |idx| coeffs_2d[idx]);
         let coeffs_re = extract_real_parts_coeffs(&coeffs_tensor);
         let coeffs_im = extract_imag_parts_coeffs(&coeffs_tensor);
 

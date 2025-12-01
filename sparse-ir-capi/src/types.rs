@@ -3,6 +3,7 @@
 //! All Rust objects are wrapped in opaque pointers to hide implementation
 //! details from C code.
 
+use crate::{SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
 use sparse_ir::basis::FiniteTempBasis;
 use sparse_ir::freq::MatsubaraFreq;
 use sparse_ir::kernel::{AbstractKernel, CentrosymmKernel, LogisticKernel, RegularizedBoseKernel};
@@ -12,7 +13,6 @@ use sparse_ir::sve::SVEResult;
 use sparse_ir::taufuncs::normalize_tau;
 use sparse_ir::traits::Statistics;
 use sparse_ir::{Bosonic, Fermionic};
-use crate::{SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
 use std::sync::Arc;
 
 /// Convert Statistics enum to C-API integer
@@ -378,12 +378,23 @@ impl spir_basis {
         }
     }
 
-    pub(crate) fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
+    pub(crate) fn default_tau_sampling_points_size_requested(
+        &self,
+        size_requested: usize,
+    ) -> Vec<f64> {
         match self.inner_type() {
-            BasisType::LogisticFermionic(b) => b.default_tau_sampling_points_size_requested(size_requested),
-            BasisType::LogisticBosonic(b) => b.default_tau_sampling_points_size_requested(size_requested),
-            BasisType::RegularizedBoseFermionic(b) => b.default_tau_sampling_points_size_requested(size_requested),
-            BasisType::RegularizedBoseBosonic(b) => b.default_tau_sampling_points_size_requested(size_requested),
+            BasisType::LogisticFermionic(b) => {
+                b.default_tau_sampling_points_size_requested(size_requested)
+            }
+            BasisType::LogisticBosonic(b) => {
+                b.default_tau_sampling_points_size_requested(size_requested)
+            }
+            BasisType::RegularizedBoseFermionic(b) => {
+                b.default_tau_sampling_points_size_requested(size_requested)
+            }
+            BasisType::RegularizedBoseBosonic(b) => {
+                b.default_tau_sampling_points_size_requested(size_requested)
+            }
             // DLR: no default tau sampling points
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
         }
