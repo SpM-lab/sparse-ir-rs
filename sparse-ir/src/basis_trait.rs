@@ -95,7 +95,7 @@ pub trait Basis<S: StatisticsType> {
 
     /// Get default tau sampling points
     ///
-    /// Returns sampling points in imaginary time τ ∈ [0, β].
+    /// Returns sampling points in imaginary time τ ∈ [-β/2, β/2].
     /// These are chosen to provide near-optimal conditioning of the
     /// sampling matrix.
     ///

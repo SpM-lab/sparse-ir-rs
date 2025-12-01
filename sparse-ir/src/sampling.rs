@@ -72,7 +72,7 @@ pub struct TauSampling<S>
 where
     S: StatisticsType,
 {
-    /// Sampling points in imaginary time τ ∈ [0, β]
+    /// Sampling points in imaginary time τ ∈ [-β/2, β/2]
     sampling_points: Vec<f64>,
 
     /// Real matrix fitter for least-squares fitting
