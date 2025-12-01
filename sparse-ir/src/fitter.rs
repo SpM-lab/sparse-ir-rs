@@ -4,7 +4,7 @@
 //! where the matrix A and value types can vary.
 
 use crate::gemm::GemmBackendHandle;
-use mdarray::DTensor;
+use mdarray::{DView, DTensor};
 use num_complex::Complex;
 use std::cell::RefCell;
 
@@ -135,7 +135,7 @@ impl RealMatrixFitter {
     /// Evaluate: coeffs (real) → values (real)
     ///
     /// Computes: values = A * coeffs
-    pub fn evaluate(&self, _backend: Option<&GemmBackendHandle>, coeffs: &[f64]) -> Vec<f64> {
+    pub fn evaluate(&self, backend: Option<&GemmBackendHandle>, coeffs: &[f64]) -> Vec<f64> {
         assert_eq!(
             coeffs.len(),
             self.basis_size(),
@@ -144,18 +144,15 @@ impl RealMatrixFitter {
             self.basis_size()
         );
 
+        // Convert to column vector and use evaluate_2d
+        let basis_size = coeffs.len();
+        let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, 1], |idx| coeffs[idx[0]]);
+        let coeffs_view = coeffs_2d.view(.., ..);
+        let values_2d = self.evaluate_2d(backend, &coeffs_view);
+
+        // Extract as Vec
         let n_points = self.n_points();
-        let mut values = vec![0.0; n_points];
-
-        for i in 0..n_points {
-            let mut sum = 0.0;
-            for j in 0..self.basis_size() {
-                sum += self.matrix[[i, j]] * coeffs[j];
-            }
-            values[i] = sum;
-        }
-
-        values
+        (0..n_points).map(|i| values_2d[[i, 0]]).collect()
     }
 
     /// Fit: values (real) → coeffs (real)
@@ -174,7 +171,8 @@ impl RealMatrixFitter {
         // Convert values to column vector and use fit_2d
         let n = values.len();
         let values_2d = DTensor::<f64, 2>::from_fn([n, 1], |idx| values[idx[0]]);
-        let coeffs_2d = self.fit_2d(backend, &values_2d);
+        let values_view = values_2d.view(.., ..);
+        let coeffs_2d = self.fit_2d(backend, &values_view);
 
         // Extract as Vec
         let basis_size = self.basis_size();
@@ -204,18 +202,15 @@ impl RealMatrixFitter {
             self.n_points()
         );
 
-        // Fit real and imaginary parts separately
-        let values_re: Vec<f64> = values.iter().map(|v| v.re).collect();
-        let values_im: Vec<f64> = values.iter().map(|v| v.im).collect();
+        // Convert to 2D and use fit_complex_2d
+        let n = values.len();
+        let values_2d = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
+        let values_view = values_2d.view(.., ..);
+        let coeffs_2d = self.fit_complex_2d(backend, &values_view);
 
-        let coeffs_re = self.fit(backend, &values_re);
-        let coeffs_im = self.fit(backend, &values_im);
-
-        coeffs_re
-            .iter()
-            .zip(coeffs_im.iter())
-            .map(|(&re, &im)| Complex::new(re, im))
-            .collect()
+        // Extract as Vec
+        let basis_size = self.basis_size();
+        (0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect()
     }
 
     /// Evaluate complex coefficients
@@ -241,18 +236,15 @@ impl RealMatrixFitter {
             self.basis_size()
         );
 
-        // Evaluate real and imaginary parts separately
-        let coeffs_re: Vec<f64> = coeffs.iter().map(|c| c.re).collect();
-        let coeffs_im: Vec<f64> = coeffs.iter().map(|c| c.im).collect();
+        // Convert to column vector and use evaluate_complex_2d
+        let basis_size = coeffs.len();
+        let coeffs_2d = DTensor::<Complex<f64>, 2>::from_fn([basis_size, 1], |idx| coeffs[idx[0]]);
+        let coeffs_view = coeffs_2d.view(.., ..);
+        let values_2d = self.evaluate_complex_2d(backend, &coeffs_view);
 
-        let values_re = self.evaluate(backend, &coeffs_re);
-        let values_im = self.evaluate(backend, &coeffs_im);
-
-        values_re
-            .iter()
-            .zip(values_im.iter())
-            .map(|(&re, &im)| Complex::new(re, im))
-            .collect()
+        // Extract as Vec
+        let n_points = self.n_points();
+        (0..n_points).map(|i| values_2d[[i, 0]]).collect()
     }
 
     /// Evaluate 2D real tensor (along dim=0) using matrix multiplication
@@ -267,9 +259,9 @@ impl RealMatrixFitter {
     pub fn evaluate_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs_2d: &mdarray::DTensor<f64, 2>,
+        coeffs_2d: &DView<'_, f64, 2>,
     ) -> mdarray::DTensor<f64, 2> {
-        use crate::gemm::matmul_par;
+        use crate::gemm::matmul_par_view;
 
         let (basis_size, _extra_size) = *coeffs_2d.shape();
         assert_eq!(
@@ -281,7 +273,8 @@ impl RealMatrixFitter {
         );
 
         // values_2d = matrix * coeffs_2d
-        matmul_par(&self.matrix, coeffs_2d, backend)
+        let matrix_view = self.matrix.view(.., ..);
+        matmul_par_view(&matrix_view, coeffs_2d, backend)
     }
 
     /// Fit 2D real tensor (along dim=0) using matrix multiplication
@@ -296,9 +289,9 @@ impl RealMatrixFitter {
     pub fn fit_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values_2d: &mdarray::DTensor<f64, 2>,
+        values_2d: &DView<'_, f64, 2>,
     ) -> mdarray::DTensor<f64, 2> {
-        use crate::gemm::matmul_par;
+        use crate::gemm::matmul_par_view;
 
         let (n_points, extra_size) = *values_2d.shape();
         assert_eq!(
@@ -321,7 +314,8 @@ impl RealMatrixFitter {
         // coeffs_2d = V * S^{-1} * U^T * values_2d
 
         // 1. U^T * values_2d
-        let mut ut_values = matmul_par(&svd.ut, values_2d, backend); // [min_dim, extra_size]
+        let ut_view = svd.ut.view(.., ..);
+        let mut ut_values = matmul_par_view(&ut_view, values_2d, backend); // [min_dim, extra_size]
 
         // 2. S^{-1} * (U^T * values_2d) - in-place division
         let min_dim = svd.s.len();
@@ -333,7 +327,9 @@ impl RealMatrixFitter {
         }
 
         // 3. V * (S^{-1} * U^T * values_2d)
-        matmul_par(&svd.v, &ut_values, backend) // [basis_size, extra_size]
+        let v_view = svd.v.view(.., ..);
+        let ut_values_view = ut_values.view(.., ..);
+        matmul_par_view(&v_view, &ut_values_view, backend) // [basis_size, extra_size]
     }
 
     /// Fit 2D complex tensor (along dim=0) using matrix multiplication
@@ -349,9 +345,9 @@ impl RealMatrixFitter {
     pub fn fit_complex_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values_2d: &mdarray::DTensor<Complex<f64>, 2>,
+        values_2d: &DView<'_, Complex<f64>, 2>,
     ) -> mdarray::DTensor<Complex<f64>, 2> {
-        let (n_points, extra_size) = *values_2d.shape();
+        let (n_points, _extra_size) = *values_2d.shape();
         assert_eq!(
             n_points,
             self.n_points(),
@@ -360,19 +356,19 @@ impl RealMatrixFitter {
             self.n_points()
         );
 
-        // Extract real and imaginary parts
-        let values_re = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].re);
-        let values_im = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].im);
+        // Extract real and imaginary parts (need to convert to DTensor for extract functions)
+        let values_tensor = DTensor::<Complex<f64>, 2>::from_fn(*values_2d.shape(), |idx| values_2d[idx]);
+        let values_re = extract_real_parts(&values_tensor);
+        let values_im = extract_imag_parts(&values_tensor);
 
         // Fit real and imaginary parts separately using matrix multiplication
-        let coeffs_re = self.fit_2d(backend, &values_re);
-        let coeffs_im = self.fit_2d(backend, &values_im);
+        let values_re_view = values_re.view(.., ..);
+        let values_im_view = values_im.view(.., ..);
+        let coeffs_re = self.fit_2d(backend, &values_re_view);
+        let coeffs_im = self.fit_2d(backend, &values_im_view);
 
         // Combine back to complex
-        let basis_size = self.basis_size();
-        DTensor::<Complex<f64>, 2>::from_fn([basis_size, extra_size], |idx| {
-            Complex::new(coeffs_re[idx], coeffs_im[idx])
-        })
+        combine_complex_coeffs(&coeffs_re, &coeffs_im)
     }
 
     /// Evaluate 2D complex coefficients to complex values using GEMM
@@ -385,11 +381,11 @@ impl RealMatrixFitter {
     pub fn evaluate_complex_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs_2d: &mdarray::DTensor<Complex<f64>, 2>,
+        coeffs_2d: &DView<'_, Complex<f64>, 2>,
     ) -> mdarray::DTensor<Complex<f64>, 2> {
-        use crate::gemm::matmul_par;
+        use crate::gemm::matmul_par_view;
 
-        let (basis_size, extra_size) = *coeffs_2d.shape();
+        let (basis_size, _extra_size) = *coeffs_2d.shape();
         assert_eq!(
             basis_size,
             self.basis_size(),
@@ -398,21 +394,20 @@ impl RealMatrixFitter {
             self.basis_size()
         );
 
-        // Extract real and imaginary parts
-        let coeffs_re =
-            DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].re);
-        let coeffs_im =
-            DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].im);
+        // Extract real and imaginary parts (need to convert to DTensor for extract functions)
+        let coeffs_tensor = DTensor::<Complex<f64>, 2>::from_fn(*coeffs_2d.shape(), |idx| coeffs_2d[idx]);
+        let coeffs_re = extract_real_parts_coeffs(&coeffs_tensor);
+        let coeffs_im = extract_imag_parts_coeffs(&coeffs_tensor);
 
         // Evaluate real and imaginary parts separately: values = matrix * coeffs
-        let values_re = matmul_par(&self.matrix, &coeffs_re, backend);
-        let values_im = matmul_par(&self.matrix, &coeffs_im, backend);
+        let matrix_view = self.matrix.view(.., ..);
+        let coeffs_re_view = coeffs_re.view(.., ..);
+        let coeffs_im_view = coeffs_im.view(.., ..);
+        let values_re = matmul_par_view(&matrix_view, &coeffs_re_view, backend);
+        let values_im = matmul_par_view(&matrix_view, &coeffs_im_view, backend);
 
         // Combine to complex
-        let n_points = self.n_points();
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
-            Complex::new(values_re[idx], values_im[idx])
-        })
+        combine_complex(&values_re, &values_im)
     }
 
     /// Generic 2D evaluate (works for both f64 and Complex<f64>)
@@ -444,7 +439,8 @@ impl RealMatrixFitter {
             let coeffs_f64 = unsafe {
                 &*(coeffs_2d as *const mdarray::DTensor<T, 2> as *const mdarray::DTensor<f64, 2>)
             };
-            let result = self.evaluate_2d(backend, coeffs_f64);
+            let coeffs_view = coeffs_f64.view(.., ..);
+            let result = self.evaluate_2d(backend, &coeffs_view);
             unsafe {
                 std::mem::transmute::<mdarray::DTensor<f64, 2>, mdarray::DTensor<T, 2>>(result)
             }
@@ -453,7 +449,8 @@ impl RealMatrixFitter {
                 &*(coeffs_2d as *const mdarray::DTensor<T, 2>
                     as *const mdarray::DTensor<Complex<f64>, 2>)
             };
-            let result = self.evaluate_complex_2d(backend, coeffs_complex);
+            let coeffs_view = coeffs_complex.view(.., ..);
+            let result = self.evaluate_complex_2d(backend, &coeffs_view);
             unsafe {
                 std::mem::transmute::<mdarray::DTensor<Complex<f64>, 2>, mdarray::DTensor<T, 2>>(
                     result,
@@ -493,7 +490,8 @@ impl RealMatrixFitter {
             let values_f64 = unsafe {
                 &*(values_2d as *const mdarray::DTensor<T, 2> as *const mdarray::DTensor<f64, 2>)
             };
-            let result = self.fit_2d(backend, values_f64);
+            let values_view = values_f64.view(.., ..);
+            let result = self.fit_2d(backend, &values_view);
             unsafe {
                 std::mem::transmute::<mdarray::DTensor<f64, 2>, mdarray::DTensor<T, 2>>(result)
             }
@@ -502,7 +500,8 @@ impl RealMatrixFitter {
                 &*(values_2d as *const mdarray::DTensor<T, 2>
                     as *const mdarray::DTensor<Complex<f64>, 2>)
             };
-            let result = self.fit_complex_2d(backend, values_complex);
+            let values_view = values_complex.view(.., ..);
+            let result = self.fit_complex_2d(backend, &values_view);
             unsafe {
                 std::mem::transmute::<mdarray::DTensor<Complex<f64>, 2>, mdarray::DTensor<T, 2>>(
                     result,
@@ -599,7 +598,8 @@ impl ComplexToRealFitter {
         // Convert coeffs to column vector and use evaluate_2d
         let basis_size = coeffs.len();
         let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, 1], |idx| coeffs[idx[0]]);
-        let values_2d = self.evaluate_2d(backend, &coeffs_2d);
+        let coeffs_view = coeffs_2d.view(.., ..);
+        let values_2d = self.evaluate_2d(backend, &coeffs_view);
 
         // Extract as Vec
         let n_points = self.n_points();
@@ -621,7 +621,8 @@ impl ComplexToRealFitter {
         // Convert complex values to 2D tensor (column vector) and use fit_2d
         let n = values.len();
         let values_2d = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
-        let coeffs_2d = self.fit_2d(backend, &values_2d);
+        let values_view = values_2d.view(.., ..);
+        let coeffs_2d = self.fit_2d(backend, &values_view);
 
         // Extract as Vec
         let basis_size = self.basis_size();
@@ -638,9 +639,11 @@ impl ComplexToRealFitter {
     pub fn evaluate_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs_2d: &DTensor<f64, 2>,
+        coeffs_2d: &DView<'_, f64, 2>,
     ) -> DTensor<Complex<f64>, 2> {
-        let (basis_size, extra_size) = *coeffs_2d.shape();
+        use crate::gemm::matmul_par_view;
+
+        let (basis_size, _extra_size) = *coeffs_2d.shape();
         assert_eq!(
             basis_size,
             self.basis_size(),
@@ -651,20 +654,18 @@ impl ComplexToRealFitter {
 
         // values_2d = A * coeffs_2d (complex matrix * real coeffs)
         // Split into real and imaginary parts for GEMM
-        use crate::gemm::matmul_par;
-
-        let n_points = self.n_points();
+        // Extract real and imaginary parts of matrix
         let matrix_re = DTensor::<f64, 2>::from_fn(*self.matrix.shape(), |idx| self.matrix[idx].re);
         let matrix_im = DTensor::<f64, 2>::from_fn(*self.matrix.shape(), |idx| self.matrix[idx].im);
 
         // Compute real and imaginary parts separately using GEMM
-        let values_re = matmul_par(&matrix_re, coeffs_2d, backend);
-        let values_im = matmul_par(&matrix_im, coeffs_2d, backend);
+        let matrix_re_view = matrix_re.view(.., ..);
+        let matrix_im_view = matrix_im.view(.., ..);
+        let values_re = matmul_par_view(&matrix_re_view, coeffs_2d, backend);
+        let values_im = matmul_par_view(&matrix_im_view, coeffs_2d, backend);
 
         // Combine to complex
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
-            Complex::new(values_re[idx], values_im[idx])
-        })
+        combine_complex(&values_re, &values_im)
     }
 
     /// Fit 2D complex tensor to real coefficients (along dim=0) using matrix multiplication
@@ -677,9 +678,9 @@ impl ComplexToRealFitter {
     pub fn fit_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values_2d: &DTensor<Complex<f64>, 2>,
+        values_2d: &DView<'_, Complex<f64>, 2>,
     ) -> DTensor<f64, 2> {
-        use crate::gemm::matmul_par;
+        use crate::gemm::matmul_par_view;
 
         let (n_points, extra_size) = *values_2d.shape();
         assert_eq!(
@@ -710,7 +711,9 @@ impl ComplexToRealFitter {
         // coeffs_2d = V * S^{-1} * U^T * values_flat
 
         // 1. U^T * values_flat
-        let mut ut_values = matmul_par(&svd.ut, &values_flat, backend);
+        let ut_view = svd.ut.view(.., ..);
+        let values_flat_view = values_flat.view(.., ..);
+        let mut ut_values = matmul_par_view(&ut_view, &values_flat_view, backend);
 
         // 2. S^{-1} * (U^T * values_flat) - in-place division
         let min_dim = svd.s.len();
@@ -731,7 +734,9 @@ impl ComplexToRealFitter {
         }
 
         // 3. V * (S^{-1} * U^T * values_flat)
-        matmul_par(&svd.v, &ut_values, backend)
+        let v_view = svd.v.view(.., ..);
+        let ut_values_view = ut_values.view(.., ..);
+        matmul_par_view(&v_view, &ut_values_view, backend)
     }
 }
 
@@ -823,7 +828,8 @@ impl ComplexMatrixFitter {
         // Convert values to column vector and use fit_2d
         let n = values.len();
         let values_2d = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
-        let coeffs_2d = self.fit_2d(backend, &values_2d);
+        let values_view = values_2d.view(.., ..);
+        let coeffs_2d = self.fit_2d(backend, &values_view);
 
         // Extract as Vec
         let basis_size = self.basis_size();
@@ -840,9 +846,9 @@ impl ComplexMatrixFitter {
     pub fn evaluate_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs_2d: &DTensor<Complex<f64>, 2>,
+        coeffs_2d: &DView<'_, Complex<f64>, 2>,
     ) -> DTensor<Complex<f64>, 2> {
-        use crate::gemm::matmul_par;
+        use crate::gemm::matmul_par_view;
 
         let (basis_size, _extra_size) = *coeffs_2d.shape();
         assert_eq!(
@@ -854,7 +860,8 @@ impl ComplexMatrixFitter {
         );
 
         // values_2d = A * coeffs_2d
-        matmul_par(&self.matrix, coeffs_2d, backend)
+        let matrix_view = self.matrix.view(.., ..);
+        matmul_par_view(&matrix_view, coeffs_2d, backend)
     }
 
     /// Evaluate 2D real tensor to complex values (along dim=0) using matrix multiplication
@@ -869,11 +876,11 @@ impl ComplexMatrixFitter {
     pub fn evaluate_2d_real(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs_2d: &DTensor<f64, 2>,
+        coeffs_2d: &DView<'_, f64, 2>,
     ) -> DTensor<Complex<f64>, 2> {
-        use crate::gemm::matmul_par;
+        use crate::gemm::matmul_par_view;
 
-        let (basis_size, extra_size) = *coeffs_2d.shape();
+        let (basis_size, _extra_size) = *coeffs_2d.shape();
         assert_eq!(
             basis_size,
             self.basis_size(),
@@ -882,20 +889,18 @@ impl ComplexMatrixFitter {
             self.basis_size()
         );
 
-        let n_points = self.n_points();
-
         // Split matrix into real and imaginary parts
         let matrix_re = DTensor::<f64, 2>::from_fn(*self.matrix.shape(), |idx| self.matrix[idx].re);
         let matrix_im = DTensor::<f64, 2>::from_fn(*self.matrix.shape(), |idx| self.matrix[idx].im);
 
         // Compute real and imaginary parts separately
-        let values_re = matmul_par(&matrix_re, coeffs_2d, backend);
-        let values_im = matmul_par(&matrix_im, coeffs_2d, backend);
+        let matrix_re_view = matrix_re.view(.., ..);
+        let matrix_im_view = matrix_im.view(.., ..);
+        let values_re = matmul_par_view(&matrix_re_view, coeffs_2d, backend);
+        let values_im = matmul_par_view(&matrix_im_view, coeffs_2d, backend);
 
         // Combine to complex
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
-            Complex::new(values_re[idx], values_im[idx])
-        })
+        combine_complex(&values_re, &values_im)
     }
 
     /// Fit 2D complex tensor (along dim=0) using matrix multiplication
@@ -908,9 +913,9 @@ impl ComplexMatrixFitter {
     pub fn fit_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values_2d: &DTensor<Complex<f64>, 2>,
+        values_2d: &DView<'_, Complex<f64>, 2>,
     ) -> DTensor<Complex<f64>, 2> {
-        use crate::gemm::matmul_par;
+        use crate::gemm::matmul_par_view;
 
         let (n_points, extra_size) = *values_2d.shape();
         assert_eq!(
@@ -933,7 +938,8 @@ impl ComplexMatrixFitter {
         // coeffs_2d = V * S^{-1} * U^H * values_2d
 
         // 1. U^H * values_2d (ut is already U^H)
-        let mut uh_values = matmul_par(&svd.ut, values_2d, backend); // [min_dim, extra_size]
+        let ut_view = svd.ut.view(.., ..);
+        let mut uh_values = matmul_par_view(&ut_view, values_2d, backend); // [min_dim, extra_size]
 
         // 2. S^{-1} * (U^H * values_2d) - in-place division
         let min_dim = svd.s.len();
@@ -945,7 +951,9 @@ impl ComplexMatrixFitter {
         }
 
         // 3. V * (S^{-1} * U^H * values_2d)
-        matmul_par(&svd.v, &uh_values, backend) // [basis_size, extra_size]
+        let v_view = svd.v.view(.., ..);
+        let uh_values_view = uh_values.view(.., ..);
+        matmul_par_view(&v_view, &uh_values_view, backend) // [basis_size, extra_size]
     }
 
     /// Fit 2D complex values to real coefficients (along dim=0)
@@ -961,20 +969,59 @@ impl ComplexMatrixFitter {
     pub fn fit_2d_real(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values_2d: &DTensor<Complex<f64>, 2>,
+        values_2d: &DView<'_, Complex<f64>, 2>,
     ) -> DTensor<f64, 2> {
         // Fit as complex, then take real part
         let coeffs_complex = self.fit_2d(backend, values_2d);
 
         // Extract real part
-        let (basis_size, extra_size) = *coeffs_complex.shape();
-        DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_complex[idx].re)
+        extract_real_parts_coeffs(&coeffs_complex)
     }
 }
 
 // ============================================================================
 // Helper functions
 // ============================================================================
+
+/// Extract real parts from complex tensor
+fn extract_real_parts(values_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
+    let (n_points, extra_size) = *values_2d.shape();
+    DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].re)
+}
+
+/// Extract imaginary parts from complex tensor
+fn extract_imag_parts(values_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
+    let (n_points, extra_size) = *values_2d.shape();
+    DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].im)
+}
+
+/// Combine real and imaginary parts into complex tensor
+fn combine_complex(re: &DTensor<f64, 2>, im: &DTensor<f64, 2>) -> DTensor<Complex<f64>, 2> {
+    let (n_points, extra_size) = *re.shape();
+    DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
+        Complex::new(re[idx], im[idx])
+    })
+}
+
+/// Extract real parts from complex tensor (for coefficients)
+fn extract_real_parts_coeffs(coeffs_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
+    let (basis_size, extra_size) = *coeffs_2d.shape();
+    DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].re)
+}
+
+/// Extract imaginary parts from complex tensor (for coefficients)
+fn extract_imag_parts_coeffs(coeffs_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
+    let (basis_size, extra_size) = *coeffs_2d.shape();
+    DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].im)
+}
+
+/// Combine real and imaginary parts into complex tensor (for coefficients)
+fn combine_complex_coeffs(re: &DTensor<f64, 2>, im: &DTensor<f64, 2>) -> DTensor<Complex<f64>, 2> {
+    let (basis_size, extra_size) = *re.shape();
+    DTensor::<Complex<f64>, 2>::from_fn([basis_size, extra_size], |idx| {
+        Complex::new(re[idx], im[idx])
+    })
+}
 
 /// Compute SVD of a real matrix using mdarray-linalg
 fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
@@ -1004,10 +1051,8 @@ fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexSVD {
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
 
-    // Convert Complex<f64> to faer's c64 for SVD
-    let (n, m) = *matrix.shape();
-    let mut matrix_c64 =
-        mdarray::DTensor::<num_complex::Complex<f64>, 2>::from_fn([n, m], |idx| matrix[idx]);
+    // Use matrix directly (Complex<f64> is compatible with faer's c64)
+    let mut matrix_c64 = matrix.clone();
 
     // Compute complex SVD directly
     let SVDDecomp { u, s, vt } = Faer

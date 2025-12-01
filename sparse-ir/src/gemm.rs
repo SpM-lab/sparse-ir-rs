@@ -22,7 +22,7 @@
 //! let c = matmul_par(&a, &b);  // Now uses custom BLAS
 //! ```
 
-use mdarray::{DSlice, DTensor, Layout};
+use mdarray::{DView, DSlice, DTensor, Layout};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
@@ -739,6 +739,173 @@ where
     result
 }
 
+/// Parallel matrix multiplication accepting DView (assumes contiguous memory)
+///
+/// This function accepts `DView` instead of `DTensor`, allowing views of arrays
+/// to be used directly without copying. The view must have contiguous memory layout.
+///
+/// # Arguments
+/// * `a` - Left matrix view (M x K) - must be contiguous
+/// * `b` - Right matrix view (K x N) - must be contiguous
+/// * `backend` - Optional backend handle. If `None`, uses global dispatcher
+///
+/// # Panics
+/// Panics if:
+/// - Matrix dimensions are incompatible (A.cols != B.rows)
+/// - Views are not contiguous in memory
+///
+/// # Example
+/// ```ignore
+/// use mdarray::DView;
+///
+/// let a = tensor![[1.0, 2.0], [3.0, 4.0]];
+/// let b = tensor![[5.0, 6.0], [7.0, 8.0]];
+/// let a_view: DView<'_, f64, 2> = a.view(..);
+/// let b_view: DView<'_, f64, 2> = b.view(..);
+/// let c = matmul_par_view(&a_view, &b_view, None);
+/// ```
+pub fn matmul_par_view<T>(
+    a: &DView<'_, T, 2>,
+    b: &DView<'_, T, 2>,
+    backend: Option<&GemmBackendHandle>,
+) -> DTensor<T, 2>
+where
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+{
+    // Check that views are contiguous (required for BLAS operations)
+    assert!(
+        a.is_contiguous(),
+        "Matrix A view must be contiguous in memory"
+    );
+    assert!(
+        b.is_contiguous(),
+        "Matrix B view must be contiguous in memory"
+    );
+
+    let (m, k) = *a.shape();
+    let (k2, n) = *b.shape();
+
+    // Validate dimensions
+    assert_eq!(
+        k, k2,
+        "Matrix dimension mismatch: A.cols ({}) != B.rows ({})",
+        k, k2
+    );
+
+    // Create result tensor
+    let mut result = DTensor::<T, 2>::from_elem([m, n], T::zero().into());
+    matmul_par_overwrite_view(a, b, &mut result, backend);
+    result
+}
+
+/// Parallel matrix multiplication with overwrite accepting DView (assumes contiguous memory)
+///
+/// This function writes the result directly into the provided buffer `c`,
+/// accepting `DView` inputs. The views must have contiguous memory layout.
+///
+/// # Arguments
+/// * `a` - Left matrix view (M x K) - must be contiguous
+/// * `b` - Right matrix view (K x N) - must be contiguous
+/// * `c` - Output matrix (M x N) - will be overwritten with result
+/// * `backend` - Optional backend handle. If `None`, uses global dispatcher
+///
+/// # Panics
+/// Panics if:
+/// - Matrix dimensions are incompatible
+/// - Views are not contiguous in memory
+pub fn matmul_par_overwrite_view<T>(
+    a: &DView<'_, T, 2>,
+    b: &DView<'_, T, 2>,
+    c: &mut DTensor<T, 2>,
+    backend: Option<&GemmBackendHandle>,
+) where
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+{
+    // Check that views are contiguous (required for BLAS operations)
+    assert!(
+        a.is_contiguous(),
+        "Matrix A view must be contiguous in memory"
+    );
+    assert!(
+        b.is_contiguous(),
+        "Matrix B view must be contiguous in memory"
+    );
+
+    let (m, k) = *a.shape();
+    let (k2, n) = *b.shape();
+    let (mc, nc) = *c.shape();
+
+    // Validate dimensions
+    assert_eq!(
+        k, k2,
+        "Matrix dimension mismatch: A.cols ({}) != B.rows ({})",
+        k, k2
+    );
+    assert_eq!(
+        m, mc,
+        "Output matrix dimension mismatch: C.rows ({}) != A.rows ({})",
+        mc, m
+    );
+    assert_eq!(
+        n, nc,
+        "Output matrix dimension mismatch: C.cols ({}) != B.cols ({})",
+        nc, n
+    );
+
+    // Type dispatch: f64 or Complex<f64>
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        // f64 case
+        // Get pointers from views (contiguous memory assumed)
+        let a_ptr = a.as_ptr() as *const f64;
+        let b_ptr = b.as_ptr() as *const f64;
+        let c_ptr = c.as_mut_ptr() as *mut f64;
+
+        // Get backend: use provided handle or fall back to global dispatcher
+        match backend {
+            Some(handle) => {
+                unsafe {
+                    handle.as_ref().dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+            None => {
+                let dispatcher = BLAS_DISPATCHER.read().unwrap();
+                unsafe {
+                    dispatcher.dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+        }
+    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<num_complex::Complex<f64>>() {
+        // Complex<f64> case
+        let a_ptr = a.as_ptr() as *const num_complex::Complex<f64>;
+        let b_ptr = b.as_ptr() as *const num_complex::Complex<f64>;
+        let c_ptr = c.as_mut_ptr() as *mut num_complex::Complex<f64>;
+
+        match backend {
+            Some(handle) => {
+                unsafe {
+                    handle.as_ref().zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+            None => {
+                let dispatcher = BLAS_DISPATCHER.read().unwrap();
+                unsafe {
+                    dispatcher.zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+        }
+    } else {
+        // Fallback to Faer for unsupported types
+        // Convert views to DTensors for Faer (this will copy, but only for unsupported types)
+        let a_tensor = DTensor::<T, 2>::from_fn(*a.shape(), |idx| a[idx]);
+        let b_tensor = DTensor::<T, 2>::from_fn(*b.shape(), |idx| b[idx]);
+        use mdarray_linalg::matmul::MatMulBuilder;
+        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg_faer::Faer;
+
+        Faer.matmul(&a_tensor, &b_tensor).parallelize().overwrite(c);
+    }
+}
+
 /// Parallel matrix multiplication with overwrite: C = A * B (writes to existing buffer)
 ///
 /// This function writes the result directly into the provided buffer `c`,
@@ -843,6 +1010,7 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdarray::DView;
 
     #[test]
     fn test_default_backend_is_faer() {
@@ -850,6 +1018,53 @@ mod tests {
         assert_eq!(name, "Faer (Pure Rust)");
         assert!(!is_external);
         assert!(!is_ilp64);
+    }
+
+    #[test]
+    fn test_matmul_par_view() {
+        // Test with f64
+        let a = DTensor::<f64, 2>::from([[1.0, 2.0], [3.0, 4.0]]);
+        let b = DTensor::<f64, 2>::from([[5.0, 6.0], [7.0, 8.0]]);
+        let a_view: DView<'_, f64, 2> = a.view(.., ..);
+        let b_view: DView<'_, f64, 2> = b.view(.., ..);
+
+        let c_view = matmul_par_view(&a_view, &b_view, None);
+        let c_expected = matmul_par(&a, &b, None);
+
+        // Results should be identical
+        assert_eq!(c_view.shape(), c_expected.shape());
+        for i in 0..c_view.shape().0 {
+            for j in 0..c_view.shape().1 {
+                assert!((c_view[[i, j]] - c_expected[[i, j]]).abs() < 1e-10);
+            }
+        }
+    }
+
+    #[test]
+    fn test_matmul_par_overwrite_view() {
+        // Test with Complex<f64>
+        use num_complex::Complex;
+        let a = DTensor::<Complex<f64>, 2>::from_fn([2, 2], |idx| {
+            Complex::new((idx[0] * 2 + idx[1]) as f64, 0.0)
+        });
+        let b = DTensor::<Complex<f64>, 2>::from_fn([2, 2], |idx| {
+            Complex::new((idx[0] * 2 + idx[1] + 10) as f64, 0.0)
+        });
+        let a_view: DView<'_, Complex<f64>, 2> = a.view(.., ..);
+        let b_view: DView<'_, Complex<f64>, 2> = b.view(.., ..);
+
+        let mut c_view = DTensor::<Complex<f64>, 2>::from_elem([2, 2], Complex::new(0.0, 0.0));
+        matmul_par_overwrite_view(&a_view, &b_view, &mut c_view, None);
+
+        let c_expected = matmul_par(&a, &b, None);
+
+        // Results should be identical
+        assert_eq!(c_view.shape(), c_expected.shape());
+        for i in 0..c_view.shape().0 {
+            for j in 0..c_view.shape().1 {
+                assert!((c_view[[i, j]] - c_expected[[i, j]]).norm() < 1e-10);
+            }
+        }
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Integration example demonstrating DLR/IR/sampling cycle
+//! Round-trip tests demonstrating DLR/IR/sampling cycle
 //!
 //! This example is a Rust port of the C++ integration test `cinterface_integration.cxx`,
 //! but uses the native Rust API instead of the C-API. It demonstrates:
@@ -7,7 +7,7 @@
 //! - Evaluating Green's functions on tau and Matsubara grids
 //! - Round-trip consistency checks (tau ↔ IR ↔ Matsubara)
 //!
-//! Run with: `cargo run --example integration_example`
+//! Run with: `cargo run --example roundtrip`
 
 use mdarray::{expr, DynRank, Shape, Tensor, DTensor};
 use num_complex::{Complex, ComplexFloat};
@@ -367,11 +367,8 @@ fn run_integration_example_single(
 
     // Step 7: Evaluate on Matsubara grid from both DLR and IR
     println!("Step 7: Evaluating on Matsubara grid...");
-    // From IR coefficients: cast real tensor to complex tensor element-wise
-    let ir_coeffs_complex: Tensor<Complex<f64>, DynRank> = expr::FromExpression::from_expr(
-        expr::map(ir_coeffs.expr(), |x| Complex::new(*x, 0.0)),
-    );
-    let g_iw_ir = matsubara_sampling.evaluate_nd(None, &ir_coeffs_complex, target_dim);
+    // From IR coefficients: evaluate_nd now accepts f64 directly
+    let g_iw_ir = matsubara_sampling.evaluate_nd::<f64>(None, &ir_coeffs, target_dim);
     println!("  g_iw_ir shape: {:?}", g_iw_ir.shape().dims());
 
     // From DLR coefficients (evaluate DLR basis functions at Matsubara frequencies)
