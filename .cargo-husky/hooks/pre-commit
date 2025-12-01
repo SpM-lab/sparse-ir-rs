@@ -1,0 +1,15 @@
+#!/bin/sh
+
+set -e
+
+# Run cargo fmt --all -- --check before commit
+# This applies to the entire workspace
+cargo fmt --all -- --check
+
+if [ $? -ne 0 ]; then
+    echo "Error: Code is not formatted. Running 'cargo fmt --all'..."
+    cargo fmt --all
+    echo "Please review the changes and commit again."
+    exit 1
+fi
+
