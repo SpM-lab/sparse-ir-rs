@@ -382,7 +382,6 @@ where
         values: &Tensor<num_complex::Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<num_complex::Complex<f64>, DynRank> {
-
         let rank = values.rank();
         assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
 
@@ -405,9 +404,10 @@ where
 
         // 3. Fit using complex 2D fitter directly on a view
         // Convert Tensor<Complex<f64>, DynRank> to DView<Complex<f64>, 2> by creating DTensor and taking view
-        let values_2d_dtensor = DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
-            values_2d[&[idx[0], idx[1]][..]]
-        });
+        let values_2d_dtensor =
+            DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
+                values_2d[&[idx[0], idx[1]][..]]
+            });
         let values_2d_view_2d = values_2d_dtensor.view(.., ..);
         let coeffs_2d = self.fitter.fit_complex_2d(backend, &values_2d_view_2d);
 
@@ -472,9 +472,8 @@ where
 
         if TypeId::of::<T>() == TypeId::of::<f64>() {
             // Real case: reinterpret as f64 tensor, call real implementation, then cast back to T
-            let values_f64 = unsafe {
-                &*(values as *const Tensor<T, DynRank> as *const Tensor<f64, DynRank>)
-            };
+            let values_f64 =
+                unsafe { &*(values as *const Tensor<T, DynRank> as *const Tensor<f64, DynRank>) };
             let coeffs_f64 = self.fit_nd_impl_real(backend, values_f64, dim);
             unsafe { std::mem::transmute::<Tensor<f64, DynRank>, Tensor<T, DynRank>>(coeffs_f64) }
         } else if TypeId::of::<T>() == TypeId::of::<num_complex::Complex<f64>>() {

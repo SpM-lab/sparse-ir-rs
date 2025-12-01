@@ -315,9 +315,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         if TypeId::of::<T>() == TypeId::of::<f64>() {
             // Safe: TypeId check ensures T == f64 at runtime
             // We need unsafe because Rust can't statically prove this
-            let coeffs_f64 = unsafe {
-                &*(coeffs as *const Slice<T, DynRank> as *const Slice<f64, DynRank>)
-            };
+            let coeffs_f64 =
+                unsafe { &*(coeffs as *const Slice<T, DynRank> as *const Slice<f64, DynRank>) };
             self.evaluate_nd_impl_real(backend, coeffs_f64, dim)
         } else if TypeId::of::<T>() == TypeId::of::<Complex<f64>>() {
             // Safe: TypeId check ensures T == Complex<f64> at runtime

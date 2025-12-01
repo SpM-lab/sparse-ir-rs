@@ -9,13 +9,13 @@
 //!
 //! Run with: `cargo run --example roundtrip`
 
-use mdarray::{expr, DynRank, Shape, Tensor, DTensor};
+use mdarray::{DTensor, DynRank, Shape, Tensor, expr};
 use num_complex::{Complex, ComplexFloat};
-use std::ops::Sub;
 use sparse_ir::{
-    basis_trait::Basis, gemm::matmul_par, sampling::movedim, DiscreteLehmannRepresentation,
-    Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling, TauSampling,
+    DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling,
+    TauSampling, basis_trait::Basis, gemm::matmul_par, sampling::movedim,
 };
+use std::ops::Sub;
 
 /// Compute maximum relative error between two tensors
 ///
@@ -28,11 +28,9 @@ where
     T: ComplexFloat<Real = f64> + Sub<Output = T>,
 {
     // Compute max |a - b|
-    let max_diff = expr::fold(
-        expr::zip(a.expr(), b.expr()),
-        0.0_f64,
-        |acc, (x, y)| acc.max((*x - *y).abs()),
-    );
+    let max_diff = expr::fold(expr::zip(a.expr(), b.expr()), 0.0_f64, |acc, (x, y)| {
+        acc.max((*x - *y).abs())
+    });
 
     // Compute max |a|
     let max_ref = expr::fold(a.expr(), 0.0_f64, |acc, x| acc.max(x.abs()));
@@ -92,13 +90,22 @@ fn get_dims(target_dim_size: usize, extra_dims: &[usize], target_dim: usize) -> 
 ///
 /// # Returns
 /// N-dimensional tensor with size `n_points` along `target_dim` instead of `n_poles`
-fn contract_along_dim<T>(matrix: &DTensor<T, 2>, coeffs: &Tensor<T, DynRank>, target_dim: usize) -> Tensor<T, DynRank>
+fn contract_along_dim<T>(
+    matrix: &DTensor<T, 2>,
+    coeffs: &Tensor<T, DynRank>,
+    target_dim: usize,
+) -> Tensor<T, DynRank>
 where
     T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
 {
     let (n_points, n_poles) = *matrix.shape();
     let rank = coeffs.rank();
-    assert!(target_dim < rank, "target_dim {} must be < rank {}", target_dim, rank);
+    assert!(
+        target_dim < rank,
+        "target_dim {} must be < rank {}",
+        target_dim,
+        rank
+    );
     assert_eq!(
         coeffs.shape().dim(target_dim),
         n_poles,
@@ -113,9 +120,7 @@ where
 
     // 2. Reshape to 2D: [n_poles, extra_size]
     let extra_size = coeffs_dim0.len() / n_poles;
-    let coeffs_2d_dyn = coeffs_dim0
-        .reshape(&[n_poles, extra_size][..])
-        .to_tensor();
+    let coeffs_2d_dyn = coeffs_dim0.reshape(&[n_poles, extra_size][..]).to_tensor();
 
     // 3. Convert DynRank to fixed Rank<2> for matmul_par
     let coeffs_2d = DTensor::<T, 2>::from_fn([n_poles, extra_size], |idx| {
@@ -227,10 +232,7 @@ fn create_random_dlr_coeffs(
         shape_dim0.push(d);
     }
 
-    let coeffs_dim0 = coeffs_2d
-        .into_dyn()
-        .reshape(&shape_dim0[..])
-        .to_tensor();
+    let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&shape_dim0[..]).to_tensor();
 
     // Finally, move the pole dimension from position 0 to target_dim so that
     // the resulting tensor has the desired shape `dims`.
@@ -333,7 +335,10 @@ fn run_integration_example_single(
     // We use a dedicated helper to avoid the `Tensor::from_fn` bug with DynRank shapes.
     let seed = 982743u64;
     let dlr_coeffs = create_random_dlr_coeffs(n_poles, extra_dims, seed, &dlr.poles, target_dim);
-    println!("  Generated DLR coefficients with shape: {:?}", dlr_coeffs.shape().dims());
+    println!(
+        "  Generated DLR coefficients with shape: {:?}",
+        dlr_coeffs.shape().dims()
+    );
     println!();
 
     // Step 5: Convert DLR to IR
@@ -351,7 +356,8 @@ fn run_integration_example_single(
     // From DLR coefficients (evaluate DLR basis functions at tau points)
     // Use Basis trait to call evaluate_tau
     let dlr_u_tau = <DiscreteLehmannRepresentation<Fermionic> as Basis<Fermionic>>::evaluate_tau(
-        &dlr, &tau_points,
+        &dlr,
+        &tau_points,
     );
     // For multi-dimensional case, we need to evaluate DLR at each tau point
     // and then contract with DLR coefficients along the target_dim
@@ -375,18 +381,21 @@ fn run_integration_example_single(
     // Use Basis trait to call evaluate_matsubara
     let dlr_uhat_matsu =
         <DiscreteLehmannRepresentation<Fermionic> as Basis<Fermionic>>::evaluate_matsubara(
-            &dlr, &matsubara_points,
+            &dlr,
+            &matsubara_points,
         );
     // For multi-dimensional case, similar to tau evaluation
     // Convert real DLR coefficients to complex for matrix multiplication
-    let dlr_coeffs_complex: Tensor<Complex<f64>, DynRank> = expr::FromExpression::from_expr(
-        expr::map(dlr_coeffs.expr(), |x| Complex::new(*x, 0.0)),
-    );
+    let dlr_coeffs_complex: Tensor<Complex<f64>, DynRank> =
+        expr::FromExpression::from_expr(expr::map(dlr_coeffs.expr(), |x| Complex::new(*x, 0.0)));
     let g_iw_dlr = contract_along_dim(&dlr_uhat_matsu, &dlr_coeffs_complex, target_dim);
 
     // Compare
     let matsubara_error = max_relative_error_complex(&g_iw_ir, &g_iw_dlr);
-    println!("  Max relative error (IR vs DLR on Matsubara): {:.2e}", matsubara_error);
+    println!(
+        "  Max relative error (IR vs DLR on Matsubara): {:.2e}",
+        matsubara_error
+    );
     if matsubara_error > tol {
         println!("  WARNING: Error exceeds tolerance!");
     }
@@ -396,11 +405,17 @@ fn run_integration_example_single(
     println!("Step 8: Round-trip test (tau → IR → Matsubara)...");
     // Fit IR coefficients directly from g_tau_ir (values on tau grid)
     let ir_coeffs_recovered = tau_sampling.fit_nd::<f64>(None, &g_tau_ir, target_dim);
-    println!("  Recovered IR coefficients shape: {:?}", ir_coeffs_recovered.shape().dims());
+    println!(
+        "  Recovered IR coefficients shape: {:?}",
+        ir_coeffs_recovered.shape().dims()
+    );
 
     // Compare recovered IR coefficients with original
     let ir_recovery_error = max_relative_error_real(&ir_coeffs, &ir_coeffs_recovered);
-    println!("  Max relative error (IR recovery): {:.2e}", ir_recovery_error);
+    println!(
+        "  Max relative error (IR recovery): {:.2e}",
+        ir_recovery_error
+    );
     if ir_recovery_error > tol {
         println!("  WARNING: Error exceeds tolerance!");
     }
@@ -408,15 +423,18 @@ fn run_integration_example_single(
     // Now evaluate recovered IR coefficients on Matsubara grid
     // Cast recovered real IR coefficients to complex tensor element-wise
     let ir_coeffs_recovered_complex: Tensor<Complex<f64>, DynRank> =
-        expr::FromExpression::from_expr(expr::map(
-            ir_coeffs_recovered.expr(),
-            |x| Complex::new(*x, 0.0),
-        ));
-    let g_iw_ir_reconst = matsubara_sampling.evaluate_nd(None, &ir_coeffs_recovered_complex, target_dim);
+        expr::FromExpression::from_expr(expr::map(ir_coeffs_recovered.expr(), |x| {
+            Complex::new(*x, 0.0)
+        }));
+    let g_iw_ir_reconst =
+        matsubara_sampling.evaluate_nd(None, &ir_coeffs_recovered_complex, target_dim);
 
     // Compare with original g_iw_ir
     let roundtrip_error = max_relative_error_complex(&g_iw_ir, &g_iw_ir_reconst);
-    println!("  Max relative error (Matsubara round-trip): {:.2e}", roundtrip_error);
+    println!(
+        "  Max relative error (Matsubara round-trip): {:.2e}",
+        roundtrip_error
+    );
     if roundtrip_error > tol {
         println!("  WARNING: Error exceeds tolerance!");
     }
@@ -426,7 +444,10 @@ fn run_integration_example_single(
     println!("Step 9: Round-trip test (DLR → IR → DLR)...");
     let dlr_coeffs_recovered = dlr.from_ir_nd(None, &ir_coeffs, target_dim);
     let dlr_recovery_error = max_relative_error_real(&dlr_coeffs, &dlr_coeffs_recovered);
-    println!("  Max relative error (DLR recovery): {:.2e}", dlr_recovery_error);
+    println!(
+        "  Max relative error (DLR recovery): {:.2e}",
+        dlr_recovery_error
+    );
     if dlr_recovery_error > tol {
         println!("  WARNING: Error exceeds tolerance!");
     }
@@ -435,7 +456,10 @@ fn run_integration_example_single(
     println!("========================================");
     println!("Summary ({}D, target_dim={}):", ndim, target_dim);
     println!("  Tau evaluation error (IR vs DLR): {:.2e}", tau_error);
-    println!("  Matsubara evaluation error (IR vs DLR): {:.2e}", matsubara_error);
+    println!(
+        "  Matsubara evaluation error (IR vs DLR): {:.2e}",
+        matsubara_error
+    );
     println!("  IR recovery error (tau fit): {:.2e}", ir_recovery_error);
     println!("  Matsubara round-trip error: {:.2e}", roundtrip_error);
     println!("  DLR recovery error: {:.2e}", dlr_recovery_error);
@@ -469,4 +493,3 @@ fn main() {
 
     run_integration_example(beta, omega_max, epsilon, tol);
 }
-
