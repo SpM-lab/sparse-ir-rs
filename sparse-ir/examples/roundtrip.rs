@@ -8,12 +8,19 @@
 //! - Round-trip consistency checks (tau ↔ IR ↔ Matsubara)
 //!
 //! Run with: `cargo run --example roundtrip`
+//! Or use the wrapper script: `./examples/run_roundtrip.sh` (saves log to logs/roundtrip_*.log)
 
 use mdarray::{DTensor, DynRank, Shape, Tensor, expr};
 use num_complex::{Complex, ComplexFloat};
 use sparse_ir::{
-    DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling,
-    TauSampling, basis_trait::Basis, gemm::matmul_par, sampling::movedim,
+    Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
+    MatsubaraSampling, RegularizedBoseKernel, TauSampling,
+    basis_trait::Basis,
+    gemm::matmul_par,
+    kernel::{CentrosymmKernel, KernelProperties},
+    sampling::movedim,
+    sve::{SVEResult, TworkType, compute_sve},
+    traits::StatisticsType,
 };
 use std::ops::Sub;
 
@@ -269,17 +276,34 @@ fn create_random_dlr_coeffs(
 /// * `tol` - Tolerance for error comparisons
 /// * `extra_dims` - Extra dimensions beyond the sampling dimension (e.g., [2, 3, 4] for 4D)
 /// * `target_dim` - Dimension along which to perform transformations (0-indexed)
-fn run_integration_example_single(
+/// * `positive_only` - If true, only use non-negative Matsubara frequencies
+/// * `kernel` - Pre-computed kernel (shared across all tests)
+/// * `sve` - Pre-computed SVE result (shared across all tests)
+fn run_integration_example_single<K, S>(
     beta: f64,
     omega_max: f64,
     epsilon: f64,
     tol: f64,
     extra_dims: &[usize],
     target_dim: usize,
-) {
+    positive_only: bool,
+    kernel: &K,
+    sve: &SVEResult,
+) where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    S: StatisticsType + 'static,
+{
     let ndim = 1 + extra_dims.len();
+    let stat_name = if S::STATISTICS == sparse_ir::traits::Statistics::Fermionic {
+        "Fermionic"
+    } else {
+        "Bosonic"
+    };
     println!("========================================");
-    println!("Integration Example ({}D, target_dim={})", ndim, target_dim);
+    println!(
+        "Integration Example ({}D, target_dim={}, {}, positive_only={})",
+        ndim, target_dim, stat_name, positive_only
+    );
     println!("========================================");
     println!("Parameters:");
     println!("  beta = {}", beta);
@@ -288,22 +312,19 @@ fn run_integration_example_single(
     println!("  tolerance = {}", tol);
     println!("  extra_dims = {:?}", extra_dims);
     println!("  target_dim = {}", target_dim);
-    println!();
-    println!("========================================");
-    println!("Integration Example");
-    println!("========================================");
-    println!("Parameters:");
-    println!("  beta = {}", beta);
-    println!("  omega_max = {}", omega_max);
-    println!("  epsilon = {}", epsilon);
-    println!("  tolerance = {}", tol);
+    println!("  statistics = {}", stat_name);
+    println!("  positive_only = {}", positive_only);
     println!();
 
-    // Step 1: Create kernel and basis
+    // Step 1: Create basis from pre-computed SVE
     println!("Step 1: Creating kernel and IR basis...");
-    let lambda = beta * omega_max;
-    let kernel = LogisticKernel::new(lambda);
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, S>::from_sve_result(
+        kernel.clone(),
+        beta,
+        sve.clone(),
+        Some(epsilon),
+        None,
+    );
     let basis_size = basis.size();
     println!("  Basis size: {}", basis_size);
     println!();
@@ -313,18 +334,18 @@ fn run_integration_example_single(
     let tau_points = basis.default_tau_sampling_points();
     let n_tau = tau_points.len();
     println!("  Number of tau points: {}", n_tau);
-    let tau_sampling = TauSampling::<Fermionic>::with_sampling_points(&basis, tau_points.clone());
+    let tau_sampling = TauSampling::<S>::with_sampling_points(&basis, tau_points.clone());
 
-    let matsubara_points = basis.default_matsubara_sampling_points(false);
+    let matsubara_points = basis.default_matsubara_sampling_points(positive_only);
     let n_matsubara = matsubara_points.len();
     println!("  Number of Matsubara points: {}", n_matsubara);
     let matsubara_sampling =
-        MatsubaraSampling::<Fermionic>::with_sampling_points(&basis, matsubara_points.clone());
+        MatsubaraSampling::<S>::with_sampling_points(&basis, matsubara_points.clone());
     println!();
 
     // Step 3: Create DLR from IR basis
     println!("Step 3: Creating DLR representation...");
-    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis);
+    let dlr = DiscreteLehmannRepresentation::<S>::new(&basis);
     let n_poles = dlr.poles.len();
     println!("  Number of DLR poles: {}", n_poles);
     println!();
@@ -355,10 +376,7 @@ fn run_integration_example_single(
 
     // From DLR coefficients (evaluate DLR basis functions at tau points)
     // Use Basis trait to call evaluate_tau
-    let dlr_u_tau = <DiscreteLehmannRepresentation<Fermionic> as Basis<Fermionic>>::evaluate_tau(
-        &dlr,
-        &tau_points,
-    );
+    let dlr_u_tau = <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_tau(&dlr, &tau_points);
     // For multi-dimensional case, we need to evaluate DLR at each tau point
     // and then contract with DLR coefficients along the target_dim
     let g_tau_dlr = contract_along_dim(&dlr_u_tau, &dlr_coeffs, target_dim);
@@ -380,10 +398,7 @@ fn run_integration_example_single(
     // From DLR coefficients (evaluate DLR basis functions at Matsubara frequencies)
     // Use Basis trait to call evaluate_matsubara
     let dlr_uhat_matsu =
-        <DiscreteLehmannRepresentation<Fermionic> as Basis<Fermionic>>::evaluate_matsubara(
-            &dlr,
-            &matsubara_points,
-        );
+        <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_matsubara(&dlr, &matsubara_points);
     // For multi-dimensional case, similar to tau evaluation
     // Convert real DLR coefficients to complex for matrix multiplication
     let dlr_coeffs_complex: Tensor<Complex<f64>, DynRank> =
@@ -454,7 +469,10 @@ fn run_integration_example_single(
     println!();
 
     println!("========================================");
-    println!("Summary ({}D, target_dim={}):", ndim, target_dim);
+    println!(
+        "Summary ({}D, target_dim={}, {}, positive_only={}):",
+        ndim, target_dim, stat_name, positive_only
+    );
     println!("  Tau evaluation error (IR vs DLR): {:.2e}", tau_error);
     println!(
         "  Matsubara evaluation error (IR vs DLR): {:.2e}",
@@ -467,20 +485,117 @@ fn run_integration_example_single(
 }
 
 /// Run integration examples for multiple configurations
+///
+/// This function uses a unified nested loop structure similar to the C++ test,
+/// iterating over all combinations of:
+/// - Statistics type (Fermionic, Bosonic)
+/// - positive_only (false, true)
+/// - extra_dims ({}, {2, 3, 4})
+/// - target_dim (conditional range based on extra_dims)
 fn run_integration_example(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
-    // 1D case (no extra dimensions)
-    {
-        let extra_dims = vec![];
-        let target_dim = 0;
-        run_integration_example_single(beta, omega_max, epsilon, tol, &extra_dims, target_dim);
-        println!();
-    }
+    // Create kernel once for all tests
+    let lambda = beta * omega_max;
+    let kernel = LogisticKernel::new(lambda);
 
-    // Multi-dimensional cases (4D with extra_dims = {2, 3, 4})
-    let extra_dims = vec![2, 3, 4];
-    for target_dim in 0..4 {
-        run_integration_example_single(beta, omega_max, epsilon, tol, &extra_dims, target_dim);
-        println!();
+    // Create SVE once for all tests
+    println!();
+    println!(
+        "Testing with beta = {}, omega_max = {}, epsilon = {}",
+        beta, omega_max, epsilon
+    );
+    println!("Computing SVE for all tests");
+    let sve = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
+    println!("SVE computed");
+    println!();
+
+    // Unified nested loop structure for all test combinations
+    // Iterate over statistics types
+    run_integration_example_for_stat::<LogisticKernel, Fermionic>(
+        beta, omega_max, epsilon, tol, &kernel, &sve,
+    );
+    run_integration_example_for_stat::<LogisticKernel, Bosonic>(
+        beta, omega_max, epsilon, tol, &kernel, &sve,
+    );
+}
+
+/// Run integration examples for RegularizedBoseKernel (Bosonic only)
+///
+/// This function uses a unified nested loop structure similar to the C++ test,
+/// but only tests Bosonic statistics since RegularizedBoseKernel does not
+/// support Fermionic statistics.
+fn run_integration_example_regularized_bose(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
+    // Create kernel once for all tests.
+    //
+    // IMPORTANT:
+    //   For very large lambda (e.g., 1e5), the even/odd reduced kernels become
+    //   numerically almost identical. This makes the SVE basis for even/odd
+    //   sectors nearly the same, so default_omega_sampling_points() can return
+    //   effectively duplicate sampling points (poles < basis_size), which
+    //   breaks DLR construction.
+    //
+    //   To avoid this, we keep lambda at a moderate value (1e2) for
+    //   RegularizedBoseKernel tests.
+    let _lambda_physical = beta * omega_max;
+    let lambda = 1e2;
+    let kernel = RegularizedBoseKernel::new(lambda);
+
+    // Create SVE once for all tests
+    println!();
+    println!(
+        "Testing RegularizedBoseKernel with beta = {}, omega_max = {}, lambda = {}, epsilon = {}",
+        beta, omega_max, lambda, epsilon
+    );
+    println!("Computing SVE for all tests");
+    let sve = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
+    println!("SVE computed");
+    println!();
+
+    // Unified nested loop structure for all test combinations
+    // Only test Bosonic statistics (RegularizedBoseKernel does not support Fermionic)
+    run_integration_example_for_stat::<RegularizedBoseKernel, Bosonic>(
+        beta, omega_max, epsilon, tol, &kernel, &sve,
+    );
+}
+
+/// Run integration examples for a specific statistics type
+fn run_integration_example_for_stat<K, S>(
+    beta: f64,
+    omega_max: f64,
+    epsilon: f64,
+    tol: f64,
+    kernel: &K,
+    sve: &SVEResult,
+) where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    S: StatisticsType + 'static,
+{
+    for positive_only in [false, true] {
+        println!("positive_only = {}", positive_only);
+
+        // Iterate over extra_dims configurations
+        let extra_dims_configs: Vec<Vec<usize>> = vec![vec![], vec![2, 3, 4]];
+        for extra_dims in extra_dims_configs {
+            let ndim = 1 + extra_dims.len();
+
+            // Determine target_dim range based on extra_dims
+            let target_dim_start = 0;
+            let target_dim_end = if extra_dims.is_empty() { 0 } else { ndim - 1 };
+
+            for target_dim in target_dim_start..=target_dim_end {
+                run_integration_example_single::<K, S>(
+                    beta,
+                    omega_max,
+                    epsilon,
+                    tol,
+                    &extra_dims,
+                    target_dim,
+                    positive_only,
+                    kernel,
+                    sve,
+                );
+                println!();
+            }
+        }
     }
 }
 
@@ -492,4 +607,16 @@ fn main() {
     let tol = 10.0 * epsilon;
 
     run_integration_example(beta, omega_max, epsilon, tol);
+
+    // Also test RegularizedBoseKernel (Bosonic only) with moderate lambda.
+    //
+    // For very large lambda, the even/odd reduced kernels become almost
+    // identical, which makes the even/odd SVE bases nearly the same.
+    // In that regime, default_omega_sampling_points() can return effectively
+    // duplicate sampling points so that the number of distinct poles is
+    // smaller than the basis size and DLR construction fails.
+    //
+    // To avoid this pathology we keep lambda = 1e2 for this test, regardless
+    // of beta * omega_max.
+    run_integration_example_regularized_bose(beta, omega_max, epsilon, tol);
 }

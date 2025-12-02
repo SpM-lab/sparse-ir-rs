@@ -422,7 +422,8 @@ impl PiecewiseLegendrePoly {
         for i in 0..fx.len() - 1 {
             let has_sign_change = fx[i].signum() != fx[i + 1].signum();
             let not_hit = fx[i] != 0.0 && fx[i + 1] != 0.0;
-            sign_change.push(has_sign_change && not_hit);
+            let sc = has_sign_change && not_hit;
+            sign_change.push(sc);
         }
 
         // If no sign changes, return only direct hits
@@ -897,7 +898,6 @@ pub fn default_sampling_points(u: &PiecewiseLegendrePolyVector, l: usize) -> Vec
         x0_vec.push(left);
         x0_vec.extend_from_slice(&maxima);
         x0_vec.push(right);
-
         x0_vec
     };
 

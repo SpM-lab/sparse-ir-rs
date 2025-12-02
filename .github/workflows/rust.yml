@@ -32,10 +32,10 @@ jobs:
           sudo apt-get install -y libopenblas-dev pkg-config
 
       - name: Build (all targets, default features)
-        run: cargo build --all-targets
+        run: cargo build --all-targets --release
 
       - name: Run tests (all targets, default features)
-        run: cargo test --all-targets
+        run: cargo test --all-targets --release
 
   rust-system-blas:
     runs-on: ubuntu-latest
@@ -59,10 +59,10 @@ jobs:
           sudo apt-get install -y libopenblas-dev pkg-config
 
       - name: Build sparse-ir with system-blas feature
-        run: cargo build -p sparse-ir --features system-blas --all-targets
+        run: cargo build -p sparse-ir --features system-blas --all-targets --release
 
       - name: Run tests for sparse-ir with system-blas feature
-        run: cargo test -p sparse-ir --features system-blas --all-targets
+        run: cargo test -p sparse-ir --features system-blas --all-targets --release
 
   rust-rollup:
     runs-on: ubuntu-latest
