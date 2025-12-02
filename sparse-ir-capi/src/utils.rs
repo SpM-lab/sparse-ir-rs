@@ -93,7 +93,7 @@ pub fn convert_dims_for_row_major(
 ///
 /// # Safety
 /// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
-pub unsafe fn _read_tensor_nd_row_major<T: Copy>(
+pub(crate) unsafe fn _read_tensor_nd_row_major<T: Copy>(
     ptr: *const T,
     dims: &[usize],
 ) -> sparse_ir::Tensor<T, sparse_ir::DynRank> {
@@ -124,7 +124,7 @@ pub unsafe fn _read_tensor_nd_row_major<T: Copy>(
 ///
 /// # Safety
 /// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
-pub unsafe fn _read_tensor_nd_column_major<T: Copy>(
+pub(crate) unsafe fn _read_tensor_nd_column_major<T: Copy>(
     ptr: *const T,
     dims: &[usize],
 ) -> sparse_ir::Tensor<T, sparse_ir::DynRank> {
@@ -164,7 +164,7 @@ pub unsafe fn _read_tensor_nd_column_major<T: Copy>(
 ///
 /// # Safety
 /// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
-pub unsafe fn read_tensor_nd<T: Copy>(
+pub(crate) unsafe fn read_tensor_nd<T: Copy>(
     ptr: *const T,
     dims: &[usize],
     order: MemoryOrder,
@@ -188,7 +188,7 @@ pub unsafe fn read_tensor_nd<T: Copy>(
 ///
 /// # Safety
 /// Caller must ensure `out` has space for `tensor.len()` elements
-pub unsafe fn copy_tensor_to_c_array<T: Copy>(
+pub(crate) unsafe fn copy_tensor_to_c_array<T: Copy>(
     tensor: sparse_ir::Tensor<T, sparse_ir::DynRank>,
     out: *mut T,
     order: MemoryOrder,
