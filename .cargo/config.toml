@@ -6,3 +6,4 @@
 # This allows the compiler to use CPU-specific instructions (e.g., AVX, SSE, etc.)
 rustflags = ["-C", "target-cpu=native"]
 
+

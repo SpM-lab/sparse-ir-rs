@@ -15,9 +15,8 @@ use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, spir_basis};
-use crate::utils::{MemoryOrder, convert_dims_for_row_major, copy_tensor_to_c_array};
+use crate::utils::{MemoryOrder, copy_tensor_to_c_array, read_tensor_nd};
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
-use sparse_ir::Tensor;
 use sparse_ir::dlr::DiscreteLehmannRepresentation;
 
 // ============================================================================
@@ -319,36 +318,28 @@ pub unsafe extern "C" fn spir_ir2dlr_dd(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Convert dims and target_dim for row-major mdarray
-        let (dims, mdarray_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Calculate total input size
-        let total_input: usize = dims.iter().product();
-        let input_slice = unsafe { std::slice::from_raw_parts(input, total_input) };
-
-        // Create input tensor
-        let input_vec: Vec<f64> = input_slice.to_vec();
-        let flat_tensor = Tensor::<f64, (usize,)>::from(input_vec);
-        let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
+        // Read input tensor using the unified helper function
+        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert IR to DLR based on DLR type
+        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output
+        // Copy result to output with correct memory order
         unsafe {
-            copy_tensor_to_c_array(result_tensor, out);
+            copy_tensor_to_c_array(result_tensor, out, mem_order);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -402,36 +393,28 @@ pub unsafe extern "C" fn spir_ir2dlr_zz(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Convert dims and target_dim for row-major mdarray
-        let (dims, mdarray_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Calculate total input size
-        let total_input: usize = dims.iter().product();
-        let input_slice = unsafe { std::slice::from_raw_parts(input, total_input) };
-
-        // Create input tensor
-        let input_vec: Vec<Complex64> = input_slice.to_vec();
-        let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
-        let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
+        // Read input tensor using the unified helper function
+        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert IR to DLR based on DLR type
+        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output
+        // Copy result to output with correct memory order
         unsafe {
-            copy_tensor_to_c_array(result_tensor, out);
+            copy_tensor_to_c_array(result_tensor, out, mem_order);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -485,36 +468,28 @@ pub unsafe extern "C" fn spir_dlr2ir_dd(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Convert dims and target_dim for row-major mdarray
-        let (dims, mdarray_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Calculate total input size
-        let total_input: usize = dims.iter().product();
-        let input_slice = unsafe { std::slice::from_raw_parts(input, total_input) };
-
-        // Create input tensor
-        let input_vec: Vec<f64> = input_slice.to_vec();
-        let flat_tensor = Tensor::<f64, (usize,)>::from(input_vec);
-        let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
+        // Read input tensor using the unified helper function
+        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert DLR to IR based on DLR type
+        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output
+        // Copy result to output with correct memory order
         unsafe {
-            copy_tensor_to_c_array(result_tensor, out);
+            copy_tensor_to_c_array(result_tensor, out, mem_order);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -568,36 +543,28 @@ pub unsafe extern "C" fn spir_dlr2ir_zz(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Convert dims and target_dim for row-major mdarray
-        let (dims, mdarray_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Calculate total input size
-        let total_input: usize = dims.iter().product();
-        let input_slice = unsafe { std::slice::from_raw_parts(input, total_input) };
-
-        // Create input tensor
-        let input_vec: Vec<Complex64> = input_slice.to_vec();
-        let flat_tensor = Tensor::<Complex64, (usize,)>::from(input_vec);
-        let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
+        // Read input tensor using the unified helper function
+        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert DLR to IR based on DLR type
+        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, mdarray_target_dim)
+                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output
+        // Copy result to output with correct memory order
         unsafe {
-            copy_tensor_to_c_array(result_tensor, out);
+            copy_tensor_to_c_array(result_tensor, out, mem_order);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -652,20 +619,20 @@ mod tests {
             let status = spir_dlr_get_npoles(dlr, &mut npoles);
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
             assert!(npoles > 0);
-            println!("DLR has {} poles", npoles);
+            debug_println!("DLR has {} poles", npoles);
 
             // Get poles
             let mut poles = vec![0.0; npoles as usize];
             let status = spir_dlr_get_poles(dlr, poles.as_mut_ptr());
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-            println!("First 3 poles: {:?}", &poles[0..3.min(npoles as usize)]);
+            debug_println!("First 3 poles: {:?}", &poles[0..3.min(npoles as usize)]);
 
             // Test get_u funcs from DLR
             let mut u_status = crate::SPIR_INTERNAL_ERROR;
             let u_funcs = crate::basis::spir_basis_get_u(dlr, &mut u_status);
             assert_eq!(u_status, SPIR_COMPUTATION_SUCCESS);
             assert!(!u_funcs.is_null());
-            println!("✓ Got u funcs from DLR");
+            debug_println!("✓ Got u funcs from DLR");
 
             // Evaluate u at tau=0.5
             let tau = 0.5;
@@ -683,7 +650,7 @@ mod tests {
             let uhat_funcs = crate::basis::spir_basis_get_uhat(dlr, &mut uhat_status);
             assert_eq!(uhat_status, SPIR_COMPUTATION_SUCCESS);
             assert!(!uhat_funcs.is_null());
-            println!("✓ Got uhat funcs from DLR");
+            debug_println!("✓ Got uhat funcs from DLR");
 
             // Evaluate uhat at Matsubara frequency n=1
             let n_matsu = 1i64;

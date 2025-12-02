@@ -114,28 +114,45 @@ pub extern "C" fn spir_sve_result_new(
     };
 
     // Catch panics to prevent unwinding across FFI boundary
+    // Force flush debug output before entering catch_unwind
+    if std::env::var("SPARSEIR_DEBUG").is_ok() {
+        eprintln!(
+            "[SPARSEIR DEBUG] spir_sve_result_new: called with epsilon={}, twork={}, kernel_ptr={:p}",
+            epsilon, twork, k
+        );
+        std::io::Write::flush(&mut std::io::stderr()).ok();
+    }
     let result = catch_unwind(|| unsafe {
         let kernel = &*k;
+        if std::env::var("SPARSEIR_DEBUG").is_ok() {
+            eprintln!("[SPARSEIR DEBUG] spir_sve_result_new: kernel type determined");
+            std::io::Write::flush(&mut std::io::stderr()).ok();
+        }
 
         // Dispatch based on kernel type
         // cutoff is automatically set to 2*sqrt(machine_epsilon) internally
         let sve_result = if let Some(logistic) = kernel.as_logistic() {
+            debug_println!("spir_sve_result_new: computing SVE for LogisticKernel");
             compute_sve(
                 **logistic, epsilon, None,
                 None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else if let Some(reg_bose) = kernel.as_regularized_bose() {
+            debug_println!("spir_sve_result_new: computing SVE for RegularizedBoseKernel");
             compute_sve(
                 **reg_bose, epsilon, None,
                 None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else {
+            debug_eprintln!("spir_sve_result_new: Unknown kernel type");
             return Err("Unknown kernel type");
         };
 
+        debug_println!("spir_sve_result_new: SVE computation completed, creating wrapper");
         let sve_wrapper = spir_sve_result::new(sve_result);
+        debug_println!("spir_sve_result_new: wrapper created successfully");
         Ok(Box::into_raw(Box::new(sve_wrapper)))
     });
 
@@ -146,7 +163,23 @@ pub extern "C" fn spir_sve_result_new(
             }
             ptr
         }
-        Ok(Err(_)) | Err(_) => {
+        Ok(Err(msg)) => {
+            debug_eprintln!("Error in spir_sve_result_new: {}", msg);
+            unsafe {
+                *status = SPIR_INTERNAL_ERROR;
+            }
+            std::ptr::null_mut()
+        }
+        Err(panic_payload) => {
+            debug_eprintln!("Panic in spir_sve_result_new");
+            // Try to extract panic message if possible
+            if let Some(s) = panic_payload.downcast_ref::<String>() {
+                debug_eprintln!("Panic message: {}", s);
+            } else if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                debug_eprintln!("Panic message: {}", s);
+            } else {
+                debug_eprintln!("Panic occurred but message could not be extracted");
+            }
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
@@ -931,7 +964,7 @@ mod tests {
         let status = spir_sve_result_get_size(sve, &mut size);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(size > 0);
-        println!("SVE size: {}", size);
+        debug_println!("SVE size: {}", size);
 
         // Get singular values
         let mut svals = vec![0.0; size as usize];

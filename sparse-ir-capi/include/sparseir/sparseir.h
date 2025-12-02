@@ -474,6 +474,7 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
  * # Arguments
  * * `b` - Basis object
  * * `positive_only` - If true, return only positive frequencies
+ * * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
  * * `L` - Requested number of sampling points
  * * `num_points_returned` - Pointer to store actual number of points
  *
@@ -483,11 +484,14 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
- * Returns min(L, actual_default_points) sampling points
+ * Returns the actual number of points that will be returned by
+ * `spir_basis_get_default_matsus_ext` with the same parameters.
+ * When mitigate is true, may return more points than requested due to fencing.
  */
 
 StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
                                                bool positive_only,
+                                               bool mitigate,
                                                int L,
                                                int *num_points_returned);
 
@@ -508,8 +512,10 @@ StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
- * Returns min(n_points, actual_default_points) sampling points
- * When mitigate is true, may return more points than requested due to fencing
+ * Returns the actual number of sampling points (may be more than n_points
+ * when mitigate is true due to fencing). The caller should call
+ * `spir_basis_get_n_default_matsus_ext` with the same parameters first to
+ * determine the required buffer size.
  */
 
 StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
