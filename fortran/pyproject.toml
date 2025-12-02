@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Code generation scripts for Fortran bindings"
 requires-python = ">=3.10"
 dependencies = [
+    "fprettify>=0.3.7",
     "libclang>=18.0.0",
 ]
 
