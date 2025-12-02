@@ -548,7 +548,7 @@ fn run_integration_example_regularized_bose(beta: f64, omega_max: f64, epsilon: 
     println!("Computing SVE for all tests");
     let sve = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
     println!("SVE computed");
-        println!();
+    println!();
 
     // Unified nested loop structure for all test combinations
     // Only test Bosonic statistics (RegularizedBoseKernel does not support Fermionic)
@@ -593,7 +593,7 @@ fn run_integration_example_for_stat<K, S>(
                     kernel,
                     sve,
                 );
-        println!();
+                println!();
             }
         }
     }

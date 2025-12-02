@@ -1,8 +1,10 @@
 //! Tests for SVE module functions
 
 use super::utils::extend_to_full_domain;
-use super::{compute_sve, TworkType};
-use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel, SymmetryType};
+use super::{TworkType, compute_sve};
+use crate::kernel::{
+    CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel, SymmetryType,
+};
 use crate::poly::PiecewiseLegendrePoly;
 use mdarray::DTensor;
 
@@ -170,14 +172,8 @@ where
     let x_knots = &u_polys[0].knots;
     let y_knots = &v_polys[0].knots;
 
-    let test_x: Vec<f64> = x_knots
-        .windows(2)
-        .map(|w| 0.5 * (w[0] + w[1]))
-        .collect();
-    let test_y: Vec<f64> = y_knots
-        .windows(2)
-        .map(|w| 0.5 * (w[0] + w[1]))
-        .collect();
+    let test_x: Vec<f64> = x_knots.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
+    let test_y: Vec<f64> = y_knots.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
 
     // Tolerance for comparison (absolute error)
     // Note: We use absolute error only because kernel values can be very small.
@@ -233,7 +229,12 @@ where
     assert!(
         max_error < tolerance,
         "SVE decomposition failed: max_error={:.15e} at x={}, y={}, direct={:.15e}, sve={:.15e}, abs_tol={:.15e}",
-        max_error, worst_x, worst_y, worst_direct, worst_sve, tolerance
+        max_error,
+        worst_x,
+        worst_y,
+        worst_direct,
+        worst_sve,
+        tolerance
     );
 }
 
@@ -243,8 +244,7 @@ fn test_sve_decomposition_kernel_impl_with_tolerance<K>(
     _lambda: f64,
     epsilon: f64,
     tolerance: f64,
-)
-where
+) where
     K: CentrosymmKernel + KernelProperties + Clone + 'static,
 {
     // Compute SVE
@@ -256,14 +256,8 @@ where
     let x_knots = &u_polys[0].knots;
     let y_knots = &v_polys[0].knots;
 
-    let test_x: Vec<f64> = x_knots
-        .windows(2)
-        .map(|w| 0.5 * (w[0] + w[1]))
-        .collect();
-    let test_y: Vec<f64> = y_knots
-        .windows(2)
-        .map(|w| 0.5 * (w[0] + w[1]))
-        .collect();
+    let test_x: Vec<f64> = x_knots.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
+    let test_y: Vec<f64> = y_knots.windows(2).map(|w| 0.5 * (w[0] + w[1])).collect();
 
     // Track worst-case error for diagnostics
     let mut max_error = 0.0f64;
@@ -312,7 +306,12 @@ where
     assert!(
         max_error < tolerance,
         "SVE decomposition failed: max_error={:.15e} at x={}, y={}, direct={:.15e}, sve={:.15e}, abs_tol={:.15e}",
-        max_error, worst_x, worst_y, worst_direct, worst_sve, tolerance
+        max_error,
+        worst_x,
+        worst_y,
+        worst_direct,
+        worst_sve,
+        tolerance
     );
 }
 
@@ -323,7 +322,7 @@ where
 fn test_sve_decomposition_logistic_kernel() {
     // Test with lambda = 100, epsilon = 1e-6
     test_sve_decomposition_kernel_impl(LogisticKernel::new(100.0), 100.0, 1e-6);
-    
+
     // Test with lambda = 10^5, epsilon = 1e-12
     test_sve_decomposition_kernel_impl(LogisticKernel::new(1e5), 1e5, 1e-12);
 }
@@ -336,20 +335,19 @@ fn test_sve_decomposition_logistic_kernel() {
 fn test_sve_decomposition_regularized_bose_kernel() {
     // Test with lambda = 100, epsilon = 1e-6
     test_sve_decomposition_kernel_impl_with_tolerance(
-        RegularizedBoseKernel::new(100.0), 
-        100.0, 
+        RegularizedBoseKernel::new(100.0),
+        100.0,
         1e-6,
-        1e-6 * 1.0
+        1e-6 * 1.0,
     );
-    
+
     // Test with lambda = 10^5, epsilon = 1e-12
     // Use relaxed tolerance: epsilon * 100000 (much more lenient than epsilon * 200)
     // For very small kernel values, use absolute tolerance of 1e-5
     //test_sve_decomposition_kernel_impl_with_tolerance(
-        //RegularizedBoseKernel::new(1e5), 
-        //1e5, 
-        //1e-12,
-        //1e-5  // Use fixed absolute tolerance for very small values
+    //RegularizedBoseKernel::new(1e5),
+    //1e5,
+    //1e-12,
+    //1e-5  // Use fixed absolute tolerance for very small values
     //);
 }
-
