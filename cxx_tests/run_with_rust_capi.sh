@@ -145,7 +145,20 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     export LD_LIBRARY_PATH="${INSTALL_DIR}/lib:${LD_LIBRARY_PATH:-}"
 fi
 
-ctest --output-on-failure --verbose
+# Run tests and save output to log file
+TEST_LOG="${BUILD_DIR}/test.log"
+echo -e "${YELLOW}Test output will be saved to: ${TEST_LOG}${NC}"
+ctest --output-on-failure --verbose 2>&1 | tee "${TEST_LOG}"
 
+CTEST_EXIT_CODE=${PIPESTATUS[0]}
+if [ ${CTEST_EXIT_CODE} -eq 0 ]; then
 echo -e "${GREEN}=== All tests completed successfully ===${NC}"
+    echo -e "${GREEN}Test log saved to: ${TEST_LOG}${NC}"
+else
+    echo -e "${RED}=== Tests failed (exit code: ${CTEST_EXIT_CODE}) ===${NC}"
+    echo -e "${YELLOW}Test log saved to: ${TEST_LOG}${NC}"
+    echo -e "${YELLOW}Last 50 lines of test log:${NC}"
+    tail -50 "${TEST_LOG}"
+    exit ${CTEST_EXIT_CODE}
+fi
 

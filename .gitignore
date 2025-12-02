@@ -29,6 +29,10 @@ test_user_install.*
 */_install/
 */build/
 
+# Test logs
+logs/
+*.log
+
 # Keepalive tests
 keepalive_tests/
 

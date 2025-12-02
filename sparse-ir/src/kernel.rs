@@ -554,25 +554,31 @@ impl RegularizedBoseKernel {
     where
         T: CustomNumeric,
     {
+        // Convert lambda and constants to type T at the beginning
+        let lambda_t = T::from_f64_unchecked(self.lambda);
+        let half = T::from_f64_unchecked(0.5);
+        let inv_lambda = T::from_f64_unchecked(1.0) / lambda_t;
+
         // u_plus = (x + 1) / 2, u_minus = (1 - x) / 2
         // x_plus and x_minus are (x+1) and (1-x), so we need to multiply by 0.5
         let u_plus = x_plus
-            .map(|xp| T::from_f64_unchecked(0.5) * xp)
-            .unwrap_or_else(|| T::from_f64_unchecked(0.5) * (T::from_f64_unchecked(1.0) + x));
+            .map(|xp| half * xp)
+            .unwrap_or_else(|| half * (T::from_f64_unchecked(1.0) + x));
         let u_minus = x_minus
-            .map(|xm| T::from_f64_unchecked(0.5) * xm)
-            .unwrap_or_else(|| T::from_f64_unchecked(0.5) * (T::from_f64_unchecked(1.0) - x));
+            .map(|xm| half * xm)
+            .unwrap_or_else(|| half * (T::from_f64_unchecked(1.0) - x));
 
-        let v = T::from_f64_unchecked(self.lambda) * y;
+        let v = lambda_t * y;
         let absv = v.abs_as_same_type();
 
         // Handle y ≈ 0 using Taylor expansion
         // K(x,y) = 1/Λ - xy/2 + (1/24)Λ(3x² - 1)y² + O(y³)
+        // The limit as y->0 is 1/Λ (using L'Hopital's rule)
         // For |Λy| < 2e-14, use first-order approximation
         // This avoids division by zero when exp(-|Λy|) ≈ 1
         if absv.to_f64() < 2e-14 {
-            let term0 = T::from_f64_unchecked(1.0 / self.lambda);
-            let term1 = T::from_f64_unchecked(0.5) * x * y;
+            let term0 = inv_lambda;
+            let term1 = half * x * y;
             return term0 - term1;
         }
 
@@ -596,7 +602,7 @@ impl RegularizedBoseKernel {
 
         // K(x, y) = -1/Λ * enum_val * denom
         // Since denom is negative (exp(-absv) < 1), final result is positive
-        T::from_f64_unchecked(-1.0 / self.lambda) * enum_val * denom
+        -inv_lambda * enum_val * denom
     }
 }
 
