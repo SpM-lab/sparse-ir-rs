@@ -33,6 +33,6 @@ jobs:
         # Initialize libsparseir submodules but skip nested ones that may have issues
         cd libsparseir && git submodule update --init --jobs 4 || true
     - name: Build
-      run: cargo build -p sparse-ir-capi
+      run: cargo build -p sparse-ir-capi --release
     - name: Run tests
-      run: cargo test -p sparse-ir-capi
+      run: cargo test -p sparse-ir-capi --release
