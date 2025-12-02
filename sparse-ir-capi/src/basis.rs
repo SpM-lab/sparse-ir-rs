@@ -1074,18 +1074,14 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let points = basis.default_matsubara_sampling_points(positive_only);
-
-        // Return min(requested, available) points
+        let points =
+            basis.default_matsubara_sampling_points_with_mitigate(positive_only, false, L as usize);
         let n_to_return = std::cmp::min(L as usize, points.len());
         *num_points_returned = n_to_return as libc::c_int;
-
         SPIR_COMPUTATION_SUCCESS
     }));
-
     result.unwrap_or(SPIR_INTERNAL_ERROR)
 }
-
 /// Get default Matsubara sampling points with custom limit (extended version)
 ///
 /// # Arguments
