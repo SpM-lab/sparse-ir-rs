@@ -736,21 +736,21 @@ mod tests {
         let u_funcs = unsafe { spir_basis_get_u(basis, &mut u_status) };
         assert_eq!(u_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!u_funcs.is_null());
-        println!("✓ Created u funcs");
+        debug_println!("✓ Created u funcs");
 
         // Get v funcs
         let mut v_status = crate::SPIR_INTERNAL_ERROR;
         let v_funcs = unsafe { spir_basis_get_v(basis, &mut v_status) };
         assert_eq!(v_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!v_funcs.is_null());
-        println!("✓ Created v funcs");
+        debug_println!("✓ Created v funcs");
 
         // Get uhat funcs
         let mut uhat_status = crate::SPIR_INTERNAL_ERROR;
         let uhat_funcs = unsafe { spir_basis_get_uhat(basis, &mut uhat_status) };
         assert_eq!(uhat_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!uhat_funcs.is_null());
-        println!("✓ Created uhat funcs");
+        debug_println!("✓ Created uhat funcs");
 
         // Clean up
         unsafe {
@@ -761,7 +761,7 @@ mod tests {
             spir_kernel_release(kernel);
         }
 
-        println!("✓ All funcs released successfully");
+        debug_println!("✓ All funcs released successfully");
     }
 
     #[test]
@@ -797,22 +797,22 @@ mod tests {
         let status = spir_funcs_get_size(u_funcs, &mut size);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(size > 0);
-        println!("✓ Funcs size: {}", size);
+        debug_println!("✓ Funcs size: {}", size);
 
         // Test get_n_knots
         let mut n_knots = 0;
         let status = spir_funcs_get_n_knots(u_funcs, &mut n_knots);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_knots > 0);
-        println!("✓ Number of knots: {}", n_knots);
+        debug_println!("✓ Number of knots: {}", n_knots);
 
         // Test get_knots
         let mut knots = vec![0.0; n_knots as usize];
         let status = spir_funcs_get_knots(u_funcs, knots.as_mut_ptr());
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        println!("✓ First 5 knots:");
+        debug_println!("✓ First 5 knots:");
         for i in 0..std::cmp::min(5, knots.len()) {
-            println!("  knot[{}] = {}", i, knots[i]);
+            debug_println!("  knot[{}] = {}", i, knots[i]);
         }
 
         // Test with uhat funcs (should return NOT_SUPPORTED for knots)
@@ -823,7 +823,7 @@ mod tests {
         let mut n_knots_uhat = 0;
         let status = spir_funcs_get_n_knots(uhat_funcs, &mut n_knots_uhat);
         assert_eq!(status, crate::SPIR_NOT_SUPPORTED);
-        println!("✓ uhat funcs correctly returns NOT_SUPPORTED for knots");
+        debug_println!("✓ uhat funcs correctly returns NOT_SUPPORTED for knots");
 
         // Cleanup
         unsafe {
@@ -871,8 +871,8 @@ mod tests {
         let mut values = vec![0.0; size as usize];
         let status = spir_funcs_eval(u_funcs, 0.0, values.as_mut_ptr());
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        println!("✓ Evaluated u at x=0: {} functions", size);
-        println!("  u[0](0) = {}", values[0]);
+        debug_println!("✓ Evaluated u at x=0: {} functions", size);
+        debug_println!("  u[0](0) = {}", values[0]);
 
         // Test batch eval
         let xs = [-0.5, 0.0, 0.5];
@@ -885,7 +885,7 @@ mod tests {
             batch_out.as_mut_ptr(),
         );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        println!("✓ Batch evaluated u at 3 points (column-major)");
+        debug_println!("✓ Batch evaluated u at 3 points (column-major)");
 
         // Get uhat funcs
         let mut uhat_status = crate::SPIR_INTERNAL_ERROR;
@@ -896,8 +896,8 @@ mod tests {
         let mut matsu_values = vec![Complex64::new(0.0, 0.0); size as usize];
         let status = spir_funcs_eval_matsu(uhat_funcs, 1, matsu_values.as_mut_ptr());
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        println!("✓ Evaluated uhat at n=1");
-        println!("  uhat[0](iω_1) = {}", matsu_values[0]);
+        debug_println!("✓ Evaluated uhat at n=1");
+        debug_println!("  uhat[0](iω_1) = {}", matsu_values[0]);
 
         // Test batch Matsubara eval
         let matsu_ns = [1i64, 3, 5];
@@ -910,7 +910,7 @@ mod tests {
             batch_matsu_out.as_mut_ptr(),
         );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        println!("✓ Batch evaluated uhat at 3 Matsubara frequencies");
+        debug_println!("✓ Batch evaluated uhat at 3 Matsubara frequencies");
 
         // Cleanup
         unsafe {
@@ -954,27 +954,27 @@ mod tests {
         let mut size = 0;
         let status = spir_funcs_get_size(u_funcs, &mut size);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        println!("✓ Original funcs size: {}", size);
+        debug_println!("✓ Original funcs size: {}", size);
 
         // Test is_assigned
         let assigned = spir_funcs_is_assigned(u_funcs);
         assert_eq!(assigned, 1);
-        println!("✓ is_assigned returned 1 for valid object");
+        debug_println!("✓ is_assigned returned 1 for valid object");
 
         let null_assigned = spir_funcs_is_assigned(ptr::null());
         assert_eq!(null_assigned, 0);
-        println!("✓ is_assigned returned 0 for null pointer");
+        debug_println!("✓ is_assigned returned 0 for null pointer");
 
         // Test clone
         let cloned_funcs = unsafe { spir_funcs_clone(u_funcs) };
         assert!(!cloned_funcs.is_null());
-        println!("✓ Cloned funcs successfully");
+        debug_println!("✓ Cloned funcs successfully");
 
         let mut cloned_size = 0;
         let status = spir_funcs_get_size(cloned_funcs, &mut cloned_size);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(cloned_size, size);
-        println!("✓ Cloned funcs has same size as original");
+        debug_println!("✓ Cloned funcs has same size as original");
 
         // Test get_slice
         let indices = [0i32, 2, 4]; // Select first, third, fifth functions
@@ -989,19 +989,19 @@ mod tests {
         };
         assert_eq!(slice_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!sliced_funcs.is_null());
-        println!("✓ Created slice with {} functions", indices.len());
+        debug_println!("✓ Created slice with {} functions", indices.len());
 
         let mut sliced_size = 0;
         let status = spir_funcs_get_size(sliced_funcs, &mut sliced_size);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(sliced_size, indices.len() as i32);
-        println!("✓ Sliced funcs has correct size");
+        debug_println!("✓ Sliced funcs has correct size");
 
         // Test that sliced functions evaluate correctly
         let mut sliced_values = vec![0.0; sliced_size as usize];
         let status = spir_funcs_eval(sliced_funcs, 0.0, sliced_values.as_mut_ptr());
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        println!("✓ Sliced funcs evaluates correctly");
+        debug_println!("✓ Sliced funcs evaluates correctly");
 
         // Test error case: invalid indices
         let bad_indices = [-1i32];
@@ -1016,7 +1016,7 @@ mod tests {
         };
         assert_eq!(bad_status, SPIR_INVALID_ARGUMENT);
         assert!(bad_slice.is_null());
-        println!("✓ Invalid indices correctly rejected");
+        debug_println!("✓ Invalid indices correctly rejected");
 
         // Test error case: out of range indices
         let oor_indices = [0i32, size]; // size is out of range (0-indexed)
@@ -1031,7 +1031,7 @@ mod tests {
         };
         assert_eq!(oor_status, SPIR_INVALID_ARGUMENT);
         assert!(oor_slice.is_null());
-        println!("✓ Out-of-range indices correctly rejected");
+        debug_println!("✓ Out-of-range indices correctly rejected");
 
         // Cleanup
         unsafe {
@@ -1041,7 +1041,7 @@ mod tests {
             spir_basis_release(basis);
             spir_kernel_release(kernel);
         }
-        println!("✓ All objects released successfully");
+        debug_println!("✓ All objects released successfully");
     }
 
     #[test]

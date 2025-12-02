@@ -3,6 +3,30 @@
 //! This module provides macros to generate common C API functions for opaque types,
 //! following libsparseir's DECLARE_OPAQUE_TYPE pattern.
 
+/// Debug print macro that only outputs if SPARSEIR_DEBUG is set
+///
+/// Usage: `debug_println!("format string", args...)`
+#[macro_export]
+macro_rules! debug_println {
+    ($($arg:tt)*) => {
+        if std::env::var("SPARSEIR_DEBUG").is_ok() {
+            eprintln!("[SPARSEIR DEBUG] {}", format!($($arg)*));
+        }
+    };
+}
+
+/// Debug print macro for errors that only outputs if SPARSEIR_DEBUG is set
+///
+/// Usage: `debug_eprintln!("format string", args...)`
+#[macro_export]
+macro_rules! debug_eprintln {
+    ($($arg:tt)*) => {
+        if std::env::var("SPARSEIR_DEBUG").is_ok() {
+            eprintln!("[SPARSEIR DEBUG ERROR] {}", format!($($arg)*));
+        }
+    };
+}
+
 /// Generate common opaque type functions: release, clone, is_assigned, get_raw_ptr
 ///
 /// This macro implements the standard lifecycle functions for opaque C API types,

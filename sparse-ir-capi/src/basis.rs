@@ -372,7 +372,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
             ptr
         }
         Ok(Err(msg)) => {
-            eprintln!("Error in spir_basis_new_from_sve_and_inv_weight: {}", msg);
+            debug_eprintln!("Error in spir_basis_new_from_sve_and_inv_weight: {}", msg);
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
@@ -424,6 +424,8 @@ pub extern "C" fn spir_basis_get_size(b: *const spir_basis, size: *mut libc::c_i
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_svals(b: *const spir_basis, svals: *mut f64) -> StatusCode {
+    use std::io::Write;
+
     if b.is_null() || svals.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
@@ -431,11 +433,32 @@ pub extern "C" fn spir_basis_get_svals(b: *const spir_basis, svals: *mut f64) ->
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let sval_vec = basis.svals();
-        std::ptr::copy_nonoverlapping(sval_vec.as_ptr(), svals, sval_vec.len());
+        debug_println!("spir_basis_get_svals: sval_vec.len() = {}", sval_vec.len());
+        std::io::stderr().flush().unwrap();
+
+        // Safety: We assume the caller has allocated enough memory
+        // The size should match basis.size() which is checked by Julia side
+        if sval_vec.len() > 0 {
+            std::ptr::copy_nonoverlapping(sval_vec.as_ptr(), svals, sval_vec.len());
+        }
         SPIR_COMPUTATION_SUCCESS
     }));
 
-    result.unwrap_or(SPIR_INTERNAL_ERROR)
+    match result {
+        Ok(code) => code,
+        Err(panic_payload) => {
+            use std::io::Write;
+            debug_eprintln!("Panic in spir_basis_get_svals");
+            std::io::stderr().flush().unwrap();
+            if let Some(s) = panic_payload.downcast_ref::<String>() {
+                debug_eprintln!("Panic message: {}", s);
+            } else if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                debug_eprintln!("Panic message: {}", s);
+            }
+            std::io::stderr().flush().unwrap();
+            SPIR_INTERNAL_ERROR
+        }
+    }
 }
 
 /// Get statistics type (Fermionic or Bosonic) of a basis
@@ -668,7 +691,7 @@ pub unsafe extern "C" fn spir_basis_get_u(
             ptr
         }
         Ok(Err(msg)) => {
-            eprintln!("Error in spir_basis_get_u: {}", msg);
+            debug_eprintln!("Error in spir_basis_get_u: {}", msg);
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
@@ -742,7 +765,7 @@ pub unsafe extern "C" fn spir_basis_get_v(
             ptr
         }
         Ok(Err(msg)) => {
-            eprintln!("Error in spir_basis_get_v: {}", msg);
+            debug_eprintln!("Error in spir_basis_get_v: {}", msg);
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
@@ -886,7 +909,7 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
             ptr
         }
         Ok(Err(msg)) => {
-            eprintln!("Error in spir_basis_get_uhat: {}", msg);
+            debug_eprintln!("Error in spir_basis_get_uhat: {}", msg);
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
@@ -982,7 +1005,7 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
             ptr
         }
         Ok(Err(msg)) => {
-            eprintln!("Error in spir_basis_get_uhat_full: {}", msg);
+            debug_eprintln!("Error in spir_basis_get_uhat_full: {}", msg);
             unsafe {
                 *status = SPIR_NOT_SUPPORTED;
             }
@@ -1047,6 +1070,7 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 /// # Arguments
 /// * `b` - Basis object
 /// * `positive_only` - If true, return only positive frequencies
+/// * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
 /// * `L` - Requested number of sampling points
 /// * `num_points_returned` - Pointer to store actual number of points
 ///
@@ -1056,11 +1080,14 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
-/// Returns min(L, actual_default_points) sampling points
+/// Returns the actual number of points that will be returned by
+/// `spir_basis_get_default_matsus_ext` with the same parameters.
+/// When mitigate is true, may return more points than requested due to fencing.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_n_default_matsus_ext(
     b: *const spir_basis,
     positive_only: bool,
+    mitigate: bool,
     #[allow(non_snake_case)] L: libc::c_int,
     num_points_returned: *mut libc::c_int,
 ) -> StatusCode {
@@ -1074,11 +1101,13 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let points = basis.default_matsubara_sampling_points(positive_only);
+        let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
+            positive_only,
+            mitigate,
+            L as usize,
+        );
 
-        // Return min(requested, available) points
-        let n_to_return = std::cmp::min(L as usize, points.len());
-        *num_points_returned = n_to_return as libc::c_int;
+        *num_points_returned = matsu_points.len() as libc::c_int;
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -1102,8 +1131,10 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
-/// Returns min(n_points, actual_default_points) sampling points
-/// When mitigate is true, may return more points than requested due to fencing
+/// Returns the actual number of sampling points (may be more than n_points
+/// when mitigate is true due to fencing). The caller should call
+/// `spir_basis_get_n_default_matsus_ext` with the same parameters first to
+/// determine the required buffer size.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_default_matsus_ext(
     b: *const spir_basis,
@@ -1129,7 +1160,9 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
             n_points as usize,
         );
 
-        // When mitigate is true, may return more points than requested
+        // Copy all points returned by default_matsubara_sampling_points_with_mitigate.
+        // The caller should have allocated enough space by calling
+        // spir_basis_get_n_default_matsus_ext with the same parameters first.
         let n_to_return = matsu_points.len();
         std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, n_to_return);
         *n_points_returned = n_to_return as libc::c_int;
@@ -1183,7 +1216,7 @@ mod tests {
         let status = spir_basis_get_size(basis, &mut size);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(size > 0);
-        println!("Basis size: {}", size);
+        debug_println!("Basis size: {}", size);
 
         // Get statistics
         let mut stats = -1;
@@ -1246,16 +1279,16 @@ mod tests {
         let status = spir_basis_get_n_default_taus(basis, &mut n_taus);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_taus > 0);
-        println!("Number of tau points: {}", n_taus);
+        debug_println!("Number of tau points: {}", n_taus);
 
         // Get tau points
         let mut taus = vec![0.0; n_taus as usize];
         let status = spir_basis_get_default_taus(basis, taus.as_mut_ptr());
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-        println!("First 5 tau points:");
+        debug_println!("First 5 tau points:");
         for i in 0..std::cmp::min(5, taus.len()) {
-            println!("  tau[{}] = {}", i, taus[i]);
+            debug_println!("  tau[{}] = {}", i, taus[i]);
         }
 
         spir_basis_release(basis);
@@ -1284,16 +1317,16 @@ mod tests {
         let status = spir_basis_get_n_default_matsus(basis, true, &mut n_matsus);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_matsus > 0);
-        println!("Number of Matsubara points (positive): {}", n_matsus);
+        debug_println!("Number of Matsubara points (positive): {}", n_matsus);
 
         // Get Matsubara points
         let mut matsus = vec![0i64; n_matsus as usize];
         let status = spir_basis_get_default_matsus(basis, true, matsus.as_mut_ptr());
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-        println!("First 5 Matsubara indices:");
+        debug_println!("First 5 Matsubara indices:");
         for i in 0..std::cmp::min(5, matsus.len()) {
-            println!("  n[{}] = {}", i, matsus[i]);
+            debug_println!("  n[{}] = {}", i, matsus[i]);
         }
 
         spir_basis_release(basis);
@@ -1322,16 +1355,16 @@ mod tests {
         let status = spir_basis_get_n_default_ws(basis, &mut n_ws);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
         assert!(n_ws > 0);
-        println!("Number of omega points: {}", n_ws);
+        debug_println!("Number of omega points: {}", n_ws);
 
         // Get omega points
         let mut ws = vec![0.0; n_ws as usize];
         let status = spir_basis_get_default_ws(basis, ws.as_mut_ptr());
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-        println!("First 5 omega points:");
+        debug_println!("First 5 omega points:");
         for i in 0..std::cmp::min(5, ws.len()) {
-            println!("  w[{}] = {}", i, ws[i]);
+            debug_println!("  w[{}] = {}", i, ws[i]);
         }
 
         // Test singular_values alias
@@ -1348,7 +1381,7 @@ mod tests {
         let status2 = spir_basis_get_svals(basis, svals2.as_mut_ptr());
         assert_eq!(status2, SPIR_COMPUTATION_SUCCESS);
         assert_eq!(svals, svals2);
-        println!("✓ get_singular_values matches get_svals");
+        debug_println!("✓ get_singular_values matches get_svals");
 
         spir_basis_release(basis);
         spir_kernel_release(kernel);
@@ -1392,49 +1425,48 @@ mod tests {
             "✓ get_default_taus_ext returned {} tau points (requested {})",
             tau_returned, requested_tau
         );
-        println!("  First 3: {:?}", &tau_points[..3]);
+        debug_println!("  First 3: {:?}", &tau_points[..3]);
 
         // Test get_n_default_matsus_ext
         let requested_matsu = 3; // Request only 3 points
         let mut matsu_count = 0;
         let status = spir_basis_get_n_default_matsus_ext(
             basis,
-            true, // positive_only
+            true,  // positive_only
+            false, // mitigate
             requested_matsu,
             &mut matsu_count,
         );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        assert_eq!(matsu_count, requested_matsu);
-        println!("✓ get_n_default_matsus_ext returned count: {}", matsu_count);
+        assert!(matsu_count > 0);
+        debug_println!("✓ get_n_default_matsus_ext returned count: {}", matsu_count);
 
         // Test get_default_matsus_ext
-        // Note: get_n_default_matsus_ext doesn't use mitigate, so the actual count
-        // may differ when mitigate=false. We'll allocate enough space and check the returned count.
+        // Allocate space based on the count returned by get_n_default_matsus_ext
         let mut matsu_points = vec![0i64; matsu_count as usize];
         let mut matsu_returned = 0;
         let status = spir_basis_get_default_matsus_ext(
             basis,
             true,  // positive_only
             false, // mitigate
-            matsu_count as libc::c_int,
+            requested_matsu,
             matsu_points.as_mut_ptr(),
             &mut matsu_returned,
         );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        // When mitigate=false, the returned count may differ from requested
-        assert!(matsu_returned > 0);
-        assert!(matsu_returned <= matsu_count as libc::c_int);
+        // The returned count should match what get_n_default_matsus_ext reported
+        assert_eq!(matsu_returned, matsu_count);
         println!(
             "✓ get_default_matsus_ext returned {} matsubara points",
             matsu_returned
         );
-        println!("  Points: {:?}", matsu_points);
+        debug_println!("  Points: {:?}", matsu_points);
 
         // Test error case: negative n_points
         let mut bad_returned = 0;
         let status = spir_basis_get_default_taus_ext(basis, -1, ptr::null_mut(), &mut bad_returned);
         assert_eq!(status, SPIR_INVALID_ARGUMENT);
-        println!("✓ Negative n_points correctly rejected");
+        debug_println!("✓ Negative n_points correctly rejected");
 
         spir_basis_release(basis);
         spir_kernel_release(kernel);
