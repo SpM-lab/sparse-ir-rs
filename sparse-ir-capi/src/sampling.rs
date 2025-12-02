@@ -489,17 +489,21 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
         let matrix_slice = unsafe { std::slice::from_raw_parts(matrix, matrix_size) };
         let matrix_vec: Vec<Complex64> = matrix_slice.to_vec();
 
-        // Convert dims based on order
-        let orig_dims = vec![num_points as usize, basis_size as usize];
-        let (dims, _) = convert_dims_for_row_major(&orig_dims, 0, mem_order);
-
-        // Create tensor (mdarray is row-major)
-        let flat_tensor = Tensor::<Complex64, (usize,)>::from(matrix_vec);
-        let dyn_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
-
-        // Convert DynRank to fixed 2D shape
-        let matrix_tensor: sparse_ir::DTensor<Complex64, 2> =
-            unsafe { std::mem::transmute(dyn_tensor) };
+        let matrix_tensor = sparse_ir::DTensor::<Complex64, 2>::from_fn(
+            [num_points as usize, basis_size as usize],
+            |idx| {
+                let row = idx[0];
+                let col = idx[1];
+                match mem_order {
+                    MemoryOrder::RowMajor => {
+                        matrix_vec[row * (basis_size as usize) + col]
+                    }
+                    MemoryOrder::ColumnMajor => {
+                        matrix_vec[col * (num_points as usize) + row]
+                    }
+                }
+            },
+        );
 
         // Create sampling based on statistics and positive_only
         let sampling_type = match (statistics, positive_only) {
@@ -1021,8 +1025,6 @@ pub unsafe extern "C" fn spir_sampling_fit_dd(
         let input_vec: Vec<f64> = input_slice.to_vec();
         let flat_tensor = Tensor::<f64, (usize,)>::from(input_vec);
         let input_tensor = flat_tensor.into_dyn().reshape(&dims[..]).to_tensor();
-        println!("Rust: dims = {:?}", dims);
-        println!("Rust: input_tensor.shape() = {:?}", input_tensor.shape());
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
