@@ -671,7 +671,27 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
 // Introspection Functions
 // ============================================================================
 
-/// Gets the number of sampling points in a sampling object
+/// Gets the number of sampling points in a sampling object.
+///
+/// This function returns the number of sampling points used in the specified
+/// sampling object. This number is needed to allocate arrays of the correct size
+/// when retrieving the actual sampling points.
+///
+/// # Arguments
+///
+/// * `s` - Pointer to the sampling object.
+/// * `num_points` - Pointer to store the number of sampling points.
+///
+/// # Returns
+///
+/// A status code:
+/// - `0` ([`SPIR_COMPUTATION_SUCCESS`]) on success
+/// - A non-zero error code on failure
+///
+/// # See also
+///
+/// - [`spir_sampling_get_taus`]
+/// - [`spir_sampling_get_matsus`]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_get_npoints(
     s: *const spir_sampling,
@@ -702,7 +722,29 @@ pub unsafe extern "C" fn spir_sampling_get_npoints(
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
 }
 
-/// Gets the imaginary time sampling points
+/// Gets the imaginary time (τ) sampling points used in the specified sampling object.
+///
+/// This function fills the provided array with the imaginary time (τ) sampling points used in the specified sampling object.
+/// The array must be pre-allocated with sufficient size (use [`spir_sampling_get_npoints`] to determine the required size).
+///
+/// # Arguments
+///
+/// * `s` - Pointer to the sampling object.
+/// * `points` - Pre-allocated array to store the τ sampling points.
+///
+/// # Returns
+///
+/// An integer status code:
+/// - `0` ([`SPIR_COMPUTATION_SUCCESS`]) on success
+/// - A non-zero error code on failure
+///
+/// # Notes
+///
+/// The array must be pre-allocated with size >= [`spir_sampling_get_npoints`](spir_sampling_get_npoints).
+///
+/// # See also
+///
+/// - [`spir_sampling_get_npoints`]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_get_taus(
     s: *const spir_sampling,
@@ -792,9 +834,26 @@ pub unsafe extern "C" fn spir_sampling_get_matsus(
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
 }
 
-/// Gets the condition number of the sampling matrix
+/// Gets the condition number of the sampling matrix.
 ///
-/// Note: Currently returns a placeholder value.
+/// This function returns the condition number of the sampling matrix used in the
+/// specified sampling object. The condition number is a measure of how well-
+/// conditioned the sampling matrix is.
+///
+/// # Parameters
+/// - `s`: Pointer to the sampling object.
+/// - `cond_num`: Pointer to store the condition number.
+///
+/// # Returns
+/// An integer status code:
+/// - 0 (`SPIR_COMPUTATION_SUCCESS`) on success
+/// - Non-zero error code on failure
+///
+/// # Notes
+/// - A large condition number indicates that the sampling matrix is ill-conditioned,
+///   which may lead to numerical instability in transformations.
+/// - The condition number is the ratio of the largest to smallest singular value
+///   of the sampling matrix.
 /// TODO: Implement proper condition number calculation from SVD
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_get_cond_num(
@@ -821,10 +880,40 @@ pub unsafe extern "C" fn spir_sampling_get_cond_num(
 // Evaluation Functions (coefficients → sampling points)
 // ============================================================================
 
-/// Evaluate basis coefficients at sampling points (double → double)
+/// Evaluates basis coefficients at sampling points (double to double version).
 ///
-/// Transforms IR basis coefficients to values at sampling points.
+/// Transforms basis coefficients to values at sampling points, where both input
+/// and output are real (double precision) values. The operation can be performed
+/// along any dimension of a multidimensional array.
 ///
+/// # Arguments
+///
+/// * `s` - Pointer to the sampling object
+/// * `order` - Memory layout order (`SPIR_ORDER_ROW_MAJOR` or `SPIR_ORDER_COLUMN_MAJOR`)
+/// * `ndim` - Number of dimensions in the input/output arrays
+/// * `input_dims` - Array of dimension sizes
+/// * `target_dim` - Target dimension for the transformation (0-based)
+/// * `input` - Input array of basis coefficients
+/// * `out` - Output array for the evaluated values at sampling points
+///
+/// # Returns
+///
+/// An integer status code:
+/// - `0` (`SPIR_COMPUTATION_SUCCESS`) on success
+/// - A non-zero error code on failure
+///
+/// # Notes
+///
+/// - For optimal performance, the target dimension should be either the
+///   first (`0`) or the last (`ndim-1`) dimension to avoid large temporary array allocations
+/// - The output array must be pre-allocated with the correct size
+/// - The input and output arrays must be contiguous in memory
+/// - The transformation is performed using a pre-computed sampling matrix
+///   that is factorized using SVD for efficiency
+///
+/// # See also
+/// - [`spir_sampling_eval_dz`]
+/// - [`spir_sampling_eval_zz`]
 /// # Note
 /// Currently only supports column-major order (SPIR_ORDER_COLUMN_MAJOR = 1).
 /// Row-major support will be added in a future update.
@@ -1043,7 +1132,40 @@ pub unsafe extern "C" fn spir_sampling_eval_zz(
 // Fitting Functions (sampling points → coefficients)
 // ============================================================================
 
-/// Fit basis coefficients from sampling point values (double → double)
+/// Fits values at sampling points to basis coefficients (double to double version).
+///
+/// Transforms values at sampling points back to basis coefficients, where both
+/// input and output are real (double precision) values. The operation can be
+/// performed along any dimension of a multidimensional array.
+///
+/// # Arguments
+///
+/// * `s` - Pointer to the sampling object
+/// * `backend` - Pointer to the GEMM backend (can be null to use default)
+/// * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+/// * `ndim` - Number of dimensions in the input/output arrays
+/// * `input_dims` - Array of dimension sizes
+/// * `target_dim` - Target dimension for the transformation (0-based)
+/// * `input` - Input array of values at sampling points
+/// * `out` - Output array for the fitted basis coefficients
+///
+/// # Returns
+///
+/// An integer status code:
+/// * `0` (SPIR_COMPUTATION_SUCCESS) on success
+/// * A non-zero error code on failure
+///
+/// # Notes
+///
+/// * The output array must be pre-allocated with the correct size
+/// * This function performs the inverse operation of `spir_sampling_eval_dd`
+/// * The transformation is performed using a pre-computed sampling matrix
+///   that is factorized using SVD for efficiency
+///
+/// # See also
+///
+/// * [`spir_sampling_eval_dd`]
+/// * [`spir_sampling_fit_zz`]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_fit_dd(
     s: *const spir_sampling,
@@ -1105,7 +1227,9 @@ pub unsafe extern "C" fn spir_sampling_fit_dd(
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
 }
 
-/// Fit basis coefficients from sampling point values (complex → complex)
+/// Fits values at sampling points to basis coefficients (complex to complex version).
+///
+/// For more details, see [`spir_sampling_fit_dd`]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_fit_zz(
     s: *const spir_sampling,
@@ -1222,7 +1346,27 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
 }
 
-/// Fit basis coefficients from Matsubara sampling (complex → double, positive only)
+/// Fit basis coefficients from Matsubara sampling points (complex input, real output)
+///
+/// This function fits basis coefficients from Matsubara sampling points
+/// using complex input and real output (positive only case).
+///
+/// # Arguments
+///
+/// * `s` - Pointer to the sampling object
+/// * `backend` - Pointer to the GEMM backend (can be null to use default)
+/// * `order` - Memory layout order (SPIR_ORDER_COLUMN_MAJOR or SPIR_ORDER_ROW_MAJOR)
+/// * `ndim` - Number of dimensions in the input/output arrays
+/// * `input_dims` - Array of dimension sizes
+/// * `target_dim` - Target dimension for the transformation (0-based)
+/// * `input` - Input array (complex)
+/// * `out` - Output array (real)
+/// * `return` - SPIR_COMPUTATION_SUCCESS on success, error code otherwise
+///
+/// # See also
+///
+/// * [`spir_sampling_fit_zz`]
+/// * [`spir_sampling_fit_dd`]
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn spir_sampling_fit_zd(
     s: *const spir_sampling,
