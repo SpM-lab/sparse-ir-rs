@@ -51,8 +51,8 @@ function logistic_kernel(x, y, lambda)
     numerator / denominator
 end
 
-# Compute inv_weight for Bosonic
-inv_weight = tanh(beta * pole / 2)
+# Compute regularizer for Bosonic
+regularizer = tanh(beta * pole / 2)
 
 # Lambda for kernel
 lambda = beta * wmax
@@ -60,7 +60,7 @@ lambda = beta * wmax
 # Compute DLR basis function value for each tau
 println("Computing DLR values for single pole case:")
 println("beta = $beta, wmax = $wmax, pole = $pole")
-println("inv_weight = $inv_weight")
+println("regularizer = $regularizer")
 println()
 
 gtau_dlr = Float64[]
@@ -76,8 +76,8 @@ for tau in tau_points
     # Compute kernel value
     kernel_val = logistic_kernel(x, y, lambda)
     
-    # DLR basis function: u_i(τ) = sign * (-K(x, y_i)) * inv_weight[i]
-    u_value = sign * (-kernel_val) * inv_weight
+    # DLR basis function: u_i(τ) = sign * (-K(x, y_i)) * regularizer[i]
+    u_value = sign * (-kernel_val) * regularizer
     
     # Green's function: G(τ) = coeffs[i] * u_i(τ) = 1.0 * u_value (single pole)
     gtau = 1.0 * u_value

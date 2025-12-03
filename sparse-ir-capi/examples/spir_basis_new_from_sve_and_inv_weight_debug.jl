@@ -80,13 +80,13 @@ function spir_funcs_from_piecewise_legendre(segments, n_segments, coeffs, nfuncs
     return funcs
 end
 
-function spir_basis_new_from_sve_and_inv_weight(statistics, beta, omega_max, epsilon, lambda, ypower, conv_radius, sve, inv_weight_funcs, max_size)
+function spir_basis_new_from_sve_and_regularizer(statistics, beta, omega_max, epsilon, lambda, ypower, conv_radius, sve, regularizer_funcs, max_size)
     status = Ref{Int32}(0)
     basis = ccall(
-        (:spir_basis_new_from_sve_and_inv_weight, libpath),
+        (:spir_basis_new_from_sve_and_regularizer, libpath),
         Ptr{Cvoid},
         (Int32, Float64, Float64, Float64, Float64, Int32, Float64, Ptr{sve_result}, Ptr{Cvoid}, Int32, Ref{Int32}),
-        statistics, beta, omega_max, epsilon, lambda, ypower, conv_radius, sve, inv_weight_funcs, max_size, status
+        statistics, beta, omega_max, epsilon, lambda, ypower, conv_radius, sve, regularizer_funcs, max_size, status
     )
 
     if basis == C_NULL
@@ -106,9 +106,9 @@ segments = [-omega_max, omega_max]
 coeffs = [1.0]
 nfuncs = 1
 order = 0
-inv_weight_funcs = spir_funcs_from_piecewise_legendre(segments, n_segments, coeffs, nfuncs, order)
+regularizer_funcs = spir_funcs_from_piecewise_legendre(segments, n_segments, coeffs, nfuncs, order)
 
 # %%
-basis = spir_basis_new_from_sve_and_inv_weight(1, beta, omega_max, epsilon, lambda, 0, 1.0, sve, inv_weight_funcs, -1)
+basis = spir_basis_new_from_sve_and_regularizer(1, beta, omega_max, epsilon, lambda, 0, 1.0, sve, regularizer_funcs, -1)
 
 # %%

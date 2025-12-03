@@ -94,28 +94,25 @@ pub trait KernelProperties {
     /// Get the upper bound of the y domain
     fn ymax(&self) -> f64;
 
-    /// Weight function for given statistics.
+    /// A regularizer for a bosonic kernel for avoiding a divergence at omega = 0.
     ///
-    /// The kernel is applied to a scaled spectral function ρ'(y) as:
-    ///     ∫ K(x, y) ρ'(y) dy,
-    /// where ρ'(y) = w(y) ρ(y).
+    /// The bosonic kernel diverges at omega = 0.
+    /// This function returns a regularizer w(beta, omega) that avoids this divergence.
     ///
-    /// This function returns w(beta, omega) that transforms the original spectral
-    /// function ρ(y) into the scaled version ρ'(y) used in the integral equation.
+    ///    G(τ) = - ∫ K(τ, ω) ρ(ω) dω = - ∫ [K(τ, ω) w(ω)] [ρ(ω)/w(ω)] dω.
     ///
-    /// @param beta Inverse temperature
-    /// @param omega Frequency
-    /// @return The weight value w(beta, omega)
-    fn weight<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64;
-
-    /// Inverse weight function to avoid division by zero.
+    /// The spectral function ρ(ω) and the weight function w(ω) must vanish linearly at omega = 0.
+    /// For a fermionic kernel, this function is expected to return 1.0.
     ///
-    /// This is a safer API that returns the inverse weight.
+    /// # Arguments
     ///
-    /// @param beta Inverse temperature
-    /// @param omega Frequency
-    /// @return The inverse weight value
-    fn inv_weight<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64;
+    /// * `beta` - Inverse temperature
+    /// * `omega` - Frequency
+    ///
+    /// # Returns
+    ///
+    /// The regularizer value w(beta, omega)
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64;
 
     /// Create SVE hints for this kernel type.
     ///
@@ -223,30 +220,14 @@ impl KernelProperties for LogisticKernel {
         1.0
     }
 
-    fn weight<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
         match S::STATISTICS {
             Statistics::Fermionic => {
-                // For fermionic statistics: w(beta, omega) = 1.0
-                // The kernel K(x, y) is already in the correct form for fermions
+                // For fermionic statistics: regularizer = 1.0 (safe, no division by zero)
                 1.0
             }
             Statistics::Bosonic => {
-                // For bosonic statistics: w(beta, omega) = 1.0 / tanh(0.5 * beta * omega)
-                // This transforms the fermionic kernel to work with bosonic correlation functions
-                // The tanh factor accounts for the different statistics
-                1.0 / (0.5 * beta * omega).tanh()
-            }
-        }
-    }
-
-    fn inv_weight<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
-        match S::STATISTICS {
-            Statistics::Fermionic => {
-                // For fermionic statistics: 1/w = 1.0 (safe, no division by zero)
-                1.0
-            }
-            Statistics::Bosonic => {
-                // For bosonic statistics: 1/w = tanh(0.5 * beta * omega) (safe, handles omega=0 case)
+                // For bosonic statistics: regularizer = tanh(0.5 * beta * omega) (safe, handles omega=0 case)
                 // This avoids division by zero when tanh(0.5 * beta * omega) approaches zero
                 (0.5 * beta * omega).tanh()
             }
@@ -628,28 +609,13 @@ impl KernelProperties for RegularizedBoseKernel {
         1.0
     }
 
-    fn weight<S: StatisticsType + 'static>(&self, _beta: f64, omega: f64) -> f64 {
+    fn regularizer<S: StatisticsType + 'static>(&self, _beta: f64, omega: f64) -> f64 {
         match S::STATISTICS {
             Statistics::Fermionic => {
                 panic!("RegularizedBoseKernel does not support fermionic functions");
             }
             Statistics::Bosonic => {
-                // weight = 1/ω
-                if omega.abs() < 1e-300 {
-                    panic!("RegularizedBoseKernel: omega too close to zero");
-                }
-                1.0 / omega
-            }
-        }
-    }
-
-    fn inv_weight<S: StatisticsType + 'static>(&self, _beta: f64, omega: f64) -> f64 {
-        match S::STATISTICS {
-            Statistics::Fermionic => {
-                panic!("RegularizedBoseKernel does not support fermionic functions");
-            }
-            Statistics::Bosonic => {
-                // inv_weight = ω (safe, no division)
+                // regularizer = ω (safe, no division)
                 omega
             }
         }

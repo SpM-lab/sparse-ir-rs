@@ -3,7 +3,7 @@
   public :: c_spir_basis_clone
   public :: c_spir_basis_is_assigned
   public :: c_spir_basis_new
-  public :: c_spir_basis_new_from_sve_and_inv_weight
+  public :: c_spir_basis_new_from_sve_and_regularizer
   public :: c_spir_basis_get_size
   public :: c_spir_basis_get_svals
   public :: c_spir_basis_get_stats

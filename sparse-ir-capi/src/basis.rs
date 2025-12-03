@@ -223,10 +223,10 @@ pub extern "C" fn spir_basis_new(
     }
 }
 
-/// Create a finite temperature basis from SVE result and custom inv_weight function
+/// Create a finite temperature basis from SVE result and custom regularizer function
 ///
 /// This function creates a basis from a pre-computed SVE result and a custom
-/// inverse weight function. The inv_weight function is used to scale the basis
+/// regularizer function. The regularizer function is used to scale the basis
 /// functions in the frequency domain.
 ///
 /// # Arguments
@@ -238,7 +238,7 @@ pub extern "C" fn spir_basis_new(
 /// * `ypower` - Power of y in kernel (typically 0 or 1)
 /// * `conv_radius` - Convergence radius for Fourier transform
 /// * `sve` - Pre-computed SVE result (must not be NULL)
-/// * `inv_weight_funcs` - Custom inv_weight function (must not be NULL)
+/// * `regularizer_funcs` - Custom regularizer function (must not be NULL)
 /// * `max_size` - Maximum basis size (-1 for no limit)
 /// * `status` - Pointer to store status code
 ///
@@ -246,15 +246,15 @@ pub extern "C" fn spir_basis_new(
 /// * Pointer to basis object, or NULL on failure
 ///
 /// # Note
-/// Currently, the inv_weight function is evaluated but the custom weight is not
+/// Currently, the regularizer function is evaluated but the custom weight is not
 /// fully integrated into the basis construction. The basis is created using
-/// the standard from_sve_result method with the kernel's default inv_weight.
+/// the standard from_sve_result method with the kernel's default regularizer.
 /// This is a limitation of the current Rust implementation compared to the C++ version.
 ///
 /// # Safety
 /// The caller must ensure `status` is a valid pointer.
 #[unsafe(no_mangle)]
-pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
+pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
     statistics: libc::c_int,
     beta: f64,
     omega_max: f64,
@@ -263,7 +263,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
     _ypower: libc::c_int,
     _conv_radius: f64,
     sve: *const spir_sve_result,
-    inv_weight_funcs: *const spir_funcs,
+    regularizer_funcs: *const spir_funcs,
     max_size: libc::c_int,
     status: *mut StatusCode,
 ) -> *mut spir_basis {
@@ -287,8 +287,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
         return std::ptr::null_mut();
     }
 
-    // Must have SVE and inv_weight_funcs
-    if sve.is_null() || inv_weight_funcs.is_null() {
+    // Must have SVE and regularizer_funcs
+    if sve.is_null() || regularizer_funcs.is_null() {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -315,10 +315,10 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
         let sve_ref = &*sve;
         let sve_result = sve_ref.inner().as_ref().clone();
 
-        // Evaluate inv_weight_funcs at a test point to verify it's valid
-        // (Note: Currently, the custom inv_weight is not fully integrated into basis construction)
+        // Evaluate regularizer_funcs at a test point to verify it's valid
+        // (Note: Currently, the custom regularizer is not fully integrated into basis construction)
         let test_omega = omega_max / 2.0;
-        let _inv_weight_value = match (*inv_weight_funcs).eval_continuous(test_omega) {
+        let _regularizer_value = match (*regularizer_funcs).eval_continuous(test_omega) {
             Some(values) if !values.is_empty() => values[0],
             _ => {
                 // Default to 1.0 if evaluation fails
@@ -333,7 +333,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
         let kernel = LogisticKernel::new(lambda);
 
         // Create basis using from_sve_result
-        // Note: The custom inv_weight is not currently used in the Rust implementation
+        // Note: The custom regularizer is not currently used in the Rust implementation
         // This is a limitation compared to the C++ version
         if statistics == SPIR_STATISTICS_FERMIONIC {
             // Fermionic
@@ -372,7 +372,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_inv_weight(
             ptr
         }
         Ok(Err(msg)) => {
-            debug_eprintln!("Error in spir_basis_new_from_sve_and_inv_weight: {}", msg);
+            debug_eprintln!("Error in spir_basis_new_from_sve_and_regularizer: {}", msg);
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
@@ -670,13 +670,13 @@ pub unsafe extern "C" fn spir_basis_get_u(
                 dlr.poles.clone(),
                 beta,
                 dlr.wmax,
-                dlr.inv_weights.clone(),
+                dlr.regularizers.clone(),
             ),
             BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_tau_bosonic(
                 dlr.poles.clone(),
                 beta,
                 dlr.wmax,
-                dlr.inv_weights.clone(),
+                dlr.regularizers.clone(),
             ),
         };
 
@@ -889,12 +889,12 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
             BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_matsubara_fermionic(
                 dlr.poles.clone(),
                 beta,
-                dlr.inv_weights.clone(),
+                dlr.regularizers.clone(),
             ),
             BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_matsubara_bosonic(
                 dlr.poles.clone(),
                 beta,
-                dlr.inv_weights.clone(),
+                dlr.regularizers.clone(),
             ),
         };
 
@@ -1530,7 +1530,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basis_new_from_sve_and_inv_weight() {
+    fn test_basis_new_from_sve_and_regularizer() {
         use crate::{
             SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, spir_funcs_from_piecewise_legendre,
             spir_funcs_release,
@@ -1552,8 +1552,8 @@ mod tests {
         assert_eq!(sve_status, SPIR_COMPUTATION_SUCCESS);
         assert!(!sve.is_null());
 
-        // Create inv_weight_func as spir_funcs
-        // For LogisticKernel with Fermionic statistics, inv_weight_func(omega) = 1.0
+        // Create regularizer_func as spir_funcs
+        // For LogisticKernel with Fermionic statistics, regularizer_func(omega) = 1.0
         // We'll create a simple constant function
         let n_segments = 1;
         let segments = [-omega_max, omega_max]; // Full omega range
@@ -1561,22 +1561,22 @@ mod tests {
         let nfuncs = 1;
         let order = 0;
 
-        let mut inv_weight_status = SPIR_INTERNAL_ERROR;
-        let inv_weight_funcs = spir_funcs_from_piecewise_legendre(
+        let mut regularizer_status = SPIR_INTERNAL_ERROR;
+        let regularizer_funcs = spir_funcs_from_piecewise_legendre(
             segments.as_ptr(),
             n_segments,
             coeffs.as_ptr(),
             nfuncs,
             order,
-            &mut inv_weight_status,
+            &mut regularizer_status,
         );
-        assert_eq!(inv_weight_status, SPIR_COMPUTATION_SUCCESS);
-        assert!(!inv_weight_funcs.is_null());
+        assert_eq!(regularizer_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!regularizer_funcs.is_null());
 
         // Create basis using new function
         // For LogisticKernel: ypower=0, conv_radius=1.0 (typical values)
         let mut basis_status = SPIR_INTERNAL_ERROR;
-        let basis = spir_basis_new_from_sve_and_inv_weight(
+        let basis = spir_basis_new_from_sve_and_regularizer(
             1, // Fermionic
             beta,
             omega_max,
@@ -1585,7 +1585,7 @@ mod tests {
             0,   // ypower=0
             1.0, // conv_radius=1.0
             sve,
-            inv_weight_funcs,
+            regularizer_funcs,
             -1, // no max_size
             &mut basis_status,
         );
@@ -1604,7 +1604,7 @@ mod tests {
         // Test error handling
         {
             let mut basis_status = SPIR_INTERNAL_ERROR;
-            let basis_err = spir_basis_new_from_sve_and_inv_weight(
+            let basis_err = spir_basis_new_from_sve_and_regularizer(
                 1,
                 beta,
                 omega_max,
@@ -1613,7 +1613,7 @@ mod tests {
                 0,
                 1.0,
                 ptr::null(),
-                inv_weight_funcs,
+                regularizer_funcs,
                 -1,
                 &mut basis_status,
             );
@@ -1623,7 +1623,7 @@ mod tests {
 
         {
             let mut basis_status = SPIR_INTERNAL_ERROR;
-            let basis_err = spir_basis_new_from_sve_and_inv_weight(
+            let basis_err = spir_basis_new_from_sve_and_regularizer(
                 1,
                 beta,
                 omega_max,
@@ -1641,7 +1641,7 @@ mod tests {
         }
 
         unsafe {
-            spir_funcs_release(inv_weight_funcs);
+            spir_funcs_release(regularizer_funcs);
             spir_sve_result_release(sve);
             spir_kernel_release(kernel);
         }

@@ -179,11 +179,11 @@ where
     /// Accuracy of the representation
     pub accuracy: f64,
 
-    /// Inverse weights for each pole: inv_weight[i] = 1 / weight[i]
+    /// Regularizers for each pole: regularizer[i] = w(β, ω_i)
     /// Always computed using LogisticKernel:
-    /// - Fermionic: inv_weight = 1.0
-    /// - Bosonic: inv_weight = tanh(β·ω/2)
-    pub inv_weights: Vec<f64>,
+    /// - Fermionic: regularizer = 1.0
+    /// - Bosonic: regularizer = tanh(β·ω/2)
+    pub regularizers: Vec<f64>,
 
     /// Fitting matrix from IR: fitmat = -s · V(poles)
     /// Used for to_IR transformation
@@ -243,13 +243,13 @@ where
         // Create fitter for from_IR (inverse operation)
         let fitter = RealMatrixFitter::new(fitmat.clone());
 
-        // Compute inverse weights for each pole using LogisticKernel
+        // Compute regularizers for each pole using LogisticKernel
         // (regardless of the basis kernel type)
         let lambda = beta * wmax;
         let logistic_kernel = LogisticKernel::new(lambda);
-        let inv_weights: Vec<f64> = poles
+        let regularizers: Vec<f64> = poles
             .iter()
-            .map(|&pole| logistic_kernel.inv_weight::<S>(beta, pole))
+            .map(|&pole| logistic_kernel.regularizer::<S>(beta, pole))
             .collect();
 
         Self {
@@ -258,7 +258,7 @@ where
             wmax,
             kernel: logistic_kernel,
             accuracy,
-            inv_weights,
+            regularizers,
             fitmat,
             fitter,
             _phantom: PhantomData,
@@ -504,7 +504,7 @@ where
         //
         // NOTE: Statistics-dependent regularization factors
         // (tanh(βω/2) for bosons) are applied only in the
-        // Matsubara representation via `inv_weights` and
+        // Matsubara representation via `regularizers` and
         // do NOT enter the tau basis functions themselves.
 
         let mut result = DTensor::<f64, 2>::zeros([n_points, n_poles]);
@@ -550,15 +550,15 @@ where
         DTensor::<Complex<f64>, 2>::from_fn([n_points, n_poles], |idx| {
             let freq = &freqs[idx[0]];
             let pole = self.poles[idx[1]];
-            let inv_weight = self.inv_weights[idx[1]];
+            let regularizer = self.regularizers[idx[1]];
 
             // iν = i * π * (2n + ζ) / β
             let iv = freq.value_imaginary(self.beta);
 
-            // u_i(iν) = inv_weight / (iν - pole_i)
-            // Fermionic: inv_weight = 1.0
-            // Bosonic: inv_weight = tanh(β·pole_i/2)
-            Complex::new(inv_weight, 0.0) / (iv - Complex::new(pole, 0.0))
+            // u_i(iν) = regularizer / (iν - pole_i)
+            // Fermionic: regularizer = 1.0
+            // Bosonic: regularizer = tanh(β·pole_i/2)
+            Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0))
         })
     }
 
