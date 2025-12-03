@@ -35,10 +35,7 @@ use sparse_ir::dlr::DiscreteLehmannRepresentation;
 /// # Safety
 /// Caller must ensure `b` is a valid IR basis pointer
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_dlr_new(
-    b: *const spir_basis,
-    status: *mut StatusCode,
-) -> *mut spir_basis {
+pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) -> *mut spir_basis {
     let result = catch_unwind(AssertUnwindSafe(|| {
         // Validate inputs
         if b.is_null() {
@@ -114,7 +111,7 @@ pub unsafe extern "C" fn spir_dlr_new(
 /// # Safety
 /// Caller must ensure `b` is valid and `poles` has `npoles` elements
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_dlr_new_with_poles(
+pub extern "C" fn spir_dlr_new_with_poles(
     b: *const spir_basis,
     npoles: libc::c_int,
     poles: *const f64,
@@ -202,7 +199,7 @@ pub unsafe extern "C" fn spir_dlr_new_with_poles(
 /// # Safety
 /// Caller must ensure `dlr` is a valid DLR basis pointer
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_dlr_get_npoles(
+pub extern "C" fn spir_dlr_get_npoles(
     dlr: *const spir_basis,
     num_poles: *mut libc::c_int,
 ) -> StatusCode {
@@ -241,7 +238,7 @@ pub unsafe extern "C" fn spir_dlr_get_npoles(
 /// # Safety
 /// Caller must ensure `dlr` is valid and `poles` has sufficient size
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) -> StatusCode {
+pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) -> StatusCode {
     if dlr.is_null() || poles.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
@@ -290,7 +287,7 @@ pub unsafe extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut 
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_ir2dlr_dd(
+pub extern "C" fn spir_ir2dlr_dd(
     dlr: *const spir_basis,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -365,7 +362,7 @@ pub unsafe extern "C" fn spir_ir2dlr_dd(
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_ir2dlr_zz(
+pub extern "C" fn spir_ir2dlr_zz(
     dlr: *const spir_basis,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -440,7 +437,7 @@ pub unsafe extern "C" fn spir_ir2dlr_zz(
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_dlr2ir_dd(
+pub extern "C" fn spir_dlr2ir_dd(
     dlr: *const spir_basis,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -515,7 +512,7 @@ pub unsafe extern "C" fn spir_dlr2ir_dd(
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_dlr2ir_zz(
+pub extern "C" fn spir_dlr2ir_zz(
     dlr: *const spir_basis,
     backend: *const spir_gemm_backend,
     order: libc::c_int,

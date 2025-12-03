@@ -21,9 +21,7 @@ pub extern "C" fn spir_sve_result_release(sve: *mut spir_sve_result) {
 
 /// Manual clone function (replaces macro-generated one)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sve_result_clone(
-    src: *const spir_sve_result,
-) -> *mut spir_sve_result {
+pub extern "C" fn spir_sve_result_clone(src: *const spir_sve_result) -> *mut spir_sve_result {
     if src.is_null() {
         return std::ptr::null_mut();
     }

@@ -101,7 +101,7 @@ impl Clone for spir_gemm_backend {
 ///
 /// The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_gemm_backend_new_from_fblas_lp64(
+pub extern "C" fn spir_gemm_backend_new_from_fblas_lp64(
     dgemm: *const libc::c_void,
     zgemm: *const libc::c_void,
 ) -> *mut spir_gemm_backend {
@@ -143,7 +143,7 @@ pub unsafe extern "C" fn spir_gemm_backend_new_from_fblas_lp64(
 ///
 /// The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_gemm_backend_new_from_fblas_ilp64(
+pub extern "C" fn spir_gemm_backend_new_from_fblas_ilp64(
     dgemm64: *const libc::c_void,
     zgemm64: *const libc::c_void,
 ) -> *mut spir_gemm_backend {
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn spir_gemm_backend_new_from_fblas_ilp64(
 /// `spir_gemm_backend_new_from_fblas_ilp64`.
 /// After calling this function, the pointer must not be used again.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_gemm_backend_release(backend: *mut spir_gemm_backend) {
+pub extern "C" fn spir_gemm_backend_release(backend: *mut spir_gemm_backend) {
     if !backend.is_null() {
         unsafe {
             let _ = Box::from_raw(backend);

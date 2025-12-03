@@ -36,7 +36,7 @@ pub extern "C" fn spir_sampling_release(sampling: *mut spir_sampling) {
 
 /// Manual clone function (replaces macro-generated one)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_clone(src: *const spir_sampling) -> *mut spir_sampling {
+pub extern "C" fn spir_sampling_clone(src: *const spir_sampling) -> *mut spir_sampling {
     if src.is_null() {
         return std::ptr::null_mut();
     }
@@ -83,7 +83,7 @@ pub extern "C" fn spir_sampling_is_assigned(obj: *const spir_sampling) -> i32 {
 /// # Safety
 /// Caller must ensure `b` is valid and `points` has `num_points` elements
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_tau_sampling_new(
+pub extern "C" fn spir_tau_sampling_new(
     b: *const spir_basis,
     num_points: libc::c_int,
     points: *const f64,
@@ -191,7 +191,7 @@ pub unsafe extern "C" fn spir_tau_sampling_new(
 /// # Returns
 /// Pointer to the newly created sampling object, or NULL if creation fails
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_matsu_sampling_new(
+pub extern "C" fn spir_matsu_sampling_new(
     b: *const spir_basis,
     positive_only: bool,
     num_points: libc::c_int,
@@ -334,7 +334,7 @@ pub unsafe extern "C" fn spir_matsu_sampling_new(
 /// # Safety
 /// Caller must ensure `points` and `matrix` have correct sizes
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_tau_sampling_new_with_matrix(
+pub extern "C" fn spir_tau_sampling_new_with_matrix(
     order: libc::c_int,
     statistics: libc::c_int,
     basis_size: libc::c_int,
@@ -447,7 +447,7 @@ pub unsafe extern "C" fn spir_tau_sampling_new_with_matrix(
 /// # Safety
 /// Caller must ensure `points` and `matrix` have correct sizes
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
+pub extern "C" fn spir_matsu_sampling_new_with_matrix(
     order: libc::c_int,
     statistics: libc::c_int,
     basis_size: libc::c_int,
@@ -693,7 +693,7 @@ pub unsafe extern "C" fn spir_matsu_sampling_new_with_matrix(
 /// - [`spir_sampling_get_taus`]
 /// - [`spir_sampling_get_matsus`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_get_npoints(
+pub extern "C" fn spir_sampling_get_npoints(
     s: *const spir_sampling,
     num_points: *mut libc::c_int,
 ) -> StatusCode {
@@ -746,10 +746,7 @@ pub unsafe extern "C" fn spir_sampling_get_npoints(
 ///
 /// - [`spir_sampling_get_npoints`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_get_taus(
-    s: *const spir_sampling,
-    points: *mut f64,
-) -> StatusCode {
+pub extern "C" fn spir_sampling_get_taus(s: *const spir_sampling, points: *mut f64) -> StatusCode {
     let result = catch_unwind(AssertUnwindSafe(|| {
         if s.is_null() || points.is_null() {
             return SPIR_INVALID_ARGUMENT;
@@ -779,7 +776,7 @@ pub unsafe extern "C" fn spir_sampling_get_taus(
 
 /// Gets the Matsubara frequency sampling points
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_get_matsus(
+pub extern "C" fn spir_sampling_get_matsus(
     s: *const spir_sampling,
     points: *mut i64,
 ) -> StatusCode {
@@ -856,7 +853,7 @@ pub unsafe extern "C" fn spir_sampling_get_matsus(
 ///   of the sampling matrix.
 /// TODO: Implement proper condition number calculation from SVD
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_get_cond_num(
+pub extern "C" fn spir_sampling_get_cond_num(
     s: *const spir_sampling,
     cond_num: *mut f64,
 ) -> StatusCode {
@@ -918,7 +915,7 @@ pub unsafe extern "C" fn spir_sampling_get_cond_num(
 /// Currently only supports column-major order (SPIR_ORDER_COLUMN_MAJOR = 1).
 /// Row-major support will be added in a future update.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_eval_dd(
+pub extern "C" fn spir_sampling_eval_dd(
     s: *const spir_sampling,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -993,7 +990,7 @@ pub unsafe extern "C" fn spir_sampling_eval_dd(
 ///
 /// For Matsubara sampling: transforms real IR coefficients to complex values.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_eval_dz(
+pub extern "C" fn spir_sampling_eval_dz(
     s: *const spir_sampling,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -1063,7 +1060,7 @@ pub unsafe extern "C" fn spir_sampling_eval_dz(
 ///
 /// For Matsubara sampling: transforms complex coefficients to complex values.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_eval_zz(
+pub extern "C" fn spir_sampling_eval_zz(
     s: *const spir_sampling,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -1167,7 +1164,7 @@ pub unsafe extern "C" fn spir_sampling_eval_zz(
 /// * [`spir_sampling_eval_dd`]
 /// * [`spir_sampling_fit_zz`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_fit_dd(
+pub extern "C" fn spir_sampling_fit_dd(
     s: *const spir_sampling,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -1231,7 +1228,7 @@ pub unsafe extern "C" fn spir_sampling_fit_dd(
 ///
 /// For more details, see [`spir_sampling_fit_dd`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_fit_zz(
+pub extern "C" fn spir_sampling_fit_zz(
     s: *const spir_sampling,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
@@ -1368,7 +1365,7 @@ pub unsafe extern "C" fn spir_sampling_fit_zz(
 /// * [`spir_sampling_fit_zz`]
 /// * [`spir_sampling_fit_dd`]
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_sampling_fit_zd(
+pub extern "C" fn spir_sampling_fit_zd(
     s: *const spir_sampling,
     backend: *const spir_gemm_backend,
     order: libc::c_int,
