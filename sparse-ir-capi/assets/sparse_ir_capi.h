@@ -228,16 +228,16 @@ struct spir_basis *spir_basis_new(int statistics,
  */
 
 struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
-                                                           double beta,
-                                                           double omega_max,
-                                                           double epsilon,
-                                                           double lambda,
-                                                           int _ypower,
-                                                           double _conv_radius,
-                                                           const struct spir_sve_result *sve,
+                                                          double beta,
+                                                          double omega_max,
+                                                          double epsilon,
+                                                          double lambda,
+                                                          int _ypower,
+                                                          double _conv_radius,
+                                                          const struct spir_sve_result *sve,
                                                            const struct spir_funcs *regularizer_funcs,
-                                                           int max_size,
-                                                           int *status);
+                                                          int max_size,
+                                                          int *status);
 
 /**
  * Get the number of basis functions

@@ -23,6 +23,17 @@ Add to your `Cargo.toml`:
 sparse-ir = "0.1.0"
 ```
 
+#### Optional: System BLAS Support
+
+By default, `sparse-ir` uses [Faer](https://crates.io/crates/faer) (pure Rust) for matrix operations in `fit` and `evaluate` routines. To use system BLAS instead (e.g., OpenBLAS, Intel MKL) for better performance, enable the `system-blas` feature:
+
+```toml
+[dependencies]
+sparse-ir = { version = "0.1.0", features = ["system-blas"] }
+```
+
+**Note**: When `system-blas` is enabled, `fit` and `evaluate` operations will use BLAS. When not linked, Faer is used as the fallback.
+
 ## Usage
 
 ### Basic Example

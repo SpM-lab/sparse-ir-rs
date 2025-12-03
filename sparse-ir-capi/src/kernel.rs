@@ -194,7 +194,7 @@ pub extern "C" fn spir_kernel_release(kernel: *mut spir_kernel) {
 
 /// Manual clone function (replaces macro-generated one)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_kernel_clone(src: *const spir_kernel) -> *mut spir_kernel {
+pub extern "C" fn spir_kernel_clone(src: *const spir_kernel) -> *mut spir_kernel {
     if src.is_null() {
         return std::ptr::null_mut();
     }

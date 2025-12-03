@@ -82,7 +82,7 @@ macro_rules! impl_opaque_type_common {
             /// # Returns
             /// A new pointer to a cloned object, or null if input is null or panic occurs.
             #[unsafe(no_mangle)]
-            pub unsafe extern "C" fn [<spir_ $type_name _clone>](
+            pub extern "C" fn [<spir_ $type_name _clone>](
                 src: *const [<spir_ $type_name>]
             ) -> *mut [<spir_ $type_name>] {
                 if src.is_null() {

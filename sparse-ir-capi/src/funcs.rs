@@ -16,7 +16,7 @@ pub extern "C" fn spir_funcs_release(funcs: *mut spir_funcs) {
 
 /// Manual clone function (replaces macro-generated one)
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_funcs_clone(src: *const spir_funcs) -> *mut spir_funcs {
+pub extern "C" fn spir_funcs_clone(src: *const spir_funcs) -> *mut spir_funcs {
     if src.is_null() {
         return std::ptr::null_mut();
     }
@@ -205,7 +205,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
 /// The caller must ensure that `funcs` and `indices` are valid pointers.
 /// The returned pointer must be freed with `spir_funcs_release()`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn spir_funcs_get_slice(
+pub extern "C" fn spir_funcs_get_slice(
     funcs: *const spir_funcs,
     nslice: i32,
     indices: *const i32,
