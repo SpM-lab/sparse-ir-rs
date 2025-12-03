@@ -619,7 +619,7 @@ TEST_CASE("Test spir_sve_result_from_matrix", "[cinterface]")
     spir_kernel_release(kernel);
 }
 
-TEST_CASE("Test spir_basis_new_from_sve_and_inv_weight", "[cinterface]")
+TEST_CASE("Test spir_basis_new_from_sve_and_regularizer", "[cinterface]")
 {
     double lambda = 10.0;
     double beta = 1.0;
@@ -637,8 +637,8 @@ TEST_CASE("Test spir_basis_new_from_sve_and_inv_weight", "[cinterface]")
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(sve != nullptr);
 
-    // Create inv_weight_func as spir_funcs
-    // For LogisticKernel with Fermionic statistics, inv_weight_func(omega) = 1.0
+    // Create regularizer_func as spir_funcs
+    // For LogisticKernel with Fermionic statistics, regularizer_func(omega) = 1.0
     // We'll create a simple constant function
     int n_segments = 1;
     double segments[2] = {-omega_max, omega_max};  // Full omega range
@@ -646,17 +646,17 @@ TEST_CASE("Test spir_basis_new_from_sve_and_inv_weight", "[cinterface]")
     int nfuncs = 1;
     int order = 0;
 
-    spir_funcs* inv_weight_funcs = spir_funcs_from_piecewise_legendre(
+    spir_funcs* regularizer_funcs = spir_funcs_from_piecewise_legendre(
         segments, n_segments, coeffs, nfuncs, order, &status);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
-    REQUIRE(inv_weight_funcs != nullptr);
+    REQUIRE(regularizer_funcs != nullptr);
 
     // Create basis using new function
     // For LogisticKernel: ypower=0, conv_radius=1.0 (typical values)
-    spir_basis* basis = spir_basis_new_from_sve_and_inv_weight(
+    spir_basis* basis = spir_basis_new_from_sve_and_regularizer(
         SPIR_STATISTICS_FERMIONIC, beta, omega_max, epsilon,
         lambda, 0, 1.0,  // ypower=0, conv_radius=1.0
-        sve, inv_weight_funcs, -1, &status);
+        sve, regularizer_funcs, -1, &status);
 
     if (status == SPIR_COMPUTATION_SUCCESS && basis != nullptr) {
         int basis_size;
@@ -669,16 +669,16 @@ TEST_CASE("Test spir_basis_new_from_sve_and_inv_weight", "[cinterface]")
 
     // Test error handling
     {
-        spir_basis* basis_err = spir_basis_new_from_sve_and_inv_weight(
+        spir_basis* basis_err = spir_basis_new_from_sve_and_regularizer(
             SPIR_STATISTICS_FERMIONIC, beta, omega_max, epsilon,
             lambda, 0, 1.0,
-            nullptr, inv_weight_funcs, -1, &status);
+            nullptr, regularizer_funcs, -1, &status);
         REQUIRE(status != SPIR_COMPUTATION_SUCCESS);
         REQUIRE(basis_err == nullptr);
     }
 
     {
-        spir_basis* basis_err = spir_basis_new_from_sve_and_inv_weight(
+        spir_basis* basis_err = spir_basis_new_from_sve_and_regularizer(
             SPIR_STATISTICS_FERMIONIC, beta, omega_max, epsilon,
             lambda, 0, 1.0,
             sve, nullptr, -1, &status);
@@ -686,7 +686,7 @@ TEST_CASE("Test spir_basis_new_from_sve_and_inv_weight", "[cinterface]")
         REQUIRE(basis_err == nullptr);
     }
 
-    spir_funcs_release(inv_weight_funcs);
+    spir_funcs_release(regularizer_funcs);
     spir_sve_result_release(sve);
     spir_kernel_release(kernel);
 }

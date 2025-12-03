@@ -195,10 +195,10 @@ struct spir_basis *spir_basis_new(int statistics,
                                   int *status);
 
 /**
- * Create a finite temperature basis from SVE result and custom inv_weight function
+ * Create a finite temperature basis from SVE result and custom regularizer function
  *
  * This function creates a basis from a pre-computed SVE result and a custom
- * inverse weight function. The inv_weight function is used to scale the basis
+ * regularizer function. The regularizer function is used to scale the basis
  * functions in the frequency domain.
  *
  * # Arguments
@@ -210,7 +210,7 @@ struct spir_basis *spir_basis_new(int statistics,
  * * `ypower` - Power of y in kernel (typically 0 or 1)
  * * `conv_radius` - Convergence radius for Fourier transform
  * * `sve` - Pre-computed SVE result (must not be NULL)
- * * `inv_weight_funcs` - Custom inv_weight function (must not be NULL)
+ * * `regularizer_funcs` - Custom regularizer function (must not be NULL)
  * * `max_size` - Maximum basis size (-1 for no limit)
  * * `status` - Pointer to store status code
  *
@@ -218,26 +218,26 @@ struct spir_basis *spir_basis_new(int statistics,
  * * Pointer to basis object, or NULL on failure
  *
  * # Note
- * Currently, the inv_weight function is evaluated but the custom weight is not
+ * Currently, the regularizer function is evaluated but the custom weight is not
  * fully integrated into the basis construction. The basis is created using
- * the standard from_sve_result method with the kernel's default inv_weight.
+ * the standard from_sve_result method with the kernel's default regularizer.
  * This is a limitation of the current Rust implementation compared to the C++ version.
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
  */
 
-struct spir_basis *spir_basis_new_from_sve_and_inv_weight(int statistics,
-                                                          double beta,
-                                                          double omega_max,
-                                                          double epsilon,
-                                                          double lambda,
-                                                          int _ypower,
-                                                          double _conv_radius,
-                                                          const struct spir_sve_result *sve,
-                                                          const struct spir_funcs *inv_weight_funcs,
-                                                          int max_size,
-                                                          int *status);
+struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
+                                                           double beta,
+                                                           double omega_max,
+                                                           double epsilon,
+                                                           double lambda,
+                                                           int _ypower,
+                                                           double _conv_radius,
+                                                           const struct spir_sve_result *sve,
+                                                           const struct spir_funcs *regularizer_funcs,
+                                                           int max_size,
+                                                           int *status);
 
 /**
  * Get the number of basis functions

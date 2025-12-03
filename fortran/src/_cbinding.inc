@@ -40,10 +40,10 @@ function c_spir_basis_new( &
 
 end function
 
-function c_spir_basis_new_from_sve_and_inv_weight( &
+function c_spir_basis_new_from_sve_and_regularizer( &
     & statistics, beta, omega_max, epsilon, lambda, f__ypower, f__conv_radius, sve, &
-    & inv_weight_funcs, max_size, status) &
-    bind(c, name="spir_basis_new_from_sve_and_inv_weight")
+    & regularizer_funcs, max_size, status) &
+    bind(c, name="spir_basis_new_from_sve_and_regularizer")
   import :: c_double, c_int, c_ptr
   integer(c_int), value :: statistics
   real(c_double), value :: beta
@@ -53,10 +53,10 @@ function c_spir_basis_new_from_sve_and_inv_weight( &
   integer(c_int), value :: f__ypower
   real(c_double), value :: f__conv_radius
   type(c_ptr), value :: sve
-  type(c_ptr), value :: inv_weight_funcs
+  type(c_ptr), value :: regularizer_funcs
   integer(c_int), value :: max_size
   type(c_ptr), value :: status
-  type(c_ptr) :: c_spir_basis_new_from_sve_and_inv_weight
+  type(c_ptr) :: c_spir_basis_new_from_sve_and_regularizer
 
 end function
 

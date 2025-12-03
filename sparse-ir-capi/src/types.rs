@@ -570,7 +570,7 @@ pub(crate) struct DLRTauFuncs {
     pub poles: Vec<f64>,
     pub beta: f64,
     pub wmax: f64,
-    pub inv_weights: Vec<f64>,
+    pub regularizers: Vec<f64>,
     pub statistics: Statistics,
 }
 
@@ -588,7 +588,7 @@ impl DLRTauFuncs {
         // Compute kernel parameters
         // DLR always uses LogisticKernel in tau domain.
         // Statistics-dependent regularization factors (e.g. tanh(βω/2) for bosons)
-        // are applied only in the Matsubara representation via inv_weights and
+        // are applied only in the Matsubara representation via regularizers and
         // do NOT enter the tau basis functions themselves.
         let lambda = self.beta * self.wmax;
         let kernel = LogisticKernel::new(lambda);
@@ -643,7 +643,7 @@ impl DLRTauFuncs {
 pub(crate) struct DLRMatsubaraFuncs {
     pub poles: Vec<f64>,
     pub beta: f64,
-    pub inv_weights: Vec<f64>,
+    pub regularizers: Vec<f64>,
     pub statistics: Statistics,
 }
 
@@ -801,13 +801,13 @@ impl spir_funcs {
         poles: Vec<f64>,
         beta: f64,
         wmax: f64,
-        inv_weights: Vec<f64>,
+        regularizers: Vec<f64>,
     ) -> Self {
         let inner = FuncsType::DLRTau(DLRTauFuncs {
             poles,
             beta,
             wmax,
-            inv_weights,
+            regularizers,
             statistics: Statistics::Fermionic,
         });
         Self {
@@ -822,13 +822,13 @@ impl spir_funcs {
         poles: Vec<f64>,
         beta: f64,
         wmax: f64,
-        inv_weights: Vec<f64>,
+        regularizers: Vec<f64>,
     ) -> Self {
         let inner = FuncsType::DLRTau(DLRTauFuncs {
             poles,
             beta,
             wmax,
-            inv_weights,
+            regularizers,
             statistics: Statistics::Bosonic,
         });
         Self {
@@ -841,12 +841,12 @@ impl spir_funcs {
     pub(crate) fn from_dlr_matsubara_fermionic(
         poles: Vec<f64>,
         beta: f64,
-        inv_weights: Vec<f64>,
+        regularizers: Vec<f64>,
     ) -> Self {
         let inner = FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
             poles,
             beta,
-            inv_weights,
+            regularizers,
             statistics: Statistics::Fermionic,
         });
         Self {
@@ -859,12 +859,12 @@ impl spir_funcs {
     pub(crate) fn from_dlr_matsubara_bosonic(
         poles: Vec<f64>,
         beta: f64,
-        inv_weights: Vec<f64>,
+        regularizers: Vec<f64>,
     ) -> Self {
         let inner = FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
             poles,
             beta,
-            inv_weights,
+            regularizers,
             statistics: Statistics::Bosonic,
         });
         Self {
@@ -957,7 +957,7 @@ impl spir_funcs {
                 }
             }
             FuncsType::DLRMatsubara(dlr) => {
-                // Evaluate DLR Matsubara functions: uhat_l(iν_n) = inv_weight[l] / (iν_n - pole_l)
+                // Evaluate DLR Matsubara functions: uhat_l(iν_n) = regularizer[l] / (iν_n - pole_l)
                 use num_complex::Complex;
 
                 let mut result = Vec::with_capacity(dlr.poles.len());
@@ -966,16 +966,18 @@ impl spir_funcs {
                     let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
                     let iv = freq.value_imaginary(dlr.beta);
                     for (i, &pole) in dlr.poles.iter().enumerate() {
-                        let inv_weight = dlr.inv_weights[i];
-                        result.push(Complex::new(inv_weight, 0.0) / (iv - Complex::new(pole, 0.0)));
+                        let regularizer = dlr.regularizers[i];
+                        result
+                            .push(Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0)));
                     }
                 } else {
                     // Bosonic
                     let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
                     let iv = freq.value_imaginary(dlr.beta);
                     for (i, &pole) in dlr.poles.iter().enumerate() {
-                        let inv_weight = dlr.inv_weights[i];
-                        result.push(Complex::new(inv_weight, 0.0) / (iv - Complex::new(pole, 0.0)));
+                        let regularizer = dlr.regularizers[i];
+                        result
+                            .push(Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0)));
                     }
                 }
                 Some(result)
@@ -1039,7 +1041,7 @@ impl spir_funcs {
                 }
             }
             FuncsType::DLRMatsubara(dlr) => {
-                // Batch evaluate DLR Matsubara functions: uhat_l(iν_n) = inv_weight[l] / (iν_n - pole_l)
+                // Batch evaluate DLR Matsubara functions: uhat_l(iν_n) = regularizer[l] / (iν_n - pole_l)
                 use num_complex::Complex;
 
                 let n_funcs = dlr.poles.len();
@@ -1052,18 +1054,18 @@ impl spir_funcs {
                         let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
                         let iv = freq.value_imaginary(dlr.beta);
                         for (i, &pole) in dlr.poles.iter().enumerate() {
-                            let inv_weight = dlr.inv_weights[i];
+                            let regularizer = dlr.regularizers[i];
                             result[i][j] =
-                                Complex::new(inv_weight, 0.0) / (iv - Complex::new(pole, 0.0));
+                                Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0));
                         }
                     } else {
                         // Bosonic
                         let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
                         let iv = freq.value_imaginary(dlr.beta);
                         for (i, &pole) in dlr.poles.iter().enumerate() {
-                            let inv_weight = dlr.inv_weights[i];
+                            let regularizer = dlr.regularizers[i];
                             result[i][j] =
-                                Complex::new(inv_weight, 0.0) / (iv - Complex::new(pole, 0.0));
+                                Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0));
                         }
                     }
                 }
@@ -1111,20 +1113,20 @@ impl spir_funcs {
             FuncsType::DLRTau(dlr) => {
                 // Select subset of poles
                 let mut new_poles = Vec::with_capacity(indices.len());
-                let mut new_inv_weights = Vec::with_capacity(indices.len());
+                let mut new_regularizers = Vec::with_capacity(indices.len());
                 for &idx in indices {
                     if idx >= dlr.poles.len() {
                         return None;
                     }
                     new_poles.push(dlr.poles[idx]);
-                    new_inv_weights.push(dlr.inv_weights[idx]);
+                    new_regularizers.push(dlr.regularizers[idx]);
                 }
                 Some(Self {
                     _private: Box::into_raw(Box::new(FuncsType::DLRTau(DLRTauFuncs {
                         poles: new_poles,
                         beta: dlr.beta,
                         wmax: dlr.wmax,
-                        inv_weights: new_inv_weights,
+                        regularizers: new_regularizers,
                         statistics: dlr.statistics,
                     }))) as *mut std::ffi::c_void,
                     beta: dlr.beta,
@@ -1133,19 +1135,19 @@ impl spir_funcs {
             FuncsType::DLRMatsubara(dlr) => {
                 // Select subset of poles
                 let mut new_poles = Vec::with_capacity(indices.len());
-                let mut new_inv_weights = Vec::with_capacity(indices.len());
+                let mut new_regularizers = Vec::with_capacity(indices.len());
                 for &idx in indices {
                     if idx >= dlr.poles.len() {
                         return None;
                     }
                     new_poles.push(dlr.poles[idx]);
-                    new_inv_weights.push(dlr.inv_weights[idx]);
+                    new_regularizers.push(dlr.regularizers[idx]);
                 }
                 Some(Self {
                     _private: Box::into_raw(Box::new(FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
                         poles: new_poles,
                         beta: dlr.beta,
-                        inv_weights: new_inv_weights,
+                        regularizers: new_regularizers,
                         statistics: dlr.statistics,
                     }))) as *mut std::ffi::c_void,
                     beta: dlr.beta,
