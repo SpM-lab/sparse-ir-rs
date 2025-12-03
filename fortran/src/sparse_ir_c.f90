@@ -45,20 +45,20 @@ contains
       real(c_double), intent(in) :: alpha, beta
       real(c_double), intent(in), target :: a(*), b(*)
       real(c_double), intent(inout), target :: c(*)
-      
+
       ! Declare standard Fortran BLAS as EXTERNAL
       external :: dgemm
-      
+
       ! Convert C types to Fortran types
       character(1) :: transa_f, transb_f
       integer :: m_f, n_f, k_f, lda_f, ldb_f, ldc_f
       real(8) :: alpha_f, beta_f
       real(8), pointer :: a_f(:), b_f(:), c_f(:)
-      
+
       ! Convert character (c_char to character(1))
       transa_f = achar(iachar(transa))
       transb_f = achar(iachar(transb))
-      
+
       ! Convert integers
       m_f = int(m)
       n_f = int(n)
@@ -66,18 +66,18 @@ contains
       lda_f = int(lda)
       ldb_f = int(ldb)
       ldc_f = int(ldc)
-      
+
       ! Convert reals (c_double and real(8) are usually the same)
       alpha_f = real(alpha, kind=8)
       beta_f = real(beta, kind=8)
-      
+
       ! Associate C arrays with Fortran arrays using c_f_pointer
       ! Since c_double and real(8) have the same memory layout, this is safe
       ! Use large enough size to cover the arrays (BLAS uses leading dimensions)
-      call c_f_pointer(c_loc(a), a_f, [lda_f * max(m_f, k_f)])
-      call c_f_pointer(c_loc(b), b_f, [ldb_f * max(n_f, k_f)])
-      call c_f_pointer(c_loc(c), c_f, [ldc_f * n_f])
-      
+      call c_f_pointer(c_loc(a), a_f, [lda_f*max(m_f, k_f)])
+      call c_f_pointer(c_loc(b), b_f, [ldb_f*max(n_f, k_f)])
+      call c_f_pointer(c_loc(c), c_f, [ldc_f*n_f])
+
       ! Call standard Fortran BLAS
       call dgemm(transa_f, transb_f, m_f, n_f, k_f, alpha_f, &
                  a_f, lda_f, b_f, ldb_f, beta_f, c_f, ldc_f)
@@ -92,20 +92,20 @@ contains
       complex(c_double_complex), intent(in) :: alpha, beta
       complex(c_double_complex), intent(in), target :: a(*), b(*)
       complex(c_double_complex), intent(inout), target :: c(*)
-      
+
       ! Declare standard Fortran BLAS as EXTERNAL
       external :: zgemm
-      
+
       ! Convert C types to Fortran types
       character(1) :: transa_f, transb_f
       integer :: m_f, n_f, k_f, lda_f, ldb_f, ldc_f
       complex(8) :: alpha_f, beta_f
       complex(8), pointer :: a_f(:), b_f(:), c_f(:)
-      
+
       ! Convert character (c_char to character(1))
       transa_f = achar(iachar(transa))
       transb_f = achar(iachar(transb))
-      
+
       ! Convert integers
       m_f = int(m)
       n_f = int(n)
@@ -113,16 +113,16 @@ contains
       lda_f = int(lda)
       ldb_f = int(ldb)
       ldc_f = int(ldc)
-      
+
       ! Convert complex (c_double_complex and complex(8) are usually the same)
       alpha_f = cmplx(real(alpha, kind=8), aimag(alpha), kind=8)
       beta_f = cmplx(real(beta, kind=8), aimag(beta), kind=8)
-      
+
       ! Associate C arrays with Fortran arrays using c_f_pointer
-      call c_f_pointer(c_loc(a), a_f, [lda_f * max(m_f, k_f)])
-      call c_f_pointer(c_loc(b), b_f, [ldb_f * max(n_f, k_f)])
-      call c_f_pointer(c_loc(c), c_f, [ldc_f * n_f])
-      
+      call c_f_pointer(c_loc(a), a_f, [lda_f*max(m_f, k_f)])
+      call c_f_pointer(c_loc(b), b_f, [ldb_f*max(n_f, k_f)])
+      call c_f_pointer(c_loc(c), c_f, [ldc_f*n_f])
+
       ! Call standard Fortran BLAS
       call zgemm(transa_f, transb_f, m_f, n_f, k_f, alpha_f, &
                  a_f, lda_f, b_f, ldb_f, beta_f, c_f, ldc_f)
