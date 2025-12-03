@@ -1008,6 +1008,7 @@ mod tests {
     use mdarray::DView;
 
     #[test]
+    #[cfg(not(feature = "system-blas"))]
     fn test_default_backend_is_faer() {
         let (name, is_external, is_ilp64) = get_backend_info();
         assert_eq!(name, "Faer (Pure Rust)");
