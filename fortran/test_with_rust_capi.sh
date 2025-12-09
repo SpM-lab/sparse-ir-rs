@@ -5,6 +5,9 @@
 # Directory structure:
 #   fortran/_build/            - Build directory for Fortran bindings and Rust C API
 #   fortran/_build/_rust_capi_install/ - Temporary install directory for Rust C API (during build)
+#
+# Options:
+#   --clean              Clean build directories before building
 
 set -euo pipefail
 
@@ -45,10 +48,13 @@ rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
 cd "${BUILD_DIR}"
 
+# Use -O3 optimization to test FPU warning detection with Intel Fortran
+# (Intel Fortran with -O3 sets FZ/DAZ flags which sparse-ir will detect and warn about)
 cmake "${SCRIPT_DIR}" \
-    -DCMAKE_BUILD_TYPE=Debug \
+    -DCMAKE_BUILD_TYPE=Release \
     -DSPARSEIR_BUILD_TESTING=ON \
-    -DSPARSEIR_BUILD_RUST_CAPI=ON
+    -DSPARSEIR_BUILD_RUST_CAPI=ON \
+    -DCMAKE_Fortran_FLAGS="-O3"
 
 # Step 2: Build (CMake will automatically build Rust C API with cargo)
 echo -e "${YELLOW}Step 2: Building (CMake will automatically build Rust C API with cargo)...${NC}"

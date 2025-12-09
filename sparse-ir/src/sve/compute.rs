@@ -1,5 +1,6 @@
 //! Main SVE computation functions
 
+use crate::fpu_check::FpuGuard;
 use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints};
 use crate::numeric::CustomNumeric;
 use mdarray::DTensor;
@@ -24,6 +25,13 @@ use super::types::{SVDStrategy, TworkType, safe_epsilon};
 /// # Returns
 ///
 /// SVEResult containing singular functions and values
+///
+/// # FPU State Warning
+///
+/// This function checks for dangerous FPU settings (Flush-to-Zero and Denormals-Are-Zero)
+/// that can cause incorrect results. If detected, it temporarily corrects the FPU state
+/// and prints a warning. If you see this warning, add `-fp-model precise` flag when
+/// compiling with Intel Fortran.
 pub fn compute_sve<K>(
     kernel: K,
     epsilon: f64,
@@ -34,6 +42,10 @@ pub fn compute_sve<K>(
 where
     K: CentrosymmKernel + KernelProperties + Clone + 'static,
 {
+    // Protect computation from dangerous FPU settings (FZ/DAZ)
+    // This temporarily disables FZ/DAZ and restores them after computation
+    let _fpu_guard = FpuGuard::new_protect_computation();
+
     // Determine safe epsilon and working precision
     let (safe_epsilon, twork_actual, _svd_strategy) =
         safe_epsilon(epsilon, twork, SVDStrategy::Auto);
@@ -70,6 +82,13 @@ where
 /// # Returns
 ///
 /// SVEResult containing singular functions and values
+///
+/// # FPU State Warning
+///
+/// This function checks for dangerous FPU settings (Flush-to-Zero and Denormals-Are-Zero)
+/// that can cause incorrect results. If detected, it temporarily corrects the FPU state
+/// and prints a warning. If you see this warning, add `-fp-model precise` flag when
+/// compiling with Intel Fortran.
 pub fn compute_sve_general<K>(
     kernel: K,
     epsilon: f64,
@@ -80,6 +99,10 @@ pub fn compute_sve_general<K>(
 where
     K: AbstractKernel + KernelProperties + Clone + 'static,
 {
+    // Protect computation from dangerous FPU settings (FZ/DAZ)
+    // This temporarily disables FZ/DAZ and restores them after computation
+    let _fpu_guard = FpuGuard::new_protect_computation();
+
     // Determine safe epsilon and working precision
     let (safe_epsilon, twork_actual, _svd_strategy) =
         safe_epsilon(epsilon, twork, SVDStrategy::Auto);

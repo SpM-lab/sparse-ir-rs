@@ -3,6 +3,7 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
+use crate::fpu_check::FpuGuard;
 use crate::gemm::{GemmBackendHandle, matmul_par};
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor};
@@ -221,6 +222,7 @@ where
     /// # Panics
     /// Panics if `coeffs.len() != basis_size`
     pub fn evaluate(&self, coeffs: &[f64]) -> Vec<f64> {
+        let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate(None, coeffs)
     }
 
@@ -323,6 +325,7 @@ where
     where
         T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
     {
+        let _guard = FpuGuard::new_protect_computation();
         self.evaluate_nd_impl(backend, coeffs, dim)
     }
 
@@ -468,6 +471,7 @@ where
             + Copy
             + Default,
     {
+        let _guard = FpuGuard::new_protect_computation();
         use std::any::TypeId;
 
         if TypeId::of::<T>() == TypeId::of::<f64>() {
