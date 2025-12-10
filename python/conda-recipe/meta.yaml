@@ -1,0 +1,86 @@
+{% set name = "pylibsparseir" %}
+{% set version_major = load_file_regex(load_file="../../backend/cxx/include/sparseir/version.h", regex_pattern="#define SPARSEIR_VERSION_MAJOR (\\d+)", from_recipe_dir=True).group(1) %}
+{% set version_minor = load_file_regex(load_file="../../backend/cxx/include/sparseir/version.h", regex_pattern="#define SPARSEIR_VERSION_MINOR (\\d+)", from_recipe_dir=True).group(1) %}
+{% set version_patch = load_file_regex(load_file="../../backend/cxx/include/sparseir/version.h", regex_pattern="#define SPARSEIR_VERSION_PATCH (\\d+)", from_recipe_dir=True).group(1) %}
+{% set version = version_major + "." + version_minor + "." + version_patch %}
+
+package:
+  name: "{{ name|lower }}"
+  version: "{{ version }}"
+
+source:
+  path: ../..
+
+build:
+  number: 0
+  script: |
+    export SPARSEIR_USE_BLAS=1
+    
+    # Clean up old shared libraries
+    echo "Cleaning up old shared libraries..."
+    find ${SRC_DIR}/python/pylibsparseir -name "*.dylib" -o -name "*.so*" | xargs rm -f || true
+    
+    # Build and install the Python package using scikit-build-core
+    cd ${SRC_DIR}/python
+    ${PYTHON} -m pip install . --no-deps --ignore-installed -v
+    
+    # Run tests during build
+    #echo "Running tests..."
+    #${PYTHON} -m pytest ${SRC_DIR}/python/tests -v
+    
+    # Verify what was installed
+    echo "Python package contents:"
+    find ${SP_DIR}/pylibsparseir -name "*" -type f
+    
+    # Final verification
+    echo "Python package files:"
+    find ${SP_DIR}/pylibsparseir -name "*" -type f
+  files:
+    - lib/python3.*/site-packages/pylibsparseir/
+    - lib/python3.*/site-packages/pylibsparseir-*.egg-info/
+
+requirements:
+  build:
+    - python {{ python }}
+    - numpy {{ numpy }}
+    - {{ compiler('cxx') }}
+    - cmake >=3.25
+    - ninja
+    - make
+  host:
+    - python {{ python }}
+    - numpy {{ numpy }}
+    - scipy
+    - eigen
+    - scikit-build-core
+    - pytest
+  run:
+    - python {{ python }}
+    - numpy {{ numpy }}
+    - scipy
+    - eigen
+  test:
+    - pytest
+
+test:
+  imports:
+    - pylibsparseir
+  commands:
+    - python -c "import pylibsparseir; print('pylibsparseir imported successfully')"
+
+about:
+  home: "https://github.com/SpM-lab/libsparseir"
+  license: MIT
+  license_file: LICENSE
+  summary: Python bindings for the libsparseir library, providing efficient sparse intermediate representation for many-body physics calculations
+  description: |
+    pylibsparseir provides Python bindings for the libsparseir C++ library, 
+    enabling efficient computation of sparse intermediate representation (IR) 
+    basis functions used in many-body physics calculations. It provides 
+    efficient computation of Green's functions and other physical quantities.
+  doc_url: https://github.com/SpM-lab/libsparseir
+  dev_url: https://github.com/SpM-lab/libsparseir
+
+extra:
+  recipe-maintainers:
+    - SpM-lab

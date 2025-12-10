@@ -1,0 +1,82 @@
+[build-system]
+requires = ["scikit-build-core", "cmake>=3.25", "ninja"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "pylibsparseir"
+version = "0.6.0"
+description = "Python bindings for the libsparseir library"
+readme = "README.md"
+license = {file = "LICENSE"}
+maintainers = [
+    {name = "SpM-lab"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26.4",
+    "scipy",
+]
+
+[project.urls]
+Homepage = "https://github.com/SpM-lab/libsparseir"
+Documentation = "https://github.com/SpM-lab/libsparseir"
+Repository = "https://github.com/SpM-lab/libsparseir"
+Issues = "https://github.com/SpM-lab/libsparseir/issues"
+
+[tool.scikit-build]
+cmake.version = ">=3.25"
+cmake.build-type = "Release"
+
+# CMake arguments
+cmake.args = [
+    "-DSPARSEIR_USE_EXTERN_FBLAS_PTR=ON",
+    "-DBUILD_SHARED_LIBS=ON",
+    "-DCMAKE_CXX_STANDARD=11",
+    "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
+]
+
+# Source directory (relative to pyproject.toml)
+cmake.source-dir = "."
+build.verbose = true
+wheel.expand-macos-universal-tags = true
+
+# Install rules for the Python package
+
+# SDIST configuration - include copied directories
+sdist.include = [
+    "src/",
+    "include/",
+    "cmake/",
+    "fortran/",
+]
+
+
+
+[tool.scikit-build.cmake.define]
+BUILD_SHARED_LIBS = "ON"
+CMAKE_CXX_STANDARD = "11"
+CMAKE_CXX_STANDARD_REQUIRED = "ON"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_tests.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+]
