@@ -152,6 +152,11 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         self.fitter.basis_size()
     }
 
+    /// Get the sampling matrix
+    pub fn matrix(&self) -> &DTensor<Complex<f64>, 2> {
+        &self.fitter.matrix
+    }
+
     /// Evaluate complex basis coefficients at sampling points
     ///
     /// # Arguments
@@ -623,6 +628,11 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// Basis size
     pub fn basis_size(&self) -> usize {
         self.fitter.basis_size()
+    }
+
+    /// Get the original complex sampling matrix
+    pub fn matrix(&self) -> &DTensor<Complex<f64>, 2> {
+        &self.fitter.matrix
     }
 
     /// Evaluate basis coefficients at sampling points
