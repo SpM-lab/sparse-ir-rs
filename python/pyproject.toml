@@ -70,5 +70,6 @@ python_functions = ["test_*"]
 
 [dependency-groups]
 dev = [
+    "clang>=20.1.5",
     "pytest>=8.4.1",
 ]
