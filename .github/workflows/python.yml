@@ -45,10 +45,6 @@ jobs:
         with:
           version: "latest"
 
-      - name: Prepare build environment
-        working-directory: python
-        run: python3 prepare_build.py
-
       - name: Install dependencies and build package
         working-directory: python
         # uv sync installs dependencies and builds the package in editable mode.

@@ -1,13 +1,14 @@
-.PHONY: test clean build
+.PHONY: test clean build sync
 
 test:
-	rm -rf src && python3 prepare_build.py && uv run pytest
+	uv run pytest
 
 clean:
-	rm -rf src build dist *.egg-info __pycache__ .pytest_cache
+	rm -rf build dist *.egg-info __pycache__ .pytest_cache .venv
+	rm -f pylibsparseir/*.dylib pylibsparseir/*.so pylibsparseir/*.dll pylibsparseir/*.h
 
 build:
-	rm -rf src && python3 prepare_build.py && uv build
+	uv build
 
 sync:
-	rm -rf src && python3 prepare_build.py && uv sync
+	uv sync

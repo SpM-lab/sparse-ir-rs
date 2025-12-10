@@ -1,6 +1,5 @@
 """Custom build hook for hatchling that builds the Rust library."""
 
-import os
 import platform
 import shutil
 import subprocess
@@ -25,6 +24,18 @@ def get_lib_name():
     """Get the library name for the current platform."""
     ext = get_lib_extension()
     return f"libsparse_ir_capi.{ext}"
+
+
+def clean_old_libraries(pylibsparseir_dir: Path, verbose: bool = True):
+    """Remove old shared libraries from pylibsparseir directory."""
+    if not pylibsparseir_dir.exists():
+        return
+
+    for pattern in ["*.dylib", "*.so", "*.so.*", "*.dll"]:
+        for old_lib in pylibsparseir_dir.glob(pattern):
+            if verbose:
+                print(f"Removing old library: {old_lib}", file=sys.stderr)
+            old_lib.unlink()
 
 
 def build_rust_library(workspace_root: Path, verbose: bool = True):
@@ -99,6 +110,9 @@ class CustomBuildHook(BuildHookInterface):
         pylibsparseir_dir = python_dir / "pylibsparseir"
 
         print(f"Building Rust library (target: {self.target_name})...", file=sys.stderr)
+
+        # Clean up old libraries before building
+        clean_old_libraries(pylibsparseir_dir)
 
         # Build the Rust library
         build_rust_library(workspace_root)
