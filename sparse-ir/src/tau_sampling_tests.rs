@@ -21,7 +21,8 @@ where
         + ConvertFromReal
         + std::ops::Mul<f64, Output = T>
         + std::ops::Sub<Output = T>
-        + std::ops::Mul<Output = T>,
+        + std::ops::Mul<Output = T>
+        + num_traits::MulAdd<Output = T>,
     S: StatisticsType + 'static,
     LogisticKernel: KernelProperties + CentrosymmKernel + Clone + 'static,
 {
@@ -124,7 +125,8 @@ where
         + ConvertFromReal
         + std::ops::Mul<f64, Output = T>
         + std::ops::Sub<Output = T>
-        + std::ops::Mul<Output = T>,
+        + std::ops::Mul<Output = T>
+        + num_traits::MulAdd<Output = T>,
 {
     let beta = 10.0;
     let wmax = 1.0; // Use smaller wmax for better numerics

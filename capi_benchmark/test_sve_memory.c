@@ -11,7 +11,11 @@
 static long get_max_memory_usage_mb(void) {
     struct rusage usage;
     if (getrusage(RUSAGE_SELF, &usage) == 0) {
-        return usage.ru_maxrss / 1024; // On macOS, ru_maxrss is in KB
+#ifdef __APPLE__
+        return usage.ru_maxrss / (1024 * 1024); // On macOS, ru_maxrss is in bytes
+#else
+        return usage.ru_maxrss / 1024; // On Linux, ru_maxrss is in KB
+#endif
     }
     return -1;
 }

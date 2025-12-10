@@ -103,7 +103,7 @@ fn contract_along_dim<T>(
     target_dim: usize,
 ) -> Tensor<T, DynRank>
 where
-    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static + num_traits::MulAdd<Output = T>,
 {
     let (n_points, n_poles) = *matrix.shape();
     let rank = coeffs.rank();
