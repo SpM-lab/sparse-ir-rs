@@ -7,14 +7,67 @@ prototypes that can be automatically applied to the loaded library.
 """
 
 import sys
+import os
+import platform
+import subprocess
 from pathlib import Path
 
 try:
     from clang import cindex
-    from clang.cindex import Index, CursorKind
+    from clang.cindex import Index, CursorKind, Config
 except ImportError:
     print("ERROR: clang (libclang) is required. Install with: pip install clang")
     sys.exit(1)
+
+
+def configure_libclang():
+    """Configure libclang library path, especially on macOS."""
+    # Disable compatibility check to avoid version mismatch errors
+    # The Python clang bindings may not match the installed libclang version exactly
+    Config.compatibility_check = False
+
+    if platform.system() == 'Darwin':
+        # Common locations for libclang on macOS
+        possible_paths = [
+            # Command Line Tools
+            '/Library/Developer/CommandLineTools/usr/lib/libclang.dylib',
+            # Xcode
+            '/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/libclang.dylib',
+            # Try to find via xcrun
+        ]
+
+        # Try to find via xcrun
+        try:
+            result = subprocess.run(
+                ['xcrun', '--find', 'clang'],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            clang_path = result.stdout.strip()
+            if clang_path:
+                # libclang is typically in the same directory as clang
+                libclang_path = os.path.join(os.path.dirname(clang_path), '..', 'lib', 'libclang.dylib')
+                libclang_path = os.path.normpath(libclang_path)
+                possible_paths.insert(0, libclang_path)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pass
+
+        # Try each path
+        for libclang_path in possible_paths:
+            if os.path.exists(libclang_path):
+                try:
+                    Config.set_library_file(libclang_path)
+                    print(f"Using libclang at: {libclang_path}")
+                    return
+                except Exception as e:
+                    print(f"Warning: Failed to set libclang path {libclang_path}: {e}")
+                    continue
+
+        # If we get here, try to let it use default search
+        print("Warning: Could not find libclang.dylib in common locations.")
+        print("Trying default search. If this fails, install Xcode Command Line Tools:")
+        print("  xcode-select --install")
 
 # Map C types to ctypes
 # Note: On macOS, int64_t is typically long, not long long
@@ -143,6 +196,9 @@ def parse_function(cursor):
 
 def parse_header(header_path, include_dirs):
     """Parse the C header and extract function signatures."""
+    # Configure libclang path (especially needed on macOS)
+    configure_libclang()
+
     index = Index.create()
 
     # Build include arguments
@@ -153,10 +209,8 @@ def parse_header(header_path, include_dirs):
         args.extend(['-I', inc_dir])
 
     # Add system include paths for stdint.h
-    import platform
     if platform.system() == 'Darwin':
         # macOS: try common paths
-        import subprocess
         try:
             result = subprocess.run(['xcrun', '--show-sdk-path'], capture_output=True, text=True)
             if result.returncode == 0:
