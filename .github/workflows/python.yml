@@ -51,6 +51,10 @@ jobs:
 
       - name: Install dependencies and build
         working-directory: python
+        # uv sync will install dependencies and build the package in development mode.
+        # scikit-build-core will invoke CMake, which runs:
+        #   cargo build --release -p sparse-ir-capi
+        # (defined in python/CMakeLists.txt line 41)
         run: uv sync --refresh
 
       - name: Run tests
