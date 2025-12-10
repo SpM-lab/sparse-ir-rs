@@ -8,7 +8,7 @@ recursive-include fortran *
 recursive-include cmake *
 include CMakeLists.txt
 include LICENSE
-recursive-include pylibsparseir libsparseir*
+recursive-include pylibsparseir libsparse_ir_capi*
 recursive-include pylibsparseir *.so*
 recursive-include pylibsparseir *.dylib
 recursive-include pylibsparseir *.dll

@@ -27,11 +27,11 @@ from pylibsparseir.constants import COMPUTATION_SUCCESS, SPIR_ORDER_ROW_MAJOR, S
 def _find_library():
     """Find the SparseIR shared library."""
     if sys.platform == "darwin":
-        libname = "libsparseir.dylib"
+        libname = "libsparse_ir_capi.dylib"
     elif sys.platform == "win32":
-        libname = "sparseir.dll"
+        libname = "sparse_ir_capi.dll"
     else:
-        libname = "libsparseir.so"
+        libname = "libsparse_ir_capi.so"
 
     # Try to find the library in common locations
     search_paths = [
@@ -40,6 +40,11 @@ def _find_library():
             os.path.abspath(__file__)), "..", "build"),
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "..", "..", "build"),
+        # Also check target/release and target/debug for Rust builds
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "..", "sparse-ir-capi", "target", "release"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "..", "sparse-ir-capi", "target", "debug"),
     ]
 
     for path in search_paths:
@@ -111,13 +116,13 @@ def _setup_prototypes():
     if not FUNCTIONS:
         # Fallback to manual setup if generation failed
         return
-    
+
     # Import necessary types into local namespace for eval
     from ctypes import c_int, c_double, c_int64, c_size_t, c_bool, POINTER, c_char_p
     from .ctypes_wrapper import spir_kernel, spir_funcs, spir_basis, spir_sampling, spir_sve_result
     # Use the c_double_complex from this module (core.py), not from ctypes_autogen
     # This ensures type consistency
-    
+
     # Type mapping for eval
     type_map = {
         'c_int': c_int, 'c_double': c_double, 'c_int64': c_int64,
@@ -128,12 +133,12 @@ def _setup_prototypes():
         'spir_sve_result': spir_sve_result,
         'c_double_complex': c_double_complex,  # Use the one defined in this module
     }
-    
+
     # Apply generated prototypes to the library
     for name, (restype_str, argtypes_list) in FUNCTIONS.items():
         if not hasattr(_lib, name):
             continue
-        
+
         func = getattr(_lib, name)
         try:
             # Evaluate restype
@@ -141,7 +146,7 @@ def _setup_prototypes():
                 func.restype = None
             else:
                 func.restype = eval(restype_str, globals(), type_map)
-            
+
             # Evaluate argtypes
             evaluated_argtypes = []
             for argtype_str in argtypes_list:
@@ -179,7 +184,7 @@ def reg_bose_kernel_new(lambda_val):
 
 def sve_result_new(kernel, epsilon, cutoff=None, lmax=None, n_gauss=None, Twork=None):
     """Create a new SVE result.
-    
+
     Note: cutoff parameter is deprecated and ignored (C-API doesn't have it).
     It's kept for backward compatibility but not passed to C-API.
     """

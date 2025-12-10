@@ -1,12 +1,11 @@
-# Python bindings for libsparseir
+# Python bindings for sparse-ir-capi
 
-This is a low-level binding for the [libsparseir](https://github.com/SpM-lab/libsparseir) library.
+This is a low-level binding for the [sparse-ir-capi](https://github.com/SpM-lab/sparse-ir-rs) Rust library.
 
 ## Requirements
 
 - Python >= 3.10
-- CMake (for building the C++ library)
-- C++11 compatible compiler
+- Rust toolchain (for building the Rust library)
 - numpy >= 1.26.4
 - scipy
 
@@ -19,16 +18,18 @@ This package automatically uses SciPy's BLAS backend for optimal performance. No
 ### Install Dependencies and Build
 
 ```bash
-# First, prepare the build by copying necessary files from parent directory
-python3 prepare_build.py
+# First, build the Rust sparse-ir-capi library
+cd ../sparse-ir-capi
+cargo build --release
 
-# Then build the package
+# Then build the Python package
+cd ../python
 uv build
 ```
 
 This will:
-- Copy source files (`src/`, `include/`, `cmake/`) from the parent libsparseir directory
-- Build the C++ libsparseir library using CMake with automatic BLAS support via SciPy
+- Build the Rust sparse-ir-capi library using Cargo
+- Copy the built library and header files
 - Create both source distribution (sdist) and wheel packages
 
 ### Development Build
@@ -40,12 +41,13 @@ For development:
 uv sync
 ```
 
-**Note for CI/CD**: In CI environments, you must run `prepare_build.py` before building:
+**Note for CI/CD**: In CI environments, you must build the Rust library first:
 
 ```bash
 # In CI/CD scripts
-cd python
-python3 prepare_build.py
+cd sparse-ir-capi
+cargo build --release
+cd ../python
 uv build
 ```
 
@@ -65,7 +67,6 @@ uv run clean
 
 This will remove:
 - Build directories: `build/`, `dist/`, `*.egg-info`
-- Copied source files: `include/`, `src/`, `cmake/` (copied by `prepare_build.py`)
 - Compiled libraries: `pylibsparseir/*.so`, `pylibsparseir/*.dylib`, `pylibsparseir/*.dll`
 - Cache directories: `pylibsparseir/__pycache__`
 
@@ -73,22 +74,15 @@ This will remove:
 
 The build process works as follows:
 
-1. **File Preparation**: `prepare_build.py` copies necessary files from the parent libsparseir directory:
-   - Source files (`../src/` → `src/`)
-   - Header files (`../include/` → `include/`)
-   - CMake configuration (`../cmake/` → `cmake/`)
+1. **Rust Library Build**: Build the `sparse-ir-capi` Rust crate:
+   - Compile the Rust library to a shared library (`.so`, `.dylib`, or `.dll`)
+   - Generate C header file (`sparseir.h`) using cbindgen
 
-2. **Package Building**: `uv build` or `uv sync` uses scikit-build-core to:
-   - Configure CMake with automatic BLAS support via SciPy
-   - Compile the C++ library with dynamic BLAS symbol lookup (for SciPy compatibility)
+2. **Python Package Building**: `uv build` or `uv sync`:
+   - Copy the built Rust library and header files to the Python package
    - Package everything into distributable wheels and source distributions
 
 3. **Installation**: The built package includes the compiled shared library and Python bindings
-
-**Why File Copying?**: The `prepare_build.py` script copies files from the parent directory instead of using symbolic links to ensure:
-- Cross-platform compatibility (Windows doesn't handle symlinks well)
-- Proper inclusion in source distributions (sdist)
-- Clean separation between the main C++ library and Python bindings
 
 ### Conda Build
 
@@ -150,17 +144,22 @@ Registered SciPy BLAS dgemm @ 0x...
 
 ### Troubleshooting
 
-**Build fails with missing source files:**
+**Build fails with missing library:**
 ```bash
-# Make sure to run prepare_build.py first
-python3 prepare_build.py
+# Make sure to build the Rust library first
+cd ../sparse-ir-capi
+cargo build --release
+cd ../python
 uv build
 ```
 
 **Clean rebuild:**
 ```bash
-# Remove all copied files and build artifacts
+# Remove all build artifacts
 uv run clean
-python3 prepare_build.py
+cd ../sparse-ir-capi
+cargo clean
+cargo build --release
+cd ../python
 uv build
 ```

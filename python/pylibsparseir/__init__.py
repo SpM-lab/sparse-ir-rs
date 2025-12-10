@@ -1,8 +1,8 @@
 """
-pylibsparseir - Python bindings for the libsparseir library
+pylibsparseir - Python bindings for sparse-ir-capi
 
-This package provides Python bindings for the libsparseir C++ library,
-enabling efficient computation of sparse intermediate representation (IR) 
+This package provides Python bindings for the sparse-ir-capi Rust library,
+enabling efficient computation of sparse intermediate representation (IR)
 basis functions used in many-body physics calculations.
 """
 
