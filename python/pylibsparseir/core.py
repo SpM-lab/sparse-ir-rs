@@ -163,6 +163,25 @@ except ImportError:
     print("WARNING: ctypes_autogen.py not found. Run tools/gen_ctypes.py to generate it.")
 
 
+def _normalize_type_string(type_str):
+    """Normalize type string by replacing 'struct X' with 'X' for eval compatibility."""
+    # Special case: spir_gemm_backend is already a POINTER type, so POINTER(struct spir_gemm_backend)
+    # should map to just spir_gemm_backend, not POINTER(spir_gemm_backend)
+    if type_str == 'POINTER(struct spir_gemm_backend)':
+        return 'spir_gemm_backend'
+
+    # Replace 'struct spir_*' with 'spir_*' and 'struct Complex64' with 'c_double_complex'
+    # This allows eval() to work with the type_map
+    normalized = type_str.replace('struct spir_kernel', 'spir_kernel')
+    normalized = normalized.replace('struct spir_funcs', 'spir_funcs')
+    normalized = normalized.replace('struct spir_basis', 'spir_basis')
+    normalized = normalized.replace('struct spir_sampling', 'spir_sampling')
+    normalized = normalized.replace('struct spir_sve_result', 'spir_sve_result')
+    normalized = normalized.replace('struct spir_gemm_backend', 'spir_gemm_backend')
+    normalized = normalized.replace('struct Complex64', 'c_double_complex')
+    return normalized
+
+
 def _setup_prototypes():
     """Set up function prototypes from auto-generated bindings."""
     if not FUNCTIONS:
@@ -198,12 +217,20 @@ def _setup_prototypes():
             if restype_str == 'None':
                 func.restype = None
             else:
-                func.restype = eval(restype_str, globals(), type_map)
+                normalized_restype = _normalize_type_string(restype_str)
+                func.restype = eval(normalized_restype, globals(), type_map)
 
             # Evaluate argtypes
             evaluated_argtypes = []
-            for argtype_str in argtypes_list:
-                evaluated_argtypes.append(eval(argtype_str, globals(), type_map))
+            for i, argtype_str in enumerate(argtypes_list):
+                normalized_argtype = _normalize_type_string(argtype_str)
+                try:
+                    evaluated_argtypes.append(eval(normalized_argtype, globals(), type_map))
+                except (NameError, AttributeError, SyntaxError) as e:
+                    # If evaluation fails for this argument, skip setting argtypes for this function
+                    if os.environ.get("SPARSEIR_DEBUG", "").lower() in ("1", "true", "yes", "on"):
+                        print(f"WARNING: Could not evaluate argtype {i} '{argtype_str}' (normalized: '{normalized_argtype}') for {name}: {e}")
+                    raise  # Re-raise to skip this function
             func.argtypes = evaluated_argtypes
         except (NameError, AttributeError, SyntaxError) as e:
             # Skip functions that can't be evaluated (might be missing types)

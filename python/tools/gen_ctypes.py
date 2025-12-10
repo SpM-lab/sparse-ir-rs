@@ -189,6 +189,9 @@ def parse_function(cursor):
             pointee = arg.type.get_pointee() if arg.type.kind == cindex.TypeKind.POINTER else None
             if pointee:
                 print(f"DEBUG {name} arg '{arg.spelling}': spelling='{pointee.spelling}', canonical='{pointee.get_canonical().spelling if pointee.get_canonical() else 'N/A'}' -> {arg_type}")
+        # Debug output for spir_dlr2ir functions to see all arguments
+        if name in ['spir_dlr2ir_dd', 'spir_dlr2ir_zz', 'spir_ir2dlr_dd', 'spir_ir2dlr_zz']:
+            print(f"DEBUG {name} arg '{arg.spelling}': type='{arg.type.spelling}' -> {arg_type}")
         argtypes.append(arg_type)
 
     return (name, restype, argtypes)

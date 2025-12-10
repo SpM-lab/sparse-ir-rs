@@ -204,7 +204,7 @@ class TestIntegrationWorkflow:
         # DLR to IR
         status = _lib.spir_dlr2ir_dd(
             dlr,
-            ctypes.c_void_p(0),  # Use default backend (null pointer)
+            None,  # Use default backend (null pointer)
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dlr_dims.ctypes.data_as(POINTER(c_int)),
@@ -242,7 +242,7 @@ class TestIntegrationWorkflow:
         ir_coeffs_from_dlr = np.zeros(ir_size, dtype=np.float64)
         status = _lib.spir_dlr2ir_dd(
             dlr,
-            ctypes.c_void_p(0),  # Use default backend (null pointer)
+            None,  # Use default backend (null pointer)
             SPIR_ORDER_ROW_MAJOR,
             1,
             np.array([n_poles], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -356,7 +356,7 @@ class TestIntegrationMultiDimensional:
 
         status = _lib.spir_dlr2ir_dd(
             dlr,
-            ctypes.c_void_p(0),  # Use default backend (null pointer)
+            None,  # Use default backend (null pointer)
             SPIR_ORDER_ROW_MAJOR,
             3,
             np.array(dlr_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -407,7 +407,7 @@ class TestIntegrationErrorHandling:
             # This may or may not fail depending on C implementation robustness
             status = _lib.spir_dlr2ir_dd(
                 dlr,
-                ctypes.c_void_p(0),  # Use default backend (null pointer)
+                None,  # Use default backend (null pointer)
                 SPIR_ORDER_ROW_MAJOR,
                 1,
                 wrong_dims.ctypes.data_as(POINTER(c_int)),
@@ -604,7 +604,7 @@ class TestEnhancedDLRSamplingIntegration:
             # Convert DLR to IR
             ir_coeffs = np.zeros(ir_size.value, dtype=np.float64)
             status = _lib.spir_dlr2ir_dd(
-                dlr, ctypes.c_void_p(0), SPIR_ORDER_ROW_MAJOR, 1,  # Use default backend (null pointer)
+                dlr, None, SPIR_ORDER_ROW_MAJOR, 1,  # Use default backend (null pointer)
                 np.array([n_poles.value], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
                 0,
                 dlr_coeffs.ctypes.data_as(POINTER(c_double)),
@@ -697,7 +697,7 @@ class TestEnhancedDLRSamplingIntegration:
             # Convert DLR to IR for 2D case
             ir_coeffs_2d = np.zeros(ir_size.value * d1, dtype=np.float64)
             status = _lib.spir_dlr2ir_dd(
-                dlr, ctypes.c_void_p(0), SPIR_ORDER_ROW_MAJOR, 2,  # Use default backend (null pointer)
+                dlr, None, SPIR_ORDER_ROW_MAJOR, 2,  # Use default backend (null pointer)
                 np.array(dims_dlr, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
                 0,
                 dlr_coeffs_2d.ctypes.data_as(POINTER(c_double)),
