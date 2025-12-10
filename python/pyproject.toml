@@ -1,6 +1,6 @@
 [build-system]
-# TODO: Update build system to use Rust/Cargo instead of CMake
-# For now, this still uses scikit-build-core but the Rust library should be built separately
+# Uses scikit-build-core with CMake to orchestrate Rust/Cargo build
+# CMake calls Cargo to build the sparse-ir-capi library
 requires = ["scikit-build-core", "cmake>=3.25", "ninja"]
 build-backend = "scikit_build_core.build"
 
@@ -39,18 +39,10 @@ Repository = "https://github.com/SpM-lab/sparse-ir-rs"
 Issues = "https://github.com/SpM-lab/sparse-ir-rs/issues"
 
 [tool.scikit-build]
-# TODO: Replace CMake configuration with Rust/Cargo build
-# The Rust library (sparse-ir-capi) should be built separately before Python packaging
+# CMake is used to orchestrate the Rust/Cargo build
+# The CMakeLists.txt calls Cargo to build sparse-ir-capi
 cmake.version = ">=3.25"
 cmake.build-type = "Release"
-
-# CMake arguments (legacy - to be removed when build system is updated)
-cmake.args = [
-    "-DSPARSEIR_USE_EXTERN_FBLAS_PTR=ON",
-    "-DBUILD_SHARED_LIBS=ON",
-    "-DCMAKE_CXX_STANDARD=11",
-    "-DCMAKE_CXX_STANDARD_REQUIRED=ON",
-]
 
 # Source directory (relative to pyproject.toml)
 cmake.source-dir = "."
@@ -60,22 +52,15 @@ wheel.expand-macos-universal-tags = true
 # Install rules for the Python package
 
 # SDIST configuration - include necessary files
-# Note: Rust library should be built separately before packaging
 sdist.include = [
     "pylibsparseir/",
     "tests/",
     "tutorials/",
     "README.md",
     "LICENSE",
+    "CMakeLists.txt",
+    "prepare_build.py",
 ]
-
-
-
-[tool.scikit-build.cmake.define]
-# Legacy CMake configuration (to be removed when build system is updated)
-BUILD_SHARED_LIBS = "ON"
-CMAKE_CXX_STANDARD = "11"
-CMAKE_CXX_STANDARD_REQUIRED = "ON"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

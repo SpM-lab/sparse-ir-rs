@@ -18,18 +18,14 @@ This package automatically uses SciPy's BLAS backend for optimal performance. No
 ### Install Dependencies and Build
 
 ```bash
-# First, build the Rust sparse-ir-capi library
-cd ../sparse-ir-capi
-cargo build --release
-
-# Then build the Python package
-cd ../python
+# Build the package (Rust library will be built automatically)
+cd python
 uv build
 ```
 
 This will:
-- Build the Rust sparse-ir-capi library using Cargo
-- Copy the built library and header files
+- Automatically build the Rust sparse-ir-capi library using Cargo (via CMake)
+- Copy the built library and header files to the Python package
 - Create both source distribution (sdist) and wheel packages
 
 ### Development Build
@@ -41,13 +37,11 @@ For development:
 uv sync
 ```
 
-**Note for CI/CD**: In CI environments, you must build the Rust library first:
+**Note for CI/CD**: The Rust library is built automatically during the Python package build. No separate build step is needed:
 
 ```bash
 # In CI/CD scripts
-cd sparse-ir-capi
-cargo build --release
-cd ../python
+cd python
 uv build
 ```
 
@@ -74,15 +68,19 @@ This will remove:
 
 The build process works as follows:
 
-1. **Rust Library Build**: Build the `sparse-ir-capi` Rust crate:
-   - Compile the Rust library to a shared library (`.so`, `.dylib`, or `.dll`)
-   - Generate C header file (`sparseir.h`) using cbindgen
+1. **CMake Configuration**: scikit-build-core invokes CMake, which:
+   - Finds the Cargo executable
+   - Sets up build targets for the Rust library
 
-2. **Python Package Building**: `uv build` or `uv sync`:
-   - Copy the built Rust library and header files to the Python package
-   - Package everything into distributable wheels and source distributions
+2. **Rust Library Build**: CMake calls Cargo to build `sparse-ir-capi`:
+   - Compiles the Rust library to a shared library (`.so`, `.dylib`, or `.dll`)
+   - Generates C header file (`sparseir.h`) using cbindgen (via build.rs)
+   - Copies the library and header to the `pylibsparseir` directory
 
-3. **Installation**: The built package includes the compiled shared library and Python bindings
+3. **Python Package Building**: `uv build` or `uv sync`:
+   - Packages everything into distributable wheels and source distributions
+
+4. **Installation**: The built package includes the compiled shared library and Python bindings
 
 ### Conda Build
 
@@ -144,12 +142,12 @@ Registered SciPy BLAS dgemm @ 0x...
 
 ### Troubleshooting
 
-**Build fails with missing library:**
+**Build fails with missing Cargo:**
 ```bash
-# Make sure to build the Rust library first
-cd ../sparse-ir-capi
-cargo build --release
-cd ../python
+# Make sure Rust toolchain is installed
+# Install from https://rustup.rs/
+# Then retry:
+cd python
 uv build
 ```
 
@@ -159,7 +157,6 @@ uv build
 uv run clean
 cd ../sparse-ir-capi
 cargo clean
-cargo build --release
 cd ../python
 uv build
 ```

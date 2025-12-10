@@ -1,16 +1,13 @@
 include README.md
-include setup_build.py
 include prepare_build.py
-recursive-include src/pylibsparseir *.py
-recursive-include include *
-recursive-include src *
-recursive-include fortran *
-recursive-include cmake *
 include CMakeLists.txt
 include LICENSE
+recursive-include pylibsparseir *.py
 recursive-include pylibsparseir libsparse_ir_capi*
 recursive-include pylibsparseir *.so*
 recursive-include pylibsparseir *.dylib
 recursive-include pylibsparseir *.dll
+recursive-include tests *.py
+recursive-include tutorials *.py
 global-exclude *.pyc
 global-exclude __pycache__
