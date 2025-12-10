@@ -1,6 +1,6 @@
 [build-system]
 # Uses hatchling with custom build hook to run cargo build
-requires = ["hatchling"]
+requires = ["hatchling>=1.21.0", "editables>=0.5"]
 build-backend = "hatchling.build"
 
 [project]
