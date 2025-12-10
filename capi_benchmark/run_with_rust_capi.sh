@@ -38,8 +38,8 @@ fi
 # Step 1: Build Rust C API library
 echo -e "${YELLOW}Step 1: Building sparseir-capi...${NC}"
 
-# Build release version with shared library
-cargo build --release -p sparse-ir-capi
+# Build release version with shared library (using system BLAS for better performance)
+cargo build --release -p sparse-ir-capi --features system-blas
 
 # Determine library extension based on OS
 if [[ "$OSTYPE" == "darwin"* ]]; then
