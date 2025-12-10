@@ -34,18 +34,40 @@ def _find_library():
         libname = "libsparse_ir_capi.so"
 
     # Try to find the library in common locations
+    script_dir = os.path.dirname(os.path.abspath(__file__))
     search_paths = [
-        os.path.dirname(os.path.abspath(__file__)),
-        os.path.join(os.path.dirname(
-            os.path.abspath(__file__)), "..", "build"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "..", "..", "build"),
-        # Also check target/release and target/debug for Rust builds
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "..", "..", "sparse-ir-capi", "target", "release"),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                     "..", "..", "sparse-ir-capi", "target", "debug"),
+        script_dir,  # Same directory as this file
+        os.path.join(script_dir, "..", "build"),
+        os.path.join(script_dir, "..", "..", "build"),
     ]
+
+    # Try to find workspace root by going up from package location
+    # The package might be installed in site-packages, so we need to go up several levels
+    current = script_dir
+    for _ in range(10):  # Limit search depth
+        target_release = os.path.join(current, "target", "release")
+        target_debug = os.path.join(current, "target", "debug")
+        if os.path.exists(os.path.join(current, "sparse-ir-capi")) or os.path.exists(os.path.join(current, "Cargo.toml")):
+            # Found workspace root
+            search_paths.append(target_release)
+            search_paths.append(target_debug)
+            break
+        parent = os.path.dirname(current)
+        if parent == current:  # Reached filesystem root
+            break
+        current = parent
+
+    # Also check common workspace locations relative to package
+    # From site-packages/pylibsparseir, workspace root is typically 6-7 levels up
+    for levels in range(3, 8):
+        candidate = script_dir
+        for _ in range(levels):
+            candidate = os.path.dirname(candidate)
+        candidate_release = os.path.join(candidate, "target", "release")
+        candidate_debug = os.path.join(candidate, "target", "debug")
+        if os.path.exists(candidate_release) or os.path.exists(candidate_debug):
+            search_paths.append(candidate_release)
+            search_paths.append(candidate_debug)
 
     for path in search_paths:
         libpath = os.path.join(path, libname)

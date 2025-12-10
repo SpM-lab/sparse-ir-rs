@@ -28,7 +28,9 @@ endif()
 
 set(SPARSEIR_CAPI_LIB_NAME "libsparse_ir_capi.${SPARSEIR_LIB_EXT}")
 set(SPARSEIR_RUST_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../sparse-ir-capi")
-set(SPARSEIR_CAPI_BUILD_LIB "${SPARSEIR_RUST_SOURCE_DIR}/target/release/${SPARSEIR_CAPI_LIB_NAME}")
+set(SPARSEIR_WORKSPACE_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+# Workspace uses shared target directory at workspace root
+set(SPARSEIR_CAPI_BUILD_LIB "${SPARSEIR_WORKSPACE_ROOT}/target/release/${SPARSEIR_CAPI_LIB_NAME}")
 set(SPARSEIR_CAPI_BUILD_HEADER "${SPARSEIR_RUST_SOURCE_DIR}/include/sparseir/sparseir.h")
 
 # Set the default component name for installations
