@@ -234,7 +234,7 @@ where
         dim: usize,
     ) -> Tensor<T, DynRank>
     where
-        T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
+        T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy + num_traits::MulAdd<Output = T>,
     {
         let rank = coeffs.rank();
         assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
@@ -316,14 +316,14 @@ where
     /// // Complex coefficients
     /// let values_complex = sampling.evaluate_nd::<Complex<f64>>(&coeffs_complex, 0);
     /// ```
-    pub fn evaluate_nd<T>(
+    pub     fn evaluate_nd<T>(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<T, DynRank>,
         dim: usize,
     ) -> Tensor<T, DynRank>
     where
-        T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
+        T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy + num_traits::MulAdd<Output = T>,
     {
         let _guard = FpuGuard::new_protect_computation();
         self.evaluate_nd_impl(backend, coeffs, dim)

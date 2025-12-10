@@ -6,9 +6,9 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-mdarray = "0.7.1"
-mdarray-linalg = "0.1.2"
-mdarray-linalg-faer = "0.1.2"
+mdarray = { git = "https://github.com/fre-hu/mdarray.git", rev = "70c43898d202682bf35e0db0c08475ec820ee7fa" }
+mdarray-linalg = { git = "https://github.com/grothesque/mdarray-linalg", branch = "main" }
+mdarray-linalg-faer = { git = "https://github.com/grothesque/mdarray-linalg", branch = "main" }
 sparse-ir = "0.7.0"
 faer = "0.23"
 faer-traits = "0.23"

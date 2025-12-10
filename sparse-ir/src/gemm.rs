@@ -241,8 +241,7 @@ impl GemmBackend for FaerBackend {
         b: *const f64,
         c: *mut f64,
     ) {
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg::matmul::{MatMul, MatMulBuilder};
         use mdarray_linalg_faer::Faer;
 
         // Create tensors from pointers (row-major order)
@@ -274,8 +273,7 @@ impl GemmBackend for FaerBackend {
         b: *const num_complex::Complex<f64>,
         c: *mut num_complex::Complex<f64>,
     ) {
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg::matmul::{MatMul, MatMulBuilder};
         use mdarray_linalg_faer::Faer;
 
         // Create tensors from pointers (row-major order)
@@ -719,7 +717,7 @@ pub fn matmul_par<T>(
     backend: Option<&GemmBackendHandle>,
 ) -> DTensor<T, 2>
 where
-    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static + num_traits::MulAdd<Output = T>,
 {
     let (_m, k) = *a.shape();
     let (k2, _n) = *b.shape();
@@ -769,7 +767,7 @@ pub fn matmul_par_view<T>(
     backend: Option<&GemmBackendHandle>,
 ) -> DTensor<T, 2>
 where
-    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static + num_traits::MulAdd<Output = T>,
 {
     // Check that views are contiguous (required for BLAS operations)
     assert!(
@@ -818,7 +816,7 @@ pub fn matmul_par_overwrite_view<T>(
     c: &mut DTensor<T, 2>,
     backend: Option<&GemmBackendHandle>,
 ) where
-    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static + num_traits::MulAdd<Output = T>,
 {
     // Check that views are contiguous (required for BLAS operations)
     assert!(
@@ -893,11 +891,10 @@ pub fn matmul_par_overwrite_view<T>(
         // Convert views to DTensors for Faer (this will copy, but only for unsupported types)
         let a_tensor = DTensor::<T, 2>::from_fn(*a.shape(), |idx| a[idx]);
         let b_tensor = DTensor::<T, 2>::from_fn(*b.shape(), |idx| b[idx]);
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg::matmul::{MatMul, MatMulBuilder};
         use mdarray_linalg_faer::Faer;
 
-        Faer.matmul(&a_tensor, &b_tensor).parallelize().overwrite(c);
+        Faer.matmul(&a_tensor, &b_tensor).parallelize().write(c);
     }
 }
 
@@ -920,7 +917,7 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
     c: &mut DSlice<T, 2, Lc>,
     backend: Option<&GemmBackendHandle>,
 ) where
-    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static + num_traits::MulAdd<Output = T>,
 {
     let (m, k) = *a.shape();
     let (k2, n) = *b.shape();
@@ -994,11 +991,10 @@ pub fn matmul_par_overwrite<T, Lc: Layout>(
         }
     } else {
         // Fallback to Faer for unsupported types
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg::matmul::{MatMul, MatMulBuilder};
         use mdarray_linalg_faer::Faer;
 
-        Faer.matmul(a, b).parallelize().overwrite(c);
+        Faer.matmul(a, b).parallelize().write(c);
     }
 }
 

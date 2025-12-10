@@ -94,7 +94,7 @@ fn test_default_tau_sampling_points_conditioning() {
     println!("Sampling matrix shape: {}x{}", num_points, basis_size);
 
     // Compute SVD using mdarray-linalg (Faer backend)
-    use mdarray_linalg::prelude::SVD;
+    use mdarray_linalg::svd::SVD;
     use mdarray_linalg_faer::Faer;
     let mut matrix_copy = matrix.clone();
     let svd = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");

@@ -1027,7 +1027,7 @@ fn combine_complex_coeffs(re: &DTensor<f64, 2>, im: &DTensor<f64, 2>) -> DTensor
 
 /// Compute SVD of a real matrix using mdarray-linalg
 fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
-    use mdarray_linalg::prelude::SVD;
+    use mdarray_linalg::svd::SVD;
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
 
@@ -1049,7 +1049,7 @@ fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
 
 /// Compute SVD of a complex matrix directly
 fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexSVD {
-    use mdarray_linalg::prelude::SVD;
+    use mdarray_linalg::svd::SVD;
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
 
