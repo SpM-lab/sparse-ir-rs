@@ -9,27 +9,16 @@ cd "$SCRIPT_DIR"
 echo "======================================"
 echo "Cleaning up previous build artifacts..."
 echo "======================================"
-# Remove copied source files and directories
-[ -d "include" ] && rm -rf "include"
-[ -d "src" ] && rm -rf "src"
-[ -d "cmake" ] && rm -rf "cmake"
-[ -f "LICENSE" ] && rm -f "LICENSE"
-
-# Remove .venv directory if it exists
-[ -d ".venv" ] && rm -rf ".venv"
-
 # Remove build cache directories
+[ -d ".venv" ] && rm -rf ".venv"
 [ -d "_skbuild" ] && rm -rf "_skbuild"
 [ -d "dist" ] && rm -rf "dist"
 [ -d "*.egg-info" ] && rm -rf *.egg-info 2>/dev/null || true
 
-echo "Cleanup completed."
+# Note: No need to clean include/src/cmake directories anymore
+# The Rust library is built automatically during CMake build
 
-echo ""
-echo "======================================"
-echo "Setting up build environment..."
-echo "======================================"
-python3 setup_build.py
+echo "Cleanup completed."
 
 echo ""
 echo "======================================"

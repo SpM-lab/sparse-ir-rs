@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Clean build artifacts and files copied by setup_build.py and included via MANIFEST.in
+Clean build artifacts and files.
+
+Note: For Rust builds, we no longer copy C++ source files.
+The Rust library is built automatically during the CMake build process.
 """
 
 import os
@@ -11,15 +14,12 @@ def clean_build_artifacts():
     """Remove build artifacts and copied files."""
     current_dir = os.getcwd()
 
-    # Directories and files to remove (from setup_build.py and build artifacts)
+    # Directories and files to remove (build artifacts only)
+    # Note: No longer removing include/src/cmake as we use Rust now
     items_to_remove = [
         'build',
         'dist',
         '*.egg-info',
-        'include',
-        'src',
-        'fortran',
-        'cmake',
     ]
 
     # Files in pylibsparseir to remove
