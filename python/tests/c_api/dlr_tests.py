@@ -8,7 +8,7 @@ to verify that the Python C API interface works correctly.
 import pytest
 import numpy as np
 import ctypes
-from ctypes import c_int, c_double, byref, POINTER
+from ctypes import c_int, c_double, byref, POINTER, c_void_p
 
 from pylibsparseir.core import (
     _lib,
@@ -211,6 +211,7 @@ class TestDLRTransformations:
 
             convert_status = _lib.spir_dlr2ir_dd(
                 dlr,
+                c_void_p(0),  # Use default backend (null pointer)
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
@@ -282,6 +283,7 @@ class TestDLRTransformations:
 
                 convert_status = _lib.spir_dlr2ir_dd(
                     dlr,
+                    c_void_p(0),  # Use default backend (null pointer)
                     SPIR_ORDER_ROW_MAJOR,
                     ndim,
                     dims.ctypes.data_as(POINTER(c_int)),
@@ -344,6 +346,7 @@ class TestDLRTransformations:
 
             convert_status = _lib.spir_dlr2ir_zz(
                 dlr,
+                c_void_p(0),  # Use default backend (null pointer)
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
