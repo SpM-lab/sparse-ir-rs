@@ -75,7 +75,7 @@ class TestSamplingBasics:
         cond_num = c_double()
         cond_status = _lib.spir_sampling_get_cond_num(sampling, byref(cond_num))
         assert cond_status == COMPUTATION_SUCCESS
-        assert cond_num.value > 1.0
+        assert cond_num.value >= 1.0  # Condition number is >= 1.0, where 1.0 is the best (perfectly conditioned)
 
         # Test getting number of points
         n_points = c_int()
@@ -138,7 +138,7 @@ class TestSamplingBasics:
         cond_num = c_double()
         cond_status = _lib.spir_sampling_get_cond_num(sampling, byref(cond_num))
         assert cond_status == COMPUTATION_SUCCESS
-        assert cond_num.value > 1.0
+        assert cond_num.value >= 1.0  # Condition number is >= 1.0, where 1.0 is the best (perfectly conditioned)
 
         # Test getting number of points
         n_points = c_int()
@@ -370,6 +370,11 @@ class TestSamplingEvaluationComplex:
         )
         assert sampling_status.value == COMPUTATION_SUCCESS
 
+        # Get actual number of sampling points (may differ from requested)
+        actual_n_points = c_int()
+        points_status = _lib.spir_sampling_get_npoints(sampling, byref(actual_n_points))
+        assert points_status == COMPUTATION_SUCCESS
+
         # Create complex test coefficients
         np.random.seed(42)
         real_coeffs = np.random.randn(basis_size.value).astype(np.float64)
@@ -381,34 +386,37 @@ class TestSamplingEvaluationComplex:
         coeffs_complex[1::2] = imag_coeffs  # Imaginary parts at odd indices
 
         # Set up evaluation parameters
+        # For evaluate: input dims[target_dim] must equal basis_size
+        # For fit: input dims[target_dim] must equal n_sampling_points (actual_n_points)
         ndim = 1
-        dims = np.array([basis_size.value], dtype=np.int32)
         target_dim = 0
 
         # Allocate output arrays
-        evaluate_output = np.zeros(n_matsu_points.value * 2, dtype=np.float64)
+        evaluate_output = np.zeros(actual_n_points.value * 2, dtype=np.float64)
         fit_output = np.zeros(basis_size.value * 2, dtype=np.float64)
 
-        # Evaluate using C API with complex numbers
+        # Evaluate: input is coefficients (basis_size), output is values (actual_n_points)
+        evaluate_dims = np.array([basis_size.value], dtype=np.int32)
         evaluate_status = _lib.spir_sampling_eval_zz(
             sampling,
             None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
-            dims.ctypes.data_as(POINTER(c_int)),
+            evaluate_dims.ctypes.data_as(POINTER(c_int)),
             target_dim,
             coeffs_complex.ctypes.data_as(POINTER(c_double_complex)),
             evaluate_output.ctypes.data_as(POINTER(c_double_complex))
         )
         assert evaluate_status == COMPUTATION_SUCCESS
 
-        # Fit back to coefficients
+        # Fit: input is values (actual_n_points), output is coefficients (basis_size)
+        fit_dims = np.array([actual_n_points.value], dtype=np.int32)
         fit_status = _lib.spir_sampling_fit_zz(
             sampling,
             None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
-            dims.ctypes.data_as(POINTER(c_int)),
+            fit_dims.ctypes.data_as(POINTER(c_int)),
             target_dim,
             evaluate_output.ctypes.data_as(POINTER(c_double_complex)),
             fit_output.ctypes.data_as(POINTER(c_double_complex))
