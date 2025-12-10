@@ -251,8 +251,12 @@ impl GemmBackend for FaerBackend {
         let a_tensor = DTensor::<f64, 2>::from_fn([m, k], |idx| a_slice[idx[0] * k + idx[1]]);
         let b_tensor = DTensor::<f64, 2>::from_fn([k, n], |idx| b_slice[idx[0] * n + idx[1]]);
 
-        // Perform matrix multiplication
-        let c_tensor = Faer.matmul(&*a_tensor, &*b_tensor).parallelize().eval();
+        // Create output tensor and use overwrite() to avoid into_mdarray memory leak
+        // Note: overwrite() will fill all values, so initialization value doesn't matter
+        let mut c_tensor = DTensor::<f64, 2>::from_elem([m, n], Default::default());
+        Faer.matmul(&*a_tensor, &*b_tensor)
+            .parallelize()
+            .overwrite(&mut *c_tensor);
 
         // Copy result back to output pointer (row-major order)
         // For row-major, ldc = n (number of columns)
@@ -288,8 +292,13 @@ impl GemmBackend for FaerBackend {
             b_slice[idx[0] * n + idx[1]]
         });
 
-        // Perform matrix multiplication
-        let c_tensor = Faer.matmul(&*a_tensor, &*b_tensor).parallelize().eval();
+        // Create output tensor and use overwrite() to avoid into_mdarray memory leak
+        // Note: overwrite() will fill all values, so initialization value doesn't matter
+        let mut c_tensor =
+            DTensor::<num_complex::Complex<f64>, 2>::from_elem([m, n], Default::default());
+        Faer.matmul(&*a_tensor, &*b_tensor)
+            .parallelize()
+            .overwrite(&mut *c_tensor);
 
         // Copy result back to output pointer (row-major order)
         // For row-major, ldc = n (number of columns)
