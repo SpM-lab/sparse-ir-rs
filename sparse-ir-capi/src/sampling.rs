@@ -851,7 +851,6 @@ pub extern "C" fn spir_sampling_get_matsus(
 ///   which may lead to numerical instability in transformations.
 /// - The condition number is the ratio of the largest to smallest singular value
 ///   of the sampling matrix.
-/// TODO: Implement proper condition number calculation from SVD
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_get_cond_num(
     s: *const spir_sampling,
@@ -862,15 +861,99 @@ pub extern "C" fn spir_sampling_get_cond_num(
             return SPIR_INVALID_ARGUMENT;
         }
 
-        // TODO: Calculate actual condition number from SVD
-        // For now, return a reasonable placeholder
+        let sampling_ref = unsafe { &*s };
+
+        // Calculate condition number from SVD of the sampling matrix
+        let condition_number = match sampling_ref.inner() {
+            SamplingType::TauFermionic(tau) => {
+                // For tau sampling, matrix is real
+                let matrix = tau.matrix();
+                compute_condition_number_real(matrix)
+            }
+            SamplingType::TauBosonic(tau) => {
+                // For tau sampling, matrix is real
+                let matrix = tau.matrix();
+                compute_condition_number_real(matrix)
+            }
+            SamplingType::MatsubaraFermionic(matsu) => {
+                // For Matsubara sampling, matrix is complex
+                let matrix = matsu.matrix();
+                compute_condition_number_complex(matrix)
+            }
+            SamplingType::MatsubaraBosonic(matsu) => {
+                let matrix = matsu.matrix();
+                compute_condition_number_complex(matrix)
+            }
+            SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
+                // For positive-only Matsubara, use the complex matrix
+                // The fitter uses ComplexToRealFitter internally, but we can use the complex matrix
+                let matrix = matsu.matrix();
+                compute_condition_number_complex(matrix)
+            }
+            SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
+                let matrix = matsu.matrix();
+                compute_condition_number_complex(matrix)
+            }
+        };
+
         unsafe {
-            *cond_num = 1.0;
+            *cond_num = condition_number;
         }
         SPIR_COMPUTATION_SUCCESS
     }));
 
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
+}
+
+/// Compute condition number from real matrix using SVD
+fn compute_condition_number_real(matrix: &mdarray::DTensor<f64, 2>) -> f64 {
+    use mdarray_linalg::prelude::SVD;
+    use mdarray_linalg::svd::SVDDecomp;
+    use mdarray_linalg_faer::Faer;
+
+    let mut matrix_copy = matrix.clone();
+    let SVDDecomp { s, .. } = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
+
+    let min_dim = s.shape().0.min(s.shape().1);
+    if min_dim == 0 {
+        return 1.0;
+    }
+
+    let max_sv = s[[0, 0]];
+    let min_sv = s[[0, min_dim - 1]];
+
+    if min_sv.abs() < 1e-15 {
+        // Matrix is singular or nearly singular
+        return f64::INFINITY;
+    }
+
+    max_sv / min_sv
+}
+
+/// Compute condition number from complex matrix using SVD
+fn compute_condition_number_complex(matrix: &mdarray::DTensor<num_complex::Complex64, 2>) -> f64 {
+    use mdarray_linalg::prelude::SVD;
+    use mdarray_linalg::svd::SVDDecomp;
+    use mdarray_linalg_faer::Faer;
+
+    let mut matrix_copy = matrix.clone();
+    let SVDDecomp { s, .. } = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
+
+    let min_dim = s.shape().0.min(s.shape().1);
+    if min_dim == 0 {
+        return 1.0;
+    }
+
+    // Singular values are real (stored as Complex, but imaginary part is 0)
+    let max_sv = s[[0, 0]].re;
+    let min_sv = s[[0, min_dim - 1]].re;
+
+    if min_sv.abs() < 1e-15 {
+        // Matrix is singular or nearly singular
+        return f64::INFINITY;
+    }
+
+    max_sv / min_sv
 }
 
 // ============================================================================
@@ -1436,73 +1519,71 @@ mod tests {
 
     #[test]
     fn test_tau_sampling_creation() {
-        unsafe {
-            // Create a basis
-            let mut status = 0;
-            let kernel = crate::spir_logistic_kernel_new(10.0, &mut status);
-            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        // Create a basis
+        let mut status = 0;
+        let kernel = crate::spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-            let sve = crate::spir_sve_result_new(kernel, 1e-6, -1, -1, -1, &mut status);
-            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let sve = crate::spir_sve_result_new(kernel, 1e-6, -1, -1, -1, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-            // Limit basis size to 5
-            let basis = crate::spir_basis_new(1, 10.0, 1.0, 1e-6, kernel, sve, 5, &mut status);
-            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        // Limit basis size to 5
+        let basis = crate::spir_basis_new(1, 10.0, 1.0, 1e-6, kernel, sve, 5, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-            // Get actual basis size
-            let mut actual_basis_size = 0;
-            let ret = crate::spir_basis_get_size(basis, &mut actual_basis_size);
-            assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
+        // Get actual basis size
+        let mut actual_basis_size = 0;
+        let ret = crate::spir_basis_get_size(basis, &mut actual_basis_size);
+        assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
 
-            // Create tau sampling with enough points (at least basis_size)
-            let tau_points: Vec<f64> = (0..actual_basis_size)
-                .map(|i| (i as f64 + 1.0) * 10.0 / (actual_basis_size as f64 + 1.0))
-                .collect();
+        // Create tau sampling with enough points (at least basis_size)
+        let tau_points: Vec<f64> = (0..actual_basis_size)
+            .map(|i| (i as f64 + 1.0) * 10.0 / (actual_basis_size as f64 + 1.0))
+            .collect();
 
-            let sampling = spir_tau_sampling_new(
-                basis,
-                tau_points.len() as i32,
-                tau_points.as_ptr(),
-                &mut status,
+        let sampling = spir_tau_sampling_new(
+            basis,
+            tau_points.len() as i32,
+            tau_points.as_ptr(),
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!sampling.is_null());
+
+        // Get number of points
+        let mut n_points = 0;
+        let ret = spir_sampling_get_npoints(sampling, &mut n_points);
+        assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
+        assert_eq!(n_points, actual_basis_size);
+
+        // Get tau points back
+        let mut retrieved_points = vec![0.0; actual_basis_size as usize];
+        let ret = spir_sampling_get_taus(sampling, retrieved_points.as_mut_ptr());
+        assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
+
+        // Check that retrieved points match
+        for (i, (&retrieved, &original)) in
+            retrieved_points.iter().zip(tau_points.iter()).enumerate()
+        {
+            assert!(
+                (retrieved - original).abs() < 1e-10,
+                "Point {} mismatch: {} vs {}",
+                i,
+                retrieved,
+                original
             );
-            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-            assert!(!sampling.is_null());
-
-            // Get number of points
-            let mut n_points = 0;
-            let ret = spir_sampling_get_npoints(sampling, &mut n_points);
-            assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
-            assert_eq!(n_points, actual_basis_size);
-
-            // Get tau points back
-            let mut retrieved_points = vec![0.0; actual_basis_size as usize];
-            let ret = spir_sampling_get_taus(sampling, retrieved_points.as_mut_ptr());
-            assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
-
-            // Check that retrieved points match
-            for (i, (&retrieved, &original)) in
-                retrieved_points.iter().zip(tau_points.iter()).enumerate()
-            {
-                assert!(
-                    (retrieved - original).abs() < 1e-10,
-                    "Point {} mismatch: {} vs {}",
-                    i,
-                    retrieved,
-                    original
-                );
-            }
-
-            // Get condition number
-            let mut cond = 0.0;
-            let ret = spir_sampling_get_cond_num(sampling, &mut cond);
-            assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
-            assert!(cond >= 1.0); // Condition number >= 1 (placeholder returns 1.0)
-
-            // Clean up
-            crate::spir_sampling_release(sampling);
-            crate::spir_basis_release(basis);
-            crate::spir_sve_result_release(sve);
-            crate::spir_kernel_release(kernel);
         }
+
+        // Get condition number
+        let mut cond = 0.0;
+        let ret = spir_sampling_get_cond_num(sampling, &mut cond);
+        assert_eq!(ret, SPIR_COMPUTATION_SUCCESS);
+        assert!(cond >= 1.0); // Condition number >= 1
+
+        // Clean up
+        crate::spir_sampling_release(sampling);
+        crate::spir_basis_release(basis);
+        crate::spir_sve_result_release(sve);
+        crate::spir_kernel_release(kernel);
     }
 }
