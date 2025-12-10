@@ -49,13 +49,19 @@ jobs:
         working-directory: python
         run: python3 prepare_build.py
 
-      - name: Install dependencies and build
+      - name: Install dependencies
         working-directory: python
-        # uv sync will install dependencies and build the package in development mode.
-        # scikit-build-core will invoke CMake, which runs:
+        # Install development dependencies
+        run: uv sync --refresh
+
+      - name: Build and install package
+        working-directory: python
+        # Install the package in editable mode, which will trigger scikit-build-core
+        # to invoke CMake, which runs:
         #   cargo build --release -p sparse-ir-capi
         # (defined in python/CMakeLists.txt line 41)
-        run: uv sync --refresh
+        # This ensures the Rust library is built and copied to pylibsparseir/
+        run: uv pip install --no-build-isolation -e .
 
       - name: Run tests
         working-directory: python
