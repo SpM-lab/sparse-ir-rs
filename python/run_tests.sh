@@ -1,0 +1,40 @@
+#!/bin/bash
+# Script to setup build environment and run tests with uv
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+echo "======================================"
+echo "Cleaning up previous build artifacts..."
+echo "======================================"
+# Remove build cache directories
+[ -d ".venv" ] && rm -rf ".venv"
+[ -d "_skbuild" ] && rm -rf "_skbuild"
+[ -d "dist" ] && rm -rf "dist"
+[ -d "*.egg-info" ] && rm -rf *.egg-info 2>/dev/null || true
+
+# Note: No need to clean include/src/cmake directories anymore
+# The Rust library is built automatically during CMake build
+
+echo "Cleanup completed."
+
+echo ""
+echo "======================================"
+echo "Running uv sync (with rebuild)..."
+echo "======================================"
+# Remove any cached build artifacts and force rebuild
+uv sync --refresh
+
+echo ""
+echo "======================================"
+echo "Running tests..."
+echo "======================================"
+uv run pytest tests/ -v
+
+echo ""
+echo "======================================"
+echo "All tests completed successfully!"
+echo "======================================"
+

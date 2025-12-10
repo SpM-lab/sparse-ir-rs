@@ -1,0 +1,77 @@
+[build-system]
+# Uses hatchling with custom build hook to run cargo build
+requires = ["hatchling>=1.21.0", "editables>=0.5"]
+build-backend = "hatchling.build"
+
+[project]
+name = "pylibsparseir"
+version = "0.7.2"
+description = "Python bindings for the sparse-ir-capi library"
+readme = "README.md"
+license = {file = "LICENSE"}
+maintainers = [
+    {name = "SpM-lab"},
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Rust",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.26.4",
+    "scipy",
+]
+
+[project.urls]
+Homepage = "https://github.com/SpM-lab/sparse-ir-rs"
+Documentation = "https://github.com/SpM-lab/sparse-ir-rs"
+Repository = "https://github.com/SpM-lab/sparse-ir-rs"
+Issues = "https://github.com/SpM-lab/sparse-ir-rs/issues"
+
+[tool.hatch.build]
+# Include only the pylibsparseir package
+packages = ["pylibsparseir"]
+
+[tool.hatch.build.targets.wheel]
+# Include the shared library in the wheel
+packages = ["pylibsparseir"]
+
+[tool.hatch.build.targets.wheel.hooks.custom]
+# Custom build hook that runs cargo build --release
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.editable.hooks.custom]
+# Also run for editable installs (uv sync)
+path = "hatch_build.py"
+
+[tool.hatch.build.targets.sdist]
+# Include necessary files for source distribution
+include = [
+    "pylibsparseir/",
+    "tests/",
+    "tutorials/",
+    "README.md",
+    "LICENSE",
+    "hatch_build.py",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_tests.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[dependency-groups]
+dev = [
+    "clang>=20.1.5",
+    "pytest>=8.4.1",
+]
