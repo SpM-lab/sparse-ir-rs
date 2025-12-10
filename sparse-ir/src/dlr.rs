@@ -274,14 +274,28 @@ where
     ///
     /// # Returns
     /// A new DLR representation with default poles
+    ///
+    /// # Panics
+    /// Panics if the number of default poles is less than the basis size.
+    /// This can happen with certain kernel types (e.g., RegularizedBoseKernel)
+    /// due to numerical precision limitations in root finding.
     pub fn new<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Self
     where
         S: 'static,
         K: crate::kernel::KernelProperties + Clone,
     {
         let poles = basis.default_omega_sampling_points();
+        let basis_size = basis.size();
+        if basis_size > poles.len() {
+            eprintln!(
+                "Warning: Number of default poles ({}) is less than basis size ({}). \
+                 This may happen if not enough precision is left in the polynomial.",
+                poles.len(),
+                basis_size
+            );
+        }
         assert!(
-            basis.size() <= poles.len(),
+            basis_size <= poles.len(),
             "The number of poles must be greater than or equal to the basis size"
         );
         Self::with_poles(basis, poles)
