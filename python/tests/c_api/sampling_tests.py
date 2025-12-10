@@ -75,7 +75,7 @@ class TestSamplingBasics:
         cond_num = c_double()
         cond_status = _lib.spir_sampling_get_cond_num(sampling, byref(cond_num))
         assert cond_status == COMPUTATION_SUCCESS
-        assert cond_num.value >= 1.0  # Condition number is >= 1.0, where 1.0 is the best (perfectly conditioned)
+        assert cond_num.value > 1.0
 
         # Test getting number of points
         n_points = c_int()
@@ -138,13 +138,55 @@ class TestSamplingBasics:
         cond_num = c_double()
         cond_status = _lib.spir_sampling_get_cond_num(sampling, byref(cond_num))
         assert cond_status == COMPUTATION_SUCCESS
-        assert cond_num.value >= 1.0  # Condition number is >= 1.0, where 1.0 is the best (perfectly conditioned)
+        assert cond_num.value > 1.0
 
         # Test getting number of points
         n_points = c_int()
         points_status = _lib.spir_sampling_get_npoints(sampling, byref(n_points))
         assert points_status == COMPUTATION_SUCCESS
         assert n_points.value > 0
+
+        # Cleanup
+        _lib.spir_sampling_release(sampling)
+        _lib.spir_basis_release(basis)
+
+    @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
+    def test_condition_number_realistic_parameters(self, statistics):
+        """Test that condition number is > 1.0 for realistic parameters."""
+        # Use more realistic parameters (larger beta, smaller wmax)
+        # Based on tutorials, condition number should scale roughly as sqrt(Lambda) where Lambda = beta * wmax
+        beta = 100.0
+        wmax = 1.0
+        epsilon = 1e-10
+
+        basis = _spir_basis_new(statistics, beta, wmax, epsilon)
+        assert basis is not None
+
+        # Get default tau points
+        n_tau_points = c_int()
+        status = _lib.spir_basis_get_n_default_taus(basis, byref(n_tau_points))
+        assert status == COMPUTATION_SUCCESS
+        assert n_tau_points.value > 0
+
+        tau_points = np.zeros(n_tau_points.value, dtype=np.float64)
+        status = _lib.spir_basis_get_default_taus(basis, tau_points.ctypes.data_as(POINTER(c_double)))
+        assert status == COMPUTATION_SUCCESS
+
+        # Create tau sampling
+        sampling_status = c_int()
+        sampling = _lib.spir_tau_sampling_new(
+            basis, n_tau_points.value,
+            tau_points.ctypes.data_as(POINTER(c_double)),
+            byref(sampling_status)
+        )
+        assert sampling_status.value == COMPUTATION_SUCCESS
+        assert sampling is not None
+
+        # Test condition number - should be > 1.0 for realistic parameters
+        cond_num = c_double()
+        cond_status = _lib.spir_sampling_get_cond_num(sampling, byref(cond_num))
+        assert cond_status == COMPUTATION_SUCCESS
+        assert cond_num.value > 1.0
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
