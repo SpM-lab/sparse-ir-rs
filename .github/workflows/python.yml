@@ -38,7 +38,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libopenblas-dev pkg-config cmake ninja-build
+          sudo apt-get install -y libopenblas-dev pkg-config
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
@@ -49,19 +49,13 @@ jobs:
         working-directory: python
         run: python3 prepare_build.py
 
-      - name: Install dependencies
+      - name: Install dependencies and build package
         working-directory: python
-        # Install development dependencies
-        run: uv sync --refresh
-
-      - name: Build and install package
-        working-directory: python
-        # Install the package in editable mode, which will trigger scikit-build-core
-        # to invoke CMake, which runs:
+        # uv sync installs dependencies and builds the package in editable mode.
+        # The hatchling build hook (hatch_build.py) automatically runs:
         #   cargo build --release -p sparse-ir-capi
-        # (defined in python/CMakeLists.txt line 41)
-        # This ensures the Rust library is built and copied to pylibsparseir/
-        run: uv pip install --no-build-isolation -e .
+        # and copies the shared library to pylibsparseir/
+        run: uv sync
 
       - name: Run tests
         working-directory: python
