@@ -20,7 +20,7 @@ import os
 import sys
 import ctypes
 
-from .ctypes_wrapper import spir_kernel, spir_sve_result, spir_basis, spir_funcs, spir_sampling
+from .ctypes_wrapper import spir_kernel, spir_sve_result, spir_basis, spir_funcs, spir_sampling, spir_gemm_backend
 from pylibsparseir.constants import COMPUTATION_SUCCESS, SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR, SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2, SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC
 
 
@@ -56,6 +56,7 @@ def _find_library():
 
 
 # Load the library
+_blas_backend = None
 try:
     import scipy.linalg.cython_blas as blas
     # dgemm capsule
@@ -76,16 +77,45 @@ try:
     ptr_z = ctypes.pythonapi.PyCapsule_GetPointer(capsule_z, name_z)
 
     _lib = ctypes.CDLL(_find_library())
-    # Register both dgemm and zgemm at once using LP64 interface
+
+    # Create GEMM backend handle from SciPy BLAS functions
     # Note: SciPy BLAS typically uses LP64 interface (32-bit integers)
-    _lib.spir_register_dgemm_zgemm_lp64.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
-    _lib.spir_register_dgemm_zgemm_lp64.restype = None
-    _lib.spir_register_dgemm_zgemm_lp64(ptr, ptr_z)
+    _lib.spir_gemm_backend_new_from_fblas_lp64.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    _lib.spir_gemm_backend_new_from_fblas_lp64.restype = spir_gemm_backend
+    _blas_backend = _lib.spir_gemm_backend_new_from_fblas_lp64(ptr, ptr_z)
+
+    if _blas_backend is None:
+        raise RuntimeError("Failed to create BLAS backend handle")
+
     if os.environ.get("SPARSEIR_DEBUG", "").lower() in ("1", "true", "yes", "on"):
+        print(f"[core.py] Created SciPy BLAS backend handle")
         print(f"[core.py] Registered SciPy BLAS dgemm @ {hex(ptr)}")
         print(f"[core.py] Registered SciPy BLAS zgemm @ {hex(ptr_z)}")
 except Exception as e:
     raise RuntimeError(f"Failed to load SparseIR library: {e}")
+
+# Module-level variable to store the default BLAS backend
+# Users can pass None to use default backend, or pass _blas_backend explicitly
+_default_blas_backend = _blas_backend
+
+def get_default_blas_backend():
+    """Get the default BLAS backend handle (created from SciPy BLAS).
+
+    Returns:
+        spir_gemm_backend: The default BLAS backend handle, or None if not available.
+    """
+    return _default_blas_backend
+
+def release_blas_backend(backend):
+    """Release a BLAS backend handle.
+
+    Args:
+        backend: The backend handle to release (can be None).
+    """
+    if backend is not None:
+        _lib.spir_gemm_backend_release.argtypes = [spir_gemm_backend]
+        _lib.spir_gemm_backend_release.restype = None
+        _lib.spir_gemm_backend_release(backend)
 
 
 class c_double_complex(ctypes.Structure):
@@ -119,7 +149,7 @@ def _setup_prototypes():
 
     # Import necessary types into local namespace for eval
     from ctypes import c_int, c_double, c_int64, c_size_t, c_bool, POINTER, c_char_p
-    from .ctypes_wrapper import spir_kernel, spir_funcs, spir_basis, spir_sampling, spir_sve_result
+    from .ctypes_wrapper import spir_kernel, spir_funcs, spir_basis, spir_sampling, spir_sve_result, spir_gemm_backend
     # Use the c_double_complex from this module (core.py), not from ctypes_autogen
     # This ensures type consistency
 
@@ -131,6 +161,7 @@ def _setup_prototypes():
         'spir_kernel': spir_kernel, 'spir_funcs': spir_funcs,
         'spir_basis': spir_basis, 'spir_sampling': spir_sampling,
         'spir_sve_result': spir_sve_result,
+        'spir_gemm_backend': spir_gemm_backend,
         'c_double_complex': c_double_complex,  # Use the one defined in this module
     }
 

@@ -202,6 +202,7 @@ class TestSamplingEvaluation1D:
         # Evaluate using C API
         evaluate_status = _lib.spir_sampling_eval_dd(
             sampling,
+            None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dims.ctypes.data_as(POINTER(c_int)),
@@ -214,6 +215,7 @@ class TestSamplingEvaluation1D:
         # Fit back to coefficients
         fit_status = _lib.spir_sampling_fit_dd(
             sampling,
+            None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dims.ctypes.data_as(POINTER(c_int)),
@@ -300,6 +302,7 @@ class TestSamplingEvaluationMultiD:
             # Evaluate using C API
             evaluate_status = _lib.spir_sampling_eval_dd(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
@@ -312,6 +315,7 @@ class TestSamplingEvaluationMultiD:
             # Fit back to coefficients
             fit_status = _lib.spir_sampling_fit_dd(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
@@ -388,6 +392,7 @@ class TestSamplingEvaluationComplex:
         # Evaluate using C API with complex numbers
         evaluate_status = _lib.spir_sampling_eval_zz(
             sampling,
+            None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dims.ctypes.data_as(POINTER(c_int)),
@@ -400,6 +405,7 @@ class TestSamplingEvaluationComplex:
         # Fit back to coefficients
         fit_status = _lib.spir_sampling_fit_zz(
             sampling,
+            None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dims.ctypes.data_as(POINTER(c_int)),
@@ -496,6 +502,7 @@ class TestAdvanced4DComplexSampling:
             evaluate_output = np.zeros(output_total_size * 2, dtype=np.float64)
             evaluate_status = _lib.spir_sampling_eval_zz(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -509,6 +516,7 @@ class TestAdvanced4DComplexSampling:
             fit_output = np.zeros(total_size * 2, dtype=np.float64)
             fit_status = _lib.spir_sampling_fit_zz(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(output_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -595,6 +603,7 @@ class TestAdvanced4DComplexSampling:
             evaluate_output = np.zeros(output_total_size * 2, dtype=np.float64)
             evaluate_status = _lib.spir_sampling_eval_zz(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -608,6 +617,7 @@ class TestAdvanced4DComplexSampling:
             fit_output = np.zeros(total_size * 2, dtype=np.float64)
             fit_status = _lib.spir_sampling_fit_zz(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(output_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -684,6 +694,7 @@ class TestAdvanced4DComplexSampling:
             evaluate_output = np.zeros(output_total_size, dtype=np.float64)
             evaluate_status = _lib.spir_sampling_eval_dd(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -697,6 +708,7 @@ class TestAdvanced4DComplexSampling:
             fit_output = np.zeros(total_size, dtype=np.float64)
             fit_status = _lib.spir_sampling_fit_dd(
                 sampling,
+                None,  # Use default backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(output_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),

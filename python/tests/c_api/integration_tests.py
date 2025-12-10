@@ -254,6 +254,7 @@ class TestIntegrationWorkflow:
         ir_tau_values = np.zeros(n_tau_points, dtype=np.float64)
         status = _lib.spir_sampling_eval_dd(
             ir_tau_sampling,
+            None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             1,
             np.array([ir_size], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -267,6 +268,7 @@ class TestIntegrationWorkflow:
         dlr_tau_values = np.zeros(n_tau_points, dtype=np.float64)
         status = _lib.spir_sampling_eval_dd(
             dlr_tau_sampling,
+            None,  # Use default backend
             SPIR_ORDER_ROW_MAJOR,
             1,
             np.array([n_poles], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -620,7 +622,7 @@ class TestEnhancedDLRSamplingIntegration:
             # Test using C API sampling evaluation
             gtau_from_dlr_sampling = np.zeros(n_tau_points.value, dtype=np.float64)
             status = _lib.spir_sampling_eval_dd(
-                dlr_tau_sampling, SPIR_ORDER_ROW_MAJOR, 1,
+                dlr_tau_sampling, None, SPIR_ORDER_ROW_MAJOR, 1,  # Use default backend
                 np.array([n_poles.value], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
                 0,
                 dlr_coeffs.ctypes.data_as(POINTER(c_double)),
