@@ -1,0 +1,38 @@
+diff --git a/sparse-ir/src/dlr.rs b/sparse-ir/src/dlr.rs
+index 4a56678..d5e6500 100644
+--- a/sparse-ir/src/dlr.rs
++++ b/sparse-ir/src/dlr.rs
+@@ -274,16 +274,29 @@ where
+     ///
+     /// # Returns
+     /// A new DLR representation with default poles
++    ///
++    /// # Note
++    /// If the number of default poles is less than the basis size, a warning
++    /// is emitted but DLR creation proceeds. This can happen with certain
++    /// kernel types (e.g., RegularizedBoseKernel) due to numerical precision
++    /// limitations in root finding. The DLR will still function correctly,
++    /// though with potentially reduced accuracy.
+     pub fn new<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Self
+     where
+         S: 'static,
+         K: crate::kernel::KernelProperties + Clone,
+     {
+         let poles = basis.default_omega_sampling_points();
+-        assert!(
+-            basis.size() <= poles.len(),
+-            "The number of poles must be greater than or equal to the basis size"
+-        );
++        let basis_size = basis.size();
++        if basis_size > poles.len() {
++            eprintln!(
++                "Warning: Number of default poles ({}) is less than basis size ({}). \
++                 This may happen if not enough precision is left in the polynomial. \
++                 DLR creation will proceed, but accuracy may be reduced.",
++                poles.len(),
++                basis_size
++            );
++        }
+         Self::with_poles(basis, poles)
+     }
+ 

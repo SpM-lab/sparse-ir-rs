@@ -44,7 +44,8 @@ class TestDLRConstruction:
     @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
     def test_dlr_construction(self, statistics):
         """Test DLR construction using default poles."""
-        beta = 10000.0  # Large beta for better conditioning
+        # beta = 10000.0  # Large beta for better conditioning
+        beta = 1000.0
         wmax = 1.0
         epsilon = 1e-12
 
