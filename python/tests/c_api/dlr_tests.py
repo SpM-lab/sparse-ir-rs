@@ -12,6 +12,7 @@ from ctypes import c_int, c_double, byref, POINTER
 
 from pylibsparseir.core import (
     _lib,
+    _blas_backend,
     logistic_kernel_new, reg_bose_kernel_new,
     sve_result_new, basis_new,
     COMPUTATION_SUCCESS, c_double_complex
@@ -222,7 +223,7 @@ class TestDLRTransformations:
 
             convert_status = _lib.spir_dlr2ir_dd(
                 dlr,
-                None,  # Use default backend (null pointer)
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
@@ -294,7 +295,7 @@ class TestDLRTransformations:
 
                 convert_status = _lib.spir_dlr2ir_dd(
                     dlr,
-                    None,  # Use default backend (null pointer)
+                    _blas_backend,  # Use SciPy BLAS backend
                     SPIR_ORDER_ROW_MAJOR,
                     ndim,
                     dims.ctypes.data_as(POINTER(c_int)),
@@ -357,7 +358,7 @@ class TestDLRTransformations:
 
             convert_status = _lib.spir_dlr2ir_zz(
                 dlr,
-                None,  # Use default backend (null pointer)
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
