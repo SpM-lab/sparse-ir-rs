@@ -13,6 +13,7 @@ from ctypes import c_int, c_double, c_bool, byref, POINTER
 
 from pylibsparseir.core import (
     _lib,
+    _blas_backend,
     logistic_kernel_new, reg_bose_kernel_new,
     sve_result_new, basis_new,
     tau_sampling_new, matsubara_sampling_new,
@@ -204,7 +205,7 @@ class TestIntegrationWorkflow:
         # DLR to IR
         status = _lib.spir_dlr2ir_dd(
             dlr,
-            None,  # Use default backend (null pointer)
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dlr_dims.ctypes.data_as(POINTER(c_int)),
@@ -242,7 +243,7 @@ class TestIntegrationWorkflow:
         ir_coeffs_from_dlr = np.zeros(ir_size, dtype=np.float64)
         status = _lib.spir_dlr2ir_dd(
             dlr,
-            None,  # Use default backend (null pointer)
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             1,
             np.array([n_poles], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -256,7 +257,7 @@ class TestIntegrationWorkflow:
         ir_tau_values = np.zeros(n_tau_points, dtype=np.float64)
         status = _lib.spir_sampling_eval_dd(
             ir_tau_sampling,
-            None,  # Use default backend
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             1,
             np.array([ir_size], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -270,7 +271,7 @@ class TestIntegrationWorkflow:
         dlr_tau_values = np.zeros(n_tau_points, dtype=np.float64)
         status = _lib.spir_sampling_eval_dd(
             dlr_tau_sampling,
-            None,  # Use default backend
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             1,
             np.array([n_poles], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -356,7 +357,7 @@ class TestIntegrationMultiDimensional:
 
         status = _lib.spir_dlr2ir_dd(
             dlr,
-            None,  # Use default backend (null pointer)
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             3,
             np.array(dlr_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -407,7 +408,7 @@ class TestIntegrationErrorHandling:
             # This may or may not fail depending on C implementation robustness
             status = _lib.spir_dlr2ir_dd(
                 dlr,
-                None,  # Use default backend (null pointer)
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 1,
                 wrong_dims.ctypes.data_as(POINTER(c_int)),
@@ -615,7 +616,7 @@ class TestEnhancedDLRSamplingIntegration:
             # Convert DLR to IR
             ir_coeffs = np.zeros(ir_size.value, dtype=np.float64)
             status = _lib.spir_dlr2ir_dd(
-                dlr, None, SPIR_ORDER_ROW_MAJOR, 1,  # Use default backend (null pointer)
+                dlr, _blas_backend, SPIR_ORDER_ROW_MAJOR, 1,  # Use SciPy BLAS backend
                 np.array([n_poles.value], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
                 0,
                 dlr_coeffs.ctypes.data_as(POINTER(c_double)),
@@ -658,7 +659,7 @@ class TestEnhancedDLRSamplingIntegration:
             # Test using C API sampling evaluation
             gtau_from_dlr_sampling = np.zeros(n_tau_points.value, dtype=np.float64)
             status = _lib.spir_sampling_eval_dd(
-                dlr_tau_sampling, None, SPIR_ORDER_ROW_MAJOR, 1,  # Use default backend
+                dlr_tau_sampling, _blas_backend, SPIR_ORDER_ROW_MAJOR, 1,  # Use SciPy BLAS backend
                 np.array([n_poles.value], dtype=np.int32).ctypes.data_as(POINTER(c_int)),
                 0,
                 dlr_coeffs.ctypes.data_as(POINTER(c_double)),
@@ -729,7 +730,7 @@ class TestEnhancedDLRSamplingIntegration:
             # Convert DLR to IR for 2D case
             ir_coeffs_2d = np.zeros(ir_size.value * d1, dtype=np.float64)
             status = _lib.spir_dlr2ir_dd(
-                dlr, None, SPIR_ORDER_ROW_MAJOR, 2,  # Use default backend (null pointer)
+                dlr, _blas_backend, SPIR_ORDER_ROW_MAJOR, 2,  # Use SciPy BLAS backend
                 np.array(dims_dlr, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
                 0,
                 dlr_coeffs_2d.ctypes.data_as(POINTER(c_double)),

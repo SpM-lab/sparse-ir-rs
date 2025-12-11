@@ -12,6 +12,7 @@ from ctypes import c_int, c_double, c_bool, byref, POINTER
 
 from pylibsparseir.core import (
     _lib,
+    _blas_backend,
     logistic_kernel_new, reg_bose_kernel_new,
     sve_result_new, basis_new,
     c_double_complex,
@@ -244,7 +245,7 @@ class TestSamplingEvaluation1D:
         # Evaluate using C API
         evaluate_status = _lib.spir_sampling_eval_dd(
             sampling,
-            None,  # Use default backend
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dims.ctypes.data_as(POINTER(c_int)),
@@ -257,7 +258,7 @@ class TestSamplingEvaluation1D:
         # Fit back to coefficients
         fit_status = _lib.spir_sampling_fit_dd(
             sampling,
-            None,  # Use default backend
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             dims.ctypes.data_as(POINTER(c_int)),
@@ -344,7 +345,7 @@ class TestSamplingEvaluationMultiD:
             # Evaluate using C API
             evaluate_status = _lib.spir_sampling_eval_dd(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
@@ -357,7 +358,7 @@ class TestSamplingEvaluationMultiD:
             # Fit back to coefficients
             fit_status = _lib.spir_sampling_fit_dd(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 dims.ctypes.data_as(POINTER(c_int)),
@@ -441,7 +442,7 @@ class TestSamplingEvaluationComplex:
         evaluate_dims = np.array([basis_size.value], dtype=np.int32)
         evaluate_status = _lib.spir_sampling_eval_zz(
             sampling,
-            None,  # Use default backend
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             evaluate_dims.ctypes.data_as(POINTER(c_int)),
@@ -455,7 +456,7 @@ class TestSamplingEvaluationComplex:
         fit_dims = np.array([actual_n_points.value], dtype=np.int32)
         fit_status = _lib.spir_sampling_fit_zz(
             sampling,
-            None,  # Use default backend
+            _blas_backend,  # Use SciPy BLAS backend
             SPIR_ORDER_ROW_MAJOR,
             ndim,
             fit_dims.ctypes.data_as(POINTER(c_int)),
@@ -552,7 +553,7 @@ class TestAdvanced4DComplexSampling:
             evaluate_output = np.zeros(output_total_size * 2, dtype=np.float64)
             evaluate_status = _lib.spir_sampling_eval_zz(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -566,7 +567,7 @@ class TestAdvanced4DComplexSampling:
             fit_output = np.zeros(total_size * 2, dtype=np.float64)
             fit_status = _lib.spir_sampling_fit_zz(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(output_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -653,7 +654,7 @@ class TestAdvanced4DComplexSampling:
             evaluate_output = np.zeros(output_total_size * 2, dtype=np.float64)
             evaluate_status = _lib.spir_sampling_eval_zz(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -667,7 +668,7 @@ class TestAdvanced4DComplexSampling:
             fit_output = np.zeros(total_size * 2, dtype=np.float64)
             fit_status = _lib.spir_sampling_fit_zz(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(output_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -744,7 +745,7 @@ class TestAdvanced4DComplexSampling:
             evaluate_output = np.zeros(output_total_size, dtype=np.float64)
             evaluate_status = _lib.spir_sampling_eval_dd(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
@@ -758,7 +759,7 @@ class TestAdvanced4DComplexSampling:
             fit_output = np.zeros(total_size, dtype=np.float64)
             fit_status = _lib.spir_sampling_fit_dd(
                 sampling,
-                None,  # Use default backend
+                _blas_backend,  # Use SciPy BLAS backend
                 SPIR_ORDER_ROW_MAJOR,
                 ndim,
                 np.array(output_dims, dtype=np.int32).ctypes.data_as(POINTER(c_int)),
