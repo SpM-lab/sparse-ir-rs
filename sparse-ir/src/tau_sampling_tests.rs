@@ -201,3 +201,145 @@ fn test_regularized_bose_evaluate_nd_real() {
 fn test_regularized_bose_evaluate_nd_complex() {
     test_regularized_bose_evaluate_nd_roundtrip::<Complex<f64>>();
 }
+
+/// Test that evaluate_nd_to produces identical results to evaluate_nd
+fn test_evaluate_nd_to_matches<T, S>()
+where
+    T: num_complex::ComplexFloat
+        + faer_traits::ComplexField
+        + From<f64>
+        + Copy
+        + Default
+        + 'static
+        + std::fmt::Debug
+        + ErrorNorm,
+    S: StatisticsType + 'static,
+    LogisticKernel: KernelProperties + CentrosymmKernel + Clone + 'static,
+{
+    use mdarray::{Shape, Tensor};
+
+    let beta = 1.0;
+    let wmax = 10.0;
+    let epsilon = Some(1e-6);
+
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, epsilon, None);
+    let sampling = TauSampling::new(&basis);
+
+    let basis_size = basis.size();
+    let n_points = sampling.n_sampling_points();
+    let n_k = 3;
+    let n_omega = 4;
+
+    // Create test coefficients
+    let coeffs = Tensor::<T, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+        <T as From<f64>>::from((idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3))
+    });
+
+    // Test for dim = 0
+    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+
+    let mut actual = Tensor::<T, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], <T as From<f64>>::from(0.0));
+    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+
+    // Compare
+    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
+    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    assert_eq!(expected_shape, actual_shape);
+
+    for i in 0..n_points {
+        for j in 0..n_k {
+            for k in 0..n_omega {
+                let e = expected[&[i, j, k][..]];
+                let a = actual[&[i, j, k][..]];
+                let diff = (e - a).error_norm();
+                assert!(
+                    diff < 1e-14,
+                    "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
+                    i, j, k, e, a
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_evaluate_nd_to_matches_fermionic_real() {
+    test_evaluate_nd_to_matches::<f64, Fermionic>();
+}
+
+#[test]
+fn test_evaluate_nd_to_matches_fermionic_complex() {
+    test_evaluate_nd_to_matches::<Complex<f64>, Fermionic>();
+}
+
+/// Test that fit_nd_to produces identical results to fit_nd
+fn test_fit_nd_to_matches<T, S>()
+where
+    T: num_complex::ComplexFloat
+        + faer_traits::ComplexField
+        + From<f64>
+        + Copy
+        + Default
+        + 'static
+        + std::fmt::Debug
+        + ErrorNorm,
+    S: StatisticsType + 'static,
+    LogisticKernel: KernelProperties + CentrosymmKernel + Clone + 'static,
+{
+    use mdarray::{Shape, Tensor};
+
+    let beta = 1.0;
+    let wmax = 10.0;
+    let epsilon = Some(1e-6);
+
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, epsilon, None);
+    let sampling = TauSampling::new(&basis);
+
+    let basis_size = basis.size();
+    let n_points = sampling.n_sampling_points();
+    let n_k = 3;
+    let n_omega = 4;
+
+    // Create test values (at sampling points)
+    let values = Tensor::<T, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+        <T as From<f64>>::from((idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3))
+    });
+
+    // Test for dim = 0
+    let expected = sampling.fit_nd(None, &values, 0);
+
+    let mut actual = Tensor::<T, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], <T as From<f64>>::from(0.0));
+    sampling.fit_nd_to(None, &values, 0, &mut actual);
+
+    // Compare
+    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
+    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    assert_eq!(expected_shape, actual_shape);
+
+    for i in 0..basis_size {
+        for j in 0..n_k {
+            for k in 0..n_omega {
+                let e = expected[&[i, j, k][..]];
+                let a = actual[&[i, j, k][..]];
+                let diff = (e - a).error_norm();
+                assert!(
+                    diff < 1e-14,
+                    "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
+                    i, j, k, e, a
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_fit_nd_to_matches_fermionic_real() {
+    test_fit_nd_to_matches::<f64, Fermionic>();
+}
+
+#[test]
+fn test_fit_nd_to_matches_fermionic_complex() {
+    test_fit_nd_to_matches::<Complex<f64>, Fermionic>();
+}

@@ -329,6 +329,76 @@ where
         self.evaluate_nd_impl(backend, coeffs, dim)
     }
 
+    /// Evaluate basis coefficients at sampling points (N-dimensional) with in-place output
+    ///
+    /// Evaluates along the specified dimension, keeping other dimensions intact.
+    /// Writes the result directly to the output tensor.
+    ///
+    /// # Type Parameters
+    /// * `T` - Element type (f64 or Complex<f64>)
+    ///
+    /// # Arguments
+    /// * `coeffs` - N-dimensional array with `coeffs.shape().dim(dim) == basis_size`
+    /// * `dim` - Dimension along which to evaluate (0-indexed)
+    /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points`
+    ///
+    /// # Note
+    /// This version writes directly to `out`, reducing final copy overhead.
+    /// Internal allocations for dimension permutation are still present.
+    pub fn evaluate_nd_to<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<T, DynRank>,
+        dim: usize,
+        out: &mut Tensor<T, DynRank>,
+    ) where
+        T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
+    {
+        let _guard = FpuGuard::new_protect_computation();
+
+        // Validate output shape
+        let rank = coeffs.rank();
+        assert_eq!(out.rank(), rank, "out.rank()={} must equal coeffs.rank()={}", out.rank(), rank);
+
+        let n_points = self.n_sampling_points();
+        let out_dim_size = out.shape().dim(dim);
+        assert_eq!(
+            out_dim_size, n_points,
+            "out.shape().dim({}) = {} must equal n_sampling_points = {}",
+            dim, out_dim_size, n_points
+        );
+
+        // Validate other dimensions match
+        for d in 0..rank {
+            if d != dim {
+                let coeffs_d = coeffs.shape().dim(d);
+                let out_d = out.shape().dim(d);
+                assert_eq!(
+                    coeffs_d, out_d,
+                    "coeffs.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
+                    d, coeffs_d, d, out_d
+                );
+            }
+        }
+
+        // Compute result and copy to out
+        let result = self.evaluate_nd_impl(backend, coeffs, dim);
+
+        // Copy result to out (flat iteration)
+        let total = out.len();
+        for i in 0..total {
+            // Convert flat index to multi-dim index
+            let mut idx = vec![0usize; rank];
+            let mut remaining = i;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            out[&idx[..]] = result[&idx[..]];
+        }
+    }
+
     /// Fit N-D values for the real case `T = f64`
     fn fit_nd_impl_real(
         &self,
@@ -494,6 +564,81 @@ where
             }
         } else {
             panic!("Unsupported type for fit_nd: must be f64 or Complex<f64>");
+        }
+    }
+
+    /// Fit basis coefficients from values at sampling points (N-dimensional) with in-place output
+    ///
+    /// Fits along the specified dimension, keeping other dimensions intact.
+    /// Writes the result directly to the output tensor.
+    ///
+    /// # Type Parameters
+    /// * `T` - Element type (f64 or Complex<f64>)
+    ///
+    /// # Arguments
+    /// * `values` - N-dimensional array with `values.shape().dim(dim) == n_sampling_points`
+    /// * `dim` - Dimension along which to fit (0-indexed)
+    /// * `out` - Output tensor with `out.shape().dim(dim) == basis_size`
+    ///
+    /// # Note
+    /// This version writes directly to `out`, reducing final copy overhead.
+    /// Internal allocations for dimension permutation are still present.
+    pub fn fit_nd_to<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Tensor<T, DynRank>,
+        dim: usize,
+        out: &mut Tensor<T, DynRank>,
+    ) where
+        T: num_complex::ComplexFloat
+            + faer_traits::ComplexField
+            + 'static
+            + From<f64>
+            + Copy
+            + Default,
+    {
+        let _guard = FpuGuard::new_protect_computation();
+
+        // Validate output shape
+        let rank = values.rank();
+        assert_eq!(out.rank(), rank, "out.rank()={} must equal values.rank()={}", out.rank(), rank);
+
+        let basis_size = self.basis_size();
+        let out_dim_size = out.shape().dim(dim);
+        assert_eq!(
+            out_dim_size, basis_size,
+            "out.shape().dim({}) = {} must equal basis_size = {}",
+            dim, out_dim_size, basis_size
+        );
+
+        // Validate other dimensions match
+        for d in 0..rank {
+            if d != dim {
+                let values_d = values.shape().dim(d);
+                let out_d = out.shape().dim(d);
+                assert_eq!(
+                    values_d, out_d,
+                    "values.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
+                    d, values_d, d, out_d
+                );
+            }
+        }
+
+        // Compute result using existing fit_nd and copy to out
+        let result = self.fit_nd(backend, values, dim);
+
+        // Copy result to out (flat iteration)
+        let total = out.len();
+        for i in 0..total {
+            // Convert flat index to multi-dim index
+            let mut idx = vec![0usize; rank];
+            let mut remaining = i;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            out[&idx[..]] = result[&idx[..]];
         }
     }
 }
