@@ -323,6 +323,55 @@ impl RealMatrixFitter {
         matmul_par_overwrite_view(&matrix_view, coeffs_2d, out, backend);
     }
 
+    /// Evaluate 2D real tensor (along dim=0) with in-place output to mutable view
+    ///
+    /// Computes: out = matrix * coeffs_2d
+    ///
+    /// This version writes directly to a mutable view, enabling zero-copy
+    /// writes to pre-allocated buffers (e.g., C pointers via FFI).
+    ///
+    /// # Arguments
+    /// * `coeffs_2d` - Shape: [basis_size, extra_size]
+    /// * `out` - Output mutable view, shape: [n_points, extra_size] (will be overwritten)
+    ///
+    /// # Safety
+    /// The output view must have the correct shape and be contiguous.
+    pub fn evaluate_2d_to_viewmut(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs_2d: &DView<'_, f64, 2>,
+        out: &mut mdarray::DViewMut<'_, f64, 2>,
+    ) {
+        use crate::gemm::matmul_par_to_viewmut;
+
+        let (basis_size, extra_size) = *coeffs_2d.shape();
+        let (out_rows, out_cols) = *out.shape();
+
+        assert_eq!(
+            basis_size,
+            self.basis_size(),
+            "coeffs_2d.shape().0={} must equal basis_size={}",
+            basis_size,
+            self.basis_size()
+        );
+        assert_eq!(
+            out_rows,
+            self.n_points(),
+            "out.shape().0={} must equal n_points={}",
+            out_rows,
+            self.n_points()
+        );
+        assert_eq!(
+            out_cols, extra_size,
+            "out.shape().1={} must equal extra_size={}",
+            out_cols, extra_size
+        );
+
+        // out = matrix * coeffs_2d
+        let matrix_view = self.matrix.view(.., ..);
+        matmul_par_to_viewmut(&matrix_view, coeffs_2d, out, backend);
+    }
+
     /// Fit 2D real tensor (along dim=0) using matrix multiplication
     ///
     /// Efficiently computes: coeffs_2d = V * S^{-1} * U^T * values_2d

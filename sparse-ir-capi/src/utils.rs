@@ -221,6 +221,23 @@ pub(crate) unsafe fn copy_tensor_to_c_array<T: Copy>(
     }
 }
 
+/// Create a 2D mutable view from raw pointer (row-major layout)
+///
+/// # Safety
+/// - `ptr` must be valid and point to at least `rows * cols` elements
+/// - The memory must remain valid for the lifetime of the returned view
+/// - The caller must ensure no aliasing occurs
+pub(crate) unsafe fn create_viewmut_2d_row_major<T>(
+    ptr: *mut T,
+    rows: usize,
+    cols: usize,
+) -> mdarray::DViewMut<'static, T, 2> {
+    use mdarray::DenseMapping;
+
+    let mapping = DenseMapping::new((rows, cols));
+    mdarray::DViewMut::<'static, T, 2>::new_unchecked(ptr, mapping)
+}
+
 /// Choose the working type (Twork) based on epsilon value
 ///
 /// This function determines the appropriate working precision type based on the
