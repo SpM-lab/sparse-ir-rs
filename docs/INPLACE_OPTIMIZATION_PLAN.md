@@ -60,19 +60,23 @@ C-API (`sparse-ir-capi`) の `eval` / `fit` 系関数のパフォーマンス最
 | `evaluate_nd_to(&self, backend, coeffs, dim, out)` | f64係数 → Complex値 (in-place) |
 | `fit_nd_to(&self, backend, values, dim, out)` | Complex値 → f64係数 (in-place) |
 
-### Phase 4: C-API統合 📋 未着手
+### Phase 4: C-API統合 🔄 基盤完了
 
-**目標:**
-- `DViewMut` を使用してCポインタから直接書き込み
-- `read_tensor_nd` / `copy_tensor_to_c_array` のオーバーヘッド削減
+**完了した基盤:**
 
-**必要な変更:**
+| コンポーネント | 追加内容 |
+|--------------|---------|
+| `gemm.rs` | `matmul_par_to_viewmut()` - DViewMutへの直接書き込み |
+| `fitter.rs` | `evaluate_2d_to_viewmut()` - DViewMutを受け取る2D評価 |
+| `sparse-ir-capi/utils.rs` | `create_viewmut_2d_row_major()` - 生ポインタからDViewMut作成 |
+
+**残りの作業（後回し）:**
+- C-APIのeval/fit関数を完全に統合
+- N-D版のDViewMut対応
+- ベンチマークによる効果測定
+
+**使用例（将来）:**
 ```rust
-// Before (コピーあり)
-let coeffs = read_tensor_nd(...);
-let result = sampling.evaluate_nd(&coeffs, dim);
-copy_tensor_to_c_array(&result, out_ptr);
-
 // After (in-place)
 let coeffs_view = DView::new_unchecked(coeffs_ptr, mapping);
 let mut out_view = DViewMut::new_unchecked(out_ptr, out_mapping);
