@@ -162,25 +162,11 @@ pub fn copy_to_contiguous<T: Copy>(
     src: &mdarray::Slice<T, mdarray::DynRank, mdarray::Strided>,
     dst: &mut [T],
 ) {
-    let total = src.len();
-    assert_eq!(dst.len(), total, "Destination size mismatch");
+    assert_eq!(dst.len(), src.len(), "Destination size mismatch");
 
-    let rank = src.rank();
-    let shape: Vec<usize> = (0..rank).map(|d| src.dim(d)).collect();
-
-    // Iterate through all indices and copy
-    let mut idx = vec![0usize; rank];
-    for i in 0..total {
-        dst[i] = src[&idx[..]];
-
-        // Increment index (row-major order)
-        for d in (0..rank).rev() {
-            idx[d] += 1;
-            if idx[d] < shape[d] {
-                break;
-            }
-            idx[d] = 0;
-        }
+    // mdarray's iter() returns elements in row-major order
+    for (d, s) in dst.iter_mut().zip(src.iter()) {
+        *d = *s;
     }
 }
 
@@ -195,25 +181,11 @@ pub fn copy_from_contiguous<T: Copy>(
     src: &[T],
     dst: &mut mdarray::Slice<T, mdarray::DynRank, mdarray::Strided>,
 ) {
-    let total = dst.len();
-    assert_eq!(src.len(), total, "Source size mismatch");
+    assert_eq!(src.len(), dst.len(), "Source size mismatch");
 
-    let rank = dst.rank();
-    let shape: Vec<usize> = (0..rank).map(|d| dst.dim(d)).collect();
-
-    // Iterate through all indices and copy
-    let mut idx = vec![0usize; rank];
-    for i in 0..total {
-        dst[&idx[..]] = src[i];
-
-        // Increment index (row-major order)
-        for d in (0..rank).rev() {
-            idx[d] += 1;
-            if idx[d] < shape[d] {
-                break;
-            }
-            idx[d] = 0;
-        }
+    // mdarray's iter_mut() returns elements in row-major order
+    for (d, s) in dst.iter_mut().zip(src.iter()) {
+        *d = *s;
     }
 }
 
