@@ -44,13 +44,21 @@ C-API (`sparse-ir-capi`) の `eval` / `fit` 系関数のパフォーマンス最
 - 内部での次元置換 (`movedim`) によるコピーは残存
 - 最終結果のコピーのみ削減
 
-### Phase 3: matsubara_sampling.rs 📋 保留
+### Phase 3: matsubara_sampling.rs ✅ 完了
 
-**対象メソッド:**
-- `MatsubaraSampling::evaluate_nd_to`
-- `MatsubaraSampling::fit_nd_to`
-- `MatsubaraSamplingPositiveOnly::evaluate_nd_to`
-- `MatsubaraSamplingPositiveOnly::fit_nd_to`
+**追加されたメソッド (MatsubaraSampling):**
+
+| メソッド | 説明 |
+|---------|------|
+| `evaluate_nd_to<T>(&self, backend, coeffs, dim, out)` | T係数 → Complex値 (in-place) |
+| `fit_nd_to(&self, backend, values, dim, out)` | Complex値 → Complex係数 (in-place) |
+
+**追加されたメソッド (MatsubaraSamplingPositiveOnly):**
+
+| メソッド | 説明 |
+|---------|------|
+| `evaluate_nd_to(&self, backend, coeffs, dim, out)` | f64係数 → Complex値 (in-place) |
+| `fit_nd_to(&self, backend, values, dim, out)` | Complex値 → f64係数 (in-place) |
 
 ### Phase 4: C-API統合 📋 未着手
 
@@ -86,7 +94,8 @@ sampling.evaluate_nd_to(&coeffs_view, dim, &mut out_view);
 ```
 sparse-ir::fitter::tests - 20件のテスト全通過
 sparse-ir::sampling::tests - 4件の新規テスト全通過
-全体: 245件中245件通過（5件ignored）
+sparse-ir::matsubara_sampling::tests - 4件の新規テスト全通過
+全体: 249件中249件通過（5件ignored）
 ```
 
 ## ブランチ情報
@@ -96,7 +105,7 @@ sparse-ir::sampling::tests - 4件の新規テスト全通過
 
 ## 次のステップ
 
-1. [ ] Phase 3: matsubara_sampling.rsへのin-placeメソッド追加
+1. [x] Phase 3: matsubara_sampling.rsへのin-placeメソッド追加
 2. [ ] Phase 4: C-APIでのDViewMut活用
 3. [ ] ベンチマーク実施と効果測定
 4. [ ] PRの作成とレビュー
