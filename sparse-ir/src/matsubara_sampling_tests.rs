@@ -420,3 +420,230 @@ fn test_regularized_bose_matsubara_sampling_roundtrip() {
 fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip() {
     test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic();
 }
+
+// ============================================================================
+// In-place method tests
+// ============================================================================
+
+use crate::test_utils::movedim;
+use mdarray::{Shape, Tensor};
+
+/// Test MatsubaraSampling::evaluate_nd_to matches evaluate_nd
+#[test]
+fn test_matsubara_sampling_evaluate_nd_to_matches() {
+    let beta = 10.0;
+    let wmax = 10.0;
+    let epsilon = 1e-6;
+
+    let kernel = LogisticKernel::new(wmax * beta);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let sampling = MatsubaraSampling::new(&basis);
+
+    let basis_size = basis.size();
+    let n_points = sampling.n_sampling_points();
+    let n_k = 3;
+    let n_omega = 4;
+
+    // Create test coefficients (complex)
+    let coeffs = Tensor::<Complex<f64>, crate::DynRank>::from_fn(
+        &[basis_size, n_k, n_omega][..],
+        |idx| {
+            Complex::new(
+                (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
+                (idx[2] as f64) * 0.3,
+            )
+        },
+    );
+
+    // Test for dim = 0
+    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+
+    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
+        &[n_points, n_k, n_omega][..],
+        Complex::new(0.0, 0.0),
+    );
+    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+
+    // Compare
+    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
+    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    assert_eq!(expected_shape, actual_shape);
+
+    for i in 0..n_points {
+        for j in 0..n_k {
+            for k in 0..n_omega {
+                let e = expected[&[i, j, k][..]];
+                let a = actual[&[i, j, k][..]];
+                let diff = (e - a).norm();
+                assert!(
+                    diff < 1e-14,
+                    "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
+                    i, j, k, e, a
+                );
+            }
+        }
+    }
+}
+
+/// Test MatsubaraSampling::fit_nd_to matches fit_nd
+#[test]
+fn test_matsubara_sampling_fit_nd_to_matches() {
+    let beta = 10.0;
+    let wmax = 10.0;
+    let epsilon = 1e-6;
+
+    let kernel = LogisticKernel::new(wmax * beta);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let sampling = MatsubaraSampling::new(&basis);
+
+    let basis_size = basis.size();
+    let n_points = sampling.n_sampling_points();
+    let n_k = 3;
+    let n_omega = 4;
+
+    // Create test values (complex)
+    let values = Tensor::<Complex<f64>, crate::DynRank>::from_fn(
+        &[n_points, n_k, n_omega][..],
+        |idx| {
+            Complex::new(
+                (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
+                (idx[2] as f64) * 0.2,
+            )
+        },
+    );
+
+    // Test for dim = 0
+    let expected = sampling.fit_nd(None, &values, 0);
+
+    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
+        &[basis_size, n_k, n_omega][..],
+        Complex::new(0.0, 0.0),
+    );
+    sampling.fit_nd_to(None, &values, 0, &mut actual);
+
+    // Compare
+    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
+    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    assert_eq!(expected_shape, actual_shape);
+
+    for i in 0..basis_size {
+        for j in 0..n_k {
+            for k in 0..n_omega {
+                let e = expected[&[i, j, k][..]];
+                let a = actual[&[i, j, k][..]];
+                let diff = (e - a).norm();
+                assert!(
+                    diff < 1e-14,
+                    "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
+                    i, j, k, e, a
+                );
+            }
+        }
+    }
+}
+
+/// Test MatsubaraSamplingPositiveOnly::evaluate_nd_to matches evaluate_nd
+#[test]
+fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
+    let beta = 10.0;
+    let wmax = 10.0;
+    let epsilon = 1e-6;
+
+    let kernel = LogisticKernel::new(wmax * beta);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
+
+    let basis_size = basis.size();
+    let n_points = sampling.n_sampling_points();
+    let n_k = 3;
+    let n_omega = 4;
+
+    // Create test coefficients (real)
+    let coeffs = Tensor::<f64, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
+    });
+
+    // Test for dim = 0
+    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+
+    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
+        &[n_points, n_k, n_omega][..],
+        Complex::new(0.0, 0.0),
+    );
+    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+
+    // Compare
+    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
+    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    assert_eq!(expected_shape, actual_shape);
+
+    for i in 0..n_points {
+        for j in 0..n_k {
+            for k in 0..n_omega {
+                let e = expected[&[i, j, k][..]];
+                let a = actual[&[i, j, k][..]];
+                let diff = (e - a).norm();
+                assert!(
+                    diff < 1e-14,
+                    "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
+                    i, j, k, e, a
+                );
+            }
+        }
+    }
+}
+
+/// Test MatsubaraSamplingPositiveOnly::fit_nd_to matches fit_nd
+#[test]
+fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
+    let beta = 10.0;
+    let wmax = 10.0;
+    let epsilon = 1e-6;
+
+    let kernel = LogisticKernel::new(wmax * beta);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
+
+    let basis_size = basis.size();
+    let n_points = sampling.n_sampling_points();
+    let n_k = 3;
+    let n_omega = 4;
+
+    // Create test values (complex)
+    let values = Tensor::<Complex<f64>, crate::DynRank>::from_fn(
+        &[n_points, n_k, n_omega][..],
+        |idx| {
+            Complex::new(
+                (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
+                (idx[2] as f64) * 0.2,
+            )
+        },
+    );
+
+    // Test for dim = 0
+    let expected = sampling.fit_nd(None, &values, 0);
+
+    let mut actual =
+        Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
+    sampling.fit_nd_to(None, &values, 0, &mut actual);
+
+    // Compare
+    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
+    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    assert_eq!(expected_shape, actual_shape);
+
+    for i in 0..basis_size {
+        for j in 0..n_k {
+            for k in 0..n_omega {
+                let e = expected[&[i, j, k][..]];
+                let a = actual[&[i, j, k][..]];
+                let diff = (e - a).abs();
+                assert!(
+                    diff < 1e-14,
+                    "Mismatch at [{}, {}, {}]: expected={}, actual={}",
+                    i, j, k, e, a
+                );
+            }
+        }
+    }
+}

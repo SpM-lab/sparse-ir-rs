@@ -524,6 +524,137 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         // 5. Move dimension 0 back to original position dim
         movedim(&coeffs_dim0, 0, dim)
     }
+
+    /// Evaluate basis coefficients at Matsubara sampling points (N-dimensional) with in-place output
+    ///
+    /// # Type Parameters
+    /// * `T` - Coefficient type (f64 or Complex<f64>)
+    ///
+    /// # Arguments
+    /// * `coeffs` - N-dimensional tensor with `coeffs.shape().dim(dim) == basis_size`
+    /// * `dim` - Dimension along which to evaluate (0-indexed)
+    /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points` (Complex<f64>)
+    pub fn evaluate_nd_to<T>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<T, DynRank>,
+        dim: usize,
+        out: &mut Tensor<Complex<f64>, DynRank>,
+    ) where
+        T: Copy + 'static,
+    {
+        let _guard = FpuGuard::new_protect_computation();
+
+        // Validate output shape
+        let rank = coeffs.rank();
+        assert_eq!(
+            out.rank(),
+            rank,
+            "out.rank()={} must equal coeffs.rank()={}",
+            out.rank(),
+            rank
+        );
+
+        let n_points = self.n_sampling_points();
+        let out_dim_size = out.shape().dim(dim);
+        assert_eq!(
+            out_dim_size, n_points,
+            "out.shape().dim({}) = {} must equal n_sampling_points = {}",
+            dim, out_dim_size, n_points
+        );
+
+        // Validate other dimensions match
+        for d in 0..rank {
+            if d != dim {
+                let coeffs_d = coeffs.shape().dim(d);
+                let out_d = out.shape().dim(d);
+                assert_eq!(
+                    coeffs_d, out_d,
+                    "coeffs.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
+                    d, coeffs_d, d, out_d
+                );
+            }
+        }
+
+        // Compute result and copy to out
+        let result = self.evaluate_nd(backend, coeffs, dim);
+
+        // Copy result to out
+        let total = out.len();
+        for i in 0..total {
+            let mut idx = vec![0usize; rank];
+            let mut remaining = i;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            out[&idx[..]] = result[&idx[..]];
+        }
+    }
+
+    /// Fit N-dimensional complex values to complex coefficients with in-place output
+    ///
+    /// # Arguments
+    /// * `values` - N-dimensional tensor with `values.shape().dim(dim) == n_sampling_points`
+    /// * `dim` - Dimension along which to fit (0-indexed)
+    /// * `out` - Output tensor with `out.shape().dim(dim) == basis_size` (Complex<f64>)
+    pub fn fit_nd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut Tensor<Complex<f64>, DynRank>,
+    ) {
+        let _guard = FpuGuard::new_protect_computation();
+
+        // Validate output shape
+        let rank = values.rank();
+        assert_eq!(
+            out.rank(),
+            rank,
+            "out.rank()={} must equal values.rank()={}",
+            out.rank(),
+            rank
+        );
+
+        let basis_size = self.basis_size();
+        let out_dim_size = out.shape().dim(dim);
+        assert_eq!(
+            out_dim_size, basis_size,
+            "out.shape().dim({}) = {} must equal basis_size = {}",
+            dim, out_dim_size, basis_size
+        );
+
+        // Validate other dimensions match
+        for d in 0..rank {
+            if d != dim {
+                let values_d = values.shape().dim(d);
+                let out_d = out.shape().dim(d);
+                assert_eq!(
+                    values_d, out_d,
+                    "values.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
+                    d, values_d, d, out_d
+                );
+            }
+        }
+
+        // Compute result and copy to out
+        let result = self.fit_nd(backend, values, dim);
+
+        // Copy result to out
+        let total = out.len();
+        for i in 0..total {
+            let mut idx = vec![0usize; rank];
+            let mut remaining = i;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            out[&idx[..]] = result[&idx[..]];
+        }
+    }
 }
 
 /// Matsubara sampling for positive frequencies only
@@ -765,6 +896,132 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
 
         // 5. Move dimension 0 back to original position dim
         movedim(&coeffs_dim0, 0, dim)
+    }
+
+    /// Evaluate real basis coefficients at Matsubara sampling points (N-dimensional) with in-place output
+    ///
+    /// # Arguments
+    /// * `coeffs` - N-dimensional tensor of real coefficients with `coeffs.shape().dim(dim) == basis_size`
+    /// * `dim` - Dimension along which to evaluate (0-indexed)
+    /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points` (Complex<f64>)
+    pub fn evaluate_nd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Tensor<f64, DynRank>,
+        dim: usize,
+        out: &mut Tensor<Complex<f64>, DynRank>,
+    ) {
+        let _guard = FpuGuard::new_protect_computation();
+
+        // Validate output shape
+        let rank = coeffs.rank();
+        assert_eq!(
+            out.rank(),
+            rank,
+            "out.rank()={} must equal coeffs.rank()={}",
+            out.rank(),
+            rank
+        );
+
+        let n_points = self.n_sampling_points();
+        let out_dim_size = out.shape().dim(dim);
+        assert_eq!(
+            out_dim_size, n_points,
+            "out.shape().dim({}) = {} must equal n_sampling_points = {}",
+            dim, out_dim_size, n_points
+        );
+
+        // Validate other dimensions match
+        for d in 0..rank {
+            if d != dim {
+                let coeffs_d = coeffs.shape().dim(d);
+                let out_d = out.shape().dim(d);
+                assert_eq!(
+                    coeffs_d, out_d,
+                    "coeffs.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
+                    d, coeffs_d, d, out_d
+                );
+            }
+        }
+
+        // Compute result and copy to out
+        let result = self.evaluate_nd(backend, coeffs, dim);
+
+        // Copy result to out
+        let total = out.len();
+        for i in 0..total {
+            let mut idx = vec![0usize; rank];
+            let mut remaining = i;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            out[&idx[..]] = result[&idx[..]];
+        }
+    }
+
+    /// Fit N-dimensional complex values to real coefficients with in-place output
+    ///
+    /// # Arguments
+    /// * `values` - N-dimensional tensor with `values.shape().dim(dim) == n_sampling_points`
+    /// * `dim` - Dimension along which to fit (0-indexed)
+    /// * `out` - Output tensor with `out.shape().dim(dim) == basis_size` (f64)
+    pub fn fit_nd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Tensor<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut Tensor<f64, DynRank>,
+    ) {
+        let _guard = FpuGuard::new_protect_computation();
+
+        // Validate output shape
+        let rank = values.rank();
+        assert_eq!(
+            out.rank(),
+            rank,
+            "out.rank()={} must equal values.rank()={}",
+            out.rank(),
+            rank
+        );
+
+        let basis_size = self.basis_size();
+        let out_dim_size = out.shape().dim(dim);
+        assert_eq!(
+            out_dim_size, basis_size,
+            "out.shape().dim({}) = {} must equal basis_size = {}",
+            dim, out_dim_size, basis_size
+        );
+
+        // Validate other dimensions match
+        for d in 0..rank {
+            if d != dim {
+                let values_d = values.shape().dim(d);
+                let out_d = out.shape().dim(d);
+                assert_eq!(
+                    values_d, out_d,
+                    "values.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
+                    d, values_d, d, out_d
+                );
+            }
+        }
+
+        // Compute result and copy to out
+        let result = self.fit_nd(backend, values, dim);
+
+        // Copy result to out
+        let total = out.len();
+        for i in 0..total {
+            let mut idx = vec![0usize; rank];
+            let mut remaining = i;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            out[&idx[..]] = result[&idx[..]];
+        }
     }
 }
 
