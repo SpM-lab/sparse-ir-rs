@@ -27,6 +27,7 @@ pub mod sve;
 pub mod taufuncs;
 pub mod traits;
 pub mod tsvd; // High-precision truncated SVD using nalgebra // Imaginary time τ normalization utilities
+pub mod working_buffer; // Reusable working buffer for in-place operations
 
 // Re-export commonly used types and traits
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
