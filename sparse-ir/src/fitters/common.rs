@@ -3,6 +3,7 @@
 //! This module contains shared helper functions and SVD structures
 //! used by all fitter implementations.
 
+use crate::fpu_check::FpuGuard;
 use crate::gemm::GemmBackendHandle;
 use mdarray::{DTensor, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
@@ -346,6 +347,9 @@ pub(crate) fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
 
+    // Protect FPU state during SVD computation (required for Intel Fortran compatibility)
+    let _guard = FpuGuard::new_protect_computation();
+
     let mut a = matrix.clone();
     let SVDDecomp { u, s, vt } = Faer.svd(&mut *a).expect("SVD computation failed");
 
@@ -367,6 +371,9 @@ pub(crate) fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexS
     use mdarray_linalg::prelude::SVD;
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
+
+    // Protect FPU state during SVD computation (required for Intel Fortran compatibility)
+    let _guard = FpuGuard::new_protect_computation();
 
     // Use matrix directly (Complex<f64> is compatible with faer's c64)
     let mut matrix_c64 = matrix.clone();
