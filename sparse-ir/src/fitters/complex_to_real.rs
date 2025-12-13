@@ -8,12 +8,14 @@
 //!   values_flat ∈ R^{2n}: [Re(v[0]); Im(v[0]); Re(v[1]); Im(v[1]); ...]
 
 use crate::gemm::GemmBackendHandle;
-use crate::working_buffer::{copy_from_contiguous, copy_to_contiguous};
 use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::cell::RefCell;
 
-use super::common::{compute_real_svd, make_perm_to_front, InplaceFitter, RealSVD};
+use super::common::{
+    compute_real_svd, copy_from_contiguous, copy_to_contiguous, make_perm_to_front, InplaceFitter,
+    RealSVD,
+};
 
 // ============================================================================
 // Helper functions for efficient interleave/deinterleave
@@ -117,9 +119,39 @@ pub(crate) struct ComplexToRealFitter {
     // Separate real/imag parts for evaluate (pre-computed)
     matrix_re: DTensor<f64, 2>,           // (n_points, basis_size)
     matrix_im: DTensor<f64, 2>,           // (n_points, basis_size)
+    // Transposed versions for dim=1 operations (pre-computed)
+    matrix_re_t: DTensor<f64, 2>,         // (basis_size, n_points)
+    matrix_im_t: DTensor<f64, 2>,         // (basis_size, n_points)
     pub matrix: DTensor<Complex<f64>, 2>, // (n_points, basis_size) - original complex matrix
-    svd: RefCell<Option<RealSVD>>,
+    svd: RefCell<Option<RealSVDExtended>>,
     n_points: usize, // Original complex point count
+}
+
+/// Extended SVD structure that includes pre-computed transposes for dim=1 operations
+struct RealSVDExtended {
+    /// Core SVD components
+    svd: RealSVD,
+    /// U matrix (transpose of ut): shape (2*n_points, min_dim)
+    u: DTensor<f64, 2>,
+    /// V^T matrix (transpose of v): shape (min_dim, basis_size)
+    vt: DTensor<f64, 2>,
+}
+
+impl RealSVDExtended {
+    /// Create extended SVD from matrix with pre-computed transposes
+    fn from_matrix(matrix: &DTensor<f64, 2>) -> Self {
+        let svd = compute_real_svd(matrix);
+        let min_dim = svd.s.len();
+        let (rows, cols) = *matrix.shape();
+
+        // U = ut^T: shape (rows, min_dim)
+        let u = DTensor::<f64, 2>::from_fn([rows, min_dim], |idx| svd.ut[[idx[1], idx[0]]]);
+
+        // V^T = v^T: shape (min_dim, cols)
+        let vt = DTensor::<f64, 2>::from_fn([min_dim, cols], |idx| svd.v[[idx[1], idx[0]]]);
+
+        Self { svd, u, vt }
+    }
 }
 
 impl ComplexToRealFitter {
@@ -148,10 +180,18 @@ impl ComplexToRealFitter {
         let matrix_im =
             DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| matrix_complex[idx].im);
 
+        // Pre-compute transposed versions for dim=1 operations
+        let matrix_re_t =
+            DTensor::<f64, 2>::from_fn([basis_size, n_points], |idx| matrix_re[[idx[1], idx[0]]]);
+        let matrix_im_t =
+            DTensor::<f64, 2>::from_fn([basis_size, n_points], |idx| matrix_im[[idx[1], idx[0]]]);
+
         Self {
             matrix_real,
             matrix_re,
             matrix_im,
+            matrix_re_t,
+            matrix_im_t,
             matrix: matrix_complex.clone(),
             svd: RefCell::new(None),
             n_points,
@@ -336,14 +376,9 @@ impl ComplexToRealFitter {
             assert_eq!(out_rows, extra_size);
             assert_eq!(out_cols, n_points);
 
-            // Transpose: coeffs * matrix_re^T and coeffs * matrix_im^T
-            let matrix_re_t =
-                DTensor::<f64, 2>::from_fn([basis_size, n_points], |idx| self.matrix_re[[idx[1], idx[0]]]);
-            let matrix_im_t =
-                DTensor::<f64, 2>::from_fn([basis_size, n_points], |idx| self.matrix_im[[idx[1], idx[0]]]);
-
-            let matrix_re_t_view = matrix_re_t.view(.., ..);
-            let matrix_im_t_view = matrix_im_t.view(.., ..);
+            // Use pre-computed transposed matrices
+            let matrix_re_t_view = self.matrix_re_t.view(.., ..);
+            let matrix_im_t_view = self.matrix_im_t.view(.., ..);
             let values_re = matmul_par_view(coeffs_2d, &matrix_re_t_view, backend);
             let values_im = matmul_par_view(coeffs_2d, &matrix_im_t_view, backend);
 
@@ -506,17 +541,15 @@ impl ComplexToRealFitter {
         );
 
         // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_real_svd(&self.matrix_real);
-            *self.svd.borrow_mut() = Some(svd);
-        }
+        self.ensure_svd();
 
         // Flatten complex values to real: [n_points, extra_size] → [2*n_points, extra_size]
         let mut values_flat = DTensor::<f64, 2>::zeros([2 * n_points, extra_size]);
         flatten_complex_to_real_rows(values_2d, &mut values_flat);
 
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
+        let svd_ext = self.svd.borrow();
+        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd = &svd_ext.svd;
 
         // coeffs = V * S^{-1} * U^T * values_flat
 
@@ -539,6 +572,14 @@ impl ComplexToRealFitter {
         matmul_par_to_viewmut(&v_view, &ut_values_view, out, backend);
     }
 
+    /// Ensure SVD is computed (lazy initialization)
+    fn ensure_svd(&self) {
+        if self.svd.borrow().is_none() {
+            let svd_ext = RealSVDExtended::from_matrix(&self.matrix_real);
+            *self.svd.borrow_mut() = Some(svd_ext);
+        }
+    }
+
     /// Fit 2D complex tensor to real coefficients with configurable target dimension
     ///
     /// # Arguments
@@ -558,13 +599,11 @@ impl ComplexToRealFitter {
         let (out_rows, out_cols) = *out.shape();
 
         // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_real_svd(&self.matrix_real);
-            *self.svd.borrow_mut() = Some(svd);
-        }
+        self.ensure_svd();
 
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
+        let svd_ext = self.svd.borrow();
+        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd = &svd_ext.svd;
         let min_dim = svd.s.len();
         let n_points = self.n_points();
         let basis_size = self.basis_size();
@@ -609,11 +648,8 @@ impl ComplexToRealFitter {
             flatten_complex_to_real_cols(values_2d, &mut values_flat);
 
             // coeffs = values_flat * U * S^{-1} * V^T
-            // Where U = ut^T (transpose, no conjugate since real)
-            let u = DTensor::<f64, 2>::from_fn([2 * n_points, min_dim], |idx| {
-                svd.ut[[idx[1], idx[0]]]
-            });
-            let u_view = u.view(.., ..);
+            // Use pre-computed U and V^T
+            let u_view = svd_ext.u.view(.., ..);
             let values_flat_view = values_flat.view(.., ..);
             let mut values_u = matmul_par_view(&values_flat_view, &u_view, backend); // [extra, min_dim]
 
@@ -624,11 +660,8 @@ impl ComplexToRealFitter {
                 }
             }
 
-            // Multiply by V^T
-            let vt = DTensor::<f64, 2>::from_fn([min_dim, basis_size], |idx| {
-                svd.v[[idx[1], idx[0]]]
-            });
-            let vt_view = vt.view(.., ..);
+            // Multiply by V^T (pre-computed)
+            let vt_view = svd_ext.vt.view(.., ..);
             let values_u_view = values_u.view(.., ..);
             matmul_par_to_viewmut(&values_u_view, &vt_view, out, backend);
         }

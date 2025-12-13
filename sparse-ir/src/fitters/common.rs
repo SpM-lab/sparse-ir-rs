@@ -140,6 +140,49 @@ pub(crate) fn make_perm_to_front(rank: usize, dim: usize) -> Vec<usize> {
 }
 
 // ============================================================================
+// Strided copy helpers
+// ============================================================================
+
+/// Copy data from a strided view to a contiguous slice
+///
+/// This is useful for copying permuted views to a contiguous buffer
+/// before performing GEMM operations.
+///
+/// # Arguments
+/// * `src` - Source slice (may be strided)
+/// * `dst` - Destination slice (must be contiguous, same total elements)
+pub(crate) fn copy_to_contiguous<T: Copy>(
+    src: &mdarray::Slice<T, mdarray::DynRank, mdarray::Strided>,
+    dst: &mut [T],
+) {
+    assert_eq!(dst.len(), src.len(), "Destination size mismatch");
+
+    // mdarray's iter() returns elements in row-major order
+    for (d, s) in dst.iter_mut().zip(src.iter()) {
+        *d = *s;
+    }
+}
+
+/// Copy data from a contiguous slice to a strided view
+///
+/// This is useful for copying GEMM results back to a permuted output view.
+///
+/// # Arguments
+/// * `src` - Source slice (contiguous)
+/// * `dst` - Destination slice (may be strided)
+pub(crate) fn copy_from_contiguous<T: Copy>(
+    src: &[T],
+    dst: &mut mdarray::Slice<T, mdarray::DynRank, mdarray::Strided>,
+) {
+    assert_eq!(src.len(), dst.len(), "Source size mismatch");
+
+    // mdarray's iter_mut() returns elements in row-major order
+    for (d, s) in dst.iter_mut().zip(src.iter()) {
+        *d = *s;
+    }
+}
+
+// ============================================================================
 // Complex-Real reinterpretation helpers
 // ============================================================================
 

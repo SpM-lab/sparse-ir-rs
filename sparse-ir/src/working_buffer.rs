@@ -150,45 +150,6 @@ impl Drop for WorkingBuffer {
 unsafe impl Send for WorkingBuffer {}
 unsafe impl Sync for WorkingBuffer {}
 
-/// Copy data from a strided view to a contiguous slice
-///
-/// This is useful for copying permuted views to a contiguous buffer
-/// before performing GEMM operations.
-///
-/// # Arguments
-/// * `src` - Source slice (may be strided)
-/// * `dst` - Destination slice (must be contiguous, same total elements)
-pub fn copy_to_contiguous<T: Copy>(
-    src: &mdarray::Slice<T, mdarray::DynRank, mdarray::Strided>,
-    dst: &mut [T],
-) {
-    assert_eq!(dst.len(), src.len(), "Destination size mismatch");
-
-    // mdarray's iter() returns elements in row-major order
-    for (d, s) in dst.iter_mut().zip(src.iter()) {
-        *d = *s;
-    }
-}
-
-/// Copy data from a contiguous slice to a strided view
-///
-/// This is useful for copying GEMM results back to a permuted output view.
-///
-/// # Arguments
-/// * `src` - Source slice (contiguous)
-/// * `dst` - Destination slice (may be strided)
-pub fn copy_from_contiguous<T: Copy>(
-    src: &[T],
-    dst: &mut mdarray::Slice<T, mdarray::DynRank, mdarray::Strided>,
-) {
-    assert_eq!(src.len(), dst.len(), "Source size mismatch");
-
-    // mdarray's iter_mut() returns elements in row-major order
-    for (d, s) in dst.iter_mut().zip(src.iter()) {
-        *d = *s;
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -267,47 +228,5 @@ mod tests {
         buf.ensure_capacity_bytes(1000);
         assert!(buf.capacity_bytes() >= 1000);
         assert!(buf.capacity_bytes() > old_capacity);
-    }
-
-    #[test]
-    fn test_copy_to_from_contiguous() {
-        use mdarray::{tensor, Tensor};
-
-        // Create a 2D tensor: shape [2, 3]
-        // [[1, 2, 3],
-        //  [4, 5, 6]]
-        let original = tensor![[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]];
-
-        // Permute it (creates strided view): shape [3, 2]
-        // [[1, 4],
-        //  [2, 5],
-        //  [3, 6]]
-        let permuted = original.permute([1, 0]);
-
-        // Copy to contiguous buffer (row-major iteration of permuted view)
-        // [1, 4, 2, 5, 3, 6]
-        let mut buffer = vec![0.0f64; 6];
-        super::copy_to_contiguous(&permuted.into_dyn(), &mut buffer);
-
-        assert_eq!(buffer, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
-
-        // Test copy back: create [3, 2] tensor, permute to [2, 3], copy source data
-        // Source represents row-major [2, 3] data: [[10, 20, 30], [40, 50, 60]]
-        let mut output: Tensor<f64, mdarray::DynRank> = Tensor::from_elem(&[3, 2][..], 0.0);
-        {
-            // permute_mut [1, 0] gives view of shape [2, 3]
-            let mut output_permuted = output.permute_mut([1, 0]);
-            let source = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0];
-            super::copy_from_contiguous(&source, &mut output_permuted.into_dyn());
-        }
-
-        // Output tensor is [3, 2], which is transpose of [[10, 20, 30], [40, 50, 60]]
-        // So output is [[10, 40], [20, 50], [30, 60]]
-        assert_eq!(output[[0, 0]], 10.0);
-        assert_eq!(output[[0, 1]], 40.0);
-        assert_eq!(output[[1, 0]], 20.0);
-        assert_eq!(output[[1, 1]], 50.0);
-        assert_eq!(output[[2, 0]], 30.0);
-        assert_eq!(output[[2, 1]], 60.0);
     }
 }

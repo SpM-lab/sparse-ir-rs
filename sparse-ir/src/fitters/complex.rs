@@ -4,14 +4,13 @@
 //! where the matrix, coefficients, and values are all complex.
 
 use crate::gemm::GemmBackendHandle;
-use crate::working_buffer::{copy_from_contiguous, copy_to_contiguous};
 use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::cell::RefCell;
 
 use super::common::{
-    combine_complex, compute_complex_svd, extract_real_parts_coeffs, make_perm_to_front,
-    ComplexSVD, InplaceFitter,
+    combine_complex, compute_complex_svd, copy_from_contiguous, copy_to_contiguous,
+    extract_real_parts_coeffs, make_perm_to_front, ComplexSVD, InplaceFitter,
 };
 
 /// Fitter for complex matrix with complex coefficients: A ∈ C^{n×m}
@@ -29,15 +28,51 @@ use super::common::{
 /// let fitted_coeffs = fitter.fit(&values);  // ← Vec<Complex<f64>>, → Vec<Complex<f64>>
 /// ```
 pub(crate) struct ComplexMatrixFitter {
-    pub matrix: DTensor<Complex<f64>, 2>, // (n_points, basis_size)
-    svd: RefCell<Option<ComplexSVD>>,
+    pub matrix: DTensor<Complex<f64>, 2>,   // (n_points, basis_size)
+    matrix_t: DTensor<Complex<f64>, 2>,     // (basis_size, n_points) - transposed
+    svd: RefCell<Option<ComplexSVDExtended>>,
+}
+
+/// Extended SVD structure with pre-computed transposes for dim=1 operations
+struct ComplexSVDExtended {
+    svd: ComplexSVD,
+    /// u_conj = ut^T (no conjugate): shape (n_points, min_dim)
+    u_conj: DTensor<Complex<f64>, 2>,
+    /// vt = v^T (no conjugate): shape (min_dim, basis_size)
+    vt: DTensor<Complex<f64>, 2>,
+}
+
+impl ComplexSVDExtended {
+    fn from_svd(svd: ComplexSVD, n_points: usize, basis_size: usize) -> Self {
+        let min_dim = svd.s.len();
+
+        // u_conj[i,j] = ut[j,i] (transpose, no conjugate)
+        let u_conj = DTensor::<Complex<f64>, 2>::from_fn([n_points, min_dim], |idx| {
+            svd.ut[[idx[1], idx[0]]]
+        });
+
+        // vt[i,j] = v[j,i] (transpose, no conjugate)
+        let vt = DTensor::<Complex<f64>, 2>::from_fn([min_dim, basis_size], |idx| {
+            svd.v[[idx[1], idx[0]]]
+        });
+
+        Self { svd, u_conj, vt }
+    }
 }
 
 impl ComplexMatrixFitter {
     /// Create a new fitter with the given complex matrix
     pub fn new(matrix: DTensor<Complex<f64>, 2>) -> Self {
+        let (n_points, basis_size) = *matrix.shape();
+
+        // Pre-compute transposed matrix for dim=1 operations
+        let matrix_t = DTensor::<Complex<f64>, 2>::from_fn([basis_size, n_points], |idx| {
+            matrix[[idx[1], idx[0]]]
+        });
+
         Self {
             matrix,
+            matrix_t,
             svd: RefCell::new(None),
         }
     }
@@ -329,13 +364,11 @@ impl ComplexMatrixFitter {
         );
 
         // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_complex_svd(&self.matrix);
-            *self.svd.borrow_mut() = Some(svd);
-        }
+        self.ensure_svd();
 
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
+        let svd_ext = self.svd.borrow();
+        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd = &svd_ext.svd;
 
         // coeffs_2d = V * S^{-1} * U^H * values_2d
 
@@ -450,12 +483,8 @@ impl ComplexMatrixFitter {
                 self.n_points()
             );
 
-            // Transpose: coeffs * matrix^T
-            let matrix_t =
-                DTensor::<Complex<f64>, 2>::from_fn([basis_size, self.n_points()], |idx| {
-                    self.matrix[[idx[1], idx[0]]]
-                });
-            let matrix_t_view = matrix_t.view(.., ..);
+            // Use pre-computed transposed matrix
+            let matrix_t_view = self.matrix_t.view(.., ..);
             matmul_par_to_viewmut(coeffs_2d, &matrix_t_view, out, backend);
         }
     }
@@ -479,13 +508,11 @@ impl ComplexMatrixFitter {
         let (out_rows, out_cols) = *out.shape();
 
         // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_complex_svd(&self.matrix);
-            *self.svd.borrow_mut() = Some(svd);
-        }
+        self.ensure_svd();
 
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
+        let svd_ext = self.svd.borrow();
+        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd = &svd_ext.svd;
         let min_dim = svd.s.len();
 
         if dim == 0 {
@@ -553,14 +580,8 @@ impl ComplexMatrixFitter {
             );
 
             // coeffs = values * conj(U) * S^{-1} * V^T
-            // For v = c * A^T, solving gives c^T = A^+ * v^T = V * S^{-1} * U^H * v^T
-            // Taking transpose: c = v * conj(U) * S^{-1} * V^T
-
-            // conj(U)[i,j] = conj(U[i,j]) = conj(conj(ut[j,i])) = ut[j,i]
-            let u_conj = DTensor::<Complex<f64>, 2>::from_fn([n_points, min_dim], |idx| {
-                svd.ut[[idx[1], idx[0]]] // no conj
-            });
-            let u_conj_view = u_conj.view(.., ..);
+            // Use pre-computed u_conj and vt
+            let u_conj_view = svd_ext.u_conj.view(.., ..);
             let mut values_u = matmul_par_view(values_2d, &u_conj_view, backend); // [extra, min_dim]
 
             // Apply S^{-1}
@@ -570,13 +591,19 @@ impl ComplexMatrixFitter {
                 }
             }
 
-            // V^T[i,j] = V[j,i] = v[j,i]
-            let vt = DTensor::<Complex<f64>, 2>::from_fn([min_dim, self.basis_size()], |idx| {
-                svd.v[[idx[1], idx[0]]] // no conj
-            });
-            let vt_view = vt.view(.., ..);
+            // Use pre-computed V^T
+            let vt_view = svd_ext.vt.view(.., ..);
             let values_u_view = values_u.view(.., ..);
             matmul_par_to_viewmut(&values_u_view, &vt_view, out, backend);
+        }
+    }
+
+    /// Ensure SVD is computed (lazy initialization)
+    fn ensure_svd(&self) {
+        if self.svd.borrow().is_none() {
+            let svd = compute_complex_svd(&self.matrix);
+            let svd_ext = ComplexSVDExtended::from_svd(svd, self.n_points(), self.basis_size());
+            *self.svd.borrow_mut() = Some(svd_ext);
         }
     }
 

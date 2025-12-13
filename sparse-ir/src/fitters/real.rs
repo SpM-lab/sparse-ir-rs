@@ -4,13 +4,13 @@
 //! where the matrix, coefficients, and values are all real.
 
 use crate::gemm::GemmBackendHandle;
-use crate::working_buffer::{copy_from_contiguous, copy_to_contiguous};
 use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::cell::RefCell;
 
 use super::common::{
-    complex_slice_as_real, compute_real_svd, make_perm_to_front, RealSVD,
+    complex_slice_as_real, compute_real_svd, copy_from_contiguous, copy_to_contiguous,
+    make_perm_to_front, RealSVD,
 };
 
 /// Fitter for real matrix: A ∈ R^{n×m}
