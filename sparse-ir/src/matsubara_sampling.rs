@@ -4,7 +4,6 @@
 //! IR basis coefficients and values at sparse Matsubara frequencies.
 
 use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter, InplaceFitter};
-use crate::fpu_check::FpuGuard;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
@@ -165,7 +164,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// # Returns
     /// Complex values at Matsubara frequencies (length = n_sampling_points)
     pub fn evaluate(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate(None, coeffs)
     }
 
@@ -177,7 +175,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// # Returns
     /// Fitted complex basis coefficients (length = basis_size)
     pub fn fit(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.fit(None, values)
     }
 
@@ -318,7 +315,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     where
         T: Copy + 'static,
     {
-        let _guard = FpuGuard::new_protect_computation();
         use std::any::TypeId;
 
         if TypeId::of::<T>() == TypeId::of::<f64>() {
@@ -419,7 +415,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let rank = values.rank();
         assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
 
@@ -481,7 +476,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<f64, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let rank = values.rank();
         assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
 
@@ -543,8 +537,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ) where
         T: Copy + 'static,
     {
-        let _guard = FpuGuard::new_protect_computation();
-
         // Validate output shape
         let rank = coeffs.rank();
         assert_eq!(
@@ -606,8 +598,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         dim: usize,
         out: &mut Tensor<Complex<f64>, DynRank>,
     ) {
-        let _guard = FpuGuard::new_protect_computation();
-
         // Validate output shape
         let rank = values.rank();
         assert_eq!(
@@ -824,13 +814,11 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
 
     /// Evaluate basis coefficients at sampling points
     pub fn evaluate(&self, coeffs: &[f64]) -> Vec<Complex<f64>> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate(None, coeffs)
     }
 
     /// Fit basis coefficients from values at sampling points
     pub fn fit(&self, values: &[Complex<f64>]) -> Vec<f64> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.fit(None, values)
     }
 
@@ -848,7 +836,6 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         coeffs: &Tensor<f64, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let rank = coeffs.rank();
         assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
 
@@ -910,7 +897,6 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<f64, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let rank = values.rank();
         assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
 
@@ -967,8 +953,6 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         dim: usize,
         out: &mut Tensor<Complex<f64>, DynRank>,
     ) {
-        let _guard = FpuGuard::new_protect_computation();
-
         // Validate output shape
         let rank = coeffs.rank();
         assert_eq!(
@@ -1030,8 +1014,6 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         dim: usize,
         out: &mut Tensor<f64, DynRank>,
     ) {
-        let _guard = FpuGuard::new_protect_computation();
-
         // Validate output shape
         let rank = values.rank();
         assert_eq!(

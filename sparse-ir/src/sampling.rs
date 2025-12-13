@@ -4,7 +4,6 @@
 //! and values at sparse sampling points in imaginary time.
 
 use crate::fitters::InplaceFitter;
-use crate::fpu_check::FpuGuard;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
@@ -239,49 +238,41 @@ where
     /// # Returns
     /// Values at sampling points (length = n_sampling_points)
     pub fn evaluate(&self, coeffs: &[f64]) -> Vec<f64> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate(None, coeffs)
     }
 
     /// Evaluate basis coefficients at sampling points, writing to output slice
     pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate_to(None, coeffs, out)
     }
 
     /// Fit values at sampling points to basis coefficients
     pub fn fit(&self, values: &[f64]) -> Vec<f64> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.fit(None, values)
     }
 
     /// Fit values at sampling points to basis coefficients, writing to output slice
     pub fn fit_to(&self, values: &[f64], out: &mut [f64]) {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.fit_to(None, values, out)
     }
 
     /// Evaluate complex basis coefficients at sampling points
     pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate_zz(None, coeffs)
     }
 
     /// Evaluate complex basis coefficients, writing to output slice
     pub fn evaluate_zz_to(&self, coeffs: &[Complex<f64>], out: &mut [Complex<f64>]) {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate_zz_to(None, coeffs, out)
     }
 
     /// Fit complex values at sampling points to basis coefficients
     pub fn fit_zz(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.fit_zz(None, values)
     }
 
     /// Fit complex values, writing to output slice
     pub fn fit_zz_to(&self, values: &[Complex<f64>], out: &mut [Complex<f64>]) {
-        let _guard = FpuGuard::new_protect_computation();
         self.fitter.fit_zz_to(None, values, out)
     }
 
@@ -303,7 +294,6 @@ where
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
     ) -> Tensor<f64, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
         let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
         self.evaluate_nd_to(backend, coeffs, dim, &mut out.expr_mut());
@@ -318,7 +308,6 @@ where
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
     ) {
-        let _guard = FpuGuard::new_protect_computation();
         InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
     }
 
@@ -336,7 +325,6 @@ where
         values: &Slice<f64, DynRank>,
         dim: usize,
     ) -> Tensor<f64, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
         let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
         self.fit_nd_to(backend, values, dim, &mut out.expr_mut());
@@ -351,7 +339,6 @@ where
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
     ) {
-        let _guard = FpuGuard::new_protect_computation();
         InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out);
     }
 
@@ -373,7 +360,6 @@ where
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
         self.evaluate_nd_zz_to(backend, coeffs, dim, &mut out.expr_mut());
@@ -388,7 +374,6 @@ where
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) {
-        let _guard = FpuGuard::new_protect_computation();
         InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
     }
 
@@ -406,7 +391,6 @@ where
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
     ) -> Tensor<Complex<f64>, DynRank> {
-        let _guard = FpuGuard::new_protect_computation();
         let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
         self.fit_nd_zz_to(backend, values, dim, &mut out.expr_mut());
@@ -421,7 +405,6 @@ where
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) {
-        let _guard = FpuGuard::new_protect_computation();
         InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out);
     }
 }
