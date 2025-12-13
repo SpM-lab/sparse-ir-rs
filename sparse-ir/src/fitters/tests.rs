@@ -316,52 +316,6 @@ fn test_complex_matrix_fitter_vs_complex_to_real() {
 }
 
 #[test]
-fn test_evaluate_2d_to_matches_evaluate_2d_basic() {
-    // Test that evaluate_2d_to produces identical results to evaluate_2d
-    let n_points = 10;
-    let basis_size = 5;
-    let extra_size = 3;
-
-    // Create a Vandermonde-like matrix
-    let matrix = DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
-        let i = idx[0] as f64 / (n_points as f64);
-        let j = idx[1] as i32;
-        i.powi(j)
-    });
-
-    let fitter = RealMatrixFitter::new(matrix);
-
-    // Create 2D coefficients
-    let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
-        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5)
-    });
-    let coeffs_view = coeffs_2d.view(.., ..);
-
-    // Use existing evaluate_2d
-    let expected = fitter.evaluate_2d(None, &coeffs_view);
-
-    // Use evaluate_2d_to
-    let mut actual = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
-    {
-        let mut actual_view = actual.view_mut(.., ..);
-        fitter.evaluate_2d_to(None, &coeffs_view, &mut actual_view);
-    }
-
-    // Compare results
-    assert_eq!(actual.shape(), expected.shape());
-    for i in 0..n_points {
-        for j in 0..extra_size {
-            let diff = (actual[[i, j]] - expected[[i, j]]).abs();
-            assert!(
-                diff < 1e-14,
-                "Mismatch at [{}, {}]: actual={}, expected={}, diff={}",
-                i, j, actual[[i, j]], expected[[i, j]], diff
-            );
-        }
-    }
-}
-
-#[test]
 fn test_evaluate_2d_to_matches_evaluate_2d() {
     // Test that evaluate_2d_to produces identical results to evaluate_2d
     let n_points = 10;
@@ -432,7 +386,7 @@ fn test_fit_2d_to_matches_fit_2d() {
     // Use existing fit_2d
     let expected = fitter.fit_2d(None, &values_view);
 
-    // Use fit_2d_to
+    // Use new fit_2d_to
     let mut actual = DTensor::<f64, 2>::from_elem([basis_size, extra_size], 0.0);
     {
         let mut actual_view = actual.view_mut(.., ..);
@@ -478,8 +432,8 @@ fn test_evaluate_fit_roundtrip_with_inplace() {
     // evaluate_2d_to
     let mut values = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
     {
-        let mut values_view_mut = values.view_mut(.., ..);
-        fitter.evaluate_2d_to(None, &coeffs_view, &mut values_view_mut);
+        let mut values_mut = values.view_mut(.., ..);
+        fitter.evaluate_2d_to(None, &coeffs_view, &mut values_mut);
     }
 
     // fit_2d_to
@@ -531,7 +485,7 @@ fn test_evaluate_complex_2d_to_matches_evaluate_complex_2d() {
     // Use existing evaluate_complex_2d
     let expected = fitter.evaluate_complex_2d(None, &coeffs_view);
 
-    // Use evaluate_complex_2d_to
+    // Use new evaluate_complex_2d_to
     let mut actual = DTensor::<Complex<f64>, 2>::from_elem([n_points, extra_size], Complex::new(0.0, 0.0));
     {
         let mut actual_view = actual.view_mut(.., ..);
@@ -580,7 +534,7 @@ fn test_fit_complex_2d_to_matches_fit_complex_2d() {
     // Use existing fit_complex_2d
     let expected = fitter.fit_complex_2d(None, &values_view);
 
-    // Use fit_complex_2d_to
+    // Use new fit_complex_2d_to
     let mut actual = DTensor::<Complex<f64>, 2>::from_elem([basis_size, extra_size], Complex::new(0.0, 0.0));
     {
         let mut actual_view = actual.view_mut(.., ..);
@@ -625,8 +579,8 @@ fn test_complex_roundtrip_with_inplace() {
     // evaluate_complex_2d_to
     let mut values = DTensor::<Complex<f64>, 2>::from_elem([n_points, extra_size], Complex::new(0.0, 0.0));
     {
-        let mut values_view_mut = values.view_mut(.., ..);
-        fitter.evaluate_complex_2d_to(None, &coeffs_view, &mut values_view_mut);
+        let mut values_mut = values.view_mut(.., ..);
+        fitter.evaluate_complex_2d_to(None, &coeffs_view, &mut values_mut);
     }
 
     // fit_complex_2d_to

@@ -3,7 +3,7 @@
 //! This module provides Matsubara frequency sampling for transforming between
 //! IR basis coefficients and values at sparse Matsubara frequencies.
 
-use crate::fitter::{ComplexMatrixFitter, ComplexToRealFitter};
+use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter};
 use crate::fpu_check::FpuGuard;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;

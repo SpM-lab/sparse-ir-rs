@@ -93,7 +93,7 @@ where
     sampling_points: Vec<f64>,
 
     /// Real matrix fitter for least-squares fitting
-    fitter: crate::fitter::RealMatrixFitter,
+    fitter: crate::fitters::RealMatrixFitter,
 
     /// Marker for statistics type
     _phantom: std::marker::PhantomData<S>,
@@ -162,7 +162,7 @@ where
         let matrix = basis.evaluate_tau(&sampling_points);
 
         // Create fitter
-        let fitter = crate::fitter::RealMatrixFitter::new(matrix);
+        let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
         Self {
             sampling_points,
@@ -195,7 +195,7 @@ where
             sampling_points.len()
         );
 
-        let fitter = crate::fitter::RealMatrixFitter::new(matrix);
+        let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
         Self {
             sampling_points,
