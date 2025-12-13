@@ -1189,10 +1189,10 @@ pub extern "C" fn spir_sampling_eval_zz(
             // Tau sampling: evaluate with complex input, returns complex
             // The transformation matrix is real, but if input has imaginary part, output will also have imaginary part
             SamplingType::TauFermionic(tau) => {
-                tau.evaluate_nd(backend_handle, &input_tensor, target_dim as usize)
+                tau.evaluate_nd_zz(backend_handle, &input_tensor, target_dim as usize)
             }
             SamplingType::TauBosonic(tau) => {
-                tau.evaluate_nd(backend_handle, &input_tensor, target_dim as usize)
+                tau.evaluate_nd_zz(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED,
         };
@@ -1406,10 +1406,10 @@ pub extern "C" fn spir_sampling_fit_zz(
             // Tau sampling: fit with complex input, returns complex
             // The transformation matrix is real, but if input has imaginary part, output will also have imaginary part
             SamplingType::TauFermionic(tau) => {
-                tau.fit_nd(backend_handle, &input_tensor, target_dim as usize)
+                tau.fit_nd_zz(backend_handle, &input_tensor, target_dim as usize)
             }
             SamplingType::TauBosonic(tau) => {
-                tau.fit_nd(backend_handle, &input_tensor, target_dim as usize)
+                tau.fit_nd_zz(backend_handle, &input_tensor, target_dim as usize)
             }
             #[allow(unreachable_patterns)]
             _ => return SPIR_NOT_SUPPORTED,
@@ -1429,11 +1429,23 @@ pub extern "C" fn spir_sampling_fit_zz(
 /// Fit basis coefficients from Matsubara sampling points (complex input, real output)
 ///
 /// This function fits basis coefficients from Matsubara sampling points
-/// using complex input and real output (positive only case).
+/// using complex input and real output.
+///
+/// # Supported Sampling Types
+///
+/// - **Matsubara (full)**: ✅ Supported (takes real part of fitted complex coefficients)
+/// - **Matsubara (positive_only)**: ✅ Supported
+/// - **Tau**: ❌ Not supported (use `spir_sampling_fit_dd` instead)
+///
+/// # Notes
+///
+/// For full-range Matsubara sampling, this function fits complex coefficients
+/// internally and returns their real parts. This is physically correct for
+/// Green's functions where IR coefficients are guaranteed to be real by symmetry.
 ///
 /// # Arguments
 ///
-/// * `s` - Pointer to the sampling object
+/// * `s` - Pointer to the sampling object (must be Matsubara)
 /// * `backend` - Pointer to the GEMM backend (can be null to use default)
 /// * `order` - Memory layout order (SPIR_ORDER_COLUMN_MAJOR or SPIR_ORDER_ROW_MAJOR)
 /// * `ndim` - Number of dimensions in the input/output arrays
@@ -1441,7 +1453,12 @@ pub extern "C" fn spir_sampling_fit_zz(
 /// * `target_dim` - Target dimension for the transformation (0-based)
 /// * `input` - Input array (complex)
 /// * `out` - Output array (real)
-/// * `return` - SPIR_COMPUTATION_SUCCESS on success, error code otherwise
+///
+/// # Returns
+///
+/// - `SPIR_COMPUTATION_SUCCESS` on success
+/// - `SPIR_NOT_SUPPORTED` if the sampling type doesn't support this operation
+/// - Other error codes on failure
 ///
 /// # See also
 ///
@@ -1484,8 +1501,11 @@ pub extern "C" fn spir_sampling_fit_zd(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit (Matsubara → real coefficients, both full and positive-only)
+        // Note: For full-range Matsubara, this takes the real part of the fitted
+        // complex coefficients. This is physically correct for Green's functions
+        // where IR coefficients are guaranteed to be real by symmetry.
         let result_tensor = match sampling_ref.inner() {
-            // Full range Matsubara: use fit_nd_real
+            // Full range Matsubara: use fit_nd_real (takes real part of complex coeffs)
             SamplingType::MatsubaraFermionic(matsu) => {
                 matsu.fit_nd_real(backend_handle, &input_tensor, target_dim as usize)
             }
