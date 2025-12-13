@@ -398,7 +398,7 @@ impl ComplexToRealFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let rank = coeffs.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -474,6 +474,7 @@ impl ComplexToRealFitter {
             let out_permuted = (&mut *out).permute_mut(&perm[..]);
             copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
+        true
     }
 
     /// Fit 2D complex tensor to real coefficients (along dim=0) using matrix multiplication
@@ -679,7 +680,7 @@ impl ComplexToRealFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
+    ) -> bool {
         let rank = values.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -752,6 +753,7 @@ impl ComplexToRealFitter {
             let out_permuted = (&mut *out).permute_mut(&perm[..]);
             copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
+        true
     }
 }
 
@@ -774,8 +776,7 @@ impl InplaceFitter for ComplexToRealFitter {
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) -> bool {
-        ComplexToRealFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out);
-        true
+        ComplexToRealFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out)
     }
 
     fn fit_nd_zd_to(
@@ -785,8 +786,7 @@ impl InplaceFitter for ComplexToRealFitter {
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
     ) -> bool {
-        ComplexToRealFitter::fit_nd_zd_to(self, backend, values, dim, out);
-        true
+        ComplexToRealFitter::fit_nd_zd_to(self, backend, values, dim, out)
     }
 }
 

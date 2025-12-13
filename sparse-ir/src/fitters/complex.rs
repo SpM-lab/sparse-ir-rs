@@ -638,7 +638,7 @@ impl ComplexMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let rank = coeffs.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -710,6 +710,7 @@ impl ComplexMatrixFitter {
             let out_permuted = (&mut *out).permute_mut(&perm[..]);
             copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
+        true
     }
 
     /// Fit ND complex tensor (along specified dim)
@@ -724,7 +725,7 @@ impl ComplexMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let rank = values.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -796,6 +797,7 @@ impl ComplexMatrixFitter {
             let out_permuted = (&mut *out).permute_mut(&perm[..]);
             copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
+        true
     }
 
     /// Evaluate ND real tensor to complex (along specified dim)
@@ -812,7 +814,7 @@ impl ComplexMatrixFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         use crate::gemm::matmul_par_view;
 
         let rank = coeffs.rank();
@@ -911,6 +913,7 @@ impl ComplexMatrixFitter {
 
             combine_to_complex(&values_re, &values_im, out, Some(&perm));
         }
+        true
     }
 
     /// Fit ND complex tensor to real coefficients (along specified dim)
@@ -927,7 +930,7 @@ impl ComplexMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
+    ) -> bool {
         let rank = values.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -989,6 +992,7 @@ impl ComplexMatrixFitter {
                 *o = t.re;
             }
         }
+        true
     }
 }
 
@@ -1014,8 +1018,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) -> bool {
-        ComplexMatrixFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out);
-        true
+        ComplexMatrixFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out)
     }
 
     fn evaluate_nd_zz_to(
@@ -1025,8 +1028,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) -> bool {
-        ComplexMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
-        true
+        ComplexMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
     }
 
     fn fit_nd_zd_to(
@@ -1036,8 +1038,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
     ) -> bool {
-        ComplexMatrixFitter::fit_nd_zd_to(self, backend, values, dim, out);
-        true
+        ComplexMatrixFitter::fit_nd_zd_to(self, backend, values, dim, out)
     }
 
     fn fit_nd_zz_to(
@@ -1047,8 +1048,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) -> bool {
-        ComplexMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out);
-        true
+        ComplexMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out)
     }
 }
 

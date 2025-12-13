@@ -395,7 +395,7 @@ impl RealMatrixFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
+    ) -> bool {
         let rank = coeffs.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -480,6 +480,7 @@ impl RealMatrixFitter {
             let out_permuted = (&mut *out).permute_mut(&perm[..]);
             copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
+        true
     }
 
     /// Fit 2D real tensor (along dim=0) using matrix multiplication
@@ -680,7 +681,7 @@ impl RealMatrixFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
+    ) -> bool {
         let rank = values.rank();
         let n_points = self.n_points();
         let basis_size = self.basis_size();
@@ -765,6 +766,7 @@ impl RealMatrixFitter {
             let out_permuted = (&mut *out).permute_mut(&perm[..]);
             copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
+        true
     }
 
     /// Fit 2D complex tensor (along dim=0) using matrix multiplication
@@ -839,7 +841,7 @@ impl RealMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let rank = values.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -892,6 +894,7 @@ impl RealMatrixFitter {
             }[..]];
             out[&idx_vec[..]] = Complex::new(re, im);
         }
+        true
     }
 
     /// Evaluate 2D complex coefficients to complex values using GEMM
@@ -986,7 +989,7 @@ impl RealMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let rank = coeffs.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
@@ -1039,6 +1042,7 @@ impl RealMatrixFitter {
             }[..]];
             out[&idx_vec[..]] = Complex::new(re, im);
         }
+        true
     }
 
     /// Generic 2D evaluate (works for both f64 and Complex<f64>)
@@ -1164,8 +1168,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
     ) -> bool {
-        RealMatrixFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
-        true
+        RealMatrixFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out)
     }
 
     fn evaluate_nd_zz_to(
@@ -1175,8 +1178,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) -> bool {
-        RealMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
-        true
+        RealMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
     }
 
     fn fit_nd_dd_to(
@@ -1186,8 +1188,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
     ) -> bool {
-        RealMatrixFitter::fit_nd_dd_to(self, backend, values, dim, out);
-        true
+        RealMatrixFitter::fit_nd_dd_to(self, backend, values, dim, out)
     }
 
     fn fit_nd_zz_to(
@@ -1197,8 +1198,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) -> bool {
-        RealMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out);
-        true
+        RealMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out)
     }
 }
 
