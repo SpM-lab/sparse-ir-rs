@@ -39,9 +39,11 @@ The C-API provides `eval` (coefficients → values) and `fit` (values → coeffi
 |----------|:---:|:----------------:|:-------------------------:|
 | `spir_sampling_fit_dd` | ✅ | ❌ | ❌ |
 | `spir_sampling_fit_zd` | ❌ | ✅* | ✅ |
-| `spir_sampling_fit_zz` | ✅ | ✅ | ❌ |
+| `spir_sampling_fit_zz` | ✅ | ✅ | ✅** |
 
 \* For Matsubara (full), `fit_zd` internally fits complex coefficients and returns their real parts. This is physically correct for Green's functions where IR coefficients are guaranteed to be real by symmetry.
+
+\*\* For Matsubara (positive_only), `fit_zz` internally fits to real coefficients and converts to complex with zero imaginary parts. This is valid because IR coefficients are guaranteed to be real for physical Green's functions.
 
 #### Notes
 

@@ -788,6 +788,52 @@ impl InplaceFitter for ComplexToRealFitter {
     ) -> bool {
         ComplexToRealFitter::fit_nd_zd_to(self, backend, values, dim, out)
     }
+
+    /// Fit ND: Complex<f64> values → Complex<f64> coeffs
+    ///
+    /// For ComplexToRealFitter, this performs fit_zd and converts real output to complex
+    /// (with zero imaginary parts). This is valid because the underlying IR coefficients
+    /// are guaranteed to be real for physical Green's functions.
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        use mdarray::Shape;
+
+        // Get output shape for real temporary buffer
+        let mut out_shape: Vec<usize> = Vec::with_capacity(out.rank());
+        out.shape().with_dims(|dims| {
+            for d in dims {
+                out_shape.push(*d);
+            }
+        });
+
+        // Create temporary real buffer
+        let total = out.len();
+        let mut real_buffer: Vec<f64> = vec![0.0; total];
+
+        // Create view into the real buffer
+        let shape: DynRank = Shape::from_dims(&out_shape[..]);
+        let mut real_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(shape);
+            mdarray::ViewMut::new_unchecked(real_buffer.as_mut_ptr(), mapping)
+        };
+
+        // Fit to real coefficients
+        if !ComplexToRealFitter::fit_nd_zd_to(self, backend, values, dim, &mut real_view) {
+            return false;
+        }
+
+        // Copy real coefficients to complex output (with zero imaginary parts)
+        for (c, r) in out.iter_mut().zip(real_buffer.iter()) {
+            *c = Complex::new(*r, 0.0);
+        }
+
+        true
+    }
 }
 
 #[cfg(test)]

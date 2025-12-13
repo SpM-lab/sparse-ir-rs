@@ -1114,6 +1114,16 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
     ) -> bool {
         self.fitter.fit_nd_zd_to(backend, values, dim, out)
     }
+
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_zz_to(backend, values, dim, out)
+    }
 }
 
 #[cfg(test)]
