@@ -12,6 +12,7 @@ mod complex;
 mod complex_to_real;
 mod real;
 
+pub(crate) use common::InplaceFitter;
 pub(crate) use complex::ComplexMatrixFitter;
 pub(crate) use complex_to_real::ComplexToRealFitter;
 pub(crate) use real::RealMatrixFitter;

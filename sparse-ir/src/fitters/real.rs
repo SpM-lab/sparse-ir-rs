@@ -90,7 +90,7 @@ impl RealMatrixFitter {
             let mapping = mdarray::DenseMapping::new((out.len(), 1));
             mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
         };
-        self.evaluate_2d_to(backend, &coeffs_view, &mut out_view);
+        self.evaluate_2d_dd_to(backend, &coeffs_view, &mut out_view);
     }
 
     /// Fit: values (real) → coeffs (real)
@@ -133,7 +133,7 @@ impl RealMatrixFitter {
             let mapping = mdarray::DenseMapping::new((out.len(), 1));
             mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
         };
-        self.fit_2d_to(backend, &values_view, &mut out_view);
+        self.fit_2d_dd_to(backend, &values_view, &mut out_view);
     }
 
     /// Fit complex values by fitting real and imaginary parts separately
@@ -263,7 +263,7 @@ impl RealMatrixFitter {
         let n_points = self.n_points();
         let mut out = mdarray::DTensor::<f64, 2>::zeros([n_points, extra_size]);
         let mut out_view = out.view_mut(.., ..);
-        self.evaluate_2d_to(backend, coeffs_2d, &mut out_view);
+        self.evaluate_2d_dd_to(backend, coeffs_2d, &mut out_view);
         out
     }
 
@@ -280,7 +280,7 @@ impl RealMatrixFitter {
     ///
     /// # Safety
     /// The output view must have the correct shape and be contiguous.
-    pub fn evaluate_2d_to(
+    pub fn evaluate_2d_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, f64, 2>,
@@ -511,7 +511,7 @@ impl RealMatrixFitter {
         let basis_size = self.basis_size();
         let mut out = mdarray::DTensor::<f64, 2>::zeros([basis_size, extra_size]);
         let mut out_view = out.view_mut(.., ..);
-        self.fit_2d_to(backend, values_2d, &mut out_view);
+        self.fit_2d_dd_to(backend, values_2d, &mut out_view);
         out
     }
 
@@ -650,7 +650,7 @@ impl RealMatrixFitter {
     ///
     /// # Note
     /// An intermediate buffer of size [min_dim, extra_size] is still allocated internally.
-    pub fn fit_2d_to(
+    pub fn fit_2d_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, f64, 2>,
@@ -710,7 +710,7 @@ impl RealMatrixFitter {
                 mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
             };
 
-            self.fit_2d_to(backend, &values_2d, &mut out_2d);
+            self.fit_2d_dd_to(backend, &values_2d, &mut out_2d);
         } else if dim == rank - 1 {
             // Fast path 2: dim == N-1, no movedim needed
             // values is [..., n_points], out is [..., basis_size]
@@ -757,7 +757,7 @@ impl RealMatrixFitter {
             };
 
             // Step 4: Fit directly into output buffer
-            self.fit_2d_to(backend, &values_2d, &mut out_2d);
+            self.fit_2d_dd_to(backend, &values_2d, &mut out_2d);
 
             // Step 5: Copy from contiguous buffer to strided output view
             // Use same perm as input (not inverse) because buffer has shape [basis_size, ...rest...]
@@ -1144,6 +1144,96 @@ impl RealMatrixFitter {
     }
 }
 
+// ============================================================================
+// InplaceFitter trait implementation
+// ============================================================================
+
+impl super::common::InplaceFitter for RealMatrixFitter {
+    fn n_points(&self) -> usize {
+        self.n_points()
+    }
+
+    fn basis_size(&self) -> usize {
+        self.basis_size()
+    }
+
+    fn evaluate_2d_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &DView<'_, f64, 2>,
+        out: &mut mdarray::DViewMut<'_, f64, 2>,
+    ) {
+        RealMatrixFitter::evaluate_2d_dd_to(self, backend, coeffs, out)
+    }
+
+    fn evaluate_2d_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &DView<'_, Complex<f64>, 2>,
+        out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
+    ) {
+        RealMatrixFitter::evaluate_2d_zz_to(self, backend, coeffs, out)
+    }
+
+    fn fit_2d_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &DView<'_, f64, 2>,
+        out: &mut mdarray::DViewMut<'_, f64, 2>,
+    ) {
+        RealMatrixFitter::fit_2d_dd_to(self, backend, values, out)
+    }
+
+    fn fit_2d_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &DView<'_, Complex<f64>, 2>,
+        out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
+    ) {
+        RealMatrixFitter::fit_2d_zz_to(self, backend, values, out)
+    }
+
+    fn evaluate_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        RealMatrixFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out)
+    }
+
+    fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        RealMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
+    }
+
+    fn fit_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        RealMatrixFitter::fit_nd_dd_to(self, backend, values, dim, out)
+    }
+
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        RealMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1241,7 +1331,7 @@ mod tests {
         let mut actual = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
         {
             let mut actual_view = actual.view_mut(.., ..);
-            fitter.evaluate_2d_to(None, &coeffs_view, &mut actual_view);
+            fitter.evaluate_2d_dd_to(None, &coeffs_view, &mut actual_view);
         }
 
         assert_eq!(actual.shape(), expected.shape());
@@ -1277,7 +1367,7 @@ mod tests {
         let mut actual = DTensor::<f64, 2>::from_elem([basis_size, extra_size], 0.0);
         {
             let mut actual_view = actual.view_mut(.., ..);
-            fitter.fit_2d_to(None, &values_view, &mut actual_view);
+            fitter.fit_2d_dd_to(None, &values_view, &mut actual_view);
         }
 
         assert_eq!(actual.shape(), expected.shape());
@@ -1311,14 +1401,14 @@ mod tests {
         let mut values = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
         {
             let mut values_mut = values.view_mut(.., ..);
-            fitter.evaluate_2d_to(None, &coeffs_view, &mut values_mut);
+            fitter.evaluate_2d_dd_to(None, &coeffs_view, &mut values_mut);
         }
 
         let values_view = values.view(.., ..);
         let mut fitted_coeffs = DTensor::<f64, 2>::from_elem([basis_size, extra_size], 0.0);
         {
             let mut fitted_view = fitted_coeffs.view_mut(.., ..);
-            fitter.fit_2d_to(None, &values_view, &mut fitted_view);
+            fitter.fit_2d_dd_to(None, &values_view, &mut fitted_view);
         }
 
         for i in 0..basis_size {

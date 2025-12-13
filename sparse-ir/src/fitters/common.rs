@@ -3,8 +3,212 @@
 //! This module contains shared helper functions and SVD structures
 //! used by all fitter implementations.
 
-use mdarray::{DTensor, DynRank, Shape, Slice};
+use crate::gemm::GemmBackendHandle;
+use mdarray::{DTensor, DView, DViewMut, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
+
+// ============================================================================
+// InplaceFitter trait
+// ============================================================================
+
+/// Trait for inplace evaluation and fitting operations.
+///
+/// Uses BLAS-style naming convention for type suffixes:
+/// - `d` = double (f64)
+/// - `z` = double complex (Complex<f64>)
+///
+/// For example:
+/// - `evaluate_2d_dd_to`: 2D, f64 input → f64 output
+/// - `evaluate_2d_zz_to`: 2D, Complex<f64> input → Complex<f64> output
+/// - `evaluate_2d_dz_to`: 2D, f64 input → Complex<f64> output
+/// - `evaluate_2d_zd_to`: 2D, Complex<f64> input → f64 output
+pub trait InplaceFitter {
+    /// Number of sampling points
+    fn n_points(&self) -> usize;
+
+    /// Number of basis functions
+    fn basis_size(&self) -> usize;
+
+    // ========================================================================
+    // 2D operations
+    // ========================================================================
+
+    /// Evaluate 2D: f64 coeffs → f64 values
+    fn evaluate_2d_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &DView<'_, f64, 2>,
+        out: &mut DViewMut<'_, f64, 2>,
+    );
+
+    /// Evaluate 2D: f64 coeffs → Complex<f64> values
+    fn evaluate_2d_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &DView<'_, f64, 2>,
+        out: &mut DViewMut<'_, Complex<f64>, 2>,
+    ) {
+        let _ = (backend, coeffs, out);
+        panic!("evaluate_2d_dz_to not implemented for this fitter");
+    }
+
+    /// Evaluate 2D: Complex<f64> coeffs → f64 values
+    fn evaluate_2d_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &DView<'_, Complex<f64>, 2>,
+        out: &mut DViewMut<'_, f64, 2>,
+    ) {
+        let _ = (backend, coeffs, out);
+        panic!("evaluate_2d_zd_to not implemented for this fitter");
+    }
+
+    /// Evaluate 2D: Complex<f64> coeffs → Complex<f64> values
+    fn evaluate_2d_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &DView<'_, Complex<f64>, 2>,
+        out: &mut DViewMut<'_, Complex<f64>, 2>,
+    ) {
+        let _ = (backend, coeffs, out);
+        panic!("evaluate_2d_zz_to not implemented for this fitter");
+    }
+
+    /// Fit 2D: f64 values → f64 coeffs
+    fn fit_2d_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &DView<'_, f64, 2>,
+        out: &mut DViewMut<'_, f64, 2>,
+    );
+
+    /// Fit 2D: f64 values → Complex<f64> coeffs
+    fn fit_2d_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &DView<'_, f64, 2>,
+        out: &mut DViewMut<'_, Complex<f64>, 2>,
+    ) {
+        let _ = (backend, values, out);
+        panic!("fit_2d_dz_to not implemented for this fitter");
+    }
+
+    /// Fit 2D: Complex<f64> values → f64 coeffs
+    fn fit_2d_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &DView<'_, Complex<f64>, 2>,
+        out: &mut DViewMut<'_, f64, 2>,
+    ) {
+        let _ = (backend, values, out);
+        panic!("fit_2d_zd_to not implemented for this fitter");
+    }
+
+    /// Fit 2D: Complex<f64> values → Complex<f64> coeffs
+    fn fit_2d_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &DView<'_, Complex<f64>, 2>,
+        out: &mut DViewMut<'_, Complex<f64>, 2>,
+    ) {
+        let _ = (backend, values, out);
+        panic!("fit_2d_zz_to not implemented for this fitter");
+    }
+
+    // ========================================================================
+    // ND operations
+    // ========================================================================
+
+    /// Evaluate ND: f64 coeffs → f64 values
+    fn evaluate_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    );
+
+    /// Evaluate ND: f64 coeffs → Complex<f64> values
+    fn evaluate_nd_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let _ = (backend, coeffs, dim, out);
+        panic!("evaluate_nd_dz_to not implemented for this fitter");
+    }
+
+    /// Evaluate ND: Complex<f64> coeffs → f64 values
+    fn evaluate_nd_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let _ = (backend, coeffs, dim, out);
+        panic!("evaluate_nd_zd_to not implemented for this fitter");
+    }
+
+    /// Evaluate ND: Complex<f64> coeffs → Complex<f64> values
+    fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let _ = (backend, coeffs, dim, out);
+        panic!("evaluate_nd_zz_to not implemented for this fitter");
+    }
+
+    /// Fit ND: f64 values → f64 coeffs
+    fn fit_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    );
+
+    /// Fit ND: f64 values → Complex<f64> coeffs
+    fn fit_nd_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let _ = (backend, values, dim, out);
+        panic!("fit_nd_dz_to not implemented for this fitter");
+    }
+
+    /// Fit ND: Complex<f64> values → f64 coeffs
+    fn fit_nd_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let _ = (backend, values, dim, out);
+        panic!("fit_nd_zd_to not implemented for this fitter");
+    }
+
+    /// Fit ND: Complex<f64> values → Complex<f64> coeffs
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let _ = (backend, values, dim, out);
+        panic!("fit_nd_zz_to not implemented for this fitter");
+    }
+}
 
 // ============================================================================
 // Permutation helpers
