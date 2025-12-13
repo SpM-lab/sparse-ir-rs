@@ -240,3 +240,65 @@ impl ComplexToRealFitter {
         matmul_par_view(&v_view, &ut_values_view, backend)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mdarray::DTensor;
+    use num_complex::Complex;
+
+    #[test]
+    fn test_roundtrip() {
+        let n_points = 10;
+        let basis_size = 5;
+
+        let matrix = DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
+            let i = idx[0] as f64 / (n_points as f64);
+            let j = idx[1] as i32;
+            let re = i.powi(j);
+            let im = (i * (j as f64) * 0.1).sin();
+            Complex::new(re, im)
+        });
+
+        let fitter = ComplexToRealFitter::new(&matrix);
+
+        let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64 + 1.0) * 0.5).collect();
+
+        let values = fitter.evaluate(None, &coeffs);
+        assert_eq!(values.len(), n_points);
+        assert!(values.iter().any(|z| z.im.abs() > 1e-10));
+
+        let fitted_coeffs = fitter.fit(None, &values);
+        assert_eq!(fitted_coeffs.len(), basis_size);
+
+        for (orig, fitted) in coeffs.iter().zip(fitted_coeffs.iter()) {
+            let error = (orig - fitted).abs();
+            assert!(error < 1e-10, "Roundtrip error: {}", error);
+        }
+    }
+
+    #[test]
+    fn test_overdetermined() {
+        let n_points = 20;
+        let basis_size = 5;
+
+        let matrix = DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
+            let i = idx[0] as f64;
+            let j = idx[1] as f64;
+            let phase = 2.0 * std::f64::consts::PI * i * j / (n_points as f64);
+            Complex::new(phase.cos(), phase.sin()) / (j + 1.0)
+        });
+
+        let fitter = ComplexToRealFitter::new(&matrix);
+
+        let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64) * 0.3).collect();
+
+        let values = fitter.evaluate(None, &coeffs);
+        let fitted_coeffs = fitter.fit(None, &values);
+
+        for (orig, fitted) in coeffs.iter().zip(fitted_coeffs.iter()) {
+            let error = (orig - fitted).abs();
+            assert!(error < 1e-10, "Overdetermined roundtrip error: {}", error);
+        }
+    }
+}
