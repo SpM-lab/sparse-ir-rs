@@ -1157,42 +1157,6 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         self.basis_size()
     }
 
-    fn evaluate_2d_dd_to(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        coeffs: &DView<'_, f64, 2>,
-        out: &mut mdarray::DViewMut<'_, f64, 2>,
-    ) {
-        RealMatrixFitter::evaluate_2d_dd_to(self, backend, coeffs, out)
-    }
-
-    fn evaluate_2d_zz_to(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        coeffs: &DView<'_, Complex<f64>, 2>,
-        out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
-    ) {
-        RealMatrixFitter::evaluate_2d_zz_to(self, backend, coeffs, out)
-    }
-
-    fn fit_2d_dd_to(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        values: &DView<'_, f64, 2>,
-        out: &mut mdarray::DViewMut<'_, f64, 2>,
-    ) {
-        RealMatrixFitter::fit_2d_dd_to(self, backend, values, out)
-    }
-
-    fn fit_2d_zz_to(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        values: &DView<'_, Complex<f64>, 2>,
-        out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
-    ) {
-        RealMatrixFitter::fit_2d_zz_to(self, backend, values, out)
-    }
-
     fn evaluate_nd_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
