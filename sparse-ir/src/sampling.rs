@@ -499,28 +499,28 @@ where
             let perm = make_perm_to_front(rank, dim);
             let permuted_view = coeffs.permute(&perm[..]);
 
-            // Allocate uninit buffer and copy
             let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
             unsafe { input_buffer.set_len(total); }
             copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
 
-            // Step 2: Create DTensor from buffer for GEMM
-            let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
-                input_buffer[idx[0] * extra_size + idx[1]]
-            });
+            // Step 2: Create DView from buffer for GEMM (no copy)
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+            };
 
-            // Step 3: Matrix multiply
-            let result_2d = matmul_par(&self.fitter.matrix, &coeffs_2d, backend);
-
-            // Step 4: Copy result to output buffer (uninit allocation)
+            // Step 3: Allocate output buffer and create DViewMut
             let out_total = out.len();
             let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
             unsafe { output_buffer.set_len(out_total); }
-            for i in 0..n_points {
-                for j in 0..extra_size {
-                    output_buffer[i * extra_size + j] = result_2d[[i, j]];
-                }
-            }
+
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(output_buffer.as_mut_ptr(), mapping)
+            };
+
+            // Step 4: Matrix multiply directly into output buffer
+            self.fitter.evaluate_2d_to_viewmut(backend, &coeffs_2d, &mut out_2d);
 
             // Step 5: Copy from contiguous buffer to strided output view (inverse permutation)
             let inv_perm = make_perm_from_front(rank, dim);

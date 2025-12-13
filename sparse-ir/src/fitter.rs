@@ -342,34 +342,92 @@ impl RealMatrixFitter {
         coeffs_2d: &DView<'_, f64, 2>,
         out: &mut mdarray::DViewMut<'_, f64, 2>,
     ) {
+        self.evaluate_2d_to_viewmut_dim(backend, coeffs_2d, out, 0);
+    }
+
+    /// Evaluate 2D real tensor along specified dimension, writing to a mutable view
+    ///
+    /// # Arguments
+    /// * `coeffs_2d` - Coefficient view
+    /// * `out` - Output mutable view (will be overwritten)
+    /// * `dim` - Target dimension (0 or 1)
+    ///   - dim=0: coeffs[basis_size, extra], out[n_points, extra], computes out = matrix * coeffs
+    ///   - dim=1: coeffs[extra, basis_size], out[extra, n_points], computes out = coeffs * matrix^T
+    ///
+    /// # Safety
+    /// The output view must have the correct shape and be contiguous.
+    pub fn evaluate_2d_to_viewmut_dim(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs_2d: &DView<'_, f64, 2>,
+        out: &mut mdarray::DViewMut<'_, f64, 2>,
+        dim: usize,
+    ) {
         use crate::gemm::matmul_par_to_viewmut;
 
-        let (basis_size, extra_size) = *coeffs_2d.shape();
+        let (coeffs_rows, coeffs_cols) = *coeffs_2d.shape();
         let (out_rows, out_cols) = *out.shape();
 
-        assert_eq!(
-            basis_size,
-            self.basis_size(),
-            "coeffs_2d.shape().0={} must equal basis_size={}",
-            basis_size,
-            self.basis_size()
-        );
-        assert_eq!(
-            out_rows,
-            self.n_points(),
-            "out.shape().0={} must equal n_points={}",
-            out_rows,
-            self.n_points()
-        );
-        assert_eq!(
-            out_cols, extra_size,
-            "out.shape().1={} must equal extra_size={}",
-            out_cols, extra_size
-        );
+        if dim == 0 {
+            // out[n_points, extra] = matrix[n_points, basis_size] * coeffs[basis_size, extra]
+            let basis_size = coeffs_rows;
+            let extra_size = coeffs_cols;
 
-        // out = matrix * coeffs_2d
-        let matrix_view = self.matrix.view(.., ..);
-        matmul_par_to_viewmut(&matrix_view, coeffs_2d, out, backend);
+            assert_eq!(
+                basis_size,
+                self.basis_size(),
+                "coeffs_2d.shape().0={} must equal basis_size={}",
+                basis_size,
+                self.basis_size()
+            );
+            assert_eq!(
+                out_rows,
+                self.n_points(),
+                "out.shape().0={} must equal n_points={}",
+                out_rows,
+                self.n_points()
+            );
+            assert_eq!(
+                out_cols, extra_size,
+                "out.shape().1={} must equal extra_size={}",
+                out_cols, extra_size
+            );
+
+            let matrix_view = self.matrix.view(.., ..);
+            matmul_par_to_viewmut(&matrix_view, coeffs_2d, out, backend);
+        } else {
+            // dim == 1
+            // out[extra, n_points] = coeffs[extra, basis_size] * matrix^T[basis_size, n_points]
+            let extra_size = coeffs_rows;
+            let basis_size = coeffs_cols;
+
+            assert_eq!(
+                basis_size,
+                self.basis_size(),
+                "coeffs_2d.shape().1={} must equal basis_size={}",
+                basis_size,
+                self.basis_size()
+            );
+            assert_eq!(
+                out_rows, extra_size,
+                "out.shape().0={} must equal extra_size={}",
+                out_rows, extra_size
+            );
+            assert_eq!(
+                out_cols,
+                self.n_points(),
+                "out.shape().1={} must equal n_points={}",
+                out_cols,
+                self.n_points()
+            );
+
+            // Create transposed view of matrix
+            let matrix_t = self.matrix.permute([1, 0]);
+            // Need to convert to DTensor for matmul (permuted view is strided)
+            let matrix_t_tensor = matrix_t.to_tensor();
+            let matrix_t_view = matrix_t_tensor.view(.., ..);
+            matmul_par_to_viewmut(coeffs_2d, &matrix_t_view, out, backend);
+        }
     }
 
     /// Fit 2D real tensor (along dim=0) using matrix multiplication

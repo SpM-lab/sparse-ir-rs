@@ -625,3 +625,106 @@ fn test_complex_roundtrip_with_inplace() {
         }
     }
 }
+
+// ============================================================================
+// Tests for evaluate_2d_to_viewmut_dim
+// ============================================================================
+
+#[test]
+fn test_evaluate_2d_to_viewmut_dim0() {
+    // Test dim=0: out[n_points, extra] = matrix[n_points, basis] * coeffs[basis, extra]
+    let n_points = 10;
+    let basis_size = 5;
+    let extra_size = 3;
+
+    let matrix = DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
+        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5)
+    });
+
+    let fitter = RealMatrixFitter::new(matrix);
+
+    let coeffs = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
+        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.3)
+    });
+    let coeffs_view = coeffs.view(.., ..);
+
+    // Expected using evaluate_2d
+    let expected = fitter.evaluate_2d(None, &coeffs_view);
+
+    // Actual using evaluate_2d_to_viewmut_dim
+    let mut out_data = vec![0.0f64; n_points * extra_size];
+    let mut out_view = unsafe {
+        let mapping = mdarray::DenseMapping::new((n_points, extra_size));
+        mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_data.as_mut_ptr(), mapping)
+    };
+    fitter.evaluate_2d_to_viewmut_dim(None, &coeffs_view, &mut out_view, 0);
+
+    // Compare
+    for i in 0..n_points {
+        for j in 0..extra_size {
+            let e = expected[[i, j]];
+            let a = out_data[i * extra_size + j];
+            let diff = (e - a).abs();
+            assert!(
+                diff < 1e-14,
+                "Mismatch at [{}, {}]: expected={}, actual={}, diff={}",
+                i, j, e, a, diff
+            );
+        }
+    }
+}
+
+#[test]
+fn test_evaluate_2d_to_viewmut_dim1() {
+    // Test dim=1: out[extra, n_points] = coeffs[extra, basis] * matrix^T[basis, n_points]
+    let n_points = 10;
+    let basis_size = 5;
+    let extra_size = 3;
+
+    let matrix = DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
+        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5)
+    });
+
+    let fitter = RealMatrixFitter::new(matrix);
+
+    // coeffs shape: [extra, basis]
+    let coeffs = DTensor::<f64, 2>::from_fn([extra_size, basis_size], |idx| {
+        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.3)
+    });
+    let coeffs_view = coeffs.view(.., ..);
+
+    // Compute expected: out[extra, n_points] = coeffs[extra, basis] * matrix^T[basis, n_points]
+    // This is equivalent to: for each row of coeffs, multiply by matrix^T
+    let mut expected = DTensor::<f64, 2>::from_elem([extra_size, n_points], 0.0);
+    for e in 0..extra_size {
+        for p in 0..n_points {
+            let mut sum = 0.0;
+            for b in 0..basis_size {
+                sum += coeffs[[e, b]] * fitter.matrix[[p, b]]; // matrix^T[b,p] = matrix[p,b]
+            }
+            expected[[e, p]] = sum;
+        }
+    }
+
+    // Actual using evaluate_2d_to_viewmut_dim
+    let mut out_data = vec![0.0f64; extra_size * n_points];
+    let mut out_view = unsafe {
+        let mapping = mdarray::DenseMapping::new((extra_size, n_points));
+        mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_data.as_mut_ptr(), mapping)
+    };
+    fitter.evaluate_2d_to_viewmut_dim(None, &coeffs_view, &mut out_view, 1);
+
+    // Compare
+    for e in 0..extra_size {
+        for p in 0..n_points {
+            let exp = expected[[e, p]];
+            let act = out_data[e * n_points + p];
+            let diff = (exp - act).abs();
+            assert!(
+                diff < 1e-12,
+                "Mismatch at [{}, {}]: expected={}, actual={}, diff={}",
+                e, p, exp, act, diff
+            );
+        }
+    }
+}
