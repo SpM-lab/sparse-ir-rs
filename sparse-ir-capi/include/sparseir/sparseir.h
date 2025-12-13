@@ -1426,8 +1426,7 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  * - [`spir_sampling_eval_dz`]
  * - [`spir_sampling_eval_zz`]
  * # Note
- * Currently only supports column-major order (SPIR_ORDER_COLUMN_MAJOR = 1).
- * Row-major support will be added in a future update.
+ * Supports both row-major and column-major order. Zero-copy implementation.
  */
 
 StatusCode spir_sampling_eval_dd(const struct spir_sampling *s,
@@ -1443,6 +1442,7 @@ StatusCode spir_sampling_eval_dd(const struct spir_sampling *s,
  * Evaluate basis coefficients at sampling points (double → complex)
  *
  * For Matsubara sampling: transforms real IR coefficients to complex values.
+ * Zero-copy implementation.
  */
 
 StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
@@ -1458,6 +1458,7 @@ StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
  * Evaluate basis coefficients at sampling points (complex → complex)
  *
  * For Matsubara sampling: transforms complex coefficients to complex values.
+ * Zero-copy implementation.
  */
 
 StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
@@ -1499,6 +1500,7 @@ StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
  * * This function performs the inverse operation of `spir_sampling_eval_dd`
  * * The transformation is performed using a pre-computed sampling matrix
  *   that is factorized using SVD for efficiency
+ * * Zero-copy implementation
  *
  * # See also
  *
@@ -1519,6 +1521,8 @@ StatusCode spir_sampling_fit_dd(const struct spir_sampling *s,
  * Fits values at sampling points to basis coefficients (complex to complex version).
  *
  * For more details, see [`spir_sampling_fit_dd`]
+ * Zero-copy implementation for Tau and Matsubara (full).
+ * MatsubaraPositiveOnly requires intermediate storage for real→complex conversion.
  */
 
 StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
@@ -1534,11 +1538,25 @@ StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
  * Fit basis coefficients from Matsubara sampling points (complex input, real output)
  *
  * This function fits basis coefficients from Matsubara sampling points
- * using complex input and real output (positive only case).
+ * using complex input and real output.
+ *
+ * # Supported Sampling Types
+ *
+ * - **Matsubara (full)**: ✅ Supported (takes real part of fitted complex coefficients)
+ * - **Matsubara (positive_only)**: ✅ Supported
+ * - **Tau**: ❌ Not supported (use `spir_sampling_fit_dd` instead)
+ *
+ * # Notes
+ *
+ * For full-range Matsubara sampling, this function fits complex coefficients
+ * internally and returns their real parts. This is physically correct for
+ * Green's functions where IR coefficients are guaranteed to be real by symmetry.
+ *
+ * Zero-copy implementation.
  *
  * # Arguments
  *
- * * `s` - Pointer to the sampling object
+ * * `s` - Pointer to the sampling object (must be Matsubara)
  * * `backend` - Pointer to the GEMM backend (can be null to use default)
  * * `order` - Memory layout order (SPIR_ORDER_COLUMN_MAJOR or SPIR_ORDER_ROW_MAJOR)
  * * `ndim` - Number of dimensions in the input/output arrays
@@ -1546,7 +1564,12 @@ StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
  * * `target_dim` - Target dimension for the transformation (0-based)
  * * `input` - Input array (complex)
  * * `out` - Output array (real)
- * * `return` - SPIR_COMPUTATION_SUCCESS on success, error code otherwise
+ *
+ * # Returns
+ *
+ * - `SPIR_COMPUTATION_SUCCESS` on success
+ * - `SPIR_NOT_SUPPORTED` if the sampling type doesn't support this operation
+ * - Other error codes on failure
  *
  * # See also
  *

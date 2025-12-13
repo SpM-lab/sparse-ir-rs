@@ -221,21 +221,48 @@ pub(crate) unsafe fn copy_tensor_to_c_array<T: Copy>(
     }
 }
 
-/// Create a 2D mutable view from raw pointer (row-major layout)
+/// Build output dimensions by replacing target_dim with new_size
+pub(crate) fn build_output_dims(input_dims: &[usize], target_dim: usize, new_size: usize) -> Vec<usize> {
+    let mut out_dims = input_dims.to_vec();
+    out_dims[target_dim] = new_size;
+    out_dims
+}
+
+/// Create a DView (immutable) from raw pointer with DynRank dimensions
+///
+/// Zero-copy: directly interprets the buffer as a tensor with the given dimensions.
+/// For column-major data, pass reversed dimensions (via convert_dims_for_row_major).
 ///
 /// # Safety
-/// - `ptr` must be valid and point to at least `rows * cols` elements
+/// - `ptr` must be valid and point to at least `product(dims)` elements
+/// - The memory must remain valid for the lifetime of the returned view
+pub(crate) unsafe fn create_dview_from_ptr<'a, T>(
+    ptr: *const T,
+    dims: &[usize],
+) -> mdarray::View<'a, T, sparse_ir::DynRank, mdarray::Dense> {
+    use mdarray::Shape;
+    let shape = sparse_ir::DynRank::from_dims(dims);
+    let mapping = mdarray::DenseMapping::new(shape);
+    unsafe { mdarray::View::new_unchecked(ptr, mapping) }
+}
+
+/// Create a DViewMut (mutable) from raw pointer with DynRank dimensions
+///
+/// Zero-copy: directly interprets the buffer as a mutable tensor with the given dimensions.
+/// For column-major data, pass reversed dimensions (via convert_dims_for_row_major).
+///
+/// # Safety
+/// - `ptr` must be valid and point to at least `product(dims)` elements
 /// - The memory must remain valid for the lifetime of the returned view
 /// - The caller must ensure no aliasing occurs
-pub(crate) unsafe fn create_viewmut_2d_row_major<T>(
+pub(crate) unsafe fn create_dviewmut_from_ptr<'a, T>(
     ptr: *mut T,
-    rows: usize,
-    cols: usize,
-) -> mdarray::DViewMut<'static, T, 2> {
-    use mdarray::DenseMapping;
-
-    let mapping = DenseMapping::new((rows, cols));
-    mdarray::DViewMut::<'static, T, 2>::new_unchecked(ptr, mapping)
+    dims: &[usize],
+) -> mdarray::ViewMut<'a, T, sparse_ir::DynRank> {
+    use mdarray::Shape;
+    let shape = sparse_ir::DynRank::from_dims(dims);
+    let mapping = mdarray::DenseMapping::new(shape);
+    unsafe { mdarray::ViewMut::new_unchecked(ptr, mapping) }
 }
 
 /// Choose the working type (Twork) based on epsilon value

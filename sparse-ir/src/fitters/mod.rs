@@ -7,12 +7,12 @@
 //! - [`ComplexToRealFitter`]: Complex matrix A ∈ C^{n×m}, real coefficients
 //! - [`ComplexMatrixFitter`]: Complex matrix A ∈ C^{n×m}, complex coefficients
 
-pub(crate) mod common;
+pub mod common;
 mod complex;
 mod complex_to_real;
 mod real;
 
-pub(crate) use common::InplaceFitter;
+pub use common::InplaceFitter;
 pub(crate) use complex::ComplexMatrixFitter;
 pub(crate) use complex_to_real::ComplexToRealFitter;
 pub(crate) use real::RealMatrixFitter;

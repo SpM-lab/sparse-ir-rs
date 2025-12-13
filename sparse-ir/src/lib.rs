@@ -56,6 +56,7 @@ pub use polyfourier::{
     BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector, FermionicPiecewiseLegendreFT,
     FermionicPiecewiseLegendreFTVector, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PowerModel,
 };
+pub use fitters::InplaceFitter;
 pub use sampling::TauSampling;
 pub use sve::{
     CentrosymmSVE, SVDStrategy, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,

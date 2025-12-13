@@ -4,8 +4,12 @@
 //! details from C code.
 
 use crate::{SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
+use mdarray::{DynRank, Slice, ViewMut};
+use num_complex::Complex;
 use sparse_ir::basis::FiniteTempBasis;
+use sparse_ir::fitters::InplaceFitter;
 use sparse_ir::freq::MatsubaraFreq;
+use sparse_ir::gemm::GemmBackendHandle;
 use sparse_ir::kernel::{AbstractKernel, CentrosymmKernel, LogisticKernel, RegularizedBoseKernel};
 use sparse_ir::poly::PiecewiseLegendrePolyVector;
 use sparse_ir::polyfourier::PiecewiseLegendreFTVector;
@@ -1240,6 +1244,172 @@ pub(crate) enum SamplingType {
     MatsubaraPositiveOnlyBosonic(
         Arc<sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly<Bosonic>>,
     ),
+}
+
+/// InplaceFitter implementation for SamplingType
+///
+/// Delegates to the underlying sampling type's InplaceFitter implementation.
+/// Returns false for unsupported operations based on sampling type.
+impl InplaceFitter for SamplingType {
+    fn n_points(&self) -> usize {
+        match self {
+            SamplingType::TauFermionic(s) => s.n_sampling_points(),
+            SamplingType::TauBosonic(s) => s.n_sampling_points(),
+            SamplingType::MatsubaraFermionic(s) => s.n_sampling_points(),
+            SamplingType::MatsubaraBosonic(s) => s.n_sampling_points(),
+            SamplingType::MatsubaraPositiveOnlyFermionic(s) => s.n_sampling_points(),
+            SamplingType::MatsubaraPositiveOnlyBosonic(s) => s.n_sampling_points(),
+        }
+    }
+
+    fn basis_size(&self) -> usize {
+        match self {
+            SamplingType::TauFermionic(s) => s.basis_size(),
+            SamplingType::TauBosonic(s) => s.basis_size(),
+            SamplingType::MatsubaraFermionic(s) => s.basis_size(),
+            SamplingType::MatsubaraBosonic(s) => s.basis_size(),
+            SamplingType::MatsubaraPositiveOnlyFermionic(s) => s.basis_size(),
+            SamplingType::MatsubaraPositiveOnlyBosonic(s) => s.basis_size(),
+        }
+    }
+
+    fn evaluate_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        match self {
+            SamplingType::TauFermionic(s) => {
+                InplaceFitter::evaluate_nd_dd_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::TauBosonic(s) => {
+                InplaceFitter::evaluate_nd_dd_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            // Matsubara doesn't support dd (real → real)
+            _ => false,
+        }
+    }
+
+    fn evaluate_nd_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        match self {
+            SamplingType::MatsubaraFermionic(s) => {
+                InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::MatsubaraBosonic(s) => {
+                InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::MatsubaraPositiveOnlyFermionic(s) => {
+                InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::MatsubaraPositiveOnlyBosonic(s) => {
+                InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            // Tau doesn't support dz (real → complex)
+            _ => false,
+        }
+    }
+
+    fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        match self {
+            SamplingType::TauFermionic(s) => {
+                InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::TauBosonic(s) => {
+                InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::MatsubaraFermionic(s) => {
+                InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::MatsubaraBosonic(s) => {
+                InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            // MatsubaraPositiveOnly doesn't support zz (complex → complex)
+            _ => false,
+        }
+    }
+
+    fn fit_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        match self {
+            SamplingType::TauFermionic(s) => {
+                InplaceFitter::fit_nd_dd_to(s.as_ref(), backend, values, dim, out)
+            }
+            SamplingType::TauBosonic(s) => {
+                InplaceFitter::fit_nd_dd_to(s.as_ref(), backend, values, dim, out)
+            }
+            // Matsubara doesn't support dd (real → real)
+            _ => false,
+        }
+    }
+
+    fn fit_nd_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        match self {
+            SamplingType::MatsubaraFermionic(s) => {
+                InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
+            }
+            SamplingType::MatsubaraBosonic(s) => {
+                InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
+            }
+            SamplingType::MatsubaraPositiveOnlyFermionic(s) => {
+                InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
+            }
+            SamplingType::MatsubaraPositiveOnlyBosonic(s) => {
+                InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
+            }
+            // Tau doesn't support zd (complex → real)
+            _ => false,
+        }
+    }
+
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        match self {
+            SamplingType::TauFermionic(s) => {
+                InplaceFitter::fit_nd_zz_to(s.as_ref(), backend, values, dim, out)
+            }
+            SamplingType::TauBosonic(s) => {
+                InplaceFitter::fit_nd_zz_to(s.as_ref(), backend, values, dim, out)
+            }
+            SamplingType::MatsubaraFermionic(s) => {
+                InplaceFitter::fit_nd_zz_to(s.as_ref(), backend, values, dim, out)
+            }
+            SamplingType::MatsubaraBosonic(s) => {
+                InplaceFitter::fit_nd_zz_to(s.as_ref(), backend, values, dim, out)
+            }
+            // MatsubaraPositiveOnly doesn't support zz (complex → complex)
+            _ => false,
+        }
+    }
 }
 
 #[cfg(test)]
