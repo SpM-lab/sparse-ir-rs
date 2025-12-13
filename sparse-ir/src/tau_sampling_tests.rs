@@ -109,8 +109,8 @@ where
         );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_complex_nd(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_complex_nd(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
+        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim);
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -220,8 +220,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
         );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_complex_nd(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_complex_nd(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
+        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim);
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -328,12 +328,12 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
         Complex::new((idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5), idx[2] as f64 * 0.3)
     });
 
-    let expected = sampling.evaluate_complex_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd_zz(None, &coeffs, 0);
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], Complex::new(0.0, 0.0));
     {
         let mut actual_view = actual.expr_mut();
-        sampling.evaluate_complex_nd_to(None, &coeffs, 0, &mut actual_view);
+        sampling.evaluate_nd_zz_to(None, &coeffs, 0, &mut actual_view);
     }
 
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -427,12 +427,12 @@ fn test_fit_nd_to_matches_fermionic_complex() {
         Complex::new((idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5), idx[2] as f64 * 0.3)
     });
 
-    let expected = sampling.fit_complex_nd(None, &values, 0);
+    let expected = sampling.fit_nd_zz(None, &values, 0);
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], Complex::new(0.0, 0.0));
     {
         let mut actual_view = actual.expr_mut();
-        sampling.fit_complex_nd_to(None, &values, 0, &mut actual_view);
+        sampling.fit_nd_zz_to(None, &values, 0, &mut actual_view);
     }
 
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
