@@ -225,10 +225,13 @@ pub trait GemmBackend: Send + Sync {
 }
 
 //==============================================================================
-// Faer Backend (Default, Pure Rust)
+// Faer Backend (Default, Pure Rust, Zero-Copy)
 //==============================================================================
 
 /// Default Faer backend (Pure Rust, no external dependencies)
+///
+/// This implementation uses faer's native API with raw pointer views,
+/// achieving zero-copy matrix multiplication without intermediate allocations.
 struct FaerBackend;
 
 impl GemmBackend for FaerBackend {
@@ -241,32 +244,18 @@ impl GemmBackend for FaerBackend {
         b: *const f64,
         c: *mut f64,
     ) {
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
-        use mdarray_linalg_faer::Faer;
+        use faer::linalg::matmul::matmul;
+        use faer::mat::{MatMut, MatRef};
+        use faer::{Accum, Par};
 
-        // Create tensors from pointers (row-major order)
-        let a_slice = unsafe { std::slice::from_raw_parts(a, m * k) };
-        let b_slice = unsafe { std::slice::from_raw_parts(b, k * n) };
-        let a_tensor = DTensor::<f64, 2>::from_fn([m, k], |idx| a_slice[idx[0] * k + idx[1]]);
-        let b_tensor = DTensor::<f64, 2>::from_fn([k, n], |idx| b_slice[idx[0] * n + idx[1]]);
+        // Create views directly from raw pointers (zero-copy!)
+        // Row-major layout: row_stride = number of columns, col_stride = 1
+        let lhs = unsafe { MatRef::from_raw_parts(a, m, k, k as isize, 1) };
+        let rhs = unsafe { MatRef::from_raw_parts(b, k, n, n as isize, 1) };
+        let mut dst = unsafe { MatMut::from_raw_parts_mut(c, m, n, n as isize, 1) };
 
-        // Create output tensor and use overwrite() to avoid into_mdarray memory leak
-        // Note: overwrite() will fill all values, so initialization value doesn't matter
-        let mut c_tensor = DTensor::<f64, 2>::from_elem([m, n], Default::default());
-        Faer.matmul(&*a_tensor, &*b_tensor)
-            .parallelize()
-            .overwrite(&mut *c_tensor);
-
-        // Copy result back to output pointer (row-major order)
-        // For row-major, ldc = n (number of columns)
-        let ldc = n;
-        let c_slice = unsafe { std::slice::from_raw_parts_mut(c, m * ldc) };
-        for i in 0..m {
-            for j in 0..n {
-                c_slice[i * ldc + j] = c_tensor[[i, j]];
-            }
-        }
+        // In-place matrix multiplication (no intermediate allocations)
+        matmul(&mut dst, Accum::Replace, &lhs, &rhs, 1.0, Par::Seq);
     }
 
     unsafe fn zgemm(
@@ -278,37 +267,25 @@ impl GemmBackend for FaerBackend {
         b: *const num_complex::Complex<f64>,
         c: *mut num_complex::Complex<f64>,
     ) {
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
-        use mdarray_linalg_faer::Faer;
+        use faer::linalg::matmul::matmul;
+        use faer::mat::{MatMut, MatRef};
+        use faer::{Accum, Par};
 
-        // Create tensors from pointers (row-major order)
-        let a_slice = unsafe { std::slice::from_raw_parts(a, m * k) };
-        let b_slice = unsafe { std::slice::from_raw_parts(b, k * n) };
-        let a_tensor = DTensor::<num_complex::Complex<f64>, 2>::from_fn([m, k], |idx| {
-            a_slice[idx[0] * k + idx[1]]
-        });
-        let b_tensor = DTensor::<num_complex::Complex<f64>, 2>::from_fn([k, n], |idx| {
-            b_slice[idx[0] * n + idx[1]]
-        });
+        // Create views directly from raw pointers (zero-copy!)
+        // Row-major layout: row_stride = number of columns, col_stride = 1
+        let lhs = unsafe { MatRef::from_raw_parts(a, m, k, k as isize, 1) };
+        let rhs = unsafe { MatRef::from_raw_parts(b, k, n, n as isize, 1) };
+        let mut dst = unsafe { MatMut::from_raw_parts_mut(c, m, n, n as isize, 1) };
 
-        // Create output tensor and use overwrite() to avoid into_mdarray memory leak
-        // Note: overwrite() will fill all values, so initialization value doesn't matter
-        let mut c_tensor =
-            DTensor::<num_complex::Complex<f64>, 2>::from_elem([m, n], Default::default());
-        Faer.matmul(&*a_tensor, &*b_tensor)
-            .parallelize()
-            .overwrite(&mut *c_tensor);
-
-        // Copy result back to output pointer (row-major order)
-        // For row-major, ldc = n (number of columns)
-        let ldc = n;
-        let c_slice = unsafe { std::slice::from_raw_parts_mut(c, m * ldc) };
-        for i in 0..m {
-            for j in 0..n {
-                c_slice[i * ldc + j] = c_tensor[[i, j]];
-            }
-        }
+        // In-place matrix multiplication (no intermediate allocations)
+        matmul(
+            &mut dst,
+            Accum::Replace,
+            &lhs,
+            &rhs,
+            num_complex::Complex::new(1.0, 0.0),
+            Par::Seq,
+        );
     }
 
     fn name(&self) -> &'static str {
