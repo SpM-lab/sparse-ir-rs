@@ -3,11 +3,27 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
+use crate::fitters::InplaceFitter;
 use crate::fpu_check::FpuGuard;
-use crate::gemm::{GemmBackendHandle, matmul_par};
+use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
-use mdarray::{DTensor, DynRank, Shape, Slice, Tensor};
+use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
+
+/// Build output shape by replacing dimension `dim` with `new_size`
+fn build_output_shape<S: Shape>(input_shape: &S, dim: usize, new_size: usize) -> Vec<usize> {
+    let mut out_shape: Vec<usize> = Vec::with_capacity(input_shape.rank());
+    input_shape.with_dims(|dims| {
+        for (i, d) in dims.iter().enumerate() {
+            if i == dim {
+                out_shape.push(new_size);
+            } else {
+                out_shape.push(*d);
+            }
+        }
+    });
+    out_shape
+}
 
 /// Move axis from position `src` to position `dst`
 ///
@@ -78,7 +94,7 @@ where
     sampling_points: Vec<f64>,
 
     /// Real matrix fitter for least-squares fitting
-    fitter: crate::fitter::RealMatrixFitter,
+    fitter: crate::fitters::RealMatrixFitter,
 
     /// Marker for statistics type
     _phantom: std::marker::PhantomData<S>,
@@ -147,7 +163,7 @@ where
         let matrix = basis.evaluate_tau(&sampling_points);
 
         // Create fitter
-        let fitter = crate::fitter::RealMatrixFitter::new(matrix);
+        let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
         Self {
             sampling_points,
@@ -180,7 +196,7 @@ where
             sampling_points.len()
         );
 
-        let fitter = crate::fitter::RealMatrixFitter::new(matrix);
+        let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
         Self {
             sampling_points,
@@ -209,6 +225,10 @@ where
         &self.fitter.matrix
     }
 
+    // ========================================================================
+    // 1D functions (real and complex)
+    // ========================================================================
+
     /// Evaluate basis coefficients at sampling points
     ///
     /// Computes g(τ_i) = Σ_l a_l * u_l(τ_i) for all sampling points
@@ -218,82 +238,58 @@ where
     ///
     /// # Returns
     /// Values at sampling points (length = n_sampling_points)
-    ///
-    /// # Panics
-    /// Panics if `coeffs.len() != basis_size`
     pub fn evaluate(&self, coeffs: &[f64]) -> Vec<f64> {
         let _guard = FpuGuard::new_protect_computation();
         self.fitter.evaluate(None, coeffs)
     }
 
-    /// Internal generic evaluate_nd implementation
-    fn evaluate_nd_impl<T>(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<T, DynRank>,
-        dim: usize,
-    ) -> Tensor<T, DynRank>
-    where
-        T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
-    {
-        let rank = coeffs.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
-        let basis_size = self.basis_size();
-        let target_dim_size = coeffs.shape().dim(dim);
-
-        // Check that the target dimension matches basis_size
-        assert_eq!(
-            target_dim_size, basis_size,
-            "coeffs.shape().dim({}) = {} must equal basis_size = {}",
-            dim, target_dim_size, basis_size
-        );
-
-        // 1. Move target dimension to position 0
-        let coeffs_dim0 = movedim(coeffs, dim, 0);
-
-        // 2. Reshape to 2D: (basis_size, extra_size)
-        let extra_size: usize = coeffs_dim0.len() / basis_size;
-
-        // Convert DynRank to fixed Rank<2> for matmul_par
-        let coeffs_2d_dyn = coeffs_dim0
-            .reshape(&[basis_size, extra_size][..])
-            .to_tensor();
-        let coeffs_2d = DTensor::<T, 2>::from_fn([basis_size, extra_size], |idx| {
-            coeffs_2d_dyn[&[idx[0], idx[1]][..]]
-        });
-
-        // 3. Matrix multiply: result = A * coeffs
-        //    A is real, convert to type T
-        let n_points = self.n_sampling_points();
-        let matrix_t = DTensor::<T, 2>::from_fn(*self.fitter.matrix.shape(), |idx| {
-            self.fitter.matrix[idx].into()
-        });
-        let result_2d = matmul_par(&matrix_t, &coeffs_2d, backend);
-
-        // 4. Reshape back to N-D with n_points at position 0
-        let mut result_shape = vec![n_points];
-        coeffs_dim0.shape().with_dims(|dims| {
-            for i in 1..dims.len() {
-                result_shape.push(dims[i]);
-            }
-        });
-
-        // Convert DTensor<T, 2> to DynRank using into_dyn()
-        let result_2d_dyn = result_2d.into_dyn();
-        let result_dim0 = result_2d_dyn.reshape(&result_shape[..]).to_tensor();
-
-        // 5. Move dimension back to original position
-        movedim(&result_dim0, 0, dim)
+    /// Evaluate basis coefficients at sampling points, writing to output slice
+    pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) {
+        let _guard = FpuGuard::new_protect_computation();
+        self.fitter.evaluate_to(None, coeffs, out)
     }
 
-    /// Evaluate basis coefficients at sampling points (N-dimensional)
-    ///
-    /// Evaluates along the specified dimension, keeping other dimensions intact.
-    /// Supports both real (`f64`) and complex (`Complex<f64>`) coefficients.
-    ///
-    /// # Type Parameters
-    /// * `T` - Element type (f64 or Complex<f64>)
+    /// Fit values at sampling points to basis coefficients
+    pub fn fit(&self, values: &[f64]) -> Vec<f64> {
+        let _guard = FpuGuard::new_protect_computation();
+        self.fitter.fit(None, values)
+    }
+
+    /// Fit values at sampling points to basis coefficients, writing to output slice
+    pub fn fit_to(&self, values: &[f64], out: &mut [f64]) {
+        let _guard = FpuGuard::new_protect_computation();
+        self.fitter.fit_to(None, values, out)
+    }
+
+    /// Evaluate complex basis coefficients at sampling points
+    pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
+        let _guard = FpuGuard::new_protect_computation();
+        self.fitter.evaluate_zz(None, coeffs)
+    }
+
+    /// Evaluate complex basis coefficients, writing to output slice
+    pub fn evaluate_zz_to(&self, coeffs: &[Complex<f64>], out: &mut [Complex<f64>]) {
+        let _guard = FpuGuard::new_protect_computation();
+        self.fitter.evaluate_zz_to(None, coeffs, out)
+    }
+
+    /// Fit complex values at sampling points to basis coefficients
+    pub fn fit_zz(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
+        let _guard = FpuGuard::new_protect_computation();
+        self.fitter.fit_zz(None, values)
+    }
+
+    /// Fit complex values, writing to output slice
+    pub fn fit_zz_to(&self, values: &[Complex<f64>], out: &mut [Complex<f64>]) {
+        let _guard = FpuGuard::new_protect_computation();
+        self.fitter.fit_zz_to(None, values, out)
+    }
+
+    // ========================================================================
+    // N-D functions (real)
+    // ========================================================================
+
+    /// Evaluate N-D real coefficients at sampling points
     ///
     /// # Arguments
     /// * `coeffs` - N-dimensional array with `coeffs.shape().dim(dim) == basis_size`
@@ -301,140 +297,32 @@ where
     ///
     /// # Returns
     /// N-dimensional array with `result.shape().dim(dim) == n_sampling_points`
-    ///
-    /// # Panics
-    /// Panics if `coeffs.shape().dim(dim) != basis_size` or if `dim >= rank`
-    ///
-    /// # Example
-    /// ```ignore
-    /// use num_complex::Complex;
-    /// use mdarray::tensor;
-    ///
-    /// // Real coefficients
-    /// let values_real = sampling.evaluate_nd::<f64>(&coeffs_real, 0);
-    ///
-    /// // Complex coefficients
-    /// let values_complex = sampling.evaluate_nd::<Complex<f64>>(&coeffs_complex, 0);
-    /// ```
-    pub fn evaluate_nd<T>(
+    pub fn evaluate_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<T, DynRank>,
-        dim: usize,
-    ) -> Tensor<T, DynRank>
-    where
-        T: num_complex::ComplexFloat + faer_traits::ComplexField + 'static + From<f64> + Copy,
-    {
-        let _guard = FpuGuard::new_protect_computation();
-        self.evaluate_nd_impl(backend, coeffs, dim)
-    }
-
-    /// Fit N-D values for the real case `T = f64`
-    fn fit_nd_impl_real(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        values: &Tensor<f64, DynRank>,
+        coeffs: &Slice<f64, DynRank>,
         dim: usize,
     ) -> Tensor<f64, DynRank> {
-        let rank = values.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
-        let n_points = self.n_sampling_points();
-        let basis_size = self.basis_size();
-        let target_dim_size = values.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, n_points,
-            "values.shape().dim({}) = {} must equal n_sampling_points = {}",
-            dim, target_dim_size, n_points
-        );
-
-        // 1. Move target dimension to position 0
-        let values_dim0 = movedim(values, dim, 0);
-
-        // 2. Reshape to 2D: (n_points, extra_size)
-        let extra_size: usize = values_dim0.len() / n_points;
-        let values_2d = values_dim0.reshape(&[n_points, extra_size][..]).to_tensor();
-
-        // 3. Fit using real 2D fitter directly on a view
-        // Convert Tensor<f64, DynRank> to DView<f64, 2> by creating DTensor and taking view
-        let values_2d_dtensor = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| {
-            values_2d[&[idx[0], idx[1]][..]]
-        });
-        let values_2d_view_2d = values_2d_dtensor.view(.., ..);
-        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view_2d);
-
-        // 4. Reshape back to N-D with basis_size at position 0
-        let mut coeffs_shape = vec![basis_size];
-        values_dim0.shape().with_dims(|dims| {
-            for i in 1..dims.len() {
-                coeffs_shape.push(dims[i]);
-            }
-        });
-
-        let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&coeffs_shape[..]).to_tensor();
-
-        // 5. Move dimension 0 back to original position dim
-        movedim(&coeffs_dim0, 0, dim)
+        let _guard = FpuGuard::new_protect_computation();
+        let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
+        let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
+        self.evaluate_nd_to(backend, coeffs, dim, &mut out.expr_mut());
+        out
     }
 
-    /// Fit N-D values for the complex case `T = Complex<f64>`
-    fn fit_nd_impl_complex(
+    /// Evaluate N-D real coefficients, writing to a mutable view
+    pub fn evaluate_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Tensor<num_complex::Complex<f64>, DynRank>,
+        coeffs: &Slice<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<num_complex::Complex<f64>, DynRank> {
-        let rank = values.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
-        let n_points = self.n_sampling_points();
-        let basis_size = self.basis_size();
-        let target_dim_size = values.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, n_points,
-            "values.shape().dim({}) = {} must equal n_sampling_points = {}",
-            dim, target_dim_size, n_points
-        );
-
-        // 1. Move target dimension to position 0
-        let values_dim0 = movedim(values, dim, 0);
-
-        // 2. Reshape to 2D: (n_points, extra_size)
-        let extra_size: usize = values_dim0.len() / n_points;
-        let values_2d = values_dim0.reshape(&[n_points, extra_size][..]).to_tensor();
-
-        // 3. Fit using complex 2D fitter directly on a view
-        // Convert Tensor<Complex<f64>, DynRank> to DView<Complex<f64>, 2> by creating DTensor and taking view
-        let values_2d_dtensor =
-            DTensor::<Complex<f64>, 2>::from_fn([n_points, extra_size], |idx| {
-                values_2d[&[idx[0], idx[1]][..]]
-            });
-        let values_2d_view_2d = values_2d_dtensor.view(.., ..);
-        let coeffs_2d = self.fitter.fit_complex_2d(backend, &values_2d_view_2d);
-
-        // 4. Reshape back to N-D with basis_size at position 0
-        let mut coeffs_shape = vec![basis_size];
-        values_dim0.shape().with_dims(|dims| {
-            for i in 1..dims.len() {
-                coeffs_shape.push(dims[i]);
-            }
-        });
-
-        let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&coeffs_shape[..]).to_tensor();
-
-        // 5. Move dimension 0 back to original position dim
-        movedim(&coeffs_dim0, 0, dim)
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let _guard = FpuGuard::new_protect_computation();
+        InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
     }
 
-    /// Fit basis coefficients from values at sampling points (N-dimensional)
-    ///
-    /// Fits along the specified dimension, keeping other dimensions intact.
-    /// Supports both real (`f64`) and complex (`Complex<f64>`) values.
-    ///
-    /// # Type Parameters
-    /// * `T` - Element type (f64 or Complex<f64>)
+    /// Fit N-D real values at sampling points to basis coefficients
     ///
     /// # Arguments
     /// * `values` - N-dimensional array with `values.shape().dim(dim) == n_sampling_points`
@@ -442,59 +330,152 @@ where
     ///
     /// # Returns
     /// N-dimensional array with `result.shape().dim(dim) == basis_size`
-    ///
-    /// # Panics
-    /// Panics if `values.shape().dim(dim) != n_sampling_points`, if `dim >= rank`, or if SVD not computed
-    ///
-    /// # Example
-    /// ```ignore
-    /// use num_complex::Complex;
-    /// use mdarray::tensor;
-    ///
-    /// // Real values
-    /// let coeffs_real = sampling.fit_nd::<f64>(&values_real, 0);
-    ///
-    /// // Complex values
-    /// let coeffs_complex = sampling.fit_nd::<Complex<f64>>(&values_complex, 0);
-    /// ```
-    pub fn fit_nd<T>(
+    pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Tensor<T, DynRank>,
+        values: &Slice<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<T, DynRank>
-    where
-        T: num_complex::ComplexFloat
-            + faer_traits::ComplexField
-            + 'static
-            + From<f64>
-            + Copy
-            + Default,
-    {
+    ) -> Tensor<f64, DynRank> {
         let _guard = FpuGuard::new_protect_computation();
-        use std::any::TypeId;
+        let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
+        let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
+        self.fit_nd_to(backend, values, dim, &mut out.expr_mut());
+        out
+    }
 
-        if TypeId::of::<T>() == TypeId::of::<f64>() {
-            // Real case: reinterpret as f64 tensor, call real implementation, then cast back to T
-            let values_f64 =
-                unsafe { &*(values as *const Tensor<T, DynRank> as *const Tensor<f64, DynRank>) };
-            let coeffs_f64 = self.fit_nd_impl_real(backend, values_f64, dim);
-            unsafe { std::mem::transmute::<Tensor<f64, DynRank>, Tensor<T, DynRank>>(coeffs_f64) }
-        } else if TypeId::of::<T>() == TypeId::of::<num_complex::Complex<f64>>() {
-            // Complex case: reinterpret as Complex<f64> tensor, call complex implementation, then cast back
-            let values_c64 = unsafe {
-                &*(values as *const Tensor<T, DynRank>
-                    as *const Tensor<num_complex::Complex<f64>, DynRank>)
-            };
-            let coeffs_c64 = self.fit_nd_impl_complex(backend, values_c64, dim);
-            unsafe {
-                std::mem::transmute::<Tensor<num_complex::Complex<f64>, DynRank>, Tensor<T, DynRank>>(
-                    coeffs_c64,
-                )
-            }
-        } else {
-            panic!("Unsupported type for fit_nd: must be f64 or Complex<f64>");
-        }
+    /// Fit N-D real values, writing to a mutable view
+    pub fn fit_nd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let _guard = FpuGuard::new_protect_computation();
+        InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out);
+    }
+
+    // ========================================================================
+    // N-D functions (complex)
+    // ========================================================================
+
+    /// Evaluate N-D complex coefficients at sampling points
+    ///
+    /// # Arguments
+    /// * `coeffs` - N-dimensional complex array with `coeffs.shape().dim(dim) == basis_size`
+    /// * `dim` - Dimension along which to evaluate (0-indexed)
+    ///
+    /// # Returns
+    /// N-dimensional complex array with `result.shape().dim(dim) == n_sampling_points`
+    pub fn evaluate_nd_zz(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
+        let _guard = FpuGuard::new_protect_computation();
+        let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
+        let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
+        self.evaluate_nd_zz_to(backend, coeffs, dim, &mut out.expr_mut());
+        out
+    }
+
+    /// Evaluate N-D complex coefficients, writing to a mutable view
+    pub fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let _guard = FpuGuard::new_protect_computation();
+        InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
+    }
+
+    /// Fit N-D complex values at sampling points to basis coefficients
+    ///
+    /// # Arguments
+    /// * `values` - N-dimensional complex array with `values.shape().dim(dim) == n_sampling_points`
+    /// * `dim` - Dimension along which to fit (0-indexed)
+    ///
+    /// # Returns
+    /// N-dimensional complex array with `result.shape().dim(dim) == basis_size`
+    pub fn fit_nd_zz(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
+        let _guard = FpuGuard::new_protect_computation();
+        let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
+        let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
+        self.fit_nd_zz_to(backend, values, dim, &mut out.expr_mut());
+        out
+    }
+
+    /// Fit N-D complex values, writing to a mutable view
+    pub fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let _guard = FpuGuard::new_protect_computation();
+        InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out);
+    }
+}
+
+/// InplaceFitter implementation for TauSampling
+///
+/// Delegates to RealMatrixFitter which supports dd and zz operations.
+impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
+    fn n_points(&self) -> usize {
+        self.n_sampling_points()
+    }
+
+    fn basis_size(&self) -> usize {
+        self.basis_size()
+    }
+
+    fn evaluate_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_dd_to(backend, coeffs, dim, out)
+    }
+
+    fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
+    }
+
+    fn fit_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_dd_to(backend, values, dim, out)
+    }
+
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_zz_to(backend, values, dim, out)
     }
 }
 

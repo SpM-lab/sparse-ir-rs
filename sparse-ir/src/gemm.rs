@@ -22,7 +22,7 @@
 //! let c = matmul_par(&a, &b);  // Now uses custom BLAS
 //! ```
 
-use mdarray::{DSlice, DTensor, DView, Layout};
+use mdarray::{DSlice, DTensor, DView, DViewMut, Layout};
 use once_cell::sync::Lazy;
 use std::sync::{Arc, RwLock};
 
@@ -225,10 +225,13 @@ pub trait GemmBackend: Send + Sync {
 }
 
 //==============================================================================
-// Faer Backend (Default, Pure Rust)
+// Faer Backend (Default, Pure Rust, Zero-Copy)
 //==============================================================================
 
 /// Default Faer backend (Pure Rust, no external dependencies)
+///
+/// This implementation uses faer's native API with raw pointer views,
+/// achieving zero-copy matrix multiplication without intermediate allocations.
 struct FaerBackend;
 
 impl GemmBackend for FaerBackend {
@@ -241,32 +244,18 @@ impl GemmBackend for FaerBackend {
         b: *const f64,
         c: *mut f64,
     ) {
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
-        use mdarray_linalg_faer::Faer;
+        use faer::linalg::matmul::matmul;
+        use faer::mat::{MatMut, MatRef};
+        use faer::{Accum, Par};
 
-        // Create tensors from pointers (row-major order)
-        let a_slice = unsafe { std::slice::from_raw_parts(a, m * k) };
-        let b_slice = unsafe { std::slice::from_raw_parts(b, k * n) };
-        let a_tensor = DTensor::<f64, 2>::from_fn([m, k], |idx| a_slice[idx[0] * k + idx[1]]);
-        let b_tensor = DTensor::<f64, 2>::from_fn([k, n], |idx| b_slice[idx[0] * n + idx[1]]);
+        // Create views directly from raw pointers (zero-copy!)
+        // Row-major layout: row_stride = number of columns, col_stride = 1
+        let lhs = unsafe { MatRef::from_raw_parts(a, m, k, k as isize, 1) };
+        let rhs = unsafe { MatRef::from_raw_parts(b, k, n, n as isize, 1) };
+        let mut dst = unsafe { MatMut::from_raw_parts_mut(c, m, n, n as isize, 1) };
 
-        // Create output tensor and use overwrite() to avoid into_mdarray memory leak
-        // Note: overwrite() will fill all values, so initialization value doesn't matter
-        let mut c_tensor = DTensor::<f64, 2>::from_elem([m, n], Default::default());
-        Faer.matmul(&*a_tensor, &*b_tensor)
-            .parallelize()
-            .overwrite(&mut *c_tensor);
-
-        // Copy result back to output pointer (row-major order)
-        // For row-major, ldc = n (number of columns)
-        let ldc = n;
-        let c_slice = unsafe { std::slice::from_raw_parts_mut(c, m * ldc) };
-        for i in 0..m {
-            for j in 0..n {
-                c_slice[i * ldc + j] = c_tensor[[i, j]];
-            }
-        }
+        // In-place matrix multiplication (no intermediate allocations)
+        matmul(&mut dst, Accum::Replace, &lhs, &rhs, 1.0, Par::Seq);
     }
 
     unsafe fn zgemm(
@@ -278,37 +267,25 @@ impl GemmBackend for FaerBackend {
         b: *const num_complex::Complex<f64>,
         c: *mut num_complex::Complex<f64>,
     ) {
-        use mdarray_linalg::matmul::MatMulBuilder;
-        use mdarray_linalg::prelude::MatMul;
-        use mdarray_linalg_faer::Faer;
+        use faer::linalg::matmul::matmul;
+        use faer::mat::{MatMut, MatRef};
+        use faer::{Accum, Par};
 
-        // Create tensors from pointers (row-major order)
-        let a_slice = unsafe { std::slice::from_raw_parts(a, m * k) };
-        let b_slice = unsafe { std::slice::from_raw_parts(b, k * n) };
-        let a_tensor = DTensor::<num_complex::Complex<f64>, 2>::from_fn([m, k], |idx| {
-            a_slice[idx[0] * k + idx[1]]
-        });
-        let b_tensor = DTensor::<num_complex::Complex<f64>, 2>::from_fn([k, n], |idx| {
-            b_slice[idx[0] * n + idx[1]]
-        });
+        // Create views directly from raw pointers (zero-copy!)
+        // Row-major layout: row_stride = number of columns, col_stride = 1
+        let lhs = unsafe { MatRef::from_raw_parts(a, m, k, k as isize, 1) };
+        let rhs = unsafe { MatRef::from_raw_parts(b, k, n, n as isize, 1) };
+        let mut dst = unsafe { MatMut::from_raw_parts_mut(c, m, n, n as isize, 1) };
 
-        // Create output tensor and use overwrite() to avoid into_mdarray memory leak
-        // Note: overwrite() will fill all values, so initialization value doesn't matter
-        let mut c_tensor =
-            DTensor::<num_complex::Complex<f64>, 2>::from_elem([m, n], Default::default());
-        Faer.matmul(&*a_tensor, &*b_tensor)
-            .parallelize()
-            .overwrite(&mut *c_tensor);
-
-        // Copy result back to output pointer (row-major order)
-        // For row-major, ldc = n (number of columns)
-        let ldc = n;
-        let c_slice = unsafe { std::slice::from_raw_parts_mut(c, m * ldc) };
-        for i in 0..m {
-            for j in 0..n {
-                c_slice[i * ldc + j] = c_tensor[[i, j]];
-            }
-        }
+        // In-place matrix multiplication (no intermediate allocations)
+        matmul(
+            &mut dst,
+            Accum::Replace,
+            &lhs,
+            &rhs,
+            num_complex::Complex::new(1.0, 0.0),
+            Par::Seq,
+        );
     }
 
     fn name(&self) -> &'static str {
@@ -907,6 +884,121 @@ pub fn matmul_par_overwrite_view<T>(
         use mdarray_linalg_faer::Faer;
 
         Faer.matmul(&a_tensor, &b_tensor).parallelize().overwrite(c);
+    }
+}
+
+/// Parallel matrix multiplication with overwrite to mutable view: C = A * B
+///
+/// This function writes the result directly into the provided mutable view `c`,
+/// allowing zero-copy writes to pre-allocated buffers (e.g., C pointers via FFI).
+///
+/// # Arguments
+/// * `a` - Left matrix view (M x K), must be contiguous
+/// * `b` - Right matrix view (K x N), must be contiguous
+/// * `c` - Output mutable view (M x N), must be contiguous - will be overwritten
+/// * `backend` - Optional backend handle. If `None`, uses global dispatcher
+///
+/// # Panics
+/// Panics if:
+/// - Matrix dimensions are incompatible
+/// - Views are not contiguous in memory
+pub fn matmul_par_to_viewmut<T>(
+    a: &DView<'_, T, 2>,
+    b: &DView<'_, T, 2>,
+    c: &mut DViewMut<'_, T, 2>,
+    backend: Option<&GemmBackendHandle>,
+) where
+    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+{
+    // Check that views are contiguous (required for BLAS operations)
+    assert!(
+        a.is_contiguous(),
+        "Matrix A view must be contiguous in memory"
+    );
+    assert!(
+        b.is_contiguous(),
+        "Matrix B view must be contiguous in memory"
+    );
+    assert!(
+        c.is_contiguous(),
+        "Matrix C view must be contiguous in memory"
+    );
+
+    let (m, k) = *a.shape();
+    let (k2, n) = *b.shape();
+    let (mc, nc) = *c.shape();
+
+    // Validate dimensions
+    assert_eq!(
+        k, k2,
+        "Matrix dimension mismatch: A.cols ({}) != B.rows ({})",
+        k, k2
+    );
+    assert_eq!(
+        m, mc,
+        "Output matrix dimension mismatch: C.rows ({}) != A.rows ({})",
+        mc, m
+    );
+    assert_eq!(
+        n, nc,
+        "Output matrix dimension mismatch: C.cols ({}) != B.cols ({})",
+        nc, n
+    );
+
+    // Type dispatch: f64 or Complex<f64>
+    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        // f64 case
+        let a_ptr = a.as_ptr() as *const f64;
+        let b_ptr = b.as_ptr() as *const f64;
+        let c_ptr = c.as_mut_ptr() as *mut f64;
+
+        match backend {
+            Some(handle) => unsafe {
+                handle.as_ref().dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+            },
+            None => {
+                let dispatcher = BLAS_DISPATCHER.read().unwrap();
+                unsafe {
+                    dispatcher.dgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+        }
+    } else if std::any::TypeId::of::<T>() == std::any::TypeId::of::<num_complex::Complex<f64>>() {
+        // Complex<f64> case
+        let a_ptr = a.as_ptr() as *const num_complex::Complex<f64>;
+        let b_ptr = b.as_ptr() as *const num_complex::Complex<f64>;
+        let c_ptr = c.as_mut_ptr() as *mut num_complex::Complex<f64>;
+
+        match backend {
+            Some(handle) => unsafe {
+                handle.as_ref().zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+            },
+            None => {
+                let dispatcher = BLAS_DISPATCHER.read().unwrap();
+                unsafe {
+                    dispatcher.zgemm(m, n, k, a_ptr, b_ptr, c_ptr);
+                }
+            }
+        }
+    } else {
+        // Fallback: convert to DTensor (will copy)
+        let a_tensor = DTensor::<T, 2>::from_fn(*a.shape(), |idx| a[idx]);
+        let b_tensor = DTensor::<T, 2>::from_fn(*b.shape(), |idx| b[idx]);
+        let mut c_tensor = DTensor::<T, 2>::from_fn(*c.shape(), |_| T::zero());
+        use mdarray_linalg::matmul::MatMulBuilder;
+        use mdarray_linalg::prelude::MatMul;
+        use mdarray_linalg_faer::Faer;
+
+        Faer.matmul(&a_tensor, &b_tensor)
+            .parallelize()
+            .overwrite(&mut c_tensor);
+
+        // Copy back to view
+        for i in 0..mc {
+            for j in 0..nc {
+                c[[i, j]] = c_tensor[[i, j]];
+            }
+        }
     }
 }
 

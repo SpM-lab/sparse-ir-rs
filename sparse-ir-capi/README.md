@@ -19,6 +19,38 @@ This crate provides a C API for the SparseIR library.
 
 See the header file for the complete API: [include/sparseir/sparseir.h](include/sparseir/sparseir.h)
 
+### Sampling: Supported Type Patterns
+
+The C-API provides `eval` (coefficients → values) and `fit` (values → coefficients) functions with different type combinations. The suffix indicates input/output types:
+- `d` = double (f64, real)
+- `z` = double complex (Complex64)
+
+#### Evaluate Functions (Coefficients → Values)
+
+| Function | Tau | Matsubara (full) | Matsubara (positive_only) |
+|----------|:---:|:----------------:|:-------------------------:|
+| `spir_sampling_eval_dd` | ✅ | ❌ | ❌ |
+| `spir_sampling_eval_dz` | ❌ | ✅ | ✅ |
+| `spir_sampling_eval_zz` | ✅ | ✅ | ❌ |
+
+#### Fit Functions (Values → Coefficients)
+
+| Function | Tau | Matsubara (full) | Matsubara (positive_only) |
+|----------|:---:|:----------------:|:-------------------------:|
+| `spir_sampling_fit_dd` | ✅ | ❌ | ❌ |
+| `spir_sampling_fit_zd` | ❌ | ✅* | ✅ |
+| `spir_sampling_fit_zz` | ✅ | ✅ | ✅** |
+
+\* For Matsubara (full), `fit_zd` internally fits complex coefficients and returns their real parts. This is physically correct for Green's functions where IR coefficients are guaranteed to be real by symmetry.
+
+\*\* For Matsubara (positive_only), `fit_zz` internally fits to real coefficients and converts to complex with zero imaginary parts. This is valid because IR coefficients are guaranteed to be real for physical Green's functions.
+
+#### Notes
+
+- **Tau sampling**: Uses real transformation matrix. Supports `dd` for real data, `zz` for complex data (real/imag parts transformed independently).
+- **Matsubara (full)**: Uses complex transformation matrix with both positive and negative frequencies. Natural type is `zz`. The `dz` evaluate is supported for real coefficients (physically guaranteed for Green's functions).
+- **Matsubara (positive_only)**: Uses only positive frequencies with complex matrix but real coefficients. Natural types are `dz` (evaluate) and `zd` (fit).
+
 ### Error Handling
 
 All C-API functions use `catch_unwind()` to prevent panics from crossing the FFI boundary:

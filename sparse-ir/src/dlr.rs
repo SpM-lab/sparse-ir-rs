@@ -4,7 +4,7 @@
 //! which represents Green's functions as a linear combination of poles on the
 //! real-frequency axis.
 
-use crate::fitter::RealMatrixFitter;
+use crate::fitters::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
 use crate::kernel::AbstractKernel;

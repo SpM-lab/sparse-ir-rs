@@ -8,7 +8,7 @@ pub mod basis;
 pub mod basis_trait; // Common trait for basis representations
 pub mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
 pub mod dlr; // Discrete Lehmann Representation utilities
-pub mod fitter; // Least-squares fitters (real/complex matrices)
+pub mod fitters; // Least-squares fitters (real/complex matrices)
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod freq;
 pub mod gauss;
@@ -27,6 +27,7 @@ pub mod sve;
 pub mod taufuncs;
 pub mod traits;
 pub mod tsvd; // High-precision truncated SVD using nalgebra // Imaginary time τ normalization utilities
+pub mod working_buffer; // Reusable working buffer for in-place operations
 
 // Re-export commonly used types and traits
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
@@ -55,6 +56,7 @@ pub use polyfourier::{
     BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector, FermionicPiecewiseLegendreFT,
     FermionicPiecewiseLegendreFTVector, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PowerModel,
 };
+pub use fitters::InplaceFitter;
 pub use sampling::TauSampling;
 pub use sve::{
     CentrosymmSVE, SVDStrategy, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,

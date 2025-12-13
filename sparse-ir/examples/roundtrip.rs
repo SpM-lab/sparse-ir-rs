@@ -392,7 +392,7 @@ fn run_integration_example_single<K, S>(
     // Step 7: Evaluate on Matsubara grid from both DLR and IR
     println!("Step 7: Evaluating on Matsubara grid...");
     // From IR coefficients: evaluate_nd now accepts f64 directly
-    let g_iw_ir = matsubara_sampling.evaluate_nd::<f64>(None, &ir_coeffs, target_dim);
+    let g_iw_ir = matsubara_sampling.evaluate_nd(None, &ir_coeffs, target_dim);
     println!("  g_iw_ir shape: {:?}", g_iw_ir.shape().dims());
 
     // From DLR coefficients (evaluate DLR basis functions at Matsubara frequencies)
@@ -419,7 +419,7 @@ fn run_integration_example_single<K, S>(
     // Step 8: Round-trip test: tau → IR → Matsubara
     println!("Step 8: Round-trip test (tau → IR → Matsubara)...");
     // Fit IR coefficients directly from g_tau_ir (values on tau grid)
-    let ir_coeffs_recovered = tau_sampling.fit_nd::<f64>(None, &g_tau_ir, target_dim);
+    let ir_coeffs_recovered = tau_sampling.fit_nd(None, &g_tau_ir, target_dim);
     println!(
         "  Recovered IR coefficients shape: {:?}",
         ir_coeffs_recovered.shape().dims()
