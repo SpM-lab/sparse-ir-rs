@@ -767,34 +767,15 @@ impl InplaceFitter for ComplexToRealFitter {
         self.basis_size()
     }
 
-    fn evaluate_nd_dd_to(
-        &self,
-        _backend: Option<&GemmBackendHandle>,
-        _coeffs: &Slice<f64, DynRank>,
-        _dim: usize,
-        _out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        panic!("ComplexToRealFitter does not support dd (real → real) operations");
-    }
-
     fn evaluate_nd_dz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        ComplexToRealFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out)
-    }
-
-    fn fit_nd_dd_to(
-        &self,
-        _backend: Option<&GemmBackendHandle>,
-        _values: &Slice<f64, DynRank>,
-        _dim: usize,
-        _out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        panic!("ComplexToRealFitter does not support dd (real → real) operations");
+    ) -> bool {
+        ComplexToRealFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out);
+        true
     }
 
     fn fit_nd_zd_to(
@@ -803,8 +784,9 @@ impl InplaceFitter for ComplexToRealFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        ComplexToRealFitter::fit_nd_zd_to(self, backend, values, dim, out)
+    ) -> bool {
+        ComplexToRealFitter::fit_nd_zd_to(self, backend, values, dim, out);
+        true
     }
 }
 

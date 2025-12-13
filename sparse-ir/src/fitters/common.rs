@@ -22,6 +22,13 @@ use num_complex::Complex;
 /// - `evaluate_nd_zz_to`: Complex<f64> input → Complex<f64> output
 /// - `evaluate_nd_dz_to`: f64 input → Complex<f64> output
 /// - `evaluate_nd_zd_to`: Complex<f64> input → f64 output
+/// Trait for inplace evaluation and fitting operations on N-dimensional arrays.
+///
+/// All methods return `bool`:
+/// - `true` = operation succeeded
+/// - `false` = operation not supported for this fitter
+///
+/// Default implementations return `false` (not supported).
 pub trait InplaceFitter {
     /// Number of sampling points
     fn n_points(&self) -> usize;
@@ -36,7 +43,10 @@ pub trait InplaceFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    );
+    ) -> bool {
+        let _ = (backend, coeffs, dim, out);
+        false
+    }
 
     /// Evaluate ND: f64 coeffs → Complex<f64> values
     fn evaluate_nd_dz_to(
@@ -45,9 +55,9 @@ pub trait InplaceFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let _ = (backend, coeffs, dim, out);
-        panic!("evaluate_nd_dz_to not implemented for this fitter");
+        false
     }
 
     /// Evaluate ND: Complex<f64> coeffs → f64 values
@@ -57,9 +67,9 @@ pub trait InplaceFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
+    ) -> bool {
         let _ = (backend, coeffs, dim, out);
-        panic!("evaluate_nd_zd_to not implemented for this fitter");
+        false
     }
 
     /// Evaluate ND: Complex<f64> coeffs → Complex<f64> values
@@ -69,9 +79,9 @@ pub trait InplaceFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let _ = (backend, coeffs, dim, out);
-        panic!("evaluate_nd_zz_to not implemented for this fitter");
+        false
     }
 
     /// Fit ND: f64 values → f64 coeffs
@@ -81,7 +91,10 @@ pub trait InplaceFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    );
+    ) -> bool {
+        let _ = (backend, values, dim, out);
+        false
+    }
 
     /// Fit ND: f64 values → Complex<f64> coeffs
     fn fit_nd_dz_to(
@@ -90,9 +103,9 @@ pub trait InplaceFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let _ = (backend, values, dim, out);
-        panic!("fit_nd_dz_to not implemented for this fitter");
+        false
     }
 
     /// Fit ND: Complex<f64> values → f64 coeffs
@@ -102,9 +115,9 @@ pub trait InplaceFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
+    ) -> bool {
         let _ = (backend, values, dim, out);
-        panic!("fit_nd_zd_to not implemented for this fitter");
+        false
     }
 
     /// Fit ND: Complex<f64> values → Complex<f64> coeffs
@@ -114,9 +127,9 @@ pub trait InplaceFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> bool {
         let _ = (backend, values, dim, out);
-        panic!("fit_nd_zz_to not implemented for this fitter");
+        false
     }
 }
 

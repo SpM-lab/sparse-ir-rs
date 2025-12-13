@@ -1163,8 +1163,9 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        RealMatrixFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out)
+    ) -> bool {
+        RealMatrixFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
+        true
     }
 
     fn evaluate_nd_zz_to(
@@ -1173,8 +1174,9 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        RealMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
+    ) -> bool {
+        RealMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
+        true
     }
 
     fn fit_nd_dd_to(
@@ -1183,8 +1185,9 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        RealMatrixFitter::fit_nd_dd_to(self, backend, values, dim, out)
+    ) -> bool {
+        RealMatrixFitter::fit_nd_dd_to(self, backend, values, dim, out);
+        true
     }
 
     fn fit_nd_zz_to(
@@ -1193,8 +1196,9 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        RealMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out)
+    ) -> bool {
+        RealMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out);
+        true
     }
 }
 
