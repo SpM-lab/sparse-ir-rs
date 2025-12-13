@@ -3,12 +3,12 @@
 //! This module provides Matsubara frequency sampling for transforming between
 //! IR basis coefficients and values at sparse Matsubara frequencies.
 
-use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter};
+use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter, InplaceFitter};
 use crate::fpu_check::FpuGuard;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
-use mdarray::{DTensor, DynRank, Shape, Slice, Tensor};
+use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
 use std::marker::PhantomData;
 
@@ -657,6 +657,62 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     }
 }
 
+/// InplaceFitter implementation for MatsubaraSampling
+///
+/// Delegates to ComplexMatrixFitter which supports:
+/// - zz: Complex input → Complex output (full support)
+/// - dz: Real input → Complex output (evaluate only)
+/// - zd: Complex input → Real output (fit only, takes real part)
+impl<S: StatisticsType> InplaceFitter for MatsubaraSampling<S> {
+    fn n_points(&self) -> usize {
+        self.n_sampling_points()
+    }
+
+    fn basis_size(&self) -> usize {
+        self.basis_size()
+    }
+
+    fn evaluate_nd_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_dz_to(backend, coeffs, dim, out)
+    }
+
+    fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
+    }
+
+    fn fit_nd_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_zd_to(backend, values, dim, out)
+    }
+
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_zz_to(backend, values, dim, out)
+    }
+}
+
 /// Matsubara sampling for positive frequencies only
 ///
 /// Exploits symmetry to reconstruct real coefficients from positive frequencies only.
@@ -1022,6 +1078,41 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             }
             out[&idx[..]] = result[&idx[..]];
         }
+    }
+}
+
+/// InplaceFitter implementation for MatsubaraSamplingPositiveOnly
+///
+/// Delegates to ComplexToRealFitter which supports:
+/// - dz: Real coefficients → Complex values (evaluate)
+/// - zd: Complex values → Real coefficients (fit)
+impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
+    fn n_points(&self) -> usize {
+        self.n_sampling_points()
+    }
+
+    fn basis_size(&self) -> usize {
+        self.basis_size()
+    }
+
+    fn evaluate_nd_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_dz_to(backend, coeffs, dim, out)
+    }
+
+    fn fit_nd_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_zd_to(backend, values, dim, out)
     }
 }
 

@@ -3,6 +3,7 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
+use crate::fitters::InplaceFitter;
 use crate::fpu_check::FpuGuard;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
@@ -318,7 +319,7 @@ where
         out: &mut ViewMut<'_, f64, DynRank>,
     ) {
         let _guard = FpuGuard::new_protect_computation();
-        self.fitter.evaluate_nd_dd_to(backend, coeffs, dim, out);
+        InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
     }
 
     /// Fit N-D real values at sampling points to basis coefficients
@@ -351,7 +352,7 @@ where
         out: &mut ViewMut<'_, f64, DynRank>,
     ) {
         let _guard = FpuGuard::new_protect_computation();
-        self.fitter.fit_nd_dd_to(backend, values, dim, out);
+        InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out);
     }
 
     // ========================================================================
@@ -388,7 +389,7 @@ where
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) {
         let _guard = FpuGuard::new_protect_computation();
-        self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out);
+        InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
     }
 
     /// Fit N-D complex values at sampling points to basis coefficients
@@ -421,10 +422,62 @@ where
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) {
         let _guard = FpuGuard::new_protect_computation();
-        self.fitter.fit_nd_zz_to(backend, values, dim, out);
+        InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out);
     }
 }
 
+/// InplaceFitter implementation for TauSampling
+///
+/// Delegates to RealMatrixFitter which supports dd and zz operations.
+impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
+    fn n_points(&self) -> usize {
+        self.n_sampling_points()
+    }
+
+    fn basis_size(&self) -> usize {
+        self.basis_size()
+    }
+
+    fn evaluate_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_dd_to(backend, coeffs, dim, out)
+    }
+
+    fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
+    }
+
+    fn fit_nd_dd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_dd_to(backend, values, dim, out)
+    }
+
+    fn fit_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.fit_nd_zz_to(backend, values, dim, out)
+    }
+}
 
 #[cfg(test)]
 #[path = "tau_sampling_tests.rs"]
