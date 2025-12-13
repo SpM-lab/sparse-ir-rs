@@ -4,9 +4,71 @@
 //! where the matrix A and value types can vary.
 
 use crate::gemm::GemmBackendHandle;
-use mdarray::{DTensor, DView};
+use crate::working_buffer::{copy_from_contiguous, copy_to_contiguous};
+use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::cell::RefCell;
+
+/// Generate permutation to move dimension `dim` to position 0
+///
+/// For example, with rank=4 and dim=2:
+/// - Result: [2, 0, 1, 3]
+fn make_perm_to_front(rank: usize, dim: usize) -> Vec<usize> {
+    let mut perm = Vec::with_capacity(rank);
+    perm.push(dim);
+    for i in 0..rank {
+        if i != dim {
+            perm.push(i);
+        }
+    }
+    perm
+}
+
+/// Reinterpret a Complex<f64> slice as a f64 view with an extra dimension of size 2
+///
+/// Complex<f64> array `[d0, d1, ..., dN]` becomes f64 array `[d0, d1, ..., dN, 2]`
+/// where the last dimension contains [re, im] pairs.
+fn complex_slice_as_real<'a>(
+    coeffs: &'a Slice<Complex<f64>, DynRank>,
+) -> mdarray::View<'a, f64, DynRank, mdarray::Dense> {
+    // Build new shape: [..., 2]
+    let mut new_shape: Vec<usize> = Vec::with_capacity(coeffs.rank() + 1);
+    coeffs.shape().with_dims(|dims| {
+        for d in dims {
+            new_shape.push(*d);
+        }
+    });
+    new_shape.push(2);
+
+    unsafe {
+        let shape: DynRank = Shape::from_dims(&new_shape[..]);
+        let mapping = mdarray::DenseMapping::new(shape);
+        mdarray::View::new_unchecked(coeffs.as_ptr() as *const f64, mapping)
+    }
+}
+
+/// Reinterpret a mutable Complex<f64> slice as a mutable f64 view with an extra dimension of size 2
+///
+/// Complex<f64> array `[d0, d1, ..., dN]` becomes f64 array `[d0, d1, ..., dN, 2]`
+/// where the last dimension contains [re, im] pairs.
+fn complex_slice_mut_as_real<'a>(
+    out: &'a mut Slice<Complex<f64>, DynRank>,
+) -> mdarray::ViewMut<'a, f64, DynRank, mdarray::Dense> {
+    // Build new shape: [..., 2]
+    let mut new_shape: Vec<usize> = Vec::with_capacity(out.rank() + 1);
+    out.shape().with_dims(|dims| {
+        for d in dims {
+            new_shape.push(*d);
+        }
+    });
+    new_shape.push(2);
+
+    unsafe {
+        let shape: DynRank = Shape::from_dims(&new_shape[..]);
+        let mapping = mdarray::DenseMapping::new(shape);
+        mdarray::ViewMut::new_unchecked(out.as_mut_ptr() as *mut f64, mapping)
+    }
+}
 
 /// SVD decomposition for real matrices
 struct RealSVD {
@@ -144,15 +206,34 @@ impl RealMatrixFitter {
             self.basis_size()
         );
 
-        // Convert to column vector and use evaluate_2d
-        let basis_size = coeffs.len();
-        let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, 1], |idx| coeffs[idx[0]]);
-        let coeffs_view = coeffs_2d.view(.., ..);
-        let values_2d = self.evaluate_2d(backend, &coeffs_view);
-
-        // Extract as Vec
         let n_points = self.n_points();
-        (0..n_points).map(|i| values_2d[[i, 0]]).collect()
+        let mut out = vec![0.0; n_points];
+        self.evaluate_to(backend, coeffs, &mut out);
+        out
+    }
+
+    /// Evaluate: coeffs (real) → values (real), writing to output slice
+    ///
+    /// Computes: out = A * coeffs
+    pub fn evaluate_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &[f64],
+        out: &mut [f64],
+    ) {
+        assert_eq!(coeffs.len(), self.basis_size());
+        assert_eq!(out.len(), self.n_points());
+
+        // Create views treating slices as column vectors [N, 1]
+        let coeffs_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((coeffs.len(), 1));
+            mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs.as_ptr(), mapping)
+        };
+        let mut out_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((out.len(), 1));
+            mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+        };
+        self.evaluate_2d_to(backend, &coeffs_view, &mut out_view);
     }
 
     /// Fit: values (real) → coeffs (real)
@@ -168,15 +249,34 @@ impl RealMatrixFitter {
             self.n_points()
         );
 
-        // Convert values to column vector and use fit_2d
-        let n = values.len();
-        let values_2d = DTensor::<f64, 2>::from_fn([n, 1], |idx| values[idx[0]]);
-        let values_view = values_2d.view(.., ..);
-        let coeffs_2d = self.fit_2d(backend, &values_view);
-
-        // Extract as Vec
         let basis_size = self.basis_size();
-        (0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect()
+        let mut out = vec![0.0; basis_size];
+        self.fit_to(backend, values, &mut out);
+        out
+    }
+
+    /// Fit: values (real) → coeffs (real), writing to output slice
+    ///
+    /// Solves: min ||A * coeffs - values||^2 using SVD
+    pub fn fit_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &[f64],
+        out: &mut [f64],
+    ) {
+        assert_eq!(values.len(), self.n_points());
+        assert_eq!(out.len(), self.basis_size());
+
+        // Create views treating slices as column vectors [N, 1]
+        let values_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((values.len(), 1));
+            mdarray::DView::<'_, f64, 2>::new_unchecked(values.as_ptr(), mapping)
+        };
+        let mut out_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((out.len(), 1));
+            mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+        };
+        self.fit_2d_to(backend, &values_view, &mut out_view);
     }
 
     /// Fit complex values by fitting real and imaginary parts separately
@@ -192,8 +292,6 @@ impl RealMatrixFitter {
         backend: Option<&GemmBackendHandle>,
         values: &[Complex<f64>],
     ) -> Vec<Complex<f64>> {
-        use num_complex::Complex;
-
         assert_eq!(
             values.len(),
             self.n_points(),
@@ -202,15 +300,32 @@ impl RealMatrixFitter {
             self.n_points()
         );
 
-        // Convert to 2D and use fit_complex_2d
-        let n = values.len();
-        let values_2d = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
-        let values_view = values_2d.view(.., ..);
-        let coeffs_2d = self.fit_complex_2d(backend, &values_view);
-
-        // Extract as Vec
         let basis_size = self.basis_size();
-        (0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect()
+        let mut out = vec![Complex::new(0.0, 0.0); basis_size];
+        self.fit_complex_to(backend, values, &mut out);
+        out
+    }
+
+    /// Fit complex values, writing to output slice
+    pub fn fit_complex_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &[Complex<f64>],
+        out: &mut [Complex<f64>],
+    ) {
+        assert_eq!(values.len(), self.n_points());
+        assert_eq!(out.len(), self.basis_size());
+
+        // Create views treating slices as column vectors [N, 1]
+        let values_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((values.len(), 1));
+            mdarray::DView::<'_, Complex<f64>, 2>::new_unchecked(values.as_ptr(), mapping)
+        };
+        let mut out_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((out.len(), 1));
+            mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+        };
+        self.fit_complex_2d_to(backend, &values_view, &mut out_view);
     }
 
     /// Evaluate complex coefficients
@@ -226,8 +341,6 @@ impl RealMatrixFitter {
         backend: Option<&GemmBackendHandle>,
         coeffs: &[Complex<f64>],
     ) -> Vec<Complex<f64>> {
-        use num_complex::Complex;
-
         assert_eq!(
             coeffs.len(),
             self.basis_size(),
@@ -236,15 +349,32 @@ impl RealMatrixFitter {
             self.basis_size()
         );
 
-        // Convert to column vector and use evaluate_complex_2d
-        let basis_size = coeffs.len();
-        let coeffs_2d = DTensor::<Complex<f64>, 2>::from_fn([basis_size, 1], |idx| coeffs[idx[0]]);
-        let coeffs_view = coeffs_2d.view(.., ..);
-        let values_2d = self.evaluate_complex_2d(backend, &coeffs_view);
-
-        // Extract as Vec
         let n_points = self.n_points();
-        (0..n_points).map(|i| values_2d[[i, 0]]).collect()
+        let mut out = vec![Complex::new(0.0, 0.0); n_points];
+        self.evaluate_complex_to(backend, coeffs, &mut out);
+        out
+    }
+
+    /// Evaluate complex coefficients, writing to output slice
+    pub fn evaluate_complex_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &[Complex<f64>],
+        out: &mut [Complex<f64>],
+    ) {
+        assert_eq!(coeffs.len(), self.basis_size());
+        assert_eq!(out.len(), self.n_points());
+
+        // Create views treating slices as column vectors [N, 1]
+        let coeffs_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((coeffs.len(), 1));
+            mdarray::DView::<'_, Complex<f64>, 2>::new_unchecked(coeffs.as_ptr(), mapping)
+        };
+        let mut out_view = unsafe {
+            let mapping = mdarray::DenseMapping::new((out.len(), 1));
+            mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+        };
+        self.evaluate_complex_2d_to(backend, &coeffs_view, &mut out_view);
     }
 
     /// Evaluate 2D real tensor (along dim=0) using matrix multiplication
@@ -256,48 +386,15 @@ impl RealMatrixFitter {
     ///
     /// # Returns
     /// Values tensor, shape: [n_points, extra_size]
+    ///
+    /// # Note
+    /// This is a wrapper around `evaluate_2d_to` that allocates the output tensor.
     pub fn evaluate_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, f64, 2>,
     ) -> mdarray::DTensor<f64, 2> {
-        use crate::gemm::matmul_par_view;
-
-        let (basis_size, _extra_size) = *coeffs_2d.shape();
-        assert_eq!(
-            basis_size,
-            self.basis_size(),
-            "coeffs_2d.shape().0={} must equal basis_size={}",
-            basis_size,
-            self.basis_size()
-        );
-
-        // values_2d = matrix * coeffs_2d
-        let matrix_view = self.matrix.view(.., ..);
-        matmul_par_view(&matrix_view, coeffs_2d, backend)
-    }
-
-    /// Evaluate 2D real tensor (along dim=0) with in-place output
-    ///
-    /// Computes: out = matrix * coeffs_2d
-    ///
-    /// # Arguments
-    /// * `coeffs_2d` - Shape: [basis_size, extra_size]
-    /// * `out` - Output tensor, shape: [n_points, extra_size] (will be overwritten)
-    ///
-    /// # Safety
-    /// The output tensor must have the correct shape [n_points, extra_size].
-    pub fn evaluate_2d_to(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        coeffs_2d: &DView<'_, f64, 2>,
-        out: &mut mdarray::DTensor<f64, 2>,
-    ) {
-        use crate::gemm::matmul_par_overwrite_view;
-
         let (basis_size, extra_size) = *coeffs_2d.shape();
-        let (out_rows, out_cols) = *out.shape();
-
         assert_eq!(
             basis_size,
             self.basis_size(),
@@ -305,22 +402,12 @@ impl RealMatrixFitter {
             basis_size,
             self.basis_size()
         );
-        assert_eq!(
-            out_rows,
-            self.n_points(),
-            "out.shape().0={} must equal n_points={}",
-            out_rows,
-            self.n_points()
-        );
-        assert_eq!(
-            out_cols, extra_size,
-            "out.shape().1={} must equal extra_size={}",
-            out_cols, extra_size
-        );
 
-        // out = matrix * coeffs_2d
-        let matrix_view = self.matrix.view(.., ..);
-        matmul_par_overwrite_view(&matrix_view, coeffs_2d, out, backend);
+        let n_points = self.n_points();
+        let mut out = mdarray::DTensor::<f64, 2>::zeros([n_points, extra_size]);
+        let mut out_view = out.view_mut(.., ..);
+        self.evaluate_2d_to(backend, coeffs_2d, &mut out_view);
+        out
     }
 
     /// Evaluate 2D real tensor (along dim=0) with in-place output to mutable view
@@ -336,13 +423,13 @@ impl RealMatrixFitter {
     ///
     /// # Safety
     /// The output view must have the correct shape and be contiguous.
-    pub fn evaluate_2d_to_viewmut(
+    pub fn evaluate_2d_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, f64, 2>,
         out: &mut mdarray::DViewMut<'_, f64, 2>,
     ) {
-        self.evaluate_2d_to_viewmut_dim(backend, coeffs_2d, out, 0);
+        self.evaluate_2d_to_dim(backend, coeffs_2d, out, 0);
     }
 
     /// Evaluate 2D real tensor along specified dimension, writing to a mutable view
@@ -356,7 +443,7 @@ impl RealMatrixFitter {
     ///
     /// # Safety
     /// The output view must have the correct shape and be contiguous.
-    pub fn evaluate_2d_to_viewmut_dim(
+    pub fn evaluate_2d_to_dim(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, f64, 2>,
@@ -430,6 +517,114 @@ impl RealMatrixFitter {
         }
     }
 
+    /// Evaluate N-D real tensor along specified dimension, writing to a mutable view
+    ///
+    /// Optimized version that uses permuted views and temporary buffers
+    /// to avoid unnecessary copies where possible.
+    ///
+    /// # Arguments
+    /// * `backend` - Optional GEMM backend
+    /// * `coeffs` - N-dimensional array with `coeffs.shape().dim(dim) == basis_size`
+    /// * `dim` - Dimension along which to evaluate (0-indexed)
+    /// * `out` - Output mutable view with `out.shape().dim(dim) == n_points`
+    ///
+    /// # Performance
+    /// - When `dim == 0`: Fast path, no temporary buffers needed
+    /// - When `dim == rank - 1`: Fast path, no temporary buffers needed
+    /// - Otherwise: Uses temporary buffers for dimension permutation
+    pub fn evaluate_nd_to_dim(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let rank = coeffs.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
+
+        // Validate
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+        assert_eq!(out.rank(), rank);
+        assert_eq!(coeffs.shape().dim(dim), basis_size);
+        assert_eq!(out.shape().dim(dim), n_points);
+
+        let total = coeffs.len();
+        let extra_size = total / basis_size;
+
+        if dim == 0 {
+            // Fast path 1: dim == 0, no movedim needed
+            // coeffs is [basis_size, ...], out is [n_points, ...]
+            // Row-major contiguous, treat as 2D: coeffs[basis_size, extra], out[n_points, extra]
+            // Compute: out = matrix * coeffs
+
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs.as_ptr(), mapping)
+            };
+
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+            };
+
+            self.evaluate_2d_to_dim(backend, &coeffs_2d, &mut out_2d, 0);
+        } else if dim == rank - 1 {
+            // Fast path 2: dim == N-1, no movedim needed
+            // coeffs is [..., basis_size], out is [..., n_points]
+            // Row-major contiguous, treat as 2D: coeffs[extra, basis_size], out[extra, n_points]
+            // Compute: out = coeffs * matrix^T
+
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, basis_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs.as_ptr(), mapping)
+            };
+
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, n_points));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+            };
+
+            self.evaluate_2d_to_dim(backend, &coeffs_2d, &mut out_2d, 1);
+        } else {
+            // General path: use temporary buffers for movedim
+            // Move target dim to position 0, compute, then move back
+
+            // Step 1: Copy permuted input to contiguous buffer
+            let perm = make_perm_to_front(rank, dim);
+            let permuted_view = coeffs.permute(&perm[..]);
+
+            let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
+            unsafe { input_buffer.set_len(total); }
+            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+
+            // Step 2: Create DView from buffer for GEMM
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+            };
+
+            // Step 3: Allocate output buffer and create DViewMut
+            let out_total = out.len();
+            let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
+            unsafe { output_buffer.set_len(out_total); }
+
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(output_buffer.as_mut_ptr(), mapping)
+            };
+
+            // Step 4: Matrix multiply directly into output buffer
+            self.evaluate_2d_to_dim(backend, &coeffs_2d, &mut out_2d, 0);
+
+            // Step 5: Copy from contiguous buffer to strided output view
+            // Use same perm as input (not inverse) because buffer has shape [n_points, ...rest...]
+            // which matches the permuted output view order
+            let out_permuted = (&mut *out).permute_mut(&perm[..]);
+            copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
+        }
+    }
+
     /// Fit 2D real tensor (along dim=0) using matrix multiplication
     ///
     /// Efficiently computes: coeffs_2d = V * S^{-1} * U^T * values_2d
@@ -439,13 +634,14 @@ impl RealMatrixFitter {
     ///
     /// # Returns
     /// Coefficients tensor, shape: [basis_size, extra_size]
+    ///
+    /// # Note
+    /// This is a wrapper around `fit_2d_to` that allocates the output tensor.
     pub fn fit_2d(
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, f64, 2>,
     ) -> mdarray::DTensor<f64, 2> {
-        use crate::gemm::matmul_par_view;
-
         let (n_points, extra_size) = *values_2d.shape();
         assert_eq!(
             n_points,
@@ -455,43 +651,145 @@ impl RealMatrixFitter {
             self.n_points()
         );
 
-        // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_real_svd(&self.matrix);
-            *self.svd.borrow_mut() = Some(svd);
-        }
-
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
-
-        // coeffs_2d = V * S^{-1} * U^T * values_2d
-
-        // 1. U^T * values_2d
-        let ut_view = svd.ut.view(.., ..);
-        let mut ut_values = matmul_par_view(&ut_view, values_2d, backend); // [min_dim, extra_size]
-
-        // 2. S^{-1} * (U^T * values_2d) - in-place division
-        let min_dim = svd.s.len();
-        // In-place division by singular values
-        for i in 0..min_dim {
-            for j in 0..extra_size {
-                ut_values[[i, j]] /= svd.s[i];
-            }
-        }
-
-        // 3. V * (S^{-1} * U^T * values_2d)
-        let v_view = svd.v.view(.., ..);
-        let ut_values_view = ut_values.view(.., ..);
-        matmul_par_view(&v_view, &ut_values_view, backend) // [basis_size, extra_size]
+        let basis_size = self.basis_size();
+        let mut out = mdarray::DTensor::<f64, 2>::zeros([basis_size, extra_size]);
+        let mut out_view = out.view_mut(.., ..);
+        self.fit_2d_to(backend, values_2d, &mut out_view);
+        out
     }
 
-    /// Fit 2D real tensor (along dim=0) with in-place output
+    /// Fit 2D real tensor along specified dimension, writing to a mutable view
+    ///
+    /// # Arguments
+    /// * `values_2d` - Coefficient view
+    /// * `out` - Output mutable view (will be overwritten)
+    /// * `dim` - Target dimension (0 or 1)
+    ///   - dim=0: values[n_points, extra], out[basis_size, extra], computes out = V * S^{-1} * U^T * values
+    ///   - dim=1: values[extra, n_points], out[extra, basis_size], computes out = (V * S^{-1} * U^T * values^T)^T
+    ///
+    /// # Safety
+    /// The output view must have the correct shape and be contiguous.
+    pub fn fit_2d_to_dim(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values_2d: &DView<'_, f64, 2>,
+        out: &mut mdarray::DViewMut<'_, f64, 2>,
+        dim: usize,
+    ) {
+        use crate::gemm::{matmul_par_to_viewmut, matmul_par_view};
+
+        let (values_rows, values_cols) = *values_2d.shape();
+        let (out_rows, out_cols) = *out.shape();
+
+        if dim == 0 {
+            // out[basis_size, extra] = V * S^{-1} * U^T * values[n_points, extra]
+            let n_points = values_rows;
+            let extra_size = values_cols;
+
+            assert_eq!(
+                n_points,
+                self.n_points(),
+                "values_2d.shape().0={} must equal n_points={}",
+                n_points,
+                self.n_points()
+            );
+            assert_eq!(
+                out_rows,
+                self.basis_size(),
+                "out.shape().0={} must equal basis_size={}",
+                out_rows,
+                self.basis_size()
+            );
+            assert_eq!(
+                out_cols, extra_size,
+                "out.shape().1={} must equal extra_size={}",
+                out_cols, extra_size
+            );
+
+            // Compute SVD lazily
+            if self.svd.borrow().is_none() {
+                let svd = compute_real_svd(&self.matrix);
+                *self.svd.borrow_mut() = Some(svd);
+            }
+
+            let svd = self.svd.borrow();
+            let svd = svd.as_ref().unwrap();
+
+            // out = V * S^{-1} * U^T * values_2d
+
+            // 1. U^T * values_2d (intermediate allocation needed)
+            let ut_view = svd.ut.view(.., ..);
+            let mut ut_values = matmul_par_view(&ut_view, values_2d, backend); // [min_dim, extra_size]
+
+            // 2. S^{-1} * (U^T * values_2d) - in-place division
+            let min_dim = svd.s.len();
+            for i in 0..min_dim {
+                for j in 0..extra_size {
+                    ut_values[[i, j]] /= svd.s[i];
+                }
+            }
+
+            // 3. V * (S^{-1} * U^T * values_2d) → out
+            let v_view = svd.v.view(.., ..);
+            let ut_values_view = ut_values.view(.., ..);
+            matmul_par_to_viewmut(&v_view, &ut_values_view, out, backend);
+        } else {
+            // dim == 1
+            // out[extra, basis_size] = (V * S^{-1} * U^T * values^T[extra, n_points])^T
+            let extra_size = values_rows;
+            let n_points = values_cols;
+
+            assert_eq!(
+                n_points,
+                self.n_points(),
+                "values_2d.shape().1={} must equal n_points={}",
+                n_points,
+                self.n_points()
+            );
+            assert_eq!(
+                out_rows, extra_size,
+                "out.shape().0={} must equal extra_size={}",
+                out_rows, extra_size
+            );
+            assert_eq!(
+                out_cols,
+                self.basis_size(),
+                "out.shape().1={} must equal basis_size={}",
+                out_cols,
+                self.basis_size()
+            );
+
+            // Transpose values: values[extra, n_points] -> values_t[n_points, extra]
+            let mut values_t = mdarray::DTensor::<f64, 2>::zeros([n_points, extra_size]);
+            let mut values_t_view = values_t.view_mut(.., ..);
+            for i in 0..n_points {
+                for j in 0..extra_size {
+                    values_t_view[[i, j]] = values_2d[[j, i]];
+                }
+            }
+
+            // Fit transposed values: coeffs_t[basis_size, extra] = V * S^{-1} * U^T * values_t[n_points, extra]
+            let mut coeffs_t = mdarray::DTensor::<f64, 2>::zeros([self.basis_size(), extra_size]);
+            let mut coeffs_t_view = coeffs_t.view_mut(.., ..);
+            self.fit_2d_to_dim(backend, &values_t.view(.., ..), &mut coeffs_t_view, 0);
+
+            // Transpose result back: out[extra, basis_size] = coeffs_t^T[basis_size, extra]
+            let basis_size = self.basis_size();
+            for i in 0..basis_size {
+                for j in 0..extra_size {
+                    out[[j, i]] = coeffs_t[[i, j]];
+                }
+            }
+        }
+    }
+
+    /// Fit 2D real tensor (along dim=0) with in-place output to mutable view
     ///
     /// Efficiently computes: out = V * S^{-1} * U^T * values_2d
     ///
     /// # Arguments
     /// * `values_2d` - Shape: [n_points, extra_size]
-    /// * `out` - Output tensor, shape: [basis_size, extra_size] (will be overwritten)
+    /// * `out` - Output mutable view, shape: [basis_size, extra_size] (will be overwritten)
     ///
     /// # Note
     /// An intermediate buffer of size [min_dim, extra_size] is still allocated internally.
@@ -499,60 +797,117 @@ impl RealMatrixFitter {
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, f64, 2>,
-        out: &mut mdarray::DTensor<f64, 2>,
+        out: &mut mdarray::DViewMut<'_, f64, 2>,
     ) {
-        use crate::gemm::{matmul_par_overwrite_view, matmul_par_view};
+        self.fit_2d_to_dim(backend, values_2d, out, 0);
+    }
 
-        let (n_points, extra_size) = *values_2d.shape();
-        let (out_rows, out_cols) = *out.shape();
+    /// Fit N-D real tensor along specified dimension, writing to a mutable view
+    ///
+    /// Optimized version that uses permuted views and temporary buffers
+    /// to avoid unnecessary copies where possible.
+    ///
+    /// # Arguments
+    /// * `backend` - Optional GEMM backend
+    /// * `values` - N-dimensional array with `values.shape().dim(dim) == n_points`
+    /// * `dim` - Dimension along which to fit (0-indexed)
+    /// * `out` - Output mutable view with `out.shape().dim(dim) == basis_size`
+    ///
+    /// # Performance
+    /// - When `dim == 0`: Fast path, no temporary buffers needed
+    /// - When `dim == rank - 1`: Fast path, no temporary buffers needed
+    /// - Otherwise: Uses temporary buffers for dimension permutation
+    pub fn fit_nd_to_dim(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let rank = values.rank();
+        let n_points = self.n_points();
+        let basis_size = self.basis_size();
 
-        assert_eq!(
-            n_points,
-            self.n_points(),
-            "values_2d.shape().0={} must equal n_points={}",
-            n_points,
-            self.n_points()
-        );
-        assert_eq!(
-            out_rows,
-            self.basis_size(),
-            "out.shape().0={} must equal basis_size={}",
-            out_rows,
-            self.basis_size()
-        );
-        assert_eq!(
-            out_cols, extra_size,
-            "out.shape().1={} must equal extra_size={}",
-            out_cols, extra_size
-        );
+        // Validate
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+        assert_eq!(out.rank(), rank);
+        assert_eq!(values.shape().dim(dim), n_points);
+        assert_eq!(out.shape().dim(dim), basis_size);
 
-        // Compute SVD lazily
-        if self.svd.borrow().is_none() {
-            let svd = compute_real_svd(&self.matrix);
-            *self.svd.borrow_mut() = Some(svd);
+        let total = values.len();
+        let extra_size = total / n_points;
+
+        if dim == 0 {
+            // Fast path 1: dim == 0, no movedim needed
+            // values is [n_points, ...], out is [basis_size, ...]
+            // Row-major contiguous, treat as 2D: values[n_points, extra], out[basis_size, extra]
+            // Compute: out = V * S^{-1} * U^T * values
+
+            let values_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(values.as_ptr(), mapping)
+            };
+
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+            };
+
+            self.fit_2d_to(backend, &values_2d, &mut out_2d);
+        } else if dim == rank - 1 {
+            // Fast path 2: dim == N-1, no movedim needed
+            // values is [..., n_points], out is [..., basis_size]
+            // Row-major contiguous, treat as 2D: values[extra, n_points], out[extra, basis_size]
+            // Use fit_2d_to_dim with dim=1
+
+            let values_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, n_points));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(values.as_ptr(), mapping)
+            };
+
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, basis_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
+            };
+
+            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 1);
+        } else {
+            // General path: use temporary buffers for movedim
+            // Move target dim to position 0, compute, then move back
+
+            // Step 1: Copy permuted input to contiguous buffer
+            let perm = make_perm_to_front(rank, dim);
+            let permuted_view = values.permute(&perm[..]);
+
+            let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
+            unsafe { input_buffer.set_len(total); }
+            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+
+            // Step 2: Create DView from buffer for GEMM
+            let values_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+            };
+
+            // Step 3: Allocate output buffer and create DViewMut
+            let out_total = out.len();
+            let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
+            unsafe { output_buffer.set_len(out_total); }
+
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(output_buffer.as_mut_ptr(), mapping)
+            };
+
+            // Step 4: Fit directly into output buffer
+            self.fit_2d_to(backend, &values_2d, &mut out_2d);
+
+            // Step 5: Copy from contiguous buffer to strided output view
+            // Use same perm as input (not inverse) because buffer has shape [basis_size, ...rest...]
+            // which matches the permuted output view order
+            let out_permuted = (&mut *out).permute_mut(&perm[..]);
+            copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
-
-        let svd = self.svd.borrow();
-        let svd = svd.as_ref().unwrap();
-
-        // out = V * S^{-1} * U^T * values_2d
-
-        // 1. U^T * values_2d (intermediate allocation needed)
-        let ut_view = svd.ut.view(.., ..);
-        let mut ut_values = matmul_par_view(&ut_view, values_2d, backend); // [min_dim, extra_size]
-
-        // 2. S^{-1} * (U^T * values_2d) - in-place division
-        let min_dim = svd.s.len();
-        for i in 0..min_dim {
-            for j in 0..extra_size {
-                ut_values[[i, j]] /= svd.s[i];
-            }
-        }
-
-        // 3. V * (S^{-1} * U^T * values_2d) → out
-        let v_view = svd.v.view(.., ..);
-        let ut_values_view = ut_values.view(.., ..);
-        matmul_par_overwrite_view(&v_view, &ut_values_view, out, backend);
     }
 
     /// Fit 2D complex tensor (along dim=0) using matrix multiplication
@@ -570,7 +925,7 @@ impl RealMatrixFitter {
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,
     ) -> mdarray::DTensor<Complex<f64>, 2> {
-        let (n_points, _extra_size) = *values_2d.shape();
+        let (n_points, extra_size) = *values_2d.shape();
         assert_eq!(
             n_points,
             self.n_points(),
@@ -579,76 +934,106 @@ impl RealMatrixFitter {
             self.n_points()
         );
 
-        // Extract real and imaginary parts (need to convert to DTensor for extract functions)
-        let values_tensor =
-            DTensor::<Complex<f64>, 2>::from_fn(*values_2d.shape(), |idx| values_2d[idx]);
-        let values_re = extract_real_parts(&values_tensor);
-        let values_im = extract_imag_parts(&values_tensor);
-
-        // Fit real and imaginary parts separately using matrix multiplication
-        let values_re_view = values_re.view(.., ..);
-        let values_im_view = values_im.view(.., ..);
-        let coeffs_re = self.fit_2d(backend, &values_re_view);
-        let coeffs_im = self.fit_2d(backend, &values_im_view);
-
-        // Combine back to complex
-        combine_complex_coeffs(&coeffs_re, &coeffs_im)
+        let basis_size = self.basis_size();
+        let mut out = mdarray::DTensor::<Complex<f64>, 2>::zeros([basis_size, extra_size]);
+        let mut out_view = out.view_mut(.., ..);
+        self.fit_complex_2d_to(backend, values_2d, &mut out_view);
+        out
     }
 
-    /// Fit 2D complex values with in-place output
+    /// Fit 2D complex values with in-place output to mutable view
+    ///
+    /// Uses the memory layout of Complex<f64> (re, im are contiguous) to delegate
+    /// to the real version by treating complex array [n_points, extra_size] as
+    /// real array [n_points, extra_size, 2].
     ///
     /// # Arguments
     /// * `values_2d` - Shape: [n_points, extra_size]
-    /// * `out` - Output tensor, shape: [basis_size, extra_size] (will be overwritten)
-    ///
-    /// # Note
-    /// Internal buffers for real/imaginary parts are still allocated.
+    /// * `out` - Output mutable view, shape: [basis_size, extra_size] (will be overwritten)
     pub fn fit_complex_2d_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,
-        out: &mut mdarray::DTensor<Complex<f64>, 2>,
+        out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
     ) {
-        let (n_points, extra_size) = *values_2d.shape();
-        let (out_rows, out_cols) = *out.shape();
+        // Convert to DynRank and delegate to ND version
+        let values_dyn = values_2d.into_dyn();
+        let mut out_dyn = out.expr_mut().into_dyn();
+        self.fit_complex_nd_to_dim(backend, &values_dyn, 0, &mut out_dyn);
+    }
 
-        assert_eq!(
-            n_points,
-            self.n_points(),
-            "values_2d.shape().0={} must equal n_points={}",
-            n_points,
-            self.n_points()
-        );
-        assert_eq!(
-            out_rows,
-            self.basis_size(),
-            "out.shape().0={} must equal basis_size={}",
-            out_rows,
-            self.basis_size()
-        );
-        assert_eq!(
-            out_cols, extra_size,
-            "out.shape().1={} must equal extra_size={}",
-            out_cols, extra_size
-        );
+    /// Fit N-D complex tensor along specified dimension, writing to a mutable view
+    ///
+    /// Uses the memory layout of Complex<f64> (re, im are contiguous) to delegate
+    /// to the real version by treating complex array [..., dN] as real array [..., dN, 2].
+    ///
+    /// # Arguments
+    /// * `backend` - Optional GEMM backend
+    /// * `values` - N-dimensional complex array with `values.shape().dim(dim) == n_points`
+    /// * `dim` - Dimension along which to fit (0-indexed)
+    /// * `out` - Output mutable view with `out.shape().dim(dim) == basis_size`
+    ///
+    /// # Performance
+    /// Delegates to the real version by adding an extra dimension of size 2.
+    /// For contiguous arrays, this is very efficient.
+    pub fn fit_complex_nd_to_dim(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let rank = values.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
 
-        // Extract real and imaginary parts
-        let values_re = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].re);
-        let values_im = DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].im);
+        // Validate
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+        assert_eq!(out.rank(), rank);
+        assert_eq!(values.shape().dim(dim), n_points);
+        assert_eq!(out.shape().dim(dim), basis_size);
 
-        // Fit real and imaginary parts separately
-        let values_re_view = values_re.view(.., ..);
-        let values_im_view = values_im.view(.., ..);
-        let mut coeffs_re = DTensor::<f64, 2>::from_elem([self.basis_size(), extra_size], 0.0);
-        let mut coeffs_im = DTensor::<f64, 2>::from_elem([self.basis_size(), extra_size], 0.0);
-        self.fit_2d_to(backend, &values_re_view, &mut coeffs_re);
-        self.fit_2d_to(backend, &values_im_view, &mut coeffs_im);
+        // Copy to contiguous buffer first to ensure correct memory layout
+        let values_tensor = values.to_tensor();
+        let values_as_f64 = complex_slice_as_real(&values_tensor);
 
-        // Write directly to output
-        for i in 0..out_rows {
-            for j in 0..out_cols {
-                out[[i, j]] = Complex::new(coeffs_re[[i, j]], coeffs_im[[i, j]]);
+        // Create contiguous output buffer
+        let mut out_shape_f64: Vec<usize> = Vec::with_capacity(rank + 1);
+        out.shape().with_dims(|dims| {
+            for d in dims {
+                out_shape_f64.push(*d);
             }
+        });
+        out_shape_f64.push(2);
+        let mut out_f64_buffer = mdarray::Tensor::<f64, DynRank>::zeros(&out_shape_f64[..]);
+
+        // Fit to contiguous buffer
+        {
+            let mut out_f64_view = out_f64_buffer.expr_mut();
+            self.fit_nd_to_dim(backend, &values_as_f64, dim, &mut out_f64_view);
+        }
+
+        // Copy back to output
+        let out_total = out.len();
+        let mut idx_vec = vec![0usize; rank];
+        for flat in 0..out_total {
+            let mut remaining = flat;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx_vec[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            let re = out_f64_buffer[&{
+                let mut idx_f64 = idx_vec.clone();
+                idx_f64.push(0);
+                idx_f64
+            }[..]];
+            let im = out_f64_buffer[&{
+                let mut idx_f64 = idx_vec.clone();
+                idx_f64.push(1);
+                idx_f64
+            }[..]];
+            out[&idx_vec[..]] = Complex::new(re, im);
         }
     }
 
@@ -664,9 +1049,7 @@ impl RealMatrixFitter {
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, Complex<f64>, 2>,
     ) -> mdarray::DTensor<Complex<f64>, 2> {
-        use crate::gemm::matmul_par_view;
-
-        let (basis_size, _extra_size) = *coeffs_2d.shape();
+        let (basis_size, extra_size) = *coeffs_2d.shape();
         assert_eq!(
             basis_size,
             self.basis_size(),
@@ -675,39 +1058,28 @@ impl RealMatrixFitter {
             self.basis_size()
         );
 
-        // Extract real and imaginary parts (need to convert to DTensor for extract functions)
-        let coeffs_tensor =
-            DTensor::<Complex<f64>, 2>::from_fn(*coeffs_2d.shape(), |idx| coeffs_2d[idx]);
-        let coeffs_re = extract_real_parts_coeffs(&coeffs_tensor);
-        let coeffs_im = extract_imag_parts_coeffs(&coeffs_tensor);
-
-        // Evaluate real and imaginary parts separately: values = matrix * coeffs
-        let matrix_view = self.matrix.view(.., ..);
-        let coeffs_re_view = coeffs_re.view(.., ..);
-        let coeffs_im_view = coeffs_im.view(.., ..);
-        let values_re = matmul_par_view(&matrix_view, &coeffs_re_view, backend);
-        let values_im = matmul_par_view(&matrix_view, &coeffs_im_view, backend);
-
-        // Combine to complex
-        combine_complex(&values_re, &values_im)
+        let n_points = self.n_points();
+        let mut out = mdarray::DTensor::<Complex<f64>, 2>::zeros([n_points, extra_size]);
+        let mut out_view = out.view_mut(.., ..);
+        self.evaluate_complex_2d_to(backend, coeffs_2d, &mut out_view);
+        out
     }
 
-    /// Evaluate 2D complex coefficients with in-place output
+    /// Evaluate 2D complex coefficients with in-place output to mutable view
+    ///
+    /// Uses the memory layout of Complex<f64> (re, im are contiguous) to delegate
+    /// to the real version by treating complex array [basis_size, extra_size] as
+    /// real array [basis_size, extra_size, 2].
     ///
     /// # Arguments
     /// * `coeffs_2d` - Shape: [basis_size, extra_size]
-    /// * `out` - Output tensor, shape: [n_points, extra_size] (will be overwritten)
-    ///
-    /// # Note
-    /// Internal buffers for real/imaginary parts are still allocated.
+    /// * `out` - Output mutable view, shape: [n_points, extra_size] (will be overwritten)
     pub fn evaluate_complex_2d_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, Complex<f64>, 2>,
-        out: &mut mdarray::DTensor<Complex<f64>, 2>,
+        out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
     ) {
-        use crate::gemm::matmul_par_overwrite_view;
-
         let (basis_size, extra_size) = *coeffs_2d.shape();
         let (out_rows, out_cols) = *out.shape();
 
@@ -731,25 +1103,84 @@ impl RealMatrixFitter {
             out_cols, extra_size
         );
 
-        // Extract real and imaginary parts
-        let coeffs_re = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].re);
-        let coeffs_im = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].im);
+        // Convert to DynRank and delegate to ND version
+        let coeffs_dyn = coeffs_2d.into_dyn();
+        let mut out_dyn = out.expr_mut().into_dyn();
+        self.evaluate_complex_nd_to_dim(backend, &coeffs_dyn, 0, &mut out_dyn);
+    }
 
-        // Evaluate real and imaginary parts separately
-        let matrix_view = self.matrix.view(.., ..);
-        let coeffs_re_view = coeffs_re.view(.., ..);
-        let coeffs_im_view = coeffs_im.view(.., ..);
+    /// Evaluate N-D complex tensor along specified dimension, writing to a mutable view
+    ///
+    /// Uses the memory layout of Complex<f64> (re, im are contiguous) to delegate
+    /// to the real version by treating complex array [..., dN] as real array [..., dN, 2].
+    ///
+    /// # Arguments
+    /// * `backend` - Optional GEMM backend
+    /// * `coeffs` - N-dimensional complex array with `coeffs.shape().dim(dim) == basis_size`
+    /// * `dim` - Dimension along which to evaluate (0-indexed)
+    /// * `out` - Output mutable view with `out.shape().dim(dim) == n_points`
+    ///
+    /// # Performance
+    /// Delegates to the real version by adding an extra dimension of size 2.
+    /// For contiguous arrays, this is very efficient.
+    pub fn evaluate_complex_nd_to_dim(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let rank = coeffs.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
 
-        let mut values_re = DTensor::<f64, 2>::from_elem([self.n_points(), extra_size], 0.0);
-        let mut values_im = DTensor::<f64, 2>::from_elem([self.n_points(), extra_size], 0.0);
-        matmul_par_overwrite_view(&matrix_view, &coeffs_re_view, &mut values_re, backend);
-        matmul_par_overwrite_view(&matrix_view, &coeffs_im_view, &mut values_im, backend);
+        // Validate
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+        assert_eq!(out.rank(), rank);
+        assert_eq!(coeffs.shape().dim(dim), basis_size);
+        assert_eq!(out.shape().dim(dim), n_points);
 
-        // Write directly to output
-        for i in 0..out_rows {
-            for j in 0..out_cols {
-                out[[i, j]] = Complex::new(values_re[[i, j]], values_im[[i, j]]);
+        // Copy to contiguous buffer first to ensure correct memory layout
+        let coeffs_tensor = coeffs.to_tensor();
+        let coeffs_as_f64 = complex_slice_as_real(&coeffs_tensor);
+
+        // Create contiguous output buffer
+        let mut out_shape_f64: Vec<usize> = Vec::with_capacity(rank + 1);
+        out.shape().with_dims(|dims| {
+            for d in dims {
+                out_shape_f64.push(*d);
             }
+        });
+        out_shape_f64.push(2);
+        let mut out_f64_buffer = mdarray::Tensor::<f64, DynRank>::zeros(&out_shape_f64[..]);
+
+        // Evaluate to contiguous buffer
+        {
+            let mut out_f64_view = out_f64_buffer.expr_mut();
+            self.evaluate_nd_to_dim(backend, &coeffs_as_f64, dim, &mut out_f64_view);
+        }
+
+        // Copy back to output
+        let out_total = out.len();
+        let mut idx_vec = vec![0usize; rank];
+        for flat in 0..out_total {
+            let mut remaining = flat;
+            for d in (0..rank).rev() {
+                let dim_size = out.shape().dim(d);
+                idx_vec[d] = remaining % dim_size;
+                remaining /= dim_size;
+            }
+            let re = out_f64_buffer[&{
+                let mut idx_f64 = idx_vec.clone();
+                idx_f64.push(0);
+                idx_f64
+            }[..]];
+            let im = out_f64_buffer[&{
+                let mut idx_f64 = idx_vec.clone();
+                idx_f64.push(1);
+                idx_f64
+            }[..]];
+            out[&idx_vec[..]] = Complex::new(re, im);
         }
     }
 
@@ -1326,18 +1757,6 @@ impl ComplexMatrixFitter {
 // Helper functions
 // ============================================================================
 
-/// Extract real parts from complex tensor
-fn extract_real_parts(values_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
-    let (n_points, extra_size) = *values_2d.shape();
-    DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].re)
-}
-
-/// Extract imaginary parts from complex tensor
-fn extract_imag_parts(values_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
-    let (n_points, extra_size) = *values_2d.shape();
-    DTensor::<f64, 2>::from_fn([n_points, extra_size], |idx| values_2d[idx].im)
-}
-
 /// Combine real and imaginary parts into complex tensor
 fn combine_complex(re: &DTensor<f64, 2>, im: &DTensor<f64, 2>) -> DTensor<Complex<f64>, 2> {
     let (n_points, extra_size) = *re.shape();
@@ -1350,20 +1769,6 @@ fn combine_complex(re: &DTensor<f64, 2>, im: &DTensor<f64, 2>) -> DTensor<Comple
 fn extract_real_parts_coeffs(coeffs_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
     let (basis_size, extra_size) = *coeffs_2d.shape();
     DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].re)
-}
-
-/// Extract imaginary parts from complex tensor (for coefficients)
-fn extract_imag_parts_coeffs(coeffs_2d: &DTensor<Complex<f64>, 2>) -> DTensor<f64, 2> {
-    let (basis_size, extra_size) = *coeffs_2d.shape();
-    DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| coeffs_2d[idx].im)
-}
-
-/// Combine real and imaginary parts into complex tensor (for coefficients)
-fn combine_complex_coeffs(re: &DTensor<f64, 2>, im: &DTensor<f64, 2>) -> DTensor<Complex<f64>, 2> {
-    let (basis_size, extra_size) = *re.shape();
-    DTensor::<Complex<f64>, 2>::from_fn([basis_size, extra_size], |idx| {
-        Complex::new(re[idx], im[idx])
-    })
 }
 
 /// Compute SVD of a real matrix using mdarray-linalg

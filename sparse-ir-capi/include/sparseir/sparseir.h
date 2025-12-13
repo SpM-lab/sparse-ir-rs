@@ -1387,7 +1387,6 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  *   which may lead to numerical instability in transformations.
  * - The condition number is the ratio of the largest to smallest singular value
  *   of the sampling matrix.
- * TODO: Implement proper condition number calculation from SVD
  */
  StatusCode spir_sampling_get_cond_num(const struct spir_sampling *s, double *cond_num);
 

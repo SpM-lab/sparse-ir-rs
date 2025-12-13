@@ -316,6 +316,52 @@ fn test_complex_matrix_fitter_vs_complex_to_real() {
 }
 
 #[test]
+fn test_evaluate_2d_to_matches_evaluate_2d_basic() {
+    // Test that evaluate_2d_to produces identical results to evaluate_2d
+    let n_points = 10;
+    let basis_size = 5;
+    let extra_size = 3;
+
+    // Create a Vandermonde-like matrix
+    let matrix = DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
+        let i = idx[0] as f64 / (n_points as f64);
+        let j = idx[1] as i32;
+        i.powi(j)
+    });
+
+    let fitter = RealMatrixFitter::new(matrix);
+
+    // Create 2D coefficients
+    let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
+        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5)
+    });
+    let coeffs_view = coeffs_2d.view(.., ..);
+
+    // Use existing evaluate_2d
+    let expected = fitter.evaluate_2d(None, &coeffs_view);
+
+    // Use evaluate_2d_to
+    let mut actual = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
+    {
+        let mut actual_view = actual.view_mut(.., ..);
+        fitter.evaluate_2d_to(None, &coeffs_view, &mut actual_view);
+    }
+
+    // Compare results
+    assert_eq!(actual.shape(), expected.shape());
+    for i in 0..n_points {
+        for j in 0..extra_size {
+            let diff = (actual[[i, j]] - expected[[i, j]]).abs();
+            assert!(
+                diff < 1e-14,
+                "Mismatch at [{}, {}]: actual={}, expected={}, diff={}",
+                i, j, actual[[i, j]], expected[[i, j]], diff
+            );
+        }
+    }
+}
+
+#[test]
 fn test_evaluate_2d_to_matches_evaluate_2d() {
     // Test that evaluate_2d_to produces identical results to evaluate_2d
     let n_points = 10;
@@ -340,54 +386,11 @@ fn test_evaluate_2d_to_matches_evaluate_2d() {
     // Use existing evaluate_2d
     let expected = fitter.evaluate_2d(None, &coeffs_view);
 
-    // Use new evaluate_2d_to
-    let mut actual = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
-    fitter.evaluate_2d_to(None, &coeffs_view, &mut actual);
-
-    // Compare results
-    assert_eq!(actual.shape(), expected.shape());
-    for i in 0..n_points {
-        for j in 0..extra_size {
-            let diff = (actual[[i, j]] - expected[[i, j]]).abs();
-            assert!(
-                diff < 1e-14,
-                "Mismatch at [{}, {}]: actual={}, expected={}, diff={}",
-                i, j, actual[[i, j]], expected[[i, j]], diff
-            );
-        }
-    }
-}
-
-#[test]
-fn test_evaluate_2d_to_viewmut_matches_evaluate_2d() {
-    // Test that evaluate_2d_to_viewmut produces identical results to evaluate_2d
-    let n_points = 10;
-    let basis_size = 5;
-    let extra_size = 3;
-
-    // Create a Vandermonde-like matrix
-    let matrix = DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
-        let i = idx[0] as f64 / (n_points as f64);
-        let j = idx[1] as i32;
-        i.powi(j)
-    });
-
-    let fitter = RealMatrixFitter::new(matrix);
-
-    // Create 2D coefficients
-    let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
-        (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5)
-    });
-    let coeffs_view = coeffs_2d.view(.., ..);
-
-    // Use existing evaluate_2d
-    let expected = fitter.evaluate_2d(None, &coeffs_view);
-
-    // Use new evaluate_2d_to_viewmut with a mutable view
+    // Use new evaluate_2d_to with a mutable view
     let mut actual = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
     {
         let mut actual_view = actual.view_mut(.., ..);
-        fitter.evaluate_2d_to_viewmut(None, &coeffs_view, &mut actual_view);
+        fitter.evaluate_2d_to(None, &coeffs_view, &mut actual_view);
     }
 
     // Compare results
@@ -429,9 +432,12 @@ fn test_fit_2d_to_matches_fit_2d() {
     // Use existing fit_2d
     let expected = fitter.fit_2d(None, &values_view);
 
-    // Use new fit_2d_to
+    // Use fit_2d_to
     let mut actual = DTensor::<f64, 2>::from_elem([basis_size, extra_size], 0.0);
-    fitter.fit_2d_to(None, &values_view, &mut actual);
+    {
+        let mut actual_view = actual.view_mut(.., ..);
+        fitter.fit_2d_to(None, &values_view, &mut actual_view);
+    }
 
     // Compare results
     assert_eq!(actual.shape(), expected.shape());
@@ -471,12 +477,18 @@ fn test_evaluate_fit_roundtrip_with_inplace() {
 
     // evaluate_2d_to
     let mut values = DTensor::<f64, 2>::from_elem([n_points, extra_size], 0.0);
-    fitter.evaluate_2d_to(None, &coeffs_view, &mut values);
+    {
+        let mut values_view_mut = values.view_mut(.., ..);
+        fitter.evaluate_2d_to(None, &coeffs_view, &mut values_view_mut);
+    }
 
     // fit_2d_to
     let values_view = values.view(.., ..);
     let mut fitted_coeffs = DTensor::<f64, 2>::from_elem([basis_size, extra_size], 0.0);
-    fitter.fit_2d_to(None, &values_view, &mut fitted_coeffs);
+    {
+        let mut fitted_view = fitted_coeffs.view_mut(.., ..);
+        fitter.fit_2d_to(None, &values_view, &mut fitted_view);
+    }
 
     // Compare
     for i in 0..basis_size {
@@ -519,9 +531,12 @@ fn test_evaluate_complex_2d_to_matches_evaluate_complex_2d() {
     // Use existing evaluate_complex_2d
     let expected = fitter.evaluate_complex_2d(None, &coeffs_view);
 
-    // Use new evaluate_complex_2d_to
+    // Use evaluate_complex_2d_to
     let mut actual = DTensor::<Complex<f64>, 2>::from_elem([n_points, extra_size], Complex::new(0.0, 0.0));
-    fitter.evaluate_complex_2d_to(None, &coeffs_view, &mut actual);
+    {
+        let mut actual_view = actual.view_mut(.., ..);
+        fitter.evaluate_complex_2d_to(None, &coeffs_view, &mut actual_view);
+    }
 
     // Compare results
     assert_eq!(actual.shape(), expected.shape());
@@ -565,9 +580,12 @@ fn test_fit_complex_2d_to_matches_fit_complex_2d() {
     // Use existing fit_complex_2d
     let expected = fitter.fit_complex_2d(None, &values_view);
 
-    // Use new fit_complex_2d_to
+    // Use fit_complex_2d_to
     let mut actual = DTensor::<Complex<f64>, 2>::from_elem([basis_size, extra_size], Complex::new(0.0, 0.0));
-    fitter.fit_complex_2d_to(None, &values_view, &mut actual);
+    {
+        let mut actual_view = actual.view_mut(.., ..);
+        fitter.fit_complex_2d_to(None, &values_view, &mut actual_view);
+    }
 
     // Compare results
     assert_eq!(actual.shape(), expected.shape());
@@ -606,12 +624,18 @@ fn test_complex_roundtrip_with_inplace() {
 
     // evaluate_complex_2d_to
     let mut values = DTensor::<Complex<f64>, 2>::from_elem([n_points, extra_size], Complex::new(0.0, 0.0));
-    fitter.evaluate_complex_2d_to(None, &coeffs_view, &mut values);
+    {
+        let mut values_view_mut = values.view_mut(.., ..);
+        fitter.evaluate_complex_2d_to(None, &coeffs_view, &mut values_view_mut);
+    }
 
     // fit_complex_2d_to
     let values_view = values.view(.., ..);
     let mut fitted_coeffs = DTensor::<Complex<f64>, 2>::from_elem([basis_size, extra_size], Complex::new(0.0, 0.0));
-    fitter.fit_complex_2d_to(None, &values_view, &mut fitted_coeffs);
+    {
+        let mut fitted_view = fitted_coeffs.view_mut(.., ..);
+        fitter.fit_complex_2d_to(None, &values_view, &mut fitted_view);
+    }
 
     // Compare
     for i in 0..basis_size {
@@ -627,11 +651,11 @@ fn test_complex_roundtrip_with_inplace() {
 }
 
 // ============================================================================
-// Tests for evaluate_2d_to_viewmut_dim
+// Tests for evaluate_2d_to_dim
 // ============================================================================
 
 #[test]
-fn test_evaluate_2d_to_viewmut_dim0() {
+fn test_evaluate_2d_to_dim0() {
     // Test dim=0: out[n_points, extra] = matrix[n_points, basis] * coeffs[basis, extra]
     let n_points = 10;
     let basis_size = 5;
@@ -651,13 +675,13 @@ fn test_evaluate_2d_to_viewmut_dim0() {
     // Expected using evaluate_2d
     let expected = fitter.evaluate_2d(None, &coeffs_view);
 
-    // Actual using evaluate_2d_to_viewmut_dim
+    // Actual using evaluate_2d_to_dim
     let mut out_data = vec![0.0f64; n_points * extra_size];
     let mut out_view = unsafe {
         let mapping = mdarray::DenseMapping::new((n_points, extra_size));
         mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_data.as_mut_ptr(), mapping)
     };
-    fitter.evaluate_2d_to_viewmut_dim(None, &coeffs_view, &mut out_view, 0);
+    fitter.evaluate_2d_to_dim(None, &coeffs_view, &mut out_view, 0);
 
     // Compare
     for i in 0..n_points {
@@ -675,7 +699,7 @@ fn test_evaluate_2d_to_viewmut_dim0() {
 }
 
 #[test]
-fn test_evaluate_2d_to_viewmut_dim1() {
+fn test_evaluate_2d_to_dim1() {
     // Test dim=1: out[extra, n_points] = coeffs[extra, basis] * matrix^T[basis, n_points]
     let n_points = 10;
     let basis_size = 5;
@@ -706,13 +730,13 @@ fn test_evaluate_2d_to_viewmut_dim1() {
         }
     }
 
-    // Actual using evaluate_2d_to_viewmut_dim
+    // Actual using evaluate_2d_to_dim
     let mut out_data = vec![0.0f64; extra_size * n_points];
     let mut out_view = unsafe {
         let mapping = mdarray::DenseMapping::new((extra_size, n_points));
         mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_data.as_mut_ptr(), mapping)
     };
-    fitter.evaluate_2d_to_viewmut_dim(None, &coeffs_view, &mut out_view, 1);
+    fitter.evaluate_2d_to_dim(None, &coeffs_view, &mut out_view, 1);
 
     // Compare
     for e in 0..extra_size {
