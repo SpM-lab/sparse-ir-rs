@@ -448,7 +448,7 @@ where
     /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points`
     ///
     /// # Performance
-    /// - When `dim == 0`: Fast path, minimal overhead
+    /// - When `dim == 0`: Fast path, no temporary buffers needed
     /// - Otherwise: Uses temporary buffers for dimension permutation
     pub fn evaluate_nd_inplace(
         &self,
@@ -472,37 +472,61 @@ where
         let total = coeffs.len();
         let extra_size = total / basis_size;
 
-        // Step 1: Copy permuted input to contiguous buffer (uninit allocation)
-        let perm = make_perm_to_front(rank, dim);
-        let permuted_view = coeffs.permute(&perm[..]);
+        if dim == 0 {
+            // Fast path: dim == 0, no movedim needed
+            // coeffs is [basis_size, ...], out is [n_points, ...]
+            // Both are row-major contiguous, treat as 2D matrices
 
-        // Allocate uninit buffer and copy
-        let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
-        unsafe { input_buffer.set_len(total); }
-        copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+            // Create 2D DView of coeffs: [basis_size, extra_size]
+            let coeffs_ptr = coeffs.as_ptr();
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs_ptr, mapping)
+            };
 
-        // Step 2: Create DTensor from buffer for GEMM
-        let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
-            input_buffer[idx[0] * extra_size + idx[1]]
-        });
+            // Create 2D DViewMut of out: [n_points, extra_size]
+            let out_ptr = out.as_mut_ptr();
+            let mut out_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_ptr, mapping)
+            };
 
-        // Step 3: Matrix multiply
-        let result_2d = matmul_par(&self.fitter.matrix, &coeffs_2d, backend);
+            // Matrix multiply directly into out buffer
+            self.fitter.evaluate_2d_to_viewmut(backend, &coeffs_2d, &mut out_2d);
+        } else {
+            // General path: use temporary buffers for movedim
+            // Step 1: Copy permuted input to contiguous buffer (uninit allocation)
+            let perm = make_perm_to_front(rank, dim);
+            let permuted_view = coeffs.permute(&perm[..]);
 
-        // Step 4: Copy result to output buffer (uninit allocation)
-        let out_total = out.len();
-        let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
-        unsafe { output_buffer.set_len(out_total); }
-        for i in 0..n_points {
-            for j in 0..extra_size {
-                output_buffer[i * extra_size + j] = result_2d[[i, j]];
+            // Allocate uninit buffer and copy
+            let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
+            unsafe { input_buffer.set_len(total); }
+            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+
+            // Step 2: Create DTensor from buffer for GEMM
+            let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
+                input_buffer[idx[0] * extra_size + idx[1]]
+            });
+
+            // Step 3: Matrix multiply
+            let result_2d = matmul_par(&self.fitter.matrix, &coeffs_2d, backend);
+
+            // Step 4: Copy result to output buffer (uninit allocation)
+            let out_total = out.len();
+            let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
+            unsafe { output_buffer.set_len(out_total); }
+            for i in 0..n_points {
+                for j in 0..extra_size {
+                    output_buffer[i * extra_size + j] = result_2d[[i, j]];
+                }
             }
-        }
 
-        // Step 5: Copy from contiguous buffer to strided output view (inverse permutation)
-        let inv_perm = make_perm_from_front(rank, dim);
-        let mut out_permuted = out.permute_mut(&inv_perm[..]);
-        copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
+            // Step 5: Copy from contiguous buffer to strided output view (inverse permutation)
+            let inv_perm = make_perm_from_front(rank, dim);
+            let mut out_permuted = out.permute_mut(&inv_perm[..]);
+            copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
+        }
     }
 
     /// Fit N-D values for the real case `T = f64`
