@@ -57,6 +57,7 @@ pub use polyfourier::{
     FermionicPiecewiseLegendreFTVector, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PowerModel,
 };
 pub use sampling::TauSampling;
+pub use working_buffer::SamplingContext;
 pub use sve::{
     CentrosymmSVE, SVDStrategy, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,
     truncate,
