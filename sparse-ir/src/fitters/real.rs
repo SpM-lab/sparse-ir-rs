@@ -9,8 +9,8 @@ use num_complex::Complex;
 use std::cell::RefCell;
 
 use super::common::{
-    complex_slice_as_real, compute_real_svd, copy_from_contiguous, copy_to_contiguous,
-    make_perm_to_front, RealSVD,
+    RealSVD, complex_slice_as_real, compute_real_svd, copy_from_contiguous, copy_to_contiguous,
+    make_perm_to_front,
 };
 
 /// Fitter for real matrix: A ∈ R^{n×m}
@@ -115,12 +115,7 @@ impl RealMatrixFitter {
     /// Fit: values (real) → coeffs (real), writing to output slice
     ///
     /// Solves: min ||A * coeffs - values||^2 using SVD
-    pub fn fit_to(
-        &self,
-        backend: Option<&GemmBackendHandle>,
-        values: &[f64],
-        out: &mut [f64],
-    ) {
+    pub fn fit_to(&self, backend: Option<&GemmBackendHandle>, values: &[f64], out: &mut [f64]) {
         assert_eq!(values.len(), self.n_points());
         assert_eq!(out.len(), self.basis_size());
 
@@ -444,43 +439,72 @@ impl RealMatrixFitter {
 
             self.evaluate_2d_to_dim(backend, &coeffs_2d, &mut out_2d, 1);
         } else {
-            // General path: use temporary buffers for movedim
-            // Move target dim to position 0, compute, then move back
+            // General path: batched GEMM approach
+            // For shape [A, basis, B, ...] with dim=d, we batch over dimensions before dim
+            // and treat dimensions after dim as the "extra" dimension for each GEMM
+            self.evaluate_nd_dd_to_batched(backend, coeffs, dim, out);
+        }
+        true
+    }
 
-            // Step 1: Copy permuted input to contiguous buffer
-            let perm = make_perm_to_front(rank, dim);
-            let permuted_view = coeffs.permute(&perm[..]);
+    /// Batched GEMM implementation for middle dimensions
+    /// For shape [batch_dims..., basis, extra_dims...] with target dim in the middle,
+    /// we iterate over batch_dims and call GEMM for each batch.
+    fn evaluate_nd_dd_to_batched(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let rank = coeffs.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
 
-            let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
-            unsafe { input_buffer.set_len(total); }
-            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+        // Calculate batch size (product of dims before target dim)
+        // and extra size (product of dims after target dim)
+        let mut batch_size = 1usize;
+        let mut extra_size = 1usize;
+        coeffs.shape().with_dims(|dims| {
+            for i in 0..dim {
+                batch_size *= dims[i];
+            }
+            for i in (dim + 1)..rank {
+                extra_size *= dims[i];
+            }
+        });
 
-            // Step 2: Create DView from buffer for GEMM
+        // Strides in the flattened array
+        let coeffs_batch_stride = basis_size * extra_size;
+        let out_batch_stride = n_points * extra_size;
+
+        // For row-major layout:
+        // coeffs[b, l, e] = coeffs_ptr[b * batch_stride + l * extra_size + e]
+        // Each batch slice coeffs[b, :, :] is contiguous with shape [basis_size, extra_size]
+        let coeffs_ptr = coeffs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+
+        for b in 0..batch_size {
+            // Create view for this batch
             let coeffs_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
-                mdarray::DView::<'_, f64, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+                mdarray::DView::<'_, f64, 2>::new_unchecked(
+                    coeffs_ptr.add(b * coeffs_batch_stride),
+                    mapping,
+                )
             };
-
-            // Step 3: Allocate output buffer and create DViewMut
-            let out_total = out.len();
-            let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
-            unsafe { output_buffer.set_len(out_total); }
 
             let mut out_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((n_points, extra_size));
-                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(output_buffer.as_mut_ptr(), mapping)
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(
+                    out_ptr.add(b * out_batch_stride),
+                    mapping,
+                )
             };
 
-            // Step 4: Matrix multiply directly into output buffer
+            // GEMM: out[p, e] = sum_l matrix[p, l] * coeffs[l, e]
             self.evaluate_2d_to_dim(backend, &coeffs_2d, &mut out_2d, 0);
-
-            // Step 5: Copy from contiguous buffer to strided output view
-            // Use same perm as input (not inverse) because buffer has shape [n_points, ...rest...]
-            // which matches the permuted output view order
-            let out_permuted = (&mut *out).permute_mut(&perm[..]);
-            copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
-        true
     }
 
     /// Fit 2D real tensor (along dim=0) using matrix multiplication
@@ -730,43 +754,67 @@ impl RealMatrixFitter {
 
             self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 1);
         } else {
-            // General path: use temporary buffers for movedim
-            // Move target dim to position 0, compute, then move back
+            // General path: batched GEMM approach
+            // For shape [batch_dims..., n_points, extra_dims...] with target dim in the middle,
+            // we iterate over batch_dims and call GEMM for each batch.
+            self.fit_nd_dd_to_batched(backend, values, dim, out);
+        }
+        true
+    }
 
-            // Step 1: Copy permuted input to contiguous buffer
-            let perm = make_perm_to_front(rank, dim);
-            let permuted_view = values.permute(&perm[..]);
+    /// Batched GEMM implementation for fit with middle dimensions
+    fn fit_nd_dd_to_batched(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let rank = values.rank();
+        let n_points = self.n_points();
+        let basis_size = self.basis_size();
 
-            let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
-            unsafe { input_buffer.set_len(total); }
-            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+        // Calculate batch size (product of dims before target dim)
+        // and extra size (product of dims after target dim)
+        let mut batch_size = 1usize;
+        let mut extra_size = 1usize;
+        values.shape().with_dims(|dims| {
+            for i in 0..dim {
+                batch_size *= dims[i];
+            }
+            for i in (dim + 1)..rank {
+                extra_size *= dims[i];
+            }
+        });
 
-            // Step 2: Create DView from buffer for GEMM
+        // Strides in the flattened array
+        let values_batch_stride = n_points * extra_size;
+        let out_batch_stride = basis_size * extra_size;
+
+        let values_ptr = values.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+
+        for b in 0..batch_size {
+            // Create view for this batch
             let values_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((n_points, extra_size));
-                mdarray::DView::<'_, f64, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+                mdarray::DView::<'_, f64, 2>::new_unchecked(
+                    values_ptr.add(b * values_batch_stride),
+                    mapping,
+                )
             };
-
-            // Step 3: Allocate output buffer and create DViewMut
-            let out_total = out.len();
-            let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
-            unsafe { output_buffer.set_len(out_total); }
 
             let mut out_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
-                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(output_buffer.as_mut_ptr(), mapping)
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(
+                    out_ptr.add(b * out_batch_stride),
+                    mapping,
+                )
             };
 
-            // Step 4: Fit directly into output buffer
+            // GEMM: out[l, e] = fit_matrix * values[:, e]
             self.fit_2d_dd_to(backend, &values_2d, &mut out_2d);
-
-            // Step 5: Copy from contiguous buffer to strided output view
-            // Use same perm as input (not inverse) because buffer has shape [basis_size, ...rest...]
-            // which matches the permuted output view order
-            let out_permuted = (&mut *out).permute_mut(&perm[..]);
-            copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
-        true
     }
 
     /// Fit 2D complex tensor (along dim=0) using matrix multiplication
@@ -833,8 +881,8 @@ impl RealMatrixFitter {
     /// * `out` - Output mutable view with `out.shape().dim(dim) == basis_size`
     ///
     /// # Performance
-    /// Delegates to the real version by adding an extra dimension of size 2.
-    /// For contiguous arrays, this is very efficient.
+    /// For dim==0 with contiguous arrays, uses zero-copy reinterpretation.
+    /// Otherwise, uses temporary buffers.
     pub fn fit_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -852,47 +900,171 @@ impl RealMatrixFitter {
         assert_eq!(values.shape().dim(dim), n_points);
         assert_eq!(out.shape().dim(dim), basis_size);
 
-        // Copy to contiguous buffer first to ensure correct memory layout
-        let values_tensor = values.to_tensor();
-        let values_as_f64 = complex_slice_as_real(&values_tensor);
+        let total = values.len();
+        let extra_size = total / n_points;
 
-        // Create contiguous output buffer
-        let mut out_shape_f64: Vec<usize> = Vec::with_capacity(rank + 1);
-        out.shape().with_dims(|dims| {
-            for d in dims {
-                out_shape_f64.push(*d);
+        if dim == 0 {
+            // Fast path: dim == 0, zero-copy reinterpretation
+            // Complex<f64> has layout [re, im], so we can treat [n_points, extra_size] complex
+            // as [n_points, extra_size * 2] real in 2D
+
+            // Create view of input as real: [n_points, extra_size * 2]
+            let values_2d_real = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size * 2));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(values.as_ptr() as *const f64, mapping)
+            };
+
+            // Create view of output as real: [basis_size, extra_size * 2]
+            let mut out_2d_real = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size * 2));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(
+                    out.as_mut_ptr() as *mut f64,
+                    mapping,
+                )
+            };
+
+            // Fit: coeffs = V * S^{-1} * U^T * values (real matrix, real data)
+            self.fit_2d_dd_to(backend, &values_2d_real, &mut out_2d_real);
+        } else if dim == rank - 1 {
+            // Fast path: dim == N-1, use 2 separate GEMMs for re/im parts
+            // Input: [extra_size, n_points] complex
+            // Output: [extra_size, basis_size] complex
+            // Operation: fit along last dimension
+
+            // 1. Extract real and imaginary parts (de-interleave)
+            let mut values_re: Vec<f64> = Vec::with_capacity(total);
+            let mut values_im: Vec<f64> = Vec::with_capacity(total);
+            for v in values.iter() {
+                values_re.push(v.re);
+                values_im.push(v.im);
             }
-        });
-        out_shape_f64.push(2);
-        let mut out_f64_buffer = mdarray::Tensor::<f64, DynRank>::zeros(&out_shape_f64[..]);
 
-        // Fit to contiguous buffer
-        {
-            let mut out_f64_view = out_f64_buffer.expr_mut();
-            self.fit_nd_dd_to(backend, &values_as_f64, dim, &mut out_f64_view);
+            // Create views: [extra_size, n_points]
+            let values_re_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, n_points));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(values_re.as_ptr(), mapping)
+            };
+            let values_im_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, n_points));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(values_im.as_ptr(), mapping)
+            };
+
+            // 2. Allocate output buffers for real results
+            let out_total = extra_size * basis_size;
+            let mut out_re: Vec<f64> = vec![0.0; out_total];
+            let mut out_im: Vec<f64> = vec![0.0; out_total];
+
+            let mut out_re_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, basis_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_re.as_mut_ptr(), mapping)
+            };
+            let mut out_im_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, basis_size));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_im.as_mut_ptr(), mapping)
+            };
+
+            // 3. Do 2 fits
+            self.fit_2d_to_dim(backend, &values_re_view, &mut out_re_view, 1);
+            self.fit_2d_to_dim(backend, &values_im_view, &mut out_im_view, 1);
+
+            // 4. Interleave into complex output
+            let out_ptr = out.as_mut_ptr() as *mut f64;
+            unsafe {
+                for i in 0..out_total {
+                    *out_ptr.add(2 * i) = out_re[i];
+                    *out_ptr.add(2 * i + 1) = out_im[i];
+                }
+            }
+        } else {
+            // General path
+            return self.fit_nd_zz_to_general(backend, values, dim, out);
+        }
+        true
+    }
+
+    /// General implementation for fit_nd_zz_to (non-fast-path cases)
+    /// Uses 2-GEMM approach: separate re/im, do 2 fits, then interleave
+    fn fit_nd_zz_to_general(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        let total = values.len();
+        let out_total = out.len();
+
+        // 1. Extract real and imaginary parts (de-interleave)
+        let mut values_re: Vec<f64> = Vec::with_capacity(total);
+        let mut values_im: Vec<f64> = Vec::with_capacity(total);
+        for v in values.iter() {
+            values_re.push(v.re);
+            values_im.push(v.im);
         }
 
-        // Copy back to output
-        let out_total = out.len();
-        let mut idx_vec = vec![0usize; rank];
-        for flat in 0..out_total {
-            let mut remaining = flat;
-            for d in (0..rank).rev() {
-                let dim_size = out.shape().dim(d);
-                idx_vec[d] = remaining % dim_size;
-                remaining /= dim_size;
+        // 2. Get input shape
+        let mut values_shape: Vec<usize> = Vec::with_capacity(values.rank());
+        values.shape().with_dims(|dims| {
+            for d in dims {
+                values_shape.push(*d);
             }
-            let re = out_f64_buffer[&{
-                let mut idx_f64 = idx_vec.clone();
-                idx_f64.push(0);
-                idx_f64
-            }[..]];
-            let im = out_f64_buffer[&{
-                let mut idx_f64 = idx_vec.clone();
-                idx_f64.push(1);
-                idx_f64
-            }[..]];
-            out[&idx_vec[..]] = Complex::new(re, im);
+        });
+        let shape: mdarray::DynRank = mdarray::Shape::from_dims(&values_shape[..]);
+
+        let values_re_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(shape.clone());
+            mdarray::View::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                values_re.as_ptr(),
+                mapping,
+            )
+        };
+        let values_im_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(shape);
+            mdarray::View::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                values_im.as_ptr(),
+                mapping,
+            )
+        };
+
+        // 3. Allocate output buffers
+        let mut out_re: Vec<f64> = vec![0.0; out_total];
+        let mut out_im: Vec<f64> = vec![0.0; out_total];
+
+        // Get output shape
+        let mut out_shape: Vec<usize> = Vec::with_capacity(out.rank());
+        out.shape().with_dims(|dims| {
+            for d in dims {
+                out_shape.push(*d);
+            }
+        });
+        let out_shape_dyn: mdarray::DynRank = mdarray::Shape::from_dims(&out_shape[..]);
+
+        let mut out_re_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(out_shape_dyn.clone());
+            mdarray::ViewMut::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                out_re.as_mut_ptr(),
+                mapping,
+            )
+        };
+        let mut out_im_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(out_shape_dyn);
+            mdarray::ViewMut::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                out_im.as_mut_ptr(),
+                mapping,
+            )
+        };
+
+        // 4. Do 2 fits
+        self.fit_nd_dd_to(backend, &values_re_view, dim, &mut out_re_view);
+        self.fit_nd_dd_to(backend, &values_im_view, dim, &mut out_im_view);
+
+        // 5. Interleave into complex output
+        let out_ptr = out.as_mut_ptr() as *mut f64;
+        unsafe {
+            for i in 0..out_total {
+                *out_ptr.add(2 * i) = out_re[i];
+                *out_ptr.add(2 * i + 1) = out_im[i];
+            }
         }
         true
     }
@@ -981,8 +1153,8 @@ impl RealMatrixFitter {
     /// * `out` - Output mutable view with `out.shape().dim(dim) == n_points`
     ///
     /// # Performance
-    /// Delegates to the real version by adding an extra dimension of size 2.
-    /// For contiguous arrays, this is very efficient.
+    /// For dim==0 or dim==rank-1 with contiguous arrays, uses zero-copy reinterpretation.
+    /// Otherwise, uses temporary buffers.
     pub fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -1000,47 +1172,171 @@ impl RealMatrixFitter {
         assert_eq!(coeffs.shape().dim(dim), basis_size);
         assert_eq!(out.shape().dim(dim), n_points);
 
-        // Copy to contiguous buffer first to ensure correct memory layout
-        let coeffs_tensor = coeffs.to_tensor();
-        let coeffs_as_f64 = complex_slice_as_real(&coeffs_tensor);
+        let total = coeffs.len();
+        let extra_size = total / basis_size;
 
-        // Create contiguous output buffer
-        let mut out_shape_f64: Vec<usize> = Vec::with_capacity(rank + 1);
-        out.shape().with_dims(|dims| {
-            for d in dims {
-                out_shape_f64.push(*d);
+        if dim == 0 {
+            // Fast path: dim == 0, zero-copy reinterpretation
+            // Complex<f64> has layout [re, im], so we can treat [basis_size, extra_size] complex
+            // as [basis_size, extra_size, 2] real, which is [basis_size, extra_size * 2] in 2D
+
+            // Create view of input as real: [basis_size, extra_size * 2]
+            let coeffs_2d_real = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size * 2));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs.as_ptr() as *const f64, mapping)
+            };
+
+            // Create view of output as real: [n_points, extra_size * 2]
+            let mut out_2d_real = unsafe {
+                let mapping = mdarray::DenseMapping::new((n_points, extra_size * 2));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(
+                    out.as_mut_ptr() as *mut f64,
+                    mapping,
+                )
+            };
+
+            // Evaluate: out = matrix * coeffs (real matrix, real data)
+            self.evaluate_2d_dd_to(backend, &coeffs_2d_real, &mut out_2d_real);
+        } else if dim == rank - 1 {
+            // Fast path: dim == N-1, use 2 separate GEMMs for re/im parts
+            // Input: [extra_size, basis_size] complex
+            // Output: [extra_size, n_points] complex
+            // Operation: out = coeffs @ matrix^T (apply matrix along last dimension)
+
+            // 1. Extract real and imaginary parts (de-interleave)
+            let mut coeffs_re: Vec<f64> = Vec::with_capacity(total);
+            let mut coeffs_im: Vec<f64> = Vec::with_capacity(total);
+            for c in coeffs.iter() {
+                coeffs_re.push(c.re);
+                coeffs_im.push(c.im);
             }
-        });
-        out_shape_f64.push(2);
-        let mut out_f64_buffer = mdarray::Tensor::<f64, DynRank>::zeros(&out_shape_f64[..]);
 
-        // Evaluate to contiguous buffer
-        {
-            let mut out_f64_view = out_f64_buffer.expr_mut();
-            self.evaluate_nd_dd_to(backend, &coeffs_as_f64, dim, &mut out_f64_view);
+            // Create views: [extra_size, basis_size]
+            let coeffs_re_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, basis_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs_re.as_ptr(), mapping)
+            };
+            let coeffs_im_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, basis_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs_im.as_ptr(), mapping)
+            };
+
+            // 2. Allocate output buffers for real results
+            let out_total = extra_size * n_points;
+            let mut out_re: Vec<f64> = vec![0.0; out_total];
+            let mut out_im: Vec<f64> = vec![0.0; out_total];
+
+            let mut out_re_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, n_points));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_re.as_mut_ptr(), mapping)
+            };
+            let mut out_im_view = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, n_points));
+                mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out_im.as_mut_ptr(), mapping)
+            };
+
+            // 3. Do 2 GEMMs: out = coeffs @ matrix^T
+            self.evaluate_2d_to_dim(backend, &coeffs_re_view, &mut out_re_view, 1);
+            self.evaluate_2d_to_dim(backend, &coeffs_im_view, &mut out_im_view, 1);
+
+            // 4. Interleave into complex output
+            let out_ptr = out.as_mut_ptr() as *mut f64;
+            unsafe {
+                for i in 0..out_total {
+                    *out_ptr.add(2 * i) = out_re[i];
+                    *out_ptr.add(2 * i + 1) = out_im[i];
+                }
+            }
+        } else {
+            // General path
+            return self.evaluate_nd_zz_to_general(backend, coeffs, dim, out);
+        }
+        true
+    }
+
+    /// General implementation for evaluate_nd_zz_to (non-fast-path cases)
+    /// Uses 2-GEMM approach: separate re/im, do 2 GEMMs, then interleave
+    fn evaluate_nd_zz_to_general(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        let total = coeffs.len();
+        let out_total = out.len();
+
+        // 1. Extract real and imaginary parts (de-interleave)
+        let mut coeffs_re: Vec<f64> = Vec::with_capacity(total);
+        let mut coeffs_im: Vec<f64> = Vec::with_capacity(total);
+        for c in coeffs.iter() {
+            coeffs_re.push(c.re);
+            coeffs_im.push(c.im);
         }
 
-        // Copy back to output
-        let out_total = out.len();
-        let mut idx_vec = vec![0usize; rank];
-        for flat in 0..out_total {
-            let mut remaining = flat;
-            for d in (0..rank).rev() {
-                let dim_size = out.shape().dim(d);
-                idx_vec[d] = remaining % dim_size;
-                remaining /= dim_size;
+        // 2. Get input shape
+        let mut coeffs_shape: Vec<usize> = Vec::with_capacity(coeffs.rank());
+        coeffs.shape().with_dims(|dims| {
+            for d in dims {
+                coeffs_shape.push(*d);
             }
-            let re = out_f64_buffer[&{
-                let mut idx_f64 = idx_vec.clone();
-                idx_f64.push(0);
-                idx_f64
-            }[..]];
-            let im = out_f64_buffer[&{
-                let mut idx_f64 = idx_vec.clone();
-                idx_f64.push(1);
-                idx_f64
-            }[..]];
-            out[&idx_vec[..]] = Complex::new(re, im);
+        });
+        let shape: mdarray::DynRank = mdarray::Shape::from_dims(&coeffs_shape[..]);
+
+        let coeffs_re_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(shape.clone());
+            mdarray::View::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                coeffs_re.as_ptr(),
+                mapping,
+            )
+        };
+        let coeffs_im_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(shape);
+            mdarray::View::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                coeffs_im.as_ptr(),
+                mapping,
+            )
+        };
+
+        // 3. Allocate output buffers
+        let mut out_re: Vec<f64> = vec![0.0; out_total];
+        let mut out_im: Vec<f64> = vec![0.0; out_total];
+
+        // Get output shape
+        let mut out_shape: Vec<usize> = Vec::with_capacity(out.rank());
+        out.shape().with_dims(|dims| {
+            for d in dims {
+                out_shape.push(*d);
+            }
+        });
+        let out_shape_dyn: mdarray::DynRank = mdarray::Shape::from_dims(&out_shape[..]);
+
+        let mut out_re_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(out_shape_dyn.clone());
+            mdarray::ViewMut::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                out_re.as_mut_ptr(),
+                mapping,
+            )
+        };
+        let mut out_im_view = unsafe {
+            let mapping = mdarray::DenseMapping::new(out_shape_dyn);
+            mdarray::ViewMut::<'_, f64, mdarray::DynRank, mdarray::Dense>::new_unchecked(
+                out_im.as_mut_ptr(),
+                mapping,
+            )
+        };
+
+        // 4. Do 2 GEMMs
+        self.evaluate_nd_dd_to(backend, &coeffs_re_view, dim, &mut out_re_view);
+        self.evaluate_nd_dd_to(backend, &coeffs_im_view, dim, &mut out_im_view);
+
+        // 5. Interleave into complex output
+        let out_ptr = out.as_mut_ptr() as *mut f64;
+        unsafe {
+            for i in 0..out_total {
+                *out_ptr.add(2 * i) = out_re[i];
+                *out_ptr.add(2 * i + 1) = out_im[i];
+            }
         }
         true
     }

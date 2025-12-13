@@ -1337,8 +1337,12 @@ impl InplaceFitter for SamplingType {
             SamplingType::MatsubaraBosonic(s) => {
                 InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
             }
-            // MatsubaraPositiveOnly doesn't support zz (complex → complex)
-            _ => false,
+            SamplingType::MatsubaraPositiveOnlyFermionic(s) => {
+                InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
+            SamplingType::MatsubaraPositiveOnlyBosonic(s) => {
+                InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
+            }
         }
     }
 
