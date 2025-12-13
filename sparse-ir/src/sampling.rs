@@ -6,7 +6,7 @@
 use crate::fpu_check::FpuGuard;
 use crate::gemm::{GemmBackendHandle, matmul_par};
 use crate::traits::StatisticsType;
-use crate::working_buffer::{SamplingContext, copy_from_contiguous, copy_to_contiguous};
+use crate::working_buffer::{copy_from_contiguous, copy_to_contiguous};
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor};
 use num_complex::Complex;
 
@@ -436,27 +436,22 @@ where
         }
     }
 
-    /// Evaluate basis coefficients at sampling points using a reusable context
+    /// Evaluate basis coefficients at sampling points with in-place output
     ///
-    /// This method reuses buffers from the SamplingContext for better performance
-    /// when performing multiple evaluate operations.
-    ///
-    /// # Type Parameters
-    /// * `T` - Element type (f64 or Complex<f64>)
+    /// Optimized version that uses permuted views and temporary buffers
+    /// to avoid unnecessary copies where possible.
     ///
     /// # Arguments
-    /// * `ctx` - Reusable sampling context with working buffers
+    /// * `backend` - Optional GEMM backend
     /// * `coeffs` - N-dimensional array with `coeffs.shape().dim(dim) == basis_size`
     /// * `dim` - Dimension along which to evaluate (0-indexed)
     /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points`
     ///
     /// # Performance
-    /// - When `dim == 0`: Fast path, no movedim copy needed for input
-    /// - When `dim == rank - 1`: Uses transposed GEMM (future optimization)
-    /// - Otherwise: Uses context buffers for movedim copies
-    pub fn evaluate_nd_with_context(
+    /// - When `dim == 0`: Fast path, minimal overhead
+    /// - Otherwise: Uses temporary buffers for dimension permutation
+    pub fn evaluate_nd_inplace(
         &self,
-        ctx: &mut SamplingContext,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
@@ -474,85 +469,40 @@ where
         assert_eq!(coeffs.shape().dim(dim), basis_size);
         assert_eq!(out.shape().dim(dim), n_points);
 
-        if dim == 0 {
-            // Fast path: no movedim needed for input
-            // Reshape coeffs directly to 2D: (basis_size, extra_size)
-            let extra_size: usize = coeffs.len() / basis_size;
+        let total = coeffs.len();
+        let extra_size = total / basis_size;
 
-            // Create 2D view of coeffs (contiguous when dim == 0)
-            let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
-                // Linear index into flattened coeffs
-                let lin_idx = idx[0] * extra_size + idx[1];
-                // Convert back to N-D index
-                let mut nd_idx = vec![0usize; rank];
-                let mut remaining = lin_idx;
-                for d in (0..rank).rev() {
-                    let dim_size = coeffs.shape().dim(d);
-                    nd_idx[d] = remaining % dim_size;
-                    remaining /= dim_size;
-                }
-                coeffs[&nd_idx[..]]
-            });
+        // Step 1: Copy permuted input to contiguous buffer (uninit allocation)
+        let perm = make_perm_to_front(rank, dim);
+        let permuted_view = coeffs.permute(&perm[..]);
 
-            // Matrix multiply
-            let result_2d = matmul_par(&self.fitter.matrix, &coeffs_2d, backend);
+        // Allocate uninit buffer and copy
+        let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
+        unsafe { input_buffer.set_len(total); }
+        copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
 
-            // Copy result back to output (dim == 0, so n_points is first dim)
-            for i in 0..n_points {
-                for j in 0..extra_size {
-                    // Convert j back to remaining indices
-                    let mut nd_idx = vec![0usize; rank];
-                    nd_idx[0] = i;
-                    let mut remaining = j;
-                    for d in (1..rank).rev() {
-                        let dim_size = out.shape().dim(d);
-                        nd_idx[d] = remaining % dim_size;
-                        remaining /= dim_size;
-                    }
-                    out[&nd_idx[..]] = result_2d[[i, j]];
-                }
+        // Step 2: Create DTensor from buffer for GEMM
+        let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
+            input_buffer[idx[0] * extra_size + idx[1]]
+        });
+
+        // Step 3: Matrix multiply
+        let result_2d = matmul_par(&self.fitter.matrix, &coeffs_2d, backend);
+
+        // Step 4: Copy result to output buffer (uninit allocation)
+        let out_total = out.len();
+        let mut output_buffer: Vec<f64> = Vec::with_capacity(out_total);
+        unsafe { output_buffer.set_len(out_total); }
+        for i in 0..n_points {
+            for j in 0..extra_size {
+                output_buffer[i * extra_size + j] = result_2d[[i, j]];
             }
-        } else {
-            // General case: use context buffers for movedim
-            let total = coeffs.len();
-            let out_total = out.len();
-
-            // Ensure context has enough capacity
-            ctx.ensure_capacity::<f64>(total, out_total);
-
-            // Step 1: Copy permuted input to contiguous buffer
-            // Generate permutation to move dim to position 0
-            let perm = make_perm_to_front(rank, dim);
-            let permuted_view = coeffs.permute(&perm[..]);
-
-            // SAFETY: We just ensured capacity
-            let input_slice = unsafe { ctx.input_as_f64_mut(total) };
-            copy_to_contiguous(&permuted_view.into_dyn(), input_slice);
-
-            // Step 2: Compute shape after permutation
-            let extra_size = total / basis_size;
-
-            // Step 3: Create DTensor from buffer for GEMM
-            let coeffs_2d = DTensor::<f64, 2>::from_fn([basis_size, extra_size], |idx| {
-                input_slice[idx[0] * extra_size + idx[1]]
-            });
-
-            // Step 4: Matrix multiply
-            let result_2d = matmul_par(&self.fitter.matrix, &coeffs_2d, backend);
-
-            // Step 5: Copy result to output buffer
-            let output_slice = unsafe { ctx.output_as_f64_mut(out_total) };
-            for i in 0..n_points {
-                for j in 0..extra_size {
-                    output_slice[i * extra_size + j] = result_2d[[i, j]];
-                }
-            }
-
-            // Step 6: Copy from contiguous buffer to strided output view (inverse permutation)
-            let inv_perm = make_perm_from_front(rank, dim);
-            let mut out_permuted = out.permute_mut(&inv_perm[..]);
-            copy_from_contiguous(output_slice, &mut out_permuted.into_dyn());
         }
+
+        // Step 5: Copy from contiguous buffer to strided output view (inverse permutation)
+        let inv_perm = make_perm_from_front(rank, dim);
+        let mut out_permuted = out.permute_mut(&inv_perm[..]);
+        copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
     }
 
     /// Fit N-D values for the real case `T = f64`

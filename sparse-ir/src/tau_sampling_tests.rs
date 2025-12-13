@@ -345,12 +345,11 @@ fn test_fit_nd_to_matches_fermionic_complex() {
 }
 
 // ============================================================================
-// Tests for evaluate_nd_with_context
+// Tests for evaluate_nd_inplace
 // ============================================================================
 
 #[test]
-fn test_evaluate_nd_with_context_dim0() {
-    use crate::working_buffer::SamplingContext;
+fn test_evaluate_nd_inplace_dim0() {
     use mdarray::Tensor;
 
     let beta = 1.0;
@@ -374,10 +373,9 @@ fn test_evaluate_nd_with_context_dim0() {
     // Expected result using existing method
     let expected = sampling.evaluate_nd(None, &coeffs, 0);
 
-    // Actual result using context
-    let mut ctx = SamplingContext::new();
+    // Actual result using inplace
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], 0.0);
-    sampling.evaluate_nd_with_context(&mut ctx, None, &coeffs, 0, &mut actual);
+    sampling.evaluate_nd_inplace(None, &coeffs, 0, &mut actual);
 
     // Compare
     for i in 0..n_points {
@@ -397,8 +395,7 @@ fn test_evaluate_nd_with_context_dim0() {
 }
 
 #[test]
-fn test_evaluate_nd_with_context_dim1() {
-    use crate::working_buffer::SamplingContext;
+fn test_evaluate_nd_inplace_dim1() {
     use mdarray::Tensor;
 
     let beta = 1.0;
@@ -422,10 +419,9 @@ fn test_evaluate_nd_with_context_dim1() {
     // Expected result using existing method
     let expected = sampling.evaluate_nd(None, &coeffs, 1);
 
-    // Actual result using context
-    let mut ctx = SamplingContext::new();
+    // Actual result using inplace
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_k, n_points, n_omega][..], 0.0);
-    sampling.evaluate_nd_with_context(&mut ctx, None, &coeffs, 1, &mut actual);
+    sampling.evaluate_nd_inplace(None, &coeffs, 1, &mut actual);
 
     // Compare
     for i in 0..n_k {
