@@ -1067,7 +1067,9 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
 ///
 /// Delegates to ComplexToRealFitter which supports:
 /// - dz: Real coefficients → Complex values (evaluate)
+/// - zz: Complex coefficients → Complex values (evaluate, extracts real parts)
 /// - zd: Complex values → Real coefficients (fit)
+/// - zz: Complex values → Complex coefficients (fit, with zero imaginary parts)
 impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
     fn n_points(&self) -> usize {
         self.n_sampling_points()
@@ -1085,6 +1087,16 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
     ) -> bool {
         self.fitter.evaluate_nd_dz_to(backend, coeffs, dim, out)
+    }
+
+    fn evaluate_nd_zz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) -> bool {
+        self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
     }
 
     fn fit_nd_zd_to(

@@ -9,8 +9,8 @@ use num_complex::Complex;
 use std::cell::RefCell;
 
 use super::common::{
-    combine_complex, compute_complex_svd, copy_from_contiguous, copy_to_contiguous,
-    extract_real_parts_coeffs, make_perm_to_front, ComplexSVD, InplaceFitter,
+    ComplexSVD, InplaceFitter, combine_complex, compute_complex_svd, copy_from_contiguous,
+    copy_to_contiguous, extract_real_parts_coeffs, make_perm_to_front,
 };
 
 /// Fitter for complex matrix with complex coefficients: A ∈ C^{n×m}
@@ -28,13 +28,13 @@ use super::common::{
 /// let fitted_coeffs = fitter.fit(&values);  // ← Vec<Complex<f64>>, → Vec<Complex<f64>>
 /// ```
 pub(crate) struct ComplexMatrixFitter {
-    pub matrix: DTensor<Complex<f64>, 2>,   // (n_points, basis_size)
-    matrix_t: DTensor<Complex<f64>, 2>,     // (basis_size, n_points) - transposed
+    pub matrix: DTensor<Complex<f64>, 2>, // (n_points, basis_size)
+    matrix_t: DTensor<Complex<f64>, 2>,   // (basis_size, n_points) - transposed
     // Real/Imag parts for evaluate_dz operations (pre-computed)
-    matrix_re: DTensor<f64, 2>,             // (n_points, basis_size)
-    matrix_im: DTensor<f64, 2>,             // (n_points, basis_size)
-    matrix_re_t: DTensor<f64, 2>,           // (basis_size, n_points) - transposed
-    matrix_im_t: DTensor<f64, 2>,           // (basis_size, n_points) - transposed
+    matrix_re: DTensor<f64, 2>,   // (n_points, basis_size)
+    matrix_im: DTensor<f64, 2>,   // (n_points, basis_size)
+    matrix_re_t: DTensor<f64, 2>, // (basis_size, n_points) - transposed
+    matrix_im_t: DTensor<f64, 2>, // (basis_size, n_points) - transposed
     svd: RefCell<Option<ComplexSVDExtended>>,
 }
 
@@ -679,38 +679,61 @@ impl ComplexMatrixFitter {
 
             self.evaluate_2d_to_dim(backend, &coeffs_2d, &mut out_2d, 1);
         } else {
-            // General path: use temporary buffers for movedim
-            let perm = make_perm_to_front(rank, dim);
-            let permuted_view = coeffs.permute(&perm[..]);
+            // General path: batched GEMM approach
+            self.evaluate_nd_zz_to_batched(backend, coeffs, dim, out);
+        }
+        true
+    }
 
-            let mut input_buffer: Vec<Complex<f64>> = Vec::with_capacity(total);
-            unsafe { input_buffer.set_len(total); }
-            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+    /// Batched GEMM implementation for evaluate_nd_zz_to with middle dimensions
+    fn evaluate_nd_zz_to_batched(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let rank = coeffs.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
 
+        // Calculate batch size and extra size
+        let mut batch_size = 1usize;
+        let mut extra_size = 1usize;
+        coeffs.shape().with_dims(|dims| {
+            for i in 0..dim {
+                batch_size *= dims[i];
+            }
+            for i in (dim + 1)..rank {
+                extra_size *= dims[i];
+            }
+        });
+
+        let coeffs_batch_stride = basis_size * extra_size;
+        let out_batch_stride = n_points * extra_size;
+
+        let coeffs_ptr = coeffs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+
+        for b in 0..batch_size {
             let coeffs_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
-                mdarray::DView::<'_, Complex<f64>, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+                mdarray::DView::<'_, Complex<f64>, 2>::new_unchecked(
+                    coeffs_ptr.add(b * coeffs_batch_stride),
+                    mapping,
+                )
             };
-
-            let out_total = out.len();
-            let mut output_buffer: Vec<Complex<f64>> = Vec::with_capacity(out_total);
-            unsafe { output_buffer.set_len(out_total); }
 
             let mut out_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((n_points, extra_size));
                 mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(
-                    output_buffer.as_mut_ptr(),
+                    out_ptr.add(b * out_batch_stride),
                     mapping,
                 )
             };
 
             self.evaluate_2d_to_dim(backend, &coeffs_2d, &mut out_2d, 0);
-
-            // Copy from contiguous buffer to strided output view
-            let out_permuted = (&mut *out).permute_mut(&perm[..]);
-            copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
-        true
     }
 
     /// Fit ND complex tensor (along specified dim)
@@ -766,38 +789,61 @@ impl ComplexMatrixFitter {
 
             self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 1);
         } else {
-            // General path: use temporary buffers for movedim
-            let perm = make_perm_to_front(rank, dim);
-            let permuted_view = values.permute(&perm[..]);
+            // General path: batched GEMM approach
+            self.fit_nd_zz_to_batched(backend, values, dim, out);
+        }
+        true
+    }
 
-            let mut input_buffer: Vec<Complex<f64>> = Vec::with_capacity(total);
-            unsafe { input_buffer.set_len(total); }
-            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+    /// Batched GEMM implementation for fit_nd_zz_to with middle dimensions
+    fn fit_nd_zz_to_batched(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        let rank = values.rank();
+        let n_points = self.n_points();
+        let basis_size = self.basis_size();
 
+        // Calculate batch size and extra size
+        let mut batch_size = 1usize;
+        let mut extra_size = 1usize;
+        values.shape().with_dims(|dims| {
+            for i in 0..dim {
+                batch_size *= dims[i];
+            }
+            for i in (dim + 1)..rank {
+                extra_size *= dims[i];
+            }
+        });
+
+        let values_batch_stride = n_points * extra_size;
+        let out_batch_stride = basis_size * extra_size;
+
+        let values_ptr = values.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+
+        for b in 0..batch_size {
             let values_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((n_points, extra_size));
-                mdarray::DView::<'_, Complex<f64>, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+                mdarray::DView::<'_, Complex<f64>, 2>::new_unchecked(
+                    values_ptr.add(b * values_batch_stride),
+                    mapping,
+                )
             };
-
-            let out_total = out.len();
-            let mut output_buffer: Vec<Complex<f64>> = Vec::with_capacity(out_total);
-            unsafe { output_buffer.set_len(out_total); }
 
             let mut out_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
                 mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(
-                    output_buffer.as_mut_ptr(),
+                    out_ptr.add(b * out_batch_stride),
                     mapping,
                 )
             };
 
             self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0);
-
-            // Copy from contiguous buffer to strided output view
-            let out_permuted = (&mut *out).permute_mut(&perm[..]);
-            copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
-        true
     }
 
     /// Evaluate ND real tensor to complex (along specified dim)
@@ -893,27 +939,72 @@ impl ComplexMatrixFitter {
 
             combine_to_complex(&values_re, &values_im, out, None);
         } else {
-            // General path: use temporary buffers for movedim
-            let perm = make_perm_to_front(rank, dim);
-            let permuted_view = coeffs.permute(&perm[..]);
+            // General path: batched GEMM approach
+            self.evaluate_nd_dz_to_batched(backend, coeffs, dim, out);
+        }
+        true
+    }
 
-            let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
-            unsafe { input_buffer.set_len(total); }
-            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+    /// Batched GEMM implementation for evaluate_nd_dz_to with middle dimensions
+    fn evaluate_nd_dz_to_batched(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        use crate::gemm::matmul_par_view;
 
+        let rank = coeffs.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
+
+        // Calculate batch size and extra size
+        let mut batch_size = 1usize;
+        let mut extra_size = 1usize;
+        coeffs.shape().with_dims(|dims| {
+            for i in 0..dim {
+                batch_size *= dims[i];
+            }
+            for i in (dim + 1)..rank {
+                extra_size *= dims[i];
+            }
+        });
+
+        let coeffs_batch_stride = basis_size * extra_size;
+        let out_batch_stride = n_points * extra_size;
+
+        let coeffs_ptr = coeffs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+
+        let matrix_re_view = self.matrix_re.view(.., ..);
+        let matrix_im_view = self.matrix_im.view(.., ..);
+
+        for b in 0..batch_size {
             let coeffs_2d = unsafe {
                 let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
-                mdarray::DView::<'_, f64, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+                mdarray::DView::<'_, f64, 2>::new_unchecked(
+                    coeffs_ptr.add(b * coeffs_batch_stride),
+                    mapping,
+                )
             };
 
-            let matrix_re_view = self.matrix_re.view(.., ..);
-            let matrix_im_view = self.matrix_im.view(.., ..);
+            // GEMM for real and imaginary parts
             let values_re = matmul_par_view(&matrix_re_view, &coeffs_2d, backend);
             let values_im = matmul_par_view(&matrix_im_view, &coeffs_2d, backend);
 
-            combine_to_complex(&values_re, &values_im, out, Some(&perm));
+            // Combine into complex output
+            unsafe {
+                let batch_out_ptr = out_ptr.add(b * out_batch_stride);
+                for i in 0..n_points {
+                    for j in 0..extra_size {
+                        let idx = i * extra_size + j;
+                        *batch_out_ptr.add(idx) =
+                            Complex::new(values_re[[i, j]], values_im[[i, j]]);
+                    }
+                }
+            }
         }
-        true
     }
 
     /// Fit ND complex tensor to real coefficients (along specified dim)
@@ -988,7 +1079,11 @@ impl ComplexMatrixFitter {
             let out_permuted = (&mut *out).permute_mut(&perm[..]);
 
             // Both are now contiguous after permutation
-            for (o, t) in out_permuted.into_dyn().iter_mut().zip(temp_permuted.into_dyn().iter()) {
+            for (o, t) in out_permuted
+                .into_dyn()
+                .iter_mut()
+                .zip(temp_permuted.into_dyn().iter())
+            {
                 *o = t.re;
             }
         }
@@ -1095,7 +1190,12 @@ mod tests {
 
         for (i, (orig, fitted)) in coeffs.iter().zip(fitted_coeffs.iter()).enumerate() {
             let error = (orig - fitted).error_norm();
-            assert!(error < 1e-8, "Complex matrix roundtrip error at {}: {}", i, error);
+            assert!(
+                error < 1e-8,
+                "Complex matrix roundtrip error at {}: {}",
+                i,
+                error
+            );
         }
     }
 
@@ -1126,7 +1226,12 @@ mod tests {
             let im = fitted_complex[i].im.abs();
 
             assert!(diff_re < 1e-10, "Real part mismatch at {}: {}", i, diff_re);
-            assert!(im < 1e-10, "Imaginary part should be small at {}: {}", i, im);
+            assert!(
+                im < 1e-10,
+                "Imaginary part should be small at {}: {}",
+                i,
+                im
+            );
         }
     }
 
@@ -1151,10 +1256,10 @@ mod tests {
 
         // Test dim=0
         {
-            let coeffs =
-                Tensor::<Complex<f64>, mdarray::DynRank>::from_fn(&[basis_size, extra1][..], |idx| {
-                    Complex::new((idx[0] + idx[1]) as f64, (idx[0] * idx[1]) as f64 * 0.1)
-                });
+            let coeffs = Tensor::<Complex<f64>, mdarray::DynRank>::from_fn(
+                &[basis_size, extra1][..],
+                |idx| Complex::new((idx[0] + idx[1]) as f64, (idx[0] * idx[1]) as f64 * 0.1),
+            );
 
             let mut values =
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[n_points, extra1][..]);
@@ -1167,17 +1272,23 @@ mod tests {
             for i in 0..basis_size {
                 for j in 0..extra1 {
                     let error = (coeffs[&[i, j][..]] - fitted[&[i, j][..]]).norm();
-                    assert!(error < 1e-8, "dim=0 roundtrip error at [{}, {}]: {}", i, j, error);
+                    assert!(
+                        error < 1e-8,
+                        "dim=0 roundtrip error at [{}, {}]: {}",
+                        i,
+                        j,
+                        error
+                    );
                 }
             }
         }
 
         // Test dim=1
         {
-            let coeffs =
-                Tensor::<Complex<f64>, mdarray::DynRank>::from_fn(&[extra1, basis_size][..], |idx| {
-                    Complex::new((idx[0] + idx[1]) as f64, (idx[0] * idx[1]) as f64 * 0.1)
-                });
+            let coeffs = Tensor::<Complex<f64>, mdarray::DynRank>::from_fn(
+                &[extra1, basis_size][..],
+                |idx| Complex::new((idx[0] + idx[1]) as f64, (idx[0] * idx[1]) as f64 * 0.1),
+            );
 
             let mut values =
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra1, n_points][..]);
@@ -1190,7 +1301,13 @@ mod tests {
             for i in 0..extra1 {
                 for j in 0..basis_size {
                     let error = (coeffs[&[i, j][..]] - fitted[&[i, j][..]]).norm();
-                    assert!(error < 1e-8, "dim=1 roundtrip error at [{}, {}]: {}", i, j, error);
+                    assert!(
+                        error < 1e-8,
+                        "dim=1 roundtrip error at [{}, {}]: {}",
+                        i,
+                        j,
+                        error
+                    );
                 }
             }
         }
@@ -1199,7 +1316,12 @@ mod tests {
         {
             let coeffs = Tensor::<Complex<f64>, mdarray::DynRank>::from_fn(
                 &[extra1, basis_size, extra2][..],
-                |idx| Complex::new((idx[0] + idx[1] + idx[2]) as f64, (idx[0] * idx[2]) as f64 * 0.1),
+                |idx| {
+                    Complex::new(
+                        (idx[0] + idx[1] + idx[2]) as f64,
+                        (idx[0] * idx[2]) as f64 * 0.1,
+                    )
+                },
             );
 
             let mut values =
@@ -1251,11 +1373,13 @@ mod tests {
 
         // dim=0
         {
-            let coeffs_real = Tensor::<f64, mdarray::DynRank>::from_fn(&[basis_size, extra][..], |idx| {
-                (idx[0] + idx[1]) as f64 * 0.5 + 1.0
-            });
+            let coeffs_real =
+                Tensor::<f64, mdarray::DynRank>::from_fn(&[basis_size, extra][..], |idx| {
+                    (idx[0] + idx[1]) as f64 * 0.5 + 1.0
+                });
 
-            let mut values = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[n_points, extra][..]);
+            let mut values =
+                Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[n_points, extra][..]);
             let mut fitted_real = Tensor::<f64, mdarray::DynRank>::zeros(&[basis_size, extra][..]);
 
             fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 0, &mut values.expr_mut());
@@ -1277,11 +1401,13 @@ mod tests {
 
         // dim=1
         {
-            let coeffs_real = Tensor::<f64, mdarray::DynRank>::from_fn(&[extra, basis_size][..], |idx| {
-                (idx[0] + idx[1]) as f64 * 0.5 + 1.0
-            });
+            let coeffs_real =
+                Tensor::<f64, mdarray::DynRank>::from_fn(&[extra, basis_size][..], |idx| {
+                    (idx[0] + idx[1]) as f64 * 0.5 + 1.0
+                });
 
-            let mut values = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra, n_points][..]);
+            let mut values =
+                Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra, n_points][..]);
             let mut fitted_real = Tensor::<f64, mdarray::DynRank>::zeros(&[extra, basis_size][..]);
 
             fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 1, &mut values.expr_mut());
@@ -1304,10 +1430,10 @@ mod tests {
         // dim=1 in 3D (middle dimension)
         {
             let extra2 = 2;
-            let coeffs_real = Tensor::<f64, mdarray::DynRank>::from_fn(
-                &[extra, basis_size, extra2][..],
-                |idx| (idx[0] + idx[1] + idx[2]) as f64 * 0.3 + 0.5,
-            );
+            let coeffs_real =
+                Tensor::<f64, mdarray::DynRank>::from_fn(&[extra, basis_size, extra2][..], |idx| {
+                    (idx[0] + idx[1] + idx[2]) as f64 * 0.3 + 0.5
+                });
 
             let mut values =
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra, n_points, extra2][..]);
