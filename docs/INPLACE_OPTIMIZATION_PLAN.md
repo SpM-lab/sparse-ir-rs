@@ -94,20 +94,28 @@ sampling.evaluate_nd_to(&coeffs_view, dim, &mut out_view);
 | コンポーネント | 追加内容 |
 |--------------|---------|
 | `working_buffer.rs` | `WorkingBuffer` - 再利用可能なバッファ構造体 |
+| `working_buffer.rs` | `SamplingContext` - 入力/出力バッファを管理 |
 | `working_buffer.rs` | `copy_to_contiguous()` - strided → 連続コピー |
 | `working_buffer.rs` | `copy_from_contiguous()` - 連続 → strided コピー |
+
+**追加されたメソッド (TauSampling):**
+
+| メソッド | 説明 |
+|---------|------|
+| `evaluate_nd_with_context(&mut ctx, backend, coeffs, dim, out)` | SamplingContext経由でバッファ再利用 |
 
 **分析: N-D配列での最適化可能ケース**
 
 | target_dim | 最適化 | 方法 |
 |------------|--------|------|
-| 0 (先頭) | ✅ ゼロコピー | 直接GEMM |
-| N-1 (末尾) | ✅ ゼロコピー | 転置GEMM |
-| 中間 | ⚠️ バッファ再利用 | WorkingBuffer + copy関数 |
+| 0 (先頭) | ✅ 高速パス実装済み | movedim不要、直接GEMM |
+| N-1 (末尾) | 🔲 未実装 | 転置GEMM |
+| 中間 | ✅ バッファ再利用実装済み | SamplingContext + copy関数 |
 
 **次のステップ:**
-- SamplingオブジェクトにWorkingBufferを統合
-- target_dim == 0, N-1 の高速パス実装
+- fit_nd_with_context の実装
+- MatsubaraSampling への適用
+- target_dim == N-1 の高速パス
 
 ## テスト結果
 
