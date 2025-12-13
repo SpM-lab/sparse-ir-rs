@@ -42,8 +42,7 @@ impl WorkingBuffer {
         }
 
         // Align to 16 bytes for Complex<f64> compatibility
-        let layout = Layout::from_size_align(capacity_bytes, 16)
-            .expect("Invalid layout");
+        let layout = Layout::from_size_align(capacity_bytes, 16).expect("Invalid layout");
 
         let ptr = unsafe { alloc::alloc(layout) };
         let ptr = NonNull::new(ptr).expect("Allocation failed");
@@ -69,8 +68,7 @@ impl WorkingBuffer {
 
         // Allocate new buffer with some extra room to avoid frequent reallocations
         let new_capacity = required_bytes.max(required_bytes * 3 / 2);
-        let layout = Layout::from_size_align(new_capacity, 16)
-            .expect("Invalid layout");
+        let layout = Layout::from_size_align(new_capacity, 16).expect("Invalid layout");
 
         let ptr = unsafe { alloc::alloc(layout) };
         self.ptr = NonNull::new(ptr).expect("Allocation failed");
@@ -105,11 +103,10 @@ impl WorkingBuffer {
         &mut self,
         count: usize,
     ) -> &mut [num_complex::Complex<f64>] {
-        debug_assert!(count * std::mem::size_of::<num_complex::Complex<f64>>() <= self.capacity_bytes);
-        std::slice::from_raw_parts_mut(
-            self.ptr.as_ptr() as *mut num_complex::Complex<f64>,
-            count,
-        )
+        debug_assert!(
+            count * std::mem::size_of::<num_complex::Complex<f64>>() <= self.capacity_bytes
+        );
+        std::slice::from_raw_parts_mut(self.ptr.as_ptr() as *mut num_complex::Complex<f64>, count)
     }
 
     /// Get the raw pointer

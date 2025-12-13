@@ -445,15 +445,13 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
     let n_omega = 4;
 
     // Create test coefficients (complex)
-    let coeffs = Tensor::<Complex<f64>, crate::DynRank>::from_fn(
-        &[basis_size, n_k, n_omega][..],
-        |idx| {
+    let coeffs =
+        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.3,
             )
-        },
-    );
+        });
 
     // Test for dim = 0
     let expected = sampling.evaluate_nd(None, &coeffs, 0);
@@ -478,7 +476,11 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -502,15 +504,13 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
     let n_omega = 4;
 
     // Create test values (complex)
-    let values = Tensor::<Complex<f64>, crate::DynRank>::from_fn(
-        &[n_points, n_k, n_omega][..],
-        |idx| {
+    let values =
+        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.2,
             )
-        },
-    );
+        });
 
     // Test for dim = 0
     let expected = sampling.fit_nd(None, &values, 0);
@@ -535,7 +535,11 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -586,7 +590,11 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -610,21 +618,18 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
     let n_omega = 4;
 
     // Create test values (complex)
-    let values = Tensor::<Complex<f64>, crate::DynRank>::from_fn(
-        &[n_points, n_k, n_omega][..],
-        |idx| {
+    let values =
+        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.2,
             )
-        },
-    );
+        });
 
     // Test for dim = 0
     let expected = sampling.fit_nd(None, &values, 0);
 
-    let mut actual =
-        Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
+    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
     sampling.fit_nd_to(None, &values, 0, &mut actual);
 
     // Compare
@@ -641,7 +646,11 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={}, actual={}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }

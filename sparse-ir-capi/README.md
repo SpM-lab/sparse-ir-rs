@@ -31,7 +31,7 @@ The C-API provides `eval` (coefficients → values) and `fit` (values → coeffi
 |----------|:---:|:----------------:|:-------------------------:|
 | `spir_sampling_eval_dd` | ✅ | ❌ | ❌ |
 | `spir_sampling_eval_dz` | ❌ | ✅ | ✅ |
-| `spir_sampling_eval_zz` | ✅ | ✅ | ❌ |
+| `spir_sampling_eval_zz` | ✅ | ✅ | ✅* |
 
 #### Fit Functions (Values → Coefficients)
 
@@ -45,11 +45,13 @@ The C-API provides `eval` (coefficients → values) and `fit` (values → coeffi
 
 \*\* For Matsubara (positive_only), `fit_zz` internally fits to real coefficients and converts to complex with zero imaginary parts. This is valid because IR coefficients are guaranteed to be real for physical Green's functions.
 
+\* For Matsubara (positive_only), `eval_zz` extracts real parts from input coefficients and evaluates. This is valid because IR coefficients are guaranteed to be real for physical Green's functions.
+
 #### Notes
 
 - **Tau sampling**: Uses real transformation matrix. Supports `dd` for real data, `zz` for complex data (real/imag parts transformed independently).
 - **Matsubara (full)**: Uses complex transformation matrix with both positive and negative frequencies. Natural type is `zz`. The `dz` evaluate is supported for real coefficients (physically guaranteed for Green's functions).
-- **Matsubara (positive_only)**: Uses only positive frequencies with complex matrix but real coefficients. Natural types are `dz` (evaluate) and `zd` (fit).
+- **Matsubara (positive_only)**: Uses only positive frequencies with complex matrix but real coefficients. Natural types are `dz` (evaluate) and `zd` (fit). Also supports `zz` variants by extracting/adding zero imaginary parts.
 
 ### Error Handling
 

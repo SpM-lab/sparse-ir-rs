@@ -222,7 +222,11 @@ pub(crate) unsafe fn copy_tensor_to_c_array<T: Copy>(
 }
 
 /// Build output dimensions by replacing target_dim with new_size
-pub(crate) fn build_output_dims(input_dims: &[usize], target_dim: usize, new_size: usize) -> Vec<usize> {
+pub(crate) fn build_output_dims(
+    input_dims: &[usize],
+    target_dim: usize,
+    new_size: usize,
+) -> Vec<usize> {
     let mut out_dims = input_dims.to_vec();
     out_dims[target_dim] = new_size;
     out_dims

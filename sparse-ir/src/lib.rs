@@ -36,6 +36,7 @@ pub use dlr::{
     DiscreteLehmannRepresentation, bosonic_single_pole, fermionic_single_pole, giwn_single_pole,
     gtau_single_pole,
 };
+pub use fitters::InplaceFitter;
 pub use freq::{BosonicFreq, FermionicFreq, MatsubaraFreq};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
 pub use interpolation1d::Interpolate1D;
@@ -56,7 +57,6 @@ pub use polyfourier::{
     BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector, FermionicPiecewiseLegendreFT,
     FermionicPiecewiseLegendreFTVector, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PowerModel,
 };
-pub use fitters::InplaceFitter;
 pub use sampling::TauSampling;
 pub use sve::{
     CentrosymmSVE, SVDStrategy, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,

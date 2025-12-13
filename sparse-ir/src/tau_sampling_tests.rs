@@ -100,13 +100,14 @@ where
     let n_omega = 7;
 
     for dim in 0..3 {
-        let (coeffs_0, _gtau_0, _giwn_0) = crate::test_utils::generate_nd_test_data::<Complex<f64>, _, _>(
-            &basis,
-            sampling.sampling_points(),
-            &[],
-            42 + dim as u64,
-            &[n_k, n_omega],
-        );
+        let (coeffs_0, _gtau_0, _giwn_0) =
+            crate::test_utils::generate_nd_test_data::<Complex<f64>, _, _>(
+                &basis,
+                sampling.sampling_points(),
+                &[],
+                42 + dim as u64,
+                &[n_k, n_omega],
+            );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
         let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
@@ -125,7 +126,11 @@ where
                     assert!(
                         abs_error < 1e-10,
                         "ND roundtrip (dim={}) error at ({},{},{}): error={}",
-                        dim, l, k, omega, abs_error
+                        dim,
+                        l,
+                        k,
+                        omega,
+                        abs_error
                     );
                 }
             }
@@ -192,7 +197,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_real() {
         assert!(
             max_error < 1e-7,
             "RegularizedBose ND roundtrip (dim={}) error too large: {}",
-            dim, max_error
+            dim,
+            max_error
         );
     }
 }
@@ -211,13 +217,14 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
     let n_omega = 7;
 
     for dim in 0..3 {
-        let (coeffs_0, _gtau_0, _giwn_0) = crate::test_utils::generate_nd_test_data::<Complex<f64>, _, _>(
-            &basis,
-            sampling.sampling_points(),
-            &[],
-            42 + dim as u64,
-            &[n_k, n_omega],
-        );
+        let (coeffs_0, _gtau_0, _giwn_0) =
+            crate::test_utils::generate_nd_test_data::<Complex<f64>, _, _>(
+                &basis,
+                sampling.sampling_points(),
+                &[],
+                42 + dim as u64,
+                &[n_k, n_omega],
+            );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
         let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
@@ -242,7 +249,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
         assert!(
             max_error < 1e-7,
             "RegularizedBose ND roundtrip (dim={}) error too large: {}",
-            dim, max_error
+            dim,
+            max_error
         );
     }
 }
@@ -300,7 +308,11 @@ fn test_evaluate_nd_to_matches_fermionic_real() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -324,13 +336,20 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
     let n_k = 3;
     let n_omega = 4;
 
-    let coeffs = Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
-        Complex::new((idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5), idx[2] as f64 * 0.3)
-    });
+    let coeffs =
+        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+            Complex::new(
+                (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
+                idx[2] as f64 * 0.3,
+            )
+        });
 
     let expected = sampling.evaluate_nd_zz(None, &coeffs, 0);
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], Complex::new(0.0, 0.0));
+    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
+        &[n_points, n_k, n_omega][..],
+        Complex::new(0.0, 0.0),
+    );
     {
         let mut actual_view = actual.expr_mut();
         sampling.evaluate_nd_zz_to(None, &coeffs, 0, &mut actual_view);
@@ -349,7 +368,11 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -399,7 +422,11 @@ fn test_fit_nd_to_matches_fermionic_real() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -423,13 +450,20 @@ fn test_fit_nd_to_matches_fermionic_complex() {
     let n_k = 3;
     let n_omega = 4;
 
-    let values = Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
-        Complex::new((idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5), idx[2] as f64 * 0.3)
-    });
+    let values =
+        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+            Complex::new(
+                (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
+                idx[2] as f64 * 0.3,
+            )
+        });
 
     let expected = sampling.fit_nd_zz(None, &values, 0);
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], Complex::new(0.0, 0.0));
+    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
+        &[basis_size, n_k, n_omega][..],
+        Complex::new(0.0, 0.0),
+    );
     {
         let mut actual_view = actual.expr_mut();
         sampling.fit_nd_zz_to(None, &values, 0, &mut actual_view);
@@ -448,7 +482,11 @@ fn test_fit_nd_to_matches_fermionic_complex() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -497,7 +535,11 @@ fn test_evaluate_nd_to_dim0() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -546,7 +588,11 @@ fn test_evaluate_nd_to_dim1() {
                 assert!(
                     diff < 1e-14,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}",
-                    i, j, k, e, a
+                    i,
+                    j,
+                    k,
+                    e,
+                    a
                 );
             }
         }
@@ -596,7 +642,12 @@ fn test_evaluate_nd_to_dim_last() {
                 assert!(
                     diff < 1e-12,
                     "Mismatch at [{}, {}, {}]: expected={:?}, actual={:?}, diff={}",
-                    i, j, k, e, a, diff
+                    i,
+                    j,
+                    k,
+                    e,
+                    a,
+                    diff
                 );
             }
         }
