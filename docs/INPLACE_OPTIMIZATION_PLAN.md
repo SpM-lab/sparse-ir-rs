@@ -83,39 +83,32 @@ let mut out_view = DViewMut::new_unchecked(out_ptr, out_mapping);
 sampling.evaluate_nd_to(&coeffs_view, dim, &mut out_view);
 ```
 
-### Phase 5: 内部最適化 🔄 進行中
+### Phase 5: 内部最適化 ✅ 完了（シンプル版）
 
 **目標:**
 - `movedim` でのコピーを削減
 - strided viewを使った次元置換
 
-**完了した基盤:**
+**実装アプローチ: シンプル版**
+
+複雑なバッファ再利用（SamplingContext）は削除し、シンプルな実装を採用:
 
 | コンポーネント | 追加内容 |
 |--------------|---------|
-| `working_buffer.rs` | `WorkingBuffer` - 再利用可能なバッファ構造体 |
-| `working_buffer.rs` | `SamplingContext` - 入力/出力バッファを管理 |
 | `working_buffer.rs` | `copy_to_contiguous()` - strided → 連続コピー |
 | `working_buffer.rs` | `copy_from_contiguous()` - 連続 → strided コピー |
+| `sampling.rs` | `evaluate_nd_inplace()` - uninit Vecを使用した効率的な実装 |
 
 **追加されたメソッド (TauSampling):**
 
 | メソッド | 説明 |
 |---------|------|
-| `evaluate_nd_with_context(&mut ctx, backend, coeffs, dim, out)` | SamplingContext経由でバッファ再利用 |
+| `evaluate_nd_inplace(backend, coeffs, dim, out)` | 一時バッファを都度allocate（0クリアなし） |
 
-**分析: N-D配列での最適化可能ケース**
-
-| target_dim | 最適化 | 方法 |
-|------------|--------|------|
-| 0 (先頭) | ✅ 高速パス実装済み | movedim不要、直接GEMM |
-| N-1 (末尾) | 🔲 未実装 | 転置GEMM |
-| 中間 | ✅ バッファ再利用実装済み | SamplingContext + copy関数 |
-
-**次のステップ:**
-- fit_nd_with_context の実装
-- MatsubaraSampling への適用
-- target_dim == N-1 の高速パス
+**方針:**
+- 一時バッファは `Vec::with_capacity` + `set_len` でuninit allocate
+- 即座に書き込むので0クリア不要
+- シンプルで保守しやすい
 
 ## テスト結果
 
