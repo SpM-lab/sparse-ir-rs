@@ -30,6 +30,11 @@ use super::common::{
 pub(crate) struct ComplexMatrixFitter {
     pub matrix: DTensor<Complex<f64>, 2>,   // (n_points, basis_size)
     matrix_t: DTensor<Complex<f64>, 2>,     // (basis_size, n_points) - transposed
+    // Real/Imag parts for evaluate_dz operations (pre-computed)
+    matrix_re: DTensor<f64, 2>,             // (n_points, basis_size)
+    matrix_im: DTensor<f64, 2>,             // (n_points, basis_size)
+    matrix_re_t: DTensor<f64, 2>,           // (basis_size, n_points) - transposed
+    matrix_im_t: DTensor<f64, 2>,           // (basis_size, n_points) - transposed
     svd: RefCell<Option<ComplexSVDExtended>>,
 }
 
@@ -70,9 +75,23 @@ impl ComplexMatrixFitter {
             matrix[[idx[1], idx[0]]]
         });
 
+        // Pre-compute real/imaginary parts for evaluate_dz operations
+        let matrix_re = DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| matrix[idx].re);
+        let matrix_im = DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| matrix[idx].im);
+
+        // Pre-compute transposed versions
+        let matrix_re_t =
+            DTensor::<f64, 2>::from_fn([basis_size, n_points], |idx| matrix_re[[idx[1], idx[0]]]);
+        let matrix_im_t =
+            DTensor::<f64, 2>::from_fn([basis_size, n_points], |idx| matrix_im[[idx[1], idx[0]]]);
+
         Self {
             matrix,
             matrix_t,
+            matrix_re,
+            matrix_im,
+            matrix_re_t,
+            matrix_im_t,
             svd: RefCell::new(None),
         }
     }
@@ -778,11 +797,207 @@ impl ComplexMatrixFitter {
             copy_from_contiguous(&output_buffer, &mut out_permuted.into_dyn());
         }
     }
+
+    /// Evaluate ND real tensor to complex (along specified dim)
+    ///
+    /// Computes: out = matrix_re * coeffs + i * matrix_im * coeffs
+    ///
+    /// # Arguments
+    /// * `coeffs` - N-dimensional real tensor with coeffs.shape().dim(dim) == basis_size
+    /// * `dim` - Target dimension
+    /// * `out` - Output mutable view (complex) with out.shape().dim(dim) == n_points
+    pub fn evaluate_nd_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        use crate::gemm::matmul_par_view;
+
+        let rank = coeffs.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
+
+        // Validate
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+        assert_eq!(out.rank(), rank);
+        assert_eq!(coeffs.shape().dim(dim), basis_size);
+        assert_eq!(out.shape().dim(dim), n_points);
+
+        let total = coeffs.len();
+        let extra_size = total / basis_size;
+
+        // Helper function to combine real results into complex output
+        fn combine_to_complex(
+            values_re: &mdarray::DTensor<f64, 2>,
+            values_im: &mdarray::DTensor<f64, 2>,
+            out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+            perm: Option<&[usize]>,
+        ) {
+            let (rows, cols) = *values_re.shape();
+            let total = rows * cols;
+
+            if let Some(perm) = perm {
+                // General case: need to permute back
+                let mut buffer: Vec<Complex<f64>> = Vec::with_capacity(total);
+                for i in 0..rows {
+                    for j in 0..cols {
+                        buffer.push(Complex::new(values_re[[i, j]], values_im[[i, j]]));
+                    }
+                }
+                let out_permuted = (&mut *out).permute_mut(perm);
+                copy_from_contiguous(&buffer, &mut out_permuted.into_dyn());
+            } else {
+                // Fast path: direct copy
+                let out_ptr = out.as_mut_ptr();
+                for i in 0..rows {
+                    for j in 0..cols {
+                        let idx = i * cols + j;
+                        unsafe {
+                            *out_ptr.add(idx) = Complex::new(values_re[[i, j]], values_im[[i, j]]);
+                        }
+                    }
+                }
+            }
+        }
+
+        if dim == 0 {
+            // Fast path 1: dim == 0
+            // out[n_points, extra] = matrix * coeffs[basis_size, extra]
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs.as_ptr(), mapping)
+            };
+
+            let matrix_re_view = self.matrix_re.view(.., ..);
+            let matrix_im_view = self.matrix_im.view(.., ..);
+            let values_re = matmul_par_view(&matrix_re_view, &coeffs_2d, backend);
+            let values_im = matmul_par_view(&matrix_im_view, &coeffs_2d, backend);
+
+            combine_to_complex(&values_re, &values_im, out, None);
+        } else if dim == rank - 1 {
+            // Fast path 2: dim == N-1
+            // out[extra, n_points] = coeffs[extra, basis_size] * matrix^T
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((extra_size, basis_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(coeffs.as_ptr(), mapping)
+            };
+
+            let matrix_re_t_view = self.matrix_re_t.view(.., ..);
+            let matrix_im_t_view = self.matrix_im_t.view(.., ..);
+            let values_re = matmul_par_view(&coeffs_2d, &matrix_re_t_view, backend);
+            let values_im = matmul_par_view(&coeffs_2d, &matrix_im_t_view, backend);
+
+            combine_to_complex(&values_re, &values_im, out, None);
+        } else {
+            // General path: use temporary buffers for movedim
+            let perm = make_perm_to_front(rank, dim);
+            let permuted_view = coeffs.permute(&perm[..]);
+
+            let mut input_buffer: Vec<f64> = Vec::with_capacity(total);
+            unsafe { input_buffer.set_len(total); }
+            copy_to_contiguous(&permuted_view.into_dyn(), &mut input_buffer);
+
+            let coeffs_2d = unsafe {
+                let mapping = mdarray::DenseMapping::new((basis_size, extra_size));
+                mdarray::DView::<'_, f64, 2>::new_unchecked(input_buffer.as_ptr(), mapping)
+            };
+
+            let matrix_re_view = self.matrix_re.view(.., ..);
+            let matrix_im_view = self.matrix_im.view(.., ..);
+            let values_re = matmul_par_view(&matrix_re_view, &coeffs_2d, backend);
+            let values_im = matmul_par_view(&matrix_im_view, &coeffs_2d, backend);
+
+            combine_to_complex(&values_re, &values_im, out, Some(&perm));
+        }
+    }
+
+    /// Fit ND complex tensor to real coefficients (along specified dim)
+    ///
+    /// Computes complex fit using fit_nd_zz_to, then extracts real parts.
+    ///
+    /// # Arguments
+    /// * `values` - N-dimensional complex tensor with values.shape().dim(dim) == n_points
+    /// * `dim` - Target dimension
+    /// * `out` - Output mutable view (real) with out.shape().dim(dim) == basis_size
+    pub fn fit_nd_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        let rank = values.rank();
+        let basis_size = self.basis_size();
+        let n_points = self.n_points();
+
+        // Validate
+        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+        assert_eq!(out.rank(), rank);
+        assert_eq!(values.shape().dim(dim), n_points);
+        assert_eq!(out.shape().dim(dim), basis_size);
+
+        // Build output shape for complex temp buffer
+        let mut temp_shape: Vec<usize> = Vec::with_capacity(rank);
+        for i in 0..rank {
+            if i == dim {
+                temp_shape.push(basis_size);
+            } else {
+                temp_shape.push(values.shape().dim(i));
+            }
+        }
+
+        // Allocate temp buffer for complex coefficients
+        let mut temp_coeffs: mdarray::Tensor<Complex<f64>, DynRank> =
+            mdarray::Tensor::zeros(&temp_shape[..]);
+
+        // Fit to complex coefficients
+        self.fit_nd_zz_to(backend, values, dim, &mut temp_coeffs.expr_mut());
+
+        // Extract real parts to output
+        let total = out.len();
+        let temp_slice = temp_coeffs.expr();
+
+        // Copy real parts - iterate in same order
+        if dim == 0 {
+            // Fast path: contiguous in memory
+            let out_ptr = out.as_mut_ptr();
+            let temp_ptr = temp_coeffs.as_ptr();
+            for i in 0..total {
+                unsafe {
+                    *out_ptr.add(i) = (*temp_ptr.add(i)).re;
+                }
+            }
+        } else if dim == rank - 1 {
+            // Fast path: contiguous in memory
+            let out_ptr = out.as_mut_ptr();
+            let temp_ptr = temp_coeffs.as_ptr();
+            for i in 0..total {
+                unsafe {
+                    *out_ptr.add(i) = (*temp_ptr.add(i)).re;
+                }
+            }
+        } else {
+            // General case: need to handle strided access
+            let perm = make_perm_to_front(rank, dim);
+            let temp_permuted = temp_slice.permute(&perm[..]);
+            let out_permuted = (&mut *out).permute_mut(&perm[..]);
+
+            // Both are now contiguous after permutation
+            for (o, t) in out_permuted.into_dyn().iter_mut().zip(temp_permuted.into_dyn().iter()) {
+                *o = t.re;
+            }
+        }
+    }
 }
 
 /// InplaceFitter implementation for ComplexMatrixFitter
 ///
-/// Only `zz` variants are supported (Complex input → Complex output).
+/// Supported operations:
+/// - `zz`: Complex input → Complex output (full support)
+/// - `dz`: Real input → Complex output (evaluate only)
+/// - `zd`: Complex input → Real output (fit only, takes real part)
 impl InplaceFitter for ComplexMatrixFitter {
     fn n_points(&self) -> usize {
         self.n_points()
@@ -800,6 +1015,16 @@ impl InplaceFitter for ComplexMatrixFitter {
         _out: &mut ViewMut<'_, f64, DynRank>,
     ) {
         panic!("ComplexMatrixFitter does not support dd (real → real) operations");
+    }
+
+    fn evaluate_nd_dz_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<f64, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+    ) {
+        ComplexMatrixFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out)
     }
 
     fn evaluate_nd_zz_to(
@@ -820,6 +1045,16 @@ impl InplaceFitter for ComplexMatrixFitter {
         _out: &mut ViewMut<'_, f64, DynRank>,
     ) {
         panic!("ComplexMatrixFitter does not support dd (real → real) operations");
+    }
+
+    fn fit_nd_zd_to(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &Slice<Complex<f64>, DynRank>,
+        dim: usize,
+        out: &mut ViewMut<'_, f64, DynRank>,
+    ) {
+        ComplexMatrixFitter::fit_nd_zd_to(self, backend, values, dim, out)
     }
 
     fn fit_nd_zz_to(
@@ -998,6 +1233,114 @@ mod tests {
                         assert!(
                             error < 1e-8,
                             "dim=1 (3D) roundtrip error at [{}, {}, {}]: {}",
+                            i,
+                            j,
+                            k,
+                            error
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_dz_zd_roundtrip() {
+        use mdarray::Tensor;
+
+        let n_points = 8;
+        let basis_size = 4;
+        let extra = 3;
+
+        let matrix = DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
+            let i = idx[0] as f64 / (n_points as f64);
+            let j = idx[1] as i32;
+            let mag = i.powi(j);
+            let phase = (j as f64) * 0.5;
+            Complex::new(mag * phase.cos(), mag * phase.sin())
+        });
+
+        let fitter = ComplexMatrixFitter::new(matrix);
+
+        // Test evaluate_nd_dz_to and fit_nd_zd_to roundtrip
+        // Real coeffs → Complex values → Real coeffs
+
+        // dim=0
+        {
+            let coeffs_real = Tensor::<f64, mdarray::DynRank>::from_fn(&[basis_size, extra][..], |idx| {
+                (idx[0] + idx[1]) as f64 * 0.5 + 1.0
+            });
+
+            let mut values = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[n_points, extra][..]);
+            let mut fitted_real = Tensor::<f64, mdarray::DynRank>::zeros(&[basis_size, extra][..]);
+
+            fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 0, &mut values.expr_mut());
+            fitter.fit_nd_zd_to(None, &values.expr(), 0, &mut fitted_real.expr_mut());
+
+            for i in 0..basis_size {
+                for j in 0..extra {
+                    let error = (coeffs_real[&[i, j][..]] - fitted_real[&[i, j][..]]).abs();
+                    assert!(
+                        error < 1e-8,
+                        "dz/zd dim=0 roundtrip error at [{}, {}]: {}",
+                        i,
+                        j,
+                        error
+                    );
+                }
+            }
+        }
+
+        // dim=1
+        {
+            let coeffs_real = Tensor::<f64, mdarray::DynRank>::from_fn(&[extra, basis_size][..], |idx| {
+                (idx[0] + idx[1]) as f64 * 0.5 + 1.0
+            });
+
+            let mut values = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra, n_points][..]);
+            let mut fitted_real = Tensor::<f64, mdarray::DynRank>::zeros(&[extra, basis_size][..]);
+
+            fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 1, &mut values.expr_mut());
+            fitter.fit_nd_zd_to(None, &values.expr(), 1, &mut fitted_real.expr_mut());
+
+            for i in 0..extra {
+                for j in 0..basis_size {
+                    let error = (coeffs_real[&[i, j][..]] - fitted_real[&[i, j][..]]).abs();
+                    assert!(
+                        error < 1e-8,
+                        "dz/zd dim=1 roundtrip error at [{}, {}]: {}",
+                        i,
+                        j,
+                        error
+                    );
+                }
+            }
+        }
+
+        // dim=1 in 3D (middle dimension)
+        {
+            let extra2 = 2;
+            let coeffs_real = Tensor::<f64, mdarray::DynRank>::from_fn(
+                &[extra, basis_size, extra2][..],
+                |idx| (idx[0] + idx[1] + idx[2]) as f64 * 0.3 + 0.5,
+            );
+
+            let mut values =
+                Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra, n_points, extra2][..]);
+            let mut fitted_real =
+                Tensor::<f64, mdarray::DynRank>::zeros(&[extra, basis_size, extra2][..]);
+
+            fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 1, &mut values.expr_mut());
+            fitter.fit_nd_zd_to(None, &values.expr(), 1, &mut fitted_real.expr_mut());
+
+            for i in 0..extra {
+                for j in 0..basis_size {
+                    for k in 0..extra2 {
+                        let error =
+                            (coeffs_real[&[i, j, k][..]] - fitted_real[&[i, j, k][..]]).abs();
+                        assert!(
+                            error < 1e-8,
+                            "dz/zd dim=1 (3D) roundtrip error at [{}, {}, {}]: {}",
                             i,
                             j,
                             k,
