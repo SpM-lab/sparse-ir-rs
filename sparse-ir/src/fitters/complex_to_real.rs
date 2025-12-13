@@ -338,7 +338,7 @@ impl ComplexToRealFitter {
     /// * `coeffs_2d` - Shape depends on dim: [basis_size, extra] if dim=0, [extra, basis_size] if dim=1
     /// * `out` - Output mutable view
     /// * `dim` - Target dimension (0 or 1)
-    pub fn evaluate_2d_to_dim(
+    fn evaluate_2d_to_dim(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, f64, 2>,
@@ -587,7 +587,7 @@ impl ComplexToRealFitter {
     /// * `values_2d` - Shape depends on dim: [n_points, extra] if dim=0, [extra, n_points] if dim=1
     /// * `out` - Output mutable view
     /// * `dim` - Target dimension (0 or 1)
-    pub fn fit_2d_to_dim(
+    fn fit_2d_to_dim(
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,

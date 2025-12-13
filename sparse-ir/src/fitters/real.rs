@@ -300,7 +300,7 @@ impl RealMatrixFitter {
     ///
     /// # Safety
     /// The output view must have the correct shape and be contiguous.
-    pub fn evaluate_2d_to_dim(
+    fn evaluate_2d_to_dim(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs_2d: &DView<'_, f64, 2>,
@@ -527,7 +527,7 @@ impl RealMatrixFitter {
     ///
     /// # Safety
     /// The output view must have the correct shape and be contiguous.
-    pub fn fit_2d_to_dim(
+    fn fit_2d_to_dim(
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, f64, 2>,
