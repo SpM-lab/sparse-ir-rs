@@ -327,10 +327,10 @@ impl spir_basis {
 
     pub(crate) fn svals(&self) -> Vec<f64> {
         match self.inner_type() {
-            BasisType::LogisticFermionic(b) => b.s.clone(),
-            BasisType::LogisticBosonic(b) => b.s.clone(),
-            BasisType::RegularizedBoseFermionic(b) => b.s.clone(),
-            BasisType::RegularizedBoseBosonic(b) => b.s.clone(),
+            BasisType::LogisticFermionic(b) => b.s().to_vec(),
+            BasisType::LogisticBosonic(b) => b.s().to_vec(),
+            BasisType::RegularizedBoseFermionic(b) => b.s().to_vec(),
+            BasisType::RegularizedBoseBosonic(b) => b.s().to_vec(),
             // DLR: no singular values, return empty
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
         }
@@ -350,10 +350,10 @@ impl spir_basis {
 
     pub(crate) fn beta(&self) -> f64 {
         match self.inner_type() {
-            BasisType::LogisticFermionic(b) => b.beta,
-            BasisType::LogisticBosonic(b) => b.beta,
-            BasisType::RegularizedBoseFermionic(b) => b.beta,
-            BasisType::RegularizedBoseBosonic(b) => b.beta,
+            BasisType::LogisticFermionic(b) => b.beta(),
+            BasisType::LogisticBosonic(b) => b.beta(),
+            BasisType::RegularizedBoseFermionic(b) => b.beta(),
+            BasisType::RegularizedBoseBosonic(b) => b.beta(),
             BasisType::DLRFermionic(dlr) => dlr.beta,
             BasisType::DLRBosonic(dlr) => dlr.beta,
         }

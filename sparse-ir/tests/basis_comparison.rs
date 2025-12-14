@@ -392,7 +392,7 @@ fn test_basis_singular_values_lambda_10_beta_1() {
 
     let tol = 1e-10;
     for i in 0..ref_data.svals.len() {
-        let s_rust = basis_f.s[i];
+        let s_rust = basis_f.s()[i];
         let s_julia = ref_data.svals[i];
         let diff = (s_rust - s_julia).abs();
         println!(
@@ -424,7 +424,7 @@ fn test_basis_u_tau_lambda_10_beta_1() {
     for (tau_idx, &tau) in ref_data.tau_points.iter().enumerate() {
         println!("\n  tau = {}", tau);
         for l in 0..3.min(basis_f.size()) {
-            let u_rust = basis_f.u[l].evaluate(tau);
+            let u_rust = basis_f.u()[l].evaluate(tau);
             let u_julia = ref_data.u_tau_f[tau_idx][l];
             let diff = (u_rust - u_julia).abs();
             println!(
@@ -458,7 +458,7 @@ fn test_basis_v_omega_lambda_10_beta_1() {
     for (omega_idx, &omega) in ref_data.omega_points.iter().enumerate() {
         println!("\n  omega = {}", omega);
         for l in 0..3.min(basis_f.size()) {
-            let v_rust = basis_f.v[l].evaluate(omega);
+            let v_rust = basis_f.v()[l].evaluate(omega);
             let v_julia = ref_data.v_omega_f[omega_idx][l];
             let diff = (v_rust - v_julia).abs();
             println!(
@@ -492,7 +492,7 @@ fn test_basis_uhat_wn_fermionic_lambda_10_beta_1() {
     for (wn_idx, &wn) in ref_data.wn_f.iter().enumerate() {
         println!("\n  wn = {} (n={})", wn, (wn - 1) / 2);
         for l in 0..3.min(basis_f.size()) {
-            let uhat_rust = basis_f.uhat.polyvec[l].evaluate_at_n(wn);
+            let uhat_rust = basis_f.uhat().polyvec[l].evaluate_at_n(wn);
             let uhat_julia = ref_data.uhat_wn_f[wn_idx][l];
             let diff = (uhat_rust - uhat_julia).norm();
             println!(
@@ -528,7 +528,7 @@ fn test_basis_uhat_wn_bosonic_lambda_10_beta_1() {
     for (wn_idx, &wn) in ref_data.wn_b.iter().enumerate() {
         println!("\n  wn = {} (n={})", wn, wn / 2);
         for l in 0..3.min(basis_b.size()) {
-            let uhat_rust = basis_b.uhat.polyvec[l].evaluate_at_n(wn);
+            let uhat_rust = basis_b.uhat().polyvec[l].evaluate_at_n(wn);
             let uhat_julia = ref_data.uhat_wn_b[wn_idx][l];
             let diff = (uhat_rust - uhat_julia).norm();
             println!(
@@ -598,7 +598,7 @@ fn test_basis_uhat_wn_lambda_1000_beta_100() {
     let tol = 1e-10;
 
     // Fermionic - check first basis function at wn=1
-    let uhat_rust = basis_f.uhat.polyvec[0].evaluate_at_n(ref_data.wn_f[0]);
+    let uhat_rust = basis_f.uhat().polyvec[0].evaluate_at_n(ref_data.wn_f[0]);
     let uhat_julia = ref_data.uhat_wn_f[0][0];
     let diff = (uhat_rust - uhat_julia).norm();
     assert!(
@@ -609,7 +609,7 @@ fn test_basis_uhat_wn_lambda_1000_beta_100() {
     );
 
     // Bosonic - check first basis function at wn=0
-    let uhat_rust = basis_b.uhat.polyvec[0].evaluate_at_n(ref_data.wn_b[0]);
+    let uhat_rust = basis_b.uhat().polyvec[0].evaluate_at_n(ref_data.wn_b[0]);
     let uhat_julia = ref_data.uhat_wn_b[0][0];
     let diff = (uhat_rust - uhat_julia).norm();
     assert!(
