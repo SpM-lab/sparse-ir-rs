@@ -4,6 +4,7 @@
 //! for high-precision numerical computation in gauss quadrature and matrix operations.
 
 use crate::Df64;
+use libm::expm1;
 use simba::scalar::ComplexField;
 use std::fmt::Debug;
 
@@ -69,6 +70,12 @@ pub trait CustomNumeric:
     /// Note: Only abs() has this problem - other math functions (exp, cos, sin, sqrt) 
     /// already return Self directly from ComplexField.
     fn abs_as_same_type(self) -> Self;
+
+    /// Compute exp(self) - 1 with higher precision for small values
+    ///
+    /// This is more accurate than `self.exp() - 1` when self is close to zero,
+    /// avoiding catastrophic cancellation.
+    fn exp_m1(self) -> Self;
 }
 
 /// f64 implementation of CustomNumeric
@@ -123,6 +130,10 @@ impl CustomNumeric for f64 {
 
     fn abs_as_same_type(self) -> Self {
         Self::convert_from(self.abs())
+    }
+
+    fn exp_m1(self) -> Self {
+        expm1(self)
     }
 }
 
@@ -193,6 +204,11 @@ impl CustomNumeric for Df64 {
 
     fn abs_as_same_type(self) -> Self {
         Self::convert_from(self.abs())
+    }
+
+    fn exp_m1(self) -> Self {
+        // Use ComplexField::exp_m1() for Df64
+        ComplexField::exp_m1(self)
     }
 }
 
