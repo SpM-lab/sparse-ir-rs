@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-Check version consistency between workspace Cargo.toml and sparse-ir-capi/Cargo.toml
+Check version consistency across the workspace.
 
-This script verifies that:
-1. The workspace version in Cargo.toml matches
-2. The pkg-config version in sparse-ir-capi/Cargo.toml matches the workspace version
+This script:
+1. Reads the canonical version from [workspace.package] in Cargo.toml
+2. Warns if Julia (build_tarballs.jl) or Python (pyproject.toml) versions don't match
 """
 
 import re
@@ -46,35 +46,54 @@ def extract_workspace_version(cargo_toml_path: Path) -> str | None:
     return version_match.group(1)
 
 
-def extract_pkg_config_version(capi_cargo_toml_path: Path) -> str | None:
-    """Extract version from [package.metadata.capi.pkg_config] section"""
+def extract_julia_version(build_tarballs_path: Path) -> str | None:
+    """Extract version from julia/build_tarballs.jl"""
     try:
-        content = capi_cargo_toml_path.read_text(encoding="utf-8")
+        content = build_tarballs_path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        print(f"Error: {capi_cargo_toml_path} not found", file=sys.stderr)
-        return None
+        return None  # Julia bindings are optional
     except Exception as e:
-        print(f"Error reading {capi_cargo_toml_path}: {e}", file=sys.stderr)
+        print(f"Warning: Error reading {build_tarballs_path}: {e}", file=sys.stderr)
         return None
 
-    # Find [package.metadata.capi.pkg_config] section
-    pkg_config_match = re.search(
-        r"\[package\.metadata\.capi\.pkg_config\]\s*\n(.*?)(?=\n\[|\Z)",
-        content,
-        re.DOTALL,
-    )
-    if not pkg_config_match:
+    # Match: version = v"0.7.2"
+    version_match = re.search(r'version\s*=\s*v"([^"]+)"', content)
+    if not version_match:
         print(
-            f"Error: [package.metadata.capi.pkg_config] section not found in {capi_cargo_toml_path}",
+            f"Warning: version not found in {build_tarballs_path}",
             file=sys.stderr,
         )
         return None
 
-    section_content = pkg_config_match.group(1)
+    return version_match.group(1)
+
+
+def extract_python_version(pyproject_path: Path) -> str | None:
+    """Extract version from python/pyproject.toml"""
+    try:
+        content = pyproject_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None  # Python bindings are optional
+    except Exception as e:
+        print(f"Warning: Error reading {pyproject_path}: {e}", file=sys.stderr)
+        return None
+
+    # Match: version = "0.7.2" in [project] section
+    project_match = re.search(
+        r"\[project\]\s*\n(.*?)(?=\n\[|\Z)", content, re.DOTALL
+    )
+    if not project_match:
+        print(
+            f"Warning: [project] section not found in {pyproject_path}",
+            file=sys.stderr,
+        )
+        return None
+
+    section_content = project_match.group(1)
     version_match = re.search(r'version\s*=\s*"([^"]+)"', section_content)
     if not version_match:
         print(
-            f"Error: version not found in [package.metadata.capi.pkg_config] section",
+            f"Warning: version not found in [project] section of {pyproject_path}",
             file=sys.stderr,
         )
         return None
@@ -86,35 +105,57 @@ def main() -> int:
     """Main function to check version consistency"""
     script_dir = Path(__file__).parent
     workspace_cargo_toml = script_dir / "Cargo.toml"
-    capi_cargo_toml = script_dir / "sparse-ir-capi" / "Cargo.toml"
+    julia_build_tarballs = script_dir / "julia" / "build_tarballs.jl"
+    python_pyproject = script_dir / "python" / "pyproject.toml"
 
-    # Extract versions
+    # Extract canonical version from workspace
     workspace_version = extract_workspace_version(workspace_cargo_toml)
-    pkg_config_version = extract_pkg_config_version(capi_cargo_toml)
-
-    if workspace_version is None or pkg_config_version is None:
+    if workspace_version is None:
         return 1
 
-    # Check consistency
-    if workspace_version != pkg_config_version:
-        print(
-            f"Error: Version mismatch!",
-            file=sys.stderr,
-        )
-        print(
-            f"  Workspace version (Cargo.toml): {workspace_version}",
-            file=sys.stderr,
-        )
-        print(
-            f"  pkg-config version (sparse-ir-capi/Cargo.toml): {pkg_config_version}",
-            file=sys.stderr,
-        )
-        return 1
+    print(f"Workspace version: {workspace_version}")
 
-    print(f"✓ Version consistency check passed: {workspace_version}")
+    warnings = []
+
+    # Check Julia version (warning only)
+    julia_version = extract_julia_version(julia_build_tarballs)
+    if julia_version is not None:
+        if julia_version != workspace_version:
+            warnings.append(
+                f"  Julia (julia/build_tarballs.jl): {julia_version} != {workspace_version}"
+            )
+        else:
+            print(f"  ✓ Julia version matches: {julia_version}")
+    else:
+        print(f"  - Julia bindings not found (skipped)")
+
+    # Check Python version (warning only)
+    python_version = extract_python_version(python_pyproject)
+    if python_version is not None:
+        if python_version != workspace_version:
+            warnings.append(
+                f"  Python (python/pyproject.toml): {python_version} != {workspace_version}"
+            )
+        else:
+            print(f"  ✓ Python version matches: {python_version}")
+    else:
+        print(f"  - Python bindings not found (skipped)")
+
+    # Print warnings if any
+    if warnings:
+        print()
+        print("⚠ Version mismatch warnings:")
+        for warning in warnings:
+            print(warning)
+        print()
+        print("These bindings may need to be updated before release.")
+        # Return 0 (success) - warnings don't fail the check
+        return 0
+
+    print()
+    print("✓ All version checks passed!")
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-

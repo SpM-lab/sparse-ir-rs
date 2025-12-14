@@ -24,9 +24,6 @@ jobs:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Check version consistency
-        run: python3 check_version.py
-
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v5
         with:

@@ -38,13 +38,13 @@ Some doc tests that depend on external BLAS backends are marked as `ignore` and 
 
 ## Version Consistency Check
 
-Check that versions in `Cargo.toml` and `sparse-ir-capi/Cargo.toml` are consistent:
+Check version consistency across the workspace:
 
 ```bash
 python3 check_version.py
 ```
 
-This script verifies that the workspace version matches the pkg-config version in the C API configuration.
+This script reads the canonical version from `[workspace.package]` in `Cargo.toml` and warns if Julia (`julia/build_tarballs.jl`) or Python (`python/pyproject.toml`) versions don't match. Version mismatches produce warnings but don't fail the check.
 
 ## C API (sparse-ir-capi)
 
