@@ -142,15 +142,15 @@ where
 
     let mut rng = SimpleRng::new(seed);
     let basis_size = basis.size();
-    let beta = basis.beta;
-    let wmax = basis.kernel.lambda() / beta;
+    let beta = basis.beta();
+    let wmax = basis.kernel().lambda() / beta;
 
     // Choose a pole position (arbitrary choice within reasonable range)
     let omega = wmax * 0.5; // Pole at half of wmax
 
     // Generate random coefficients scaled by singular values
     let coeffs: Vec<T> = (0..basis_size)
-        .map(|l| rng.next::<T>() * basis.s[l])
+        .map(|l| rng.next::<T>() * basis.s()[l])
         .collect();
 
     // Compute G(τ) at τ sampling points
@@ -218,8 +218,8 @@ where
     use crate::{giwn_single_pole, gtau_single_pole};
 
     let mut rng = SimpleRng::new(seed);
-    let beta = basis.beta;
-    let wmax = basis.kernel.lambda() / beta;
+    let beta = basis.beta();
+    let wmax = basis.kernel().lambda() / beta;
     let basis_size = basis.size();
 
     // Calculate total number of extra elements
@@ -254,7 +254,7 @@ where
         for l in 0..basis_size {
             let random_base: T = rng.next();
             let random_centered = random_base * T::from(2.0) - T::from(1.0);
-            let scaled_coeff = random_centered * basis.s[l];
+            let scaled_coeff = random_centered * basis.s()[l];
 
             let mut full_idx = vec![l];
             full_idx.extend_from_slice(&extra_idx);
