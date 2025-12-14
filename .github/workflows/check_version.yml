@@ -1,0 +1,23 @@
+name: Check Version
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    name: Check version consistency
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check version consistency
+        run: python3 check_version.py
