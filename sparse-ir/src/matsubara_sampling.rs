@@ -12,6 +12,42 @@ use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
 use std::marker::PhantomData;
 
+/// Trait for coefficient types that can be evaluated by Matsubara sampling
+///
+/// This provides compile-time dispatch for different coefficient types,
+/// avoiding runtime TypeId checks and unsafe pointer casts.
+pub trait MatsubaraCoeffs: Copy + 'static {
+    /// Evaluate coefficients using the given sampler
+    fn evaluate_nd_with<S: StatisticsType>(
+        sampler: &MatsubaraSampling<S>,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Self, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank>;
+}
+
+impl MatsubaraCoeffs for f64 {
+    fn evaluate_nd_with<S: StatisticsType>(
+        sampler: &MatsubaraSampling<S>,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Self, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
+        sampler.evaluate_nd_impl_real(backend, coeffs, dim)
+    }
+}
+
+impl MatsubaraCoeffs for Complex<f64> {
+    fn evaluate_nd_with<S: StatisticsType>(
+        sampler: &MatsubaraSampling<S>,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &Slice<Self, DynRank>,
+        dim: usize,
+    ) -> Tensor<Complex<f64>, DynRank> {
+        sampler.evaluate_nd_impl_complex(backend, coeffs, dim)
+    }
+}
+
 /// Matsubara sampling for full frequency range (positive and negative)
 ///
 /// General complex problem without symmetry → complex coefficients
@@ -267,33 +303,28 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         movedim(&result_dim0, 0, dim)
     }
 
-    pub fn evaluate_nd<T>(
+    /// Evaluate N-dimensional coefficients at Matsubara sampling points
+    ///
+    /// This method dispatches to the appropriate implementation based on the
+    /// coefficient type at compile time using the `MatsubaraCoeffs` trait.
+    ///
+    /// # Type Parameter
+    /// * `T` - Must implement `MatsubaraCoeffs` (currently `f64` or `Complex<f64>`)
+    ///
+    /// # Arguments
+    /// * `backend` - Optional GEMM backend handle
+    /// * `coeffs` - N-dimensional tensor of basis coefficients
+    /// * `dim` - Dimension along which to evaluate
+    ///
+    /// # Returns
+    /// N-dimensional tensor of complex values at Matsubara frequencies
+    pub fn evaluate_nd<T: MatsubaraCoeffs>(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<T, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank>
-    where
-        T: Copy + 'static,
-    {
-        use std::any::TypeId;
-
-        if TypeId::of::<T>() == TypeId::of::<f64>() {
-            // Safe: TypeId check ensures T == f64 at runtime
-            // We need unsafe because Rust can't statically prove this
-            let coeffs_f64 =
-                unsafe { &*(coeffs as *const Slice<T, DynRank> as *const Slice<f64, DynRank>) };
-            self.evaluate_nd_impl_real(backend, coeffs_f64, dim)
-        } else if TypeId::of::<T>() == TypeId::of::<Complex<f64>>() {
-            // Safe: TypeId check ensures T == Complex<f64> at runtime
-            // We need unsafe because Rust can't statically prove this
-            let coeffs_complex = unsafe {
-                &*(coeffs as *const Slice<T, DynRank> as *const Slice<Complex<f64>, DynRank>)
-            };
-            self.evaluate_nd_impl_complex(backend, coeffs_complex, dim)
-        } else {
-            panic!("Unsupported type for evaluate_nd: must be f64 or Complex<f64>");
-        }
+    ) -> Tensor<Complex<f64>, DynRank> {
+        T::evaluate_nd_with(self, backend, coeffs, dim)
     }
 
     /// Evaluate real basis coefficients at Matsubara sampling points (N-dimensional)
@@ -489,15 +520,13 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// * `coeffs` - N-dimensional tensor with `coeffs.shape().dim(dim) == basis_size`
     /// * `dim` - Dimension along which to evaluate (0-indexed)
     /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points` (Complex<f64>)
-    pub fn evaluate_nd_to<T>(
+    pub fn evaluate_nd_to<T: MatsubaraCoeffs>(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<T, DynRank>,
         dim: usize,
         out: &mut Tensor<Complex<f64>, DynRank>,
-    ) where
-        T: Copy + 'static,
-    {
+    ) {
         // Validate output shape
         let rank = coeffs.rank();
         assert_eq!(

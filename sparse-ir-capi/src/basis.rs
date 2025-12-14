@@ -655,14 +655,16 @@ pub unsafe extern "C" fn spir_basis_get_u(
 
         let funcs = match basis_ref.inner() {
             BasisType::LogisticFermionic(basis) => {
-                spir_funcs::from_u_fermionic(basis.u.clone(), beta)
+                spir_funcs::from_u_fermionic(basis.u().clone(), beta)
             }
-            BasisType::LogisticBosonic(basis) => spir_funcs::from_u_bosonic(basis.u.clone(), beta),
+            BasisType::LogisticBosonic(basis) => {
+                spir_funcs::from_u_bosonic(basis.u().clone(), beta)
+            }
             BasisType::RegularizedBoseFermionic(basis) => {
-                spir_funcs::from_u_fermionic(basis.u.clone(), beta)
+                spir_funcs::from_u_fermionic(basis.u().clone(), beta)
             }
             BasisType::RegularizedBoseBosonic(basis) => {
-                spir_funcs::from_u_bosonic(basis.u.clone(), beta)
+                spir_funcs::from_u_bosonic(basis.u().clone(), beta)
             }
             // DLR: tau-domain functions using discrete poles
             // Note: DLR always uses LogisticKernel
@@ -742,10 +744,12 @@ pub unsafe extern "C" fn spir_basis_get_v(
         let beta = basis_ref.beta();
 
         let funcs = match basis_ref.inner() {
-            BasisType::LogisticFermionic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
-            BasisType::LogisticBosonic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
-            BasisType::RegularizedBoseFermionic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
-            BasisType::RegularizedBoseBosonic(basis) => spir_funcs::from_v(basis.v.clone(), beta),
+            BasisType::LogisticFermionic(basis) => spir_funcs::from_v(basis.v().clone(), beta),
+            BasisType::LogisticBosonic(basis) => spir_funcs::from_v(basis.v().clone(), beta),
+            BasisType::RegularizedBoseFermionic(basis) => {
+                spir_funcs::from_v(basis.v().clone(), beta)
+            }
+            BasisType::RegularizedBoseBosonic(basis) => spir_funcs::from_v(basis.v().clone(), beta),
             // DLR: no continuous functions (v)
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => {
                 return Result::<*mut spir_funcs, String>::Err(
@@ -874,16 +878,16 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
 
         let funcs = match basis_ref.inner() {
             BasisType::LogisticFermionic(basis) => {
-                spir_funcs::from_uhat_fermionic(basis.uhat.clone(), beta)
+                spir_funcs::from_uhat_fermionic(basis.uhat().clone(), beta)
             }
             BasisType::LogisticBosonic(basis) => {
-                spir_funcs::from_uhat_bosonic(basis.uhat.clone(), beta)
+                spir_funcs::from_uhat_bosonic(basis.uhat().clone(), beta)
             }
             BasisType::RegularizedBoseFermionic(basis) => {
-                spir_funcs::from_uhat_fermionic(basis.uhat.clone(), beta)
+                spir_funcs::from_uhat_fermionic(basis.uhat().clone(), beta)
             }
             BasisType::RegularizedBoseBosonic(basis) => {
-                spir_funcs::from_uhat_bosonic(basis.uhat.clone(), beta)
+                spir_funcs::from_uhat_bosonic(basis.uhat().clone(), beta)
             }
             // DLR: Matsubara-domain functions using discrete poles
             BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_matsubara_fermionic(
@@ -975,16 +979,16 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
 
         let funcs = match basis_ref.inner() {
             BasisType::LogisticFermionic(basis) => {
-                spir_funcs::from_uhat_full_fermionic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_fermionic(basis.uhat_full().clone(), beta)
             }
             BasisType::LogisticBosonic(basis) => {
-                spir_funcs::from_uhat_full_bosonic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_bosonic(basis.uhat_full().clone(), beta)
             }
             BasisType::RegularizedBoseFermionic(basis) => {
-                spir_funcs::from_uhat_full_fermionic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_fermionic(basis.uhat_full().clone(), beta)
             }
             BasisType::RegularizedBoseBosonic(basis) => {
-                spir_funcs::from_uhat_full_bosonic(basis.uhat_full.clone(), beta)
+                spir_funcs::from_uhat_full_bosonic(basis.uhat_full().clone(), beta)
             }
             // DLR: not supported (only IR basis has uhat_full)
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => {

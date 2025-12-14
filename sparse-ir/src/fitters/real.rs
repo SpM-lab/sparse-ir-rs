@@ -6,7 +6,7 @@
 use crate::gemm::GemmBackendHandle;
 use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
-use std::cell::RefCell;
+use std::sync::OnceLock;
 
 use super::common::{
     RealSVD, complex_slice_as_real, compute_real_svd, copy_from_contiguous, copy_to_contiguous,
@@ -27,9 +27,13 @@ use super::common::{
 /// let values = fitter.evaluate(&coeffs);
 /// let fitted_coeffs = fitter.fit(&values);
 /// ```
+/// Fitter for real matrix: A ∈ R^{n×m}
+///
+/// This type is thread-safe and can be shared across threads.
+/// The SVD decomposition is computed lazily on first use.
 pub(crate) struct RealMatrixFitter {
     pub matrix: DTensor<f64, 2>, // (n_points, basis_size)
-    svd: RefCell<Option<RealSVD>>,
+    svd: OnceLock<RealSVD>,
 }
 
 impl RealMatrixFitter {
@@ -37,8 +41,13 @@ impl RealMatrixFitter {
     pub fn new(matrix: DTensor<f64, 2>) -> Self {
         Self {
             matrix,
-            svd: RefCell::new(None),
+            svd: OnceLock::new(),
         }
+    }
+
+    /// Get SVD decomposition, computing it lazily if needed
+    fn get_svd(&self) -> &RealSVD {
+        self.svd.get_or_init(|| compute_real_svd(&self.matrix))
     }
 
     /// Number of data points
@@ -588,14 +597,8 @@ impl RealMatrixFitter {
                 out_cols, extra_size
             );
 
-            // Compute SVD lazily
-            if self.svd.borrow().is_none() {
-                let svd = compute_real_svd(&self.matrix);
-                *self.svd.borrow_mut() = Some(svd);
-            }
-
-            let svd = self.svd.borrow();
-            let svd = svd.as_ref().unwrap();
+            // Get SVD (computed lazily on first access)
+            let svd = self.get_svd();
 
             // out = V * S^{-1} * U^T * values_2d
 

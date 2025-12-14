@@ -42,35 +42,35 @@ where
     S: StatisticsType,
 {
     /// The kernel used to construct this basis
-    pub kernel: K,
+    kernel: K,
 
     /// The SVE result (in scaled variables)
-    pub sve_result: Arc<SVEResult>,
+    sve_result: Arc<SVEResult>,
 
     /// Accuracy of the basis (relative error)
-    pub accuracy: f64,
+    accuracy: f64,
 
     /// Inverse temperature β
-    pub beta: f64,
+    beta: f64,
 
     /// Left singular functions on imaginary time axis τ ∈ [0, β]
     /// Arc for efficient sharing (large immutable data)
-    pub u: Arc<PiecewiseLegendrePolyVector>,
+    u: Arc<PiecewiseLegendrePolyVector>,
 
     /// Right singular functions on real frequency axis ω ∈ [-ωmax, ωmax]
     /// Arc for efficient sharing (large immutable data)
-    pub v: Arc<PiecewiseLegendrePolyVector>,
+    v: Arc<PiecewiseLegendrePolyVector>,
 
     /// Singular values
-    pub s: Vec<f64>,
+    s: Vec<f64>,
 
     /// Left singular functions on Matsubara frequency axis (Fourier transform of u)
     /// Arc for efficient sharing (large immutable data)
-    pub uhat: Arc<PiecewiseLegendreFTVector<S>>,
+    uhat: Arc<PiecewiseLegendreFTVector<S>>,
 
     /// Full uhat (before truncation to basis size)
     /// Arc for efficient sharing (large immutable data, used for Matsubara sampling)
-    pub uhat_full: Arc<PiecewiseLegendreFTVector<S>>,
+    uhat_full: Arc<PiecewiseLegendreFTVector<S>>,
 
     _phantom: std::marker::PhantomData<S>,
 }
@@ -80,6 +80,55 @@ where
     K: KernelProperties + CentrosymmKernel + Clone + 'static,
     S: StatisticsType,
 {
+    // ========== Getters ==========
+
+    /// Get a reference to the kernel
+    pub fn kernel(&self) -> &K {
+        &self.kernel
+    }
+
+    /// Get the SVE result
+    pub fn sve_result(&self) -> &Arc<SVEResult> {
+        &self.sve_result
+    }
+
+    /// Get the accuracy of the basis
+    pub fn accuracy(&self) -> f64 {
+        self.accuracy
+    }
+
+    /// Get the inverse temperature β
+    pub fn beta(&self) -> f64 {
+        self.beta
+    }
+
+    /// Get the left singular functions (u) on imaginary time axis
+    pub fn u(&self) -> &Arc<PiecewiseLegendrePolyVector> {
+        &self.u
+    }
+
+    /// Get the right singular functions (v) on real frequency axis
+    pub fn v(&self) -> &Arc<PiecewiseLegendrePolyVector> {
+        &self.v
+    }
+
+    /// Get the singular values
+    pub fn s(&self) -> &[f64] {
+        &self.s
+    }
+
+    /// Get the left singular functions on Matsubara frequency axis (uhat)
+    pub fn uhat(&self) -> &Arc<PiecewiseLegendreFTVector<S>> {
+        &self.uhat
+    }
+
+    /// Get the full uhat (before truncation)
+    pub fn uhat_full(&self) -> &Arc<PiecewiseLegendreFTVector<S>> {
+        &self.uhat_full
+    }
+
+    // ========== Other methods ==========
+
     /// Get the frequency cutoff ωmax
     pub fn wmax(&self) -> f64 {
         self.kernel.lambda() / self.beta
@@ -214,9 +263,9 @@ where
         let uhat_base_full = sve_result.u.scale_data(beta.sqrt());
         let conv_rad = kernel.conv_radius();
 
-        // Create statistics instance - we need a value of type S
-        // For Fermionic: S = Fermionic, for Bosonic: S = Bosonic
-        let stat_marker = unsafe { std::mem::zeroed::<S>() };
+        // Create statistics marker instance using Default trait
+        // S is a zero-sized type (ZST) like Fermionic or Bosonic
+        let stat_marker = S::default();
 
         let uhat_full = PiecewiseLegendreFTVector::<S>::from_poly_vector(
             &uhat_base_full,
