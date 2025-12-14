@@ -32,6 +32,36 @@ use super::types::{SVDStrategy, TworkType, safe_epsilon};
 /// that can cause incorrect results. If detected, it temporarily corrects the FPU state
 /// and prints a warning. If you see this warning, add `-fp-model precise` flag when
 /// compiling with Intel Fortran.
+/// Release unused memory back to the OS.
+///
+/// SVE computation allocates large temporary buffers for SVD.
+/// After computation, these are freed but the allocator may retain them.
+/// This function asks the allocator to return unused memory to the OS.
+///
+/// Supported platforms:
+/// - macOS: uses `malloc_zone_pressure_relief`
+/// - Linux (glibc): uses `malloc_trim`
+/// - Other platforms: no-op (memory is still freed, just not returned to OS immediately)
+#[inline]
+fn release_unused_memory() {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        unsafe { malloc_zone_pressure_relief(std::ptr::null_mut(), 0) };
+    }
+
+    // Only use malloc_trim on Linux with glibc (not musl)
+    #[cfg(all(target_os = "linux", target_env = "gnu"))]
+    {
+        unsafe extern "C" {
+            fn malloc_trim(pad: usize) -> i32;
+        }
+        unsafe { malloc_trim(0) };
+    }
+}
+
 pub fn compute_sve<K>(
     kernel: K,
     epsilon: f64,
@@ -51,7 +81,7 @@ where
         safe_epsilon(epsilon, twork, SVDStrategy::Auto);
 
     // Dispatch based on working precision
-    match twork_actual {
+    let result = match twork_actual {
         TworkType::Float64 => {
             compute_sve_with_precision::<f64, K>(kernel, safe_epsilon, cutoff, max_num_svals)
         }
@@ -62,7 +92,12 @@ where
             max_num_svals,
         ),
         _ => panic!("Invalid TworkType: {:?}", twork_actual),
-    }
+    };
+
+    // Release temporary memory back to OS after SVE computation
+    release_unused_memory();
+
+    result
 }
 
 /// Main SVE computation function for general kernels (centrosymmetric or non-centrosymmetric)
@@ -108,7 +143,7 @@ where
         safe_epsilon(epsilon, twork, SVDStrategy::Auto);
 
     // Dispatch based on working precision
-    match twork_actual {
+    let result = match twork_actual {
         TworkType::Float64 => compute_sve_general_with_precision::<f64, K>(
             kernel,
             safe_epsilon,
@@ -122,7 +157,12 @@ where
             max_num_svals,
         ),
         _ => panic!("Invalid TworkType: {:?}", twork_actual),
-    }
+    };
+
+    // Release temporary memory back to OS after SVE computation
+    release_unused_memory();
+
+    result
 }
 
 /// Compute SVE with specific precision type
