@@ -6,6 +6,7 @@
 use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter, InplaceFitter};
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
+use crate::sampling::movedim;
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
@@ -45,46 +46,6 @@ impl MatsubaraCoeffs for Complex<f64> {
     ) -> Tensor<Complex<f64>, DynRank> {
         sampler.evaluate_nd_impl_complex(backend, coeffs, dim)
     }
-}
-
-/// Move axis from position src to position dst
-fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
-    if src == dst {
-        return arr.to_tensor();
-    }
-
-    let rank = arr.rank();
-    assert!(
-        src < rank,
-        "src axis {} out of bounds for rank {}",
-        src,
-        rank
-    );
-    assert!(
-        dst < rank,
-        "dst axis {} out of bounds for rank {}",
-        dst,
-        rank
-    );
-
-    // Generate permutation: move src to dst position
-    let mut perm = Vec::with_capacity(rank);
-    let mut pos = 0;
-    for i in 0..rank {
-        if i == dst {
-            perm.push(src);
-        } else {
-            if pos == src {
-                pos += 1;
-            }
-            if pos < rank {
-                perm.push(pos);
-                pos += 1;
-            }
-        }
-    }
-
-    arr.permute(&perm[..]).to_tensor()
 }
 
 /// Matsubara sampling for full frequency range (positive and negative)
