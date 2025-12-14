@@ -1,5 +1,7 @@
 # Fortran API documentation
 
+Fortran bindings for the [sparse-ir C-API](../sparse-ir-capi/).
+
 ## Directory Structure
 
 ```
