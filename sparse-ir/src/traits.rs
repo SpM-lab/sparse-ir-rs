@@ -8,12 +8,16 @@ pub enum Statistics {
 }
 
 /// Statistics type trait for compile-time type-level distinction
-pub trait StatisticsType: Copy {
+///
+/// # Safety
+/// Types implementing this trait must be zero-sized types (ZST) used only as
+/// compile-time markers. The `Default` bound ensures safe instantiation.
+pub trait StatisticsType: Copy + Default {
     const STATISTICS: Statistics;
 }
 
 /// Fermionic statistics marker type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Fermionic;
 
 impl StatisticsType for Fermionic {
@@ -21,7 +25,7 @@ impl StatisticsType for Fermionic {
 }
 
 /// Bosonic statistics marker type
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Bosonic;
 
 impl StatisticsType for Bosonic {

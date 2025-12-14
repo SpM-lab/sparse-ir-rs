@@ -214,9 +214,9 @@ where
         let uhat_base_full = sve_result.u.scale_data(beta.sqrt());
         let conv_rad = kernel.conv_radius();
 
-        // Create statistics instance - we need a value of type S
-        // For Fermionic: S = Fermionic, for Bosonic: S = Bosonic
-        let stat_marker = unsafe { std::mem::zeroed::<S>() };
+        // Create statistics marker instance using Default trait
+        // S is a zero-sized type (ZST) like Fermionic or Bosonic
+        let stat_marker = S::default();
 
         let uhat_full = PiecewiseLegendreFTVector::<S>::from_poly_vector(
             &uhat_base_full,
