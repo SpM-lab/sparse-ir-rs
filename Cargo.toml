@@ -9,7 +9,7 @@ resolver = "2"
 mdarray = "0.7.2"
 mdarray-linalg = "0.1.2"
 mdarray-linalg-faer = "0.1.2"
-sparse-ir = "0.7.0"
+sparse-ir = { version = "0.7.3", path = "sparse-ir" }
 faer = "0.23"
 faer-traits = "0.23"
 num-complex = "0.4"
@@ -29,12 +29,8 @@ dashu-float = "0.4"
 dashu-base = "0.4"
 cargo-husky = "1.5"
 
-[patch.crates-io]
-# During workspace development, use the local sparse-ir implementation
-sparse-ir = { path = "sparse-ir" }
-
 [workspace.package]
-version = "0.7.2"
+version = "0.7.3"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
