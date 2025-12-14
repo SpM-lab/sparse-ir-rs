@@ -115,7 +115,20 @@ def main() -> int:
 
     print(f"Workspace version: {workspace_version}")
 
+    errors = []
     warnings = []
+
+    # Check Python version (error if mismatch)
+    python_version = extract_python_version(python_pyproject)
+    if python_version is not None:
+        if python_version != workspace_version:
+            errors.append(
+                f"  Python (python/pyproject.toml): {python_version} != {workspace_version}"
+            )
+        else:
+            print(f"  ✓ Python version matches: {python_version}")
+    else:
+        print(f"  - Python bindings not found (skipped)")
 
     # Check Julia version (warning only)
     julia_version = extract_julia_version(julia_build_tarballs)
@@ -129,28 +142,20 @@ def main() -> int:
     else:
         print(f"  - Julia bindings not found (skipped)")
 
-    # Check Python version (warning only)
-    python_version = extract_python_version(python_pyproject)
-    if python_version is not None:
-        if python_version != workspace_version:
-            warnings.append(
-                f"  Python (python/pyproject.toml): {python_version} != {workspace_version}"
-            )
-        else:
-            print(f"  ✓ Python version matches: {python_version}")
-    else:
-        print(f"  - Python bindings not found (skipped)")
-
     # Print warnings if any
     if warnings:
         print()
-        print("⚠ Version mismatch warnings:")
+        print("⚠ Warnings (update after release):")
         for warning in warnings:
             print(warning)
+
+    # Print errors and fail if any
+    if errors:
         print()
-        print("These bindings may need to be updated before release.")
-        # Return 0 (success) - warnings don't fail the check
-        return 0
+        print("✗ Version mismatch errors:", file=sys.stderr)
+        for error in errors:
+            print(error, file=sys.stderr)
+        return 1
 
     print()
     print("✓ All version checks passed!")
