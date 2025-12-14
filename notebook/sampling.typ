@@ -137,6 +137,32 @@ $ A_w_(j,l) = sqrt(w_j) A_(j,l). $
 
 Then selecting points to improve the conditioning of $A_w$ corresponds to a weighted inner product on the domain.
 
+=== 4.2 Monitoring conditioning while adding sampling points
+
+When you add sampling points, you are adding rows to the design matrix (or the weighted design matrix).
+Let $A in RR^(k times N_l)$ be the current design matrix and let $a^T$ be the row corresponding to one new point.
+Define $A'$ as $A$ with this additional row appended.
+
+Consider the Gram matrix $G = A^T A in RR^(N_l times N_l)$. Then
+
+$ G' = A'^T A' = G + a a^T. $
+
+Since $a a^T$ is positive semidefinite, the update is “monotone” in the sense that for every vector $x$,
+
+$ x^T G' x >= x^T G x. $
+
+As a consequence:
+
+- the eigenvalues of $G$ are nondecreasing as you add points,
+- the singular values of $A$ are nondecreasing as you add points.
+
+The 2-norm condition numbers satisfy the exact identity
+
+$ kappa_2(G) = kappa_2(A)^2, \\; kappa_2(A) = sqrt(kappa_2(G)). $
+
+So you can monitor conditioning using either $kappa_2(A)$, or equivalently $kappa_2(G)$ (or $sigma_min(A)$).
+Note that although $sigma_min(A)$ and $sigma_max(A)$ are monotone in the number of points, $kappa_2(A)$ is *not* guaranteed to decrease monotonically.
+
 == 5. A practical workflow
 
 1. *Input candidates*: start from a candidate set $T$.
@@ -229,3 +255,56 @@ If you then expand to ± pairs, a convenient symmetric choice is
 - for a fixed point (bosonic $nu=0$): treat it as its own mirror and handle carefully if any weight construction would make it vanish.
 
 - If the mirror-sign relation holds exactly, “pair-lifting” to a $2N_l$-row matrix is typically redundant for selection; selecting representatives and mirroring is sufficient.
+
+== 7. Oversampling → refine candidates → reselect (practical improvement)
+
+In practice, a useful improvement strategy is to:
+
+1. start from an initial candidate set (e.g. hint + Gauss–Legendre segments),
+2. select a sampling set,
+3. increase the candidate density using the selected set,
+4. run selection again on the refined candidates.
+
+This is a generic “oversample then refine” loop and is not tied to any specific candidate generator.
+
+=== 7.1 Refinement idea on a continuous domain (e.g. $t in [0,1]$)
+
+Given selected points, you can refine candidates by subdividing the domain cells induced by the current candidate set.
+For example, for each Voronoi cell around a selected point, insert midpoints of its neighboring intervals.
+
+After refinement, rebuild Voronoi cell-width weights (Section 4) and reselect.
+
+=== 7.2 Refinement idea in Matsubara space
+
+In Matsubara space, refinement is naturally done in the dimensionless variable $u$:
+
+- start from a log-like positive candidate set in $u$,
+- after selecting representatives, refine by inserting additional targets between neighboring selected $u$ values,
+- map refined targets back to integer indices $n$ by nearest-neighbor rounding,
+- deduplicate and reselect.
+
+This is compatible with ± pairing and with Voronoi-style weights in $u$ (Section 6.3).
+
+== 8. Non-orthogonal bases: whitening (not unitary)
+
+Many arguments become especially clean when the basis is orthonormal in the target inner product.
+If your basis is *not* orthogonal, you can still use the same selection ideas, but the transformation that orthogonalizes the basis is typically *not* unitary.
+
+Let $G_0$ be the Gram matrix of the basis under the target inner product.
+If $G_0$ is positive definite and admits a Cholesky factorization
+
+$ G_0 = L L^T, $
+
+then a whitened representation is obtained by applying $L^(-1)$.
+On the design-matrix level, this corresponds to right-multiplication by a non-unitary matrix:
+
+$ A_w = A L^(-T). $
+
+Unlike a unitary rotation, this can change singular values and improve conditioning by removing correlations between basis columns.
+
+== 9. About singular values from QR / CPQR (rank-revealing heuristic)
+
+For a thin QR factorization $A = Q R$ with $Q$ orthonormal, $A$ and $R$ have the same singular values.
+However, the diagonal entries $|R_(i i)|$ are *not* singular values.
+
+Pivoted QR (CPQR / RRQR) is often used as a heuristic rank-revealing procedure: the decay of $|R_(i i)|$ can indicate an effective numerical rank cutoff.
