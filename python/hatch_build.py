@@ -46,9 +46,18 @@ def build_rust_library(workspace_root: Path, verbose: bool = True):
 
     # Prepare environment with cargo in PATH
     env = os.environ.copy()
-    cargo_bin = os.path.expanduser("~/.cargo/bin")
-    if cargo_bin not in env.get("PATH", ""):
+    # Try multiple ways to find cargo bin directory
+    home = os.environ.get("HOME") or os.path.expanduser("~")
+    cargo_bin = os.path.join(home, ".cargo", "bin")
+    
+    # Add cargo bin to PATH if it exists and is not already in PATH
+    if os.path.exists(cargo_bin) and cargo_bin not in env.get("PATH", ""):
         env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
+        if verbose:
+            print(f"Added {cargo_bin} to PATH", file=sys.stderr)
+    elif verbose:
+        print(f"Cargo bin path: {cargo_bin} (exists: {os.path.exists(cargo_bin)})", file=sys.stderr)
+        print(f"Current PATH: {env.get('PATH', '')[:200]}...", file=sys.stderr)
 
     # Run cargo build --release
     result = subprocess.run(
