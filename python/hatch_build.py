@@ -49,7 +49,7 @@ def build_rust_library(workspace_root: Path, verbose: bool = True):
     # Try multiple ways to find cargo bin directory
     home = os.environ.get("HOME") or os.path.expanduser("~")
     cargo_bin = os.path.join(home, ".cargo", "bin")
-    
+
     # Add cargo bin to PATH if it exists and is not already in PATH
     if os.path.exists(cargo_bin) and cargo_bin not in env.get("PATH", ""):
         env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
