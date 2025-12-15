@@ -8,10 +8,7 @@ use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::sync::OnceLock;
 
-use super::common::{
-    RealSVD, complex_slice_as_real, compute_real_svd, copy_from_contiguous, copy_to_contiguous,
-    make_perm_to_front,
-};
+use super::common::{RealSVD, compute_real_svd};
 
 /// Fitter for real matrix: A ∈ R^{n×m}
 ///

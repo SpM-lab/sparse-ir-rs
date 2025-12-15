@@ -10,7 +10,7 @@ use std::cell::RefCell;
 
 use super::common::{
     ComplexSVD, InplaceFitter, combine_complex, compute_complex_svd, copy_from_contiguous,
-    copy_to_contiguous, extract_real_parts_coeffs, make_perm_to_front,
+    extract_real_parts_coeffs, make_perm_to_front,
 };
 
 /// Fitter for complex matrix with complex coefficients: A ∈ C^{n×m}

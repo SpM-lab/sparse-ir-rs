@@ -157,26 +157,6 @@ pub(crate) fn make_perm_to_front(rank: usize, dim: usize) -> Vec<usize> {
 // Strided copy helpers
 // ============================================================================
 
-/// Copy data from a strided view to a contiguous slice
-///
-/// This is useful for copying permuted views to a contiguous buffer
-/// before performing GEMM operations.
-///
-/// # Arguments
-/// * `src` - Source slice (may be strided)
-/// * `dst` - Destination slice (must be contiguous, same total elements)
-pub(crate) fn copy_to_contiguous<T: Copy>(
-    src: &mdarray::Slice<T, mdarray::DynRank, mdarray::Strided>,
-    dst: &mut [T],
-) {
-    assert_eq!(dst.len(), src.len(), "Destination size mismatch");
-
-    // mdarray's iter() returns elements in row-major order
-    for (d, s) in dst.iter_mut().zip(src.iter()) {
-        *d = *s;
-    }
-}
-
 /// Copy data from a contiguous slice to a strided view
 ///
 /// This is useful for copying GEMM results back to a permuted output view.
@@ -199,29 +179,6 @@ pub(crate) fn copy_from_contiguous<T: Copy>(
 // ============================================================================
 // Complex-Real reinterpretation helpers
 // ============================================================================
-
-/// Reinterpret a Complex<f64> slice as a f64 view with an extra dimension of size 2
-///
-/// Complex<f64> array `[d0, d1, ..., dN]` becomes f64 array `[d0, d1, ..., dN, 2]`
-/// where the last dimension contains [re, im] pairs.
-pub(crate) fn complex_slice_as_real<'a>(
-    coeffs: &'a Slice<Complex<f64>, DynRank>,
-) -> mdarray::View<'a, f64, DynRank, mdarray::Dense> {
-    // Build new shape: [..., 2]
-    let mut new_shape: Vec<usize> = Vec::with_capacity(coeffs.rank() + 1);
-    coeffs.shape().with_dims(|dims| {
-        for d in dims {
-            new_shape.push(*d);
-        }
-    });
-    new_shape.push(2);
-
-    unsafe {
-        let shape: DynRank = Shape::from_dims(&new_shape[..]);
-        let mapping = mdarray::DenseMapping::new(shape);
-        mdarray::View::new_unchecked(coeffs.as_ptr() as *const f64, mapping)
-    }
-}
 
 /// Reinterpret a mutable Complex<f64> slice as a mutable f64 view with an extra dimension of size 2
 ///

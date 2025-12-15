@@ -88,9 +88,10 @@ impl WorkingBuffer {
     /// Caller must ensure:
     /// - The buffer has enough capacity for `count` f64 elements
     /// - No other references to this buffer exist
+    #[allow(unsafe_op_in_unsafe_fn)]
     pub unsafe fn as_f64_slice_mut(&mut self, count: usize) -> &mut [f64] {
         debug_assert!(count * std::mem::size_of::<f64>() <= self.capacity_bytes);
-        std::slice::from_raw_parts_mut(self.ptr.as_ptr() as *mut f64, count)
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr() as *mut f64, count) }
     }
 
     /// Get the buffer as a mutable slice of Complex<f64>
@@ -99,6 +100,7 @@ impl WorkingBuffer {
     /// Caller must ensure:
     /// - The buffer has enough capacity for `count` Complex<f64> elements
     /// - No other references to this buffer exist
+    #[allow(unsafe_op_in_unsafe_fn)]
     pub unsafe fn as_complex_slice_mut(
         &mut self,
         count: usize,
@@ -106,7 +108,12 @@ impl WorkingBuffer {
         debug_assert!(
             count * std::mem::size_of::<num_complex::Complex<f64>>() <= self.capacity_bytes
         );
-        std::slice::from_raw_parts_mut(self.ptr.as_ptr() as *mut num_complex::Complex<f64>, count)
+        unsafe {
+            std::slice::from_raw_parts_mut(
+                self.ptr.as_ptr() as *mut num_complex::Complex<f64>,
+                count,
+            )
+        }
     }
 
     /// Get the raw pointer
