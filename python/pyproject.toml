@@ -58,7 +58,6 @@ path = "hatch_build.py"
 include = [
     "pylibsparseir/",
     "tests/",
-    "tutorials/",
     "README.md",
     "LICENSE",
     "hatch_build.py",
