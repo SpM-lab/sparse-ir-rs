@@ -78,15 +78,11 @@ jobs:
             py_tag: "cp313"
     steps:
       - uses: actions/checkout@v5
-      - name: remove python/.gitignore
+      - name: remove python/.gitignore and pylibsparseir/.gitignore
         shell: bash
         run: |
           rm -f python/.gitignore
-      - name: prepare build
-        shell: bash
-        run: |
-          cd python
-          python prepare_build.py
+          rm -f python/pylibsparseir/.gitignore
       - uses: pypa/cibuildwheel@v3.3.0
         env:
           CIBW_DEPENDENCY_VERSIONS: "latest"
