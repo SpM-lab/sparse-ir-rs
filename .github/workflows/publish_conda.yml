@@ -1,12 +1,17 @@
 name: Build and upload conda packages
 
+#on:
+#  push:
+#    tags:
+#      - 'v*'
+#  workflow_dispatch:
 on:
   push:
-    tags:
-      - 'v*'
-  workflow_dispatch:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
 
-jobs:
+    jobs:
   build:
     runs-on: ${{ matrix.runner_label }}
     strategy:
