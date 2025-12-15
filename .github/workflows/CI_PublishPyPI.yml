@@ -34,6 +34,11 @@ jobs:
             deployment_target: ""
             openblas_path: ""
             py_tag: "cp313"
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp314"
           # macOS Apple Silicon builds
           - os: macos-latest  # Apple Silicon Mac
             cibw_archs: "arm64"
@@ -55,6 +60,11 @@ jobs:
             deployment_target: "15.0"
             openblas_path: "/opt/homebrew/opt/openblas"
             py_tag: "cp313"
+          - os: macos-latest  # Apple Silicon Mac
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp314"
     steps:
       - uses: actions/checkout@v5
       - name: remove python/.gitignore and pylibsparseir/.gitignore
