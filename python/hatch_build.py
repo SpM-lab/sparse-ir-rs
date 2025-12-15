@@ -142,14 +142,19 @@ class CustomBuildHook(BuildHookInterface):
 
         print("Rust library build and copy completed.", file=sys.stderr)
 
+        # Include the shared library in the wheel
+        lib_name = get_lib_name()
+
         # Mark as platform-specific wheel (not pure Python)
         # This is critical for cibuildwheel to recognize this as a platform wheel
         build_data["pure_python"] = False
+        # Let hatchling infer the correct platform tag
+        build_data["infer_tag"] = True
 
-        # Include the shared library in the wheel
-        lib_name = get_lib_name()
-        if "shared_data" not in build_data:
-            build_data["shared_data"] = {}
+        # Register the shared library as an artifact (makes wheel platform-specific)
+        if "artifacts" not in build_data:
+            build_data["artifacts"] = []
+        build_data["artifacts"].append(f"pylibsparseir/{lib_name}")
 
         # Force inclusion of the library file
         if "force_include" not in build_data:
