@@ -1,0 +1,108 @@
+name: CI cibuildwheel & Publish to TestPyPI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp310"
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp311"
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp312"
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp313"
+          # macOS Apple Silicon builds
+          - os: macos-latest  # Apple Silicon Mac
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp310"
+          - os: macos-latest  # Apple Silicon Mac
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp311"
+          - os: macos-latest  # Apple Silicon Mac
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp312"
+          - os: macos-latest  # Apple Silicon Mac
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp313"
+    steps:
+      - uses: actions/checkout@v5
+      - name: remove python/.gitignore and pylibsparseir/.gitignore
+        shell: bash
+        run: |
+          rm -f python/.gitignore
+          rm -f python/pylibsparseir/.gitignore
+      - uses: pypa/cibuildwheel@v3.3.0
+        env:
+          CIBW_DEPENDENCY_VERSIONS: "latest"
+          CIBW_BUILD_VERBOSITY: 1
+          CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_28"
+          CIBW_BUILD: "${{ matrix.py_tag }}-*"
+          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target || '11.0' }} PATH=$HOME/.cargo/bin:$PATH"
+          CIBW_ENVIRONMENT_LINUX: "PATH=$HOME/.cargo/bin:$PATH"
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+          # Skip 32-bit builds and all musllinux (Rust cdylib not supported on musl)
+          CIBW_SKIP: "*-manylinux_i686 *-musllinux*"
+          # Install Rust toolchain for Linux containers (manylinux and musllinux)
+          CIBW_BEFORE_ALL_LINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+          # Install Rust toolchain for macOS
+          CIBW_BEFORE_ALL_MACOS: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+        with:
+          package-dir: ./python
+          output-dir: dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.cibw_archs }}-${{ matrix.py_tag }}
+          path: dist/*
+
+  publish-testpypi:
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+    permissions:
+      id-token: write     # Required for Trusted Publishing
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to TestPyPI (Trusted)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: https://test.pypi.org/legacy/
+          verbose: true
+          skip-existing: true
+          attestations: false  # Disable attestations due to Sigstore service issues

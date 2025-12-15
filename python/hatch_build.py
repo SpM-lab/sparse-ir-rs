@@ -1,5 +1,6 @@
 """Custom build hook for hatchling that builds the Rust library."""
 
+import os
 import platform
 import shutil
 import subprocess
@@ -43,10 +44,26 @@ def build_rust_library(workspace_root: Path, verbose: bool = True):
     if verbose:
         print("Building sparse-ir-capi with cargo...", file=sys.stderr)
 
+    # Prepare environment with cargo in PATH
+    env = os.environ.copy()
+    # Try multiple ways to find cargo bin directory
+    home = os.environ.get("HOME") or os.path.expanduser("~")
+    cargo_bin = os.path.join(home, ".cargo", "bin")
+
+    # Add cargo bin to PATH if it exists and is not already in PATH
+    if os.path.exists(cargo_bin) and cargo_bin not in env.get("PATH", ""):
+        env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
+        if verbose:
+            print(f"Added {cargo_bin} to PATH", file=sys.stderr)
+    elif verbose:
+        print(f"Cargo bin path: {cargo_bin} (exists: {os.path.exists(cargo_bin)})", file=sys.stderr)
+        print(f"Current PATH: {env.get('PATH', '')[:200]}...", file=sys.stderr)
+
     # Run cargo build --release
     result = subprocess.run(
         ["cargo", "build", "--release", "-p", "sparse-ir-capi"],
         cwd=workspace_root,
+        env=env,
         capture_output=not verbose,
         text=True,
     )
@@ -127,8 +144,17 @@ class CustomBuildHook(BuildHookInterface):
 
         # Include the shared library in the wheel
         lib_name = get_lib_name()
-        if "shared_data" not in build_data:
-            build_data["shared_data"] = {}
+
+        # Mark as platform-specific wheel (not pure Python)
+        # This is critical for cibuildwheel to recognize this as a platform wheel
+        build_data["pure_python"] = False
+        # Let hatchling infer the correct platform tag
+        build_data["infer_tag"] = True
+
+        # Register the shared library as an artifact (makes wheel platform-specific)
+        if "artifacts" not in build_data:
+            build_data["artifacts"] = []
+        build_data["artifacts"].append(f"pylibsparseir/{lib_name}")
 
         # Force inclusion of the library file
         if "force_include" not in build_data:
