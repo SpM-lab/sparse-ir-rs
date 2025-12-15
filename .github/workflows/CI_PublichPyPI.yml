@@ -89,13 +89,16 @@ jobs:
           CIBW_BUILD_VERBOSITY: 1
           CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_28"
           CIBW_BUILD: "${{ matrix.py_tag }}-*"
-          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target || '11.0' }}"
+          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target || '11.0' }} PATH=$HOME/.cargo/bin:$PATH"
+          CIBW_ENVIRONMENT_LINUX: "PATH=$HOME/.cargo/bin:$PATH"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_SKIP: "*-manylinux_i686 *-musllinux_i686"
-          # Install OpenBLAS using micromamba (conda-forge) - separate for manylinux and musllinux
-          #CIBW_BEFORE_ALL_MANYLINUX: "curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba && ./bin/micromamba create -y -p /opt/openblas && ./bin/micromamba install -y -c conda-forge openblas -p /opt/openblas --no-deps"
-          #CIBW_BEFORE_ALL_MUSLLINUX: "apk add --no-cache bzip2 && curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba && ./bin/micromamba create -y -p /opt/openblas && ./bin/micromamba install -y -c conda-forge openblas -p /opt/openblas --no-deps"
-          #CIBW_BEFORE_ALL_MACOS: "brew install openblas"
+          # Install Rust toolchain for manylinux containers
+          CIBW_BEFORE_ALL_MANYLINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+          # Install Rust toolchain for musllinux containers
+          CIBW_BEFORE_ALL_MUSLLINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+          # Install Rust toolchain for macOS
+          CIBW_BEFORE_ALL_MACOS: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
         with:
           package-dir: ./python
           output-dir: dist
