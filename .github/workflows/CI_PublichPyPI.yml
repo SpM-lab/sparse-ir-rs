@@ -34,27 +34,6 @@ jobs:
             deployment_target: ""
             openblas_path: ""
             py_tag: "cp313"
-          # macOS Intel builds
-          - os: macos-13  # Intel Mac
-            cibw_archs: "x86_64"
-            deployment_target: "13.0"
-            openblas_path: "/usr/local/opt/openblas"
-            py_tag: "cp310"
-          - os: macos-13  # Intel Mac
-            cibw_archs: "x86_64"
-            deployment_target: "13.0"
-            openblas_path: "/usr/local/opt/openblas"
-            py_tag: "cp311"
-          - os: macos-13  # Intel Mac
-            cibw_archs: "x86_64"
-            deployment_target: "13.0"
-            openblas_path: "/usr/local/opt/openblas"
-            py_tag: "cp312"
-          - os: macos-13  # Intel Mac
-            cibw_archs: "x86_64"
-            deployment_target: "13.0"
-            openblas_path: "/usr/local/opt/openblas"
-            py_tag: "cp313"
           # macOS Apple Silicon builds
           - os: macos-latest  # Apple Silicon Mac
             cibw_archs: "arm64"
