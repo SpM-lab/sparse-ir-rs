@@ -1,5 +1,6 @@
 """Custom build hook for hatchling that builds the Rust library."""
 
+import os
 import platform
 import shutil
 import subprocess
@@ -43,10 +44,17 @@ def build_rust_library(workspace_root: Path, verbose: bool = True):
     if verbose:
         print("Building sparse-ir-capi with cargo...", file=sys.stderr)
 
+    # Prepare environment with cargo in PATH
+    env = os.environ.copy()
+    cargo_bin = os.path.expanduser("~/.cargo/bin")
+    if cargo_bin not in env.get("PATH", ""):
+        env["PATH"] = f"{cargo_bin}:{env.get('PATH', '')}"
+
     # Run cargo build --release
     result = subprocess.run(
         ["cargo", "build", "--release", "-p", "sparse-ir-capi"],
         cwd=workspace_root,
+        env=env,
         capture_output=not verbose,
         text=True,
     )

@@ -93,14 +93,14 @@ jobs:
           CIBW_ENVIRONMENT_LINUX: "PATH=$HOME/.cargo/bin:$PATH"
           CIBW_ARCHS: ${{ matrix.cibw_archs }}
           CIBW_SKIP: "*-manylinux_i686 *-musllinux_i686"
-          # Install Rust toolchain for manylinux containers
-          CIBW_BEFORE_ALL_MANYLINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
-          # Install Rust toolchain for musllinux containers
-          CIBW_BEFORE_ALL_MUSLLINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
-          # Install Rust toolchain for macOS
-          CIBW_BEFORE_ALL_MACOS: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
-          # Ensure cargo is in PATH for each build (export PATH so it persists)
-          CIBW_BEFORE_BUILD: "export PATH=\"$HOME/.cargo/bin:$PATH\""
+          # Install Rust toolchain for manylinux containers and source cargo env
+          CIBW_BEFORE_ALL_MANYLINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && source $HOME/.cargo/env"
+          # Install Rust toolchain for musllinux containers and source cargo env
+          CIBW_BEFORE_ALL_MUSLLINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && source $HOME/.cargo/env"
+          # Install Rust toolchain for macOS and source cargo env
+          CIBW_BEFORE_ALL_MACOS: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable && source $HOME/.cargo/env"
+          # Ensure cargo is in PATH for each build
+          CIBW_BEFORE_BUILD: "source $HOME/.cargo/env 2>/dev/null || export PATH=\"$HOME/.cargo/bin:$PATH\""
         with:
           package-dir: ./python
           output-dir: dist
