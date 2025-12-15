@@ -7,6 +7,12 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -14,21 +20,21 @@ jobs:
   test-fortran-gcc:
     runs-on: ubuntu-latest
     name: Fortran with GCC/gfortran
-    
+
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake gfortran libopenblas-dev pkg-config
-      
+
       - name: Initialize and update submodules
         run: |
           # Convert SSH URLs to HTTPS for GitHub Actions
@@ -36,7 +42,7 @@ jobs:
           git submodule update --init --jobs 4
           # Initialize xprec-rs submodule (required for sparse-ir-capi)
           git submodule update --init --force --recursive xprec-rs || true
-      
+
       - name: Build and test Fortran bindings with GCC
         working-directory: fortran
         run: ./test_with_rust_capi.sh
@@ -44,32 +50,32 @@ jobs:
   test-fortran-intel:
     runs-on: ubuntu-latest
     name: Fortran with Intel compilers
-    
+
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Install Intel oneAPI
         run: |
           # Download Intel oneAPI GPG public key
           wget -O- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | gpg --dearmor | sudo tee /usr/share/keyrings/oneapi-archive-keyring.gpg > /dev/null
-          
+
           # Add Intel oneAPI repository
           echo "deb [signed-by=/usr/share/keyrings/oneapi-archive-keyring.gpg] https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
-          
+
           # Update and install Intel oneAPI compilers and MKL
           sudo apt-get update
           sudo apt-get install -y intel-oneapi-compiler-dpcpp-cpp intel-oneapi-compiler-fortran intel-oneapi-mkl-devel
-      
+
       - name: Install dependencies
         run: |
           sudo apt-get install -y cmake pkg-config
-      
+
       - name: Initialize and update submodules
         run: |
           # Convert SSH URLs to HTTPS for GitHub Actions
@@ -77,7 +83,7 @@ jobs:
           git submodule update --init --jobs 4
           # Initialize xprec-rs submodule (required for sparse-ir-capi)
           git submodule update --init --force --recursive xprec-rs || true
-      
+
       - name: Build and test Fortran bindings with Intel
         working-directory: fortran
         run: |

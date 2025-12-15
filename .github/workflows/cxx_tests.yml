@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [ "main" ]
 
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -15,7 +21,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with:
         submodules: false
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -36,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with:
         submodules: false
         token: ${{ secrets.GITHUB_TOKEN }}
@@ -61,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
       with:
         submodules: false
         token: ${{ secrets.GITHUB_TOKEN }}
