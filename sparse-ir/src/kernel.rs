@@ -16,7 +16,6 @@
 
 use crate::numeric::CustomNumeric;
 use crate::traits::{Statistics, StatisticsType};
-use simba::scalar::ComplexField;
 use std::fmt::Debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

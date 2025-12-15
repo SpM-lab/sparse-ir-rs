@@ -12,10 +12,7 @@ use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::cell::RefCell;
 
-use super::common::{
-    InplaceFitter, RealSVD, compute_real_svd, copy_from_contiguous, copy_to_contiguous,
-    make_perm_to_front,
-};
+use super::common::{InplaceFitter, RealSVD, compute_real_svd};
 
 // ============================================================================
 // Helper functions for efficient interleave/deinterleave
