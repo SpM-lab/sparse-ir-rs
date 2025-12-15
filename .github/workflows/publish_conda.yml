@@ -1,0 +1,56 @@
+name: Build and upload conda packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+#on:
+#  push:
+#    branches: [ "main" ]
+#  pull_request:
+#    branches: [ "main" ]
+#  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ${{ matrix.runner_label }}
+    strategy:
+      matrix:
+        include:
+          - name: ubuntu-x64
+            runner_label: ubuntu-latest
+          - name: macos-arm64
+            runner_label: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          auto-update-conda: true
+
+      - name: Conda info
+        shell: bash -el {0}
+        run: conda info
+
+      - name: Install dependencies
+        shell: bash -el {0}
+        run: conda install -y conda-build anaconda-client
+
+      # (任意) トークンが効いてるか確認。トークン文字列は出ません。
+      - name: Check anaconda auth
+        shell: bash -el {0}
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          anaconda -t "$ANACONDA_API_TOKEN" whoami
+
+      - name: Build and upload
+        shell: bash -el {0}
+        working-directory: python
+        env:
+          ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
+        run: |
+          conda config --set anaconda_upload yes
+          conda build conda-recipe --user SpM-lab --output-folder conda-bld

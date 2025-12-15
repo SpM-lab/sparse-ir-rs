@@ -1,6 +1,11 @@
 {% set name = "pylibsparseir" %}
 # Match version in [workspace.package] section
-{% set version = load_file_regex(load_file="../../Cargo.toml", regex_pattern="\\[workspace\\.package\\][^\\[]*version = \"([^\"]+)\"", from_recipe_dir=True).group(1) %}
+{% set version = load_file_regex(
+  load_file="../../Cargo.toml",
+  # Capture only the package version line, ignoring rust-version
+  regex_pattern="(?m)\\[workspace\\.package\\][\\s\\S]*?^version\\s*=\\s*\"([^\"]+)\"",
+  from_recipe_dir=True
+) .group(1) %}
 
 package:
   name: "{{ name|lower }}"
