@@ -142,6 +142,10 @@ class CustomBuildHook(BuildHookInterface):
 
         print("Rust library build and copy completed.", file=sys.stderr)
 
+        # Mark as platform-specific wheel (not pure Python)
+        # This is critical for cibuildwheel to recognize this as a platform wheel
+        build_data["pure_python"] = False
+
         # Include the shared library in the wheel
         lib_name = get_lib_name()
         if "shared_data" not in build_data:
