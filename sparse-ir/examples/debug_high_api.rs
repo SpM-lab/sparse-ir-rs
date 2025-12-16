@@ -4,7 +4,72 @@
 //! achieving the same functionality as the C-API version but with
 //! a cleaner, more idiomatic Rust interface.
 
-use sparse_ir::{Fermionic, FiniteTempBasis, LogisticKernel, TauSampling};
+use sparse_ir::{Bosonic, Fermionic, FiniteTempBasis, LogisticKernel, StatisticsType};
+
+fn test_sampling<S: StatisticsType + 'static>(stat_name: &str, beta: f64, wmax: f64, ir_tol: f64) {
+    println!("\n======== {} Statistics ========", stat_name);
+
+    // Create kernel and basis
+    let lambda = beta * wmax;
+    let kernel = LogisticKernel::new(lambda);
+    let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(ir_tol), None);
+
+    println!(
+        "✅ Created {} basis (size = {}, tolerance = {:.2e})",
+        stat_name.to_lowercase(),
+        basis.size(),
+        ir_tol
+    );
+
+    // Tau Sampling
+    println!("\n--- Tau Sampling ---");
+    let tau_sampling_points = basis.default_tau_sampling_points();
+    println!(
+        "  Sampling points: {} (basis size: {})",
+        tau_sampling_points.len(),
+        basis.size()
+    );
+    if tau_sampling_points.len() >= basis.size() {
+        println!("  ✅ OK: {} >= {}", tau_sampling_points.len(), basis.size());
+    } else {
+        println!(
+            "  ⚠️  WARNING: {} < {}",
+            tau_sampling_points.len(),
+            basis.size()
+        );
+    }
+
+    // Matsubara Sampling (all frequencies)
+    println!("\n--- Matsubara Sampling (positive_only=false) ---");
+    let matsubara_all = basis.default_matsubara_sampling_points(false);
+    println!(
+        "  Sampling points: {} (basis size: {})",
+        matsubara_all.len(),
+        basis.size()
+    );
+    if matsubara_all.len() >= basis.size() {
+        println!("  ✅ OK: {} >= {}", matsubara_all.len(), basis.size());
+    } else {
+        println!("  ⚠️  WARNING: {} < {}", matsubara_all.len(), basis.size());
+    }
+
+    // Matsubara Sampling (positive only)
+    println!("\n--- Matsubara Sampling (positive_only=true) ---");
+    let matsubara_pos = basis.default_matsubara_sampling_points(true);
+    let effective = 2 * matsubara_pos.len();
+    println!(
+        "  Sampling points: {} (effective: 2×{} = {}, basis size: {})",
+        matsubara_pos.len(),
+        matsubara_pos.len(),
+        effective,
+        basis.size()
+    );
+    if effective >= basis.size() {
+        println!("  ✅ OK: {} >= {}", effective, basis.size());
+    } else {
+        println!("  ⚠️  WARNING: {} < {}", effective, basis.size());
+    }
+}
 
 fn main() {
     let t = 0.1; // temperature
@@ -12,44 +77,19 @@ fn main() {
     let wmax = 10.0;
     let ir_tol = 1e-10;
 
-    // Step 1: Create kernel
-    let lambda = beta * wmax;
-    let kernel = LogisticKernel::new(lambda);
-    println!("✅ Created kernel with lambda = {}", lambda);
+    println!("=== Test Parameters ===");
+    println!("Temperature: {}", t);
+    println!("Beta: {}", beta);
+    println!("ωmax: {}", wmax);
+    println!("Lambda (β * ωmax): {}", beta * wmax);
+    println!("IR tolerance: {:.2e}", ir_tol);
 
-    // Step 2 & 3: Create fermionic basis (SVE is computed internally)
-    // No need to manually compute SVE - it's done automatically in FiniteTempBasis::new
-    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
-        kernel,
-        beta,
-        Some(ir_tol), // epsilon
-        None,         // max_size: None means no limit
-    );
-    println!(
-        "✅ Created fermionic basis (size = {}, tolerance = {})",
-        basis.size(),
-        ir_tol
-    );
+    // Test Fermionic
+    test_sampling::<Fermionic>("Fermionic", beta, wmax, ir_tol);
 
-    // Step 4: Create tau sampling with custom sampling points
-    let sampling_points = vec![0.0];
-    let smpl_tau0 = TauSampling::<Fermionic>::with_sampling_points(&basis, sampling_points.clone());
-    println!(
-        "✅ Created tau sampling with sampling_points = {:?}",
-        sampling_points
-    );
+    // Test Bosonic
+    test_sampling::<Bosonic>("Bosonic", beta, wmax, ir_tol);
 
-    // Example: Demonstrate some additional capabilities
-    println!("\n--- Additional Information ---");
-    println!("Basis accuracy: {:.2e}", basis.accuracy());
-    println!("Lambda (β * ωmax): {}", basis.lambda());
-    println!("ωmax: {}", basis.wmax());
-    println!("Sampling points count: {}", smpl_tau0.n_sampling_points());
-
-    // Get default tau sampling points for comparison
-    let default_taus = basis.default_tau_sampling_points();
-    println!("Default tau sampling points: {} points", default_taus.len());
-
-    // No manual cleanup needed - Rust's Drop handles everything automatically
-    println!("\n✅ Successfully completed (resources cleaned up automatically)");
+    println!("\n========================================");
+    println!("✅ All tests completed successfully!");
 }
