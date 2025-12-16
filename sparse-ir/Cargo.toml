@@ -61,6 +61,8 @@ dashu-float.workspace = true
 dashu-base.workspace = true
 # System BLAS for tests only (not used in library code)
 blas-sys.workspace = true
+# C-API for examples that use C-API directly
+sparse-ir-capi.workspace = true
 # Git hooks management via cargo-husky
 # Use user-hooks feature to define custom hooks in .cargo-husky/hooks/
 [dev-dependencies.cargo-husky]
