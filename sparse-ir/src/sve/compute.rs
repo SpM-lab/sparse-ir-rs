@@ -82,13 +82,16 @@ where
 
     // Dispatch based on working precision
     let result = match twork_actual {
-        TworkType::Float64 => {
-            compute_sve_with_precision::<f64, K>(kernel, safe_epsilon, cutoff, max_num_svals)
-        }
-        TworkType::Float64X2 => compute_sve_with_precision::<crate::Df64, K>(
+        TworkType::Float64 => compute_sve_with_precision::<f64, K>(
             kernel,
             safe_epsilon,
             cutoff,
+            max_num_svals,
+        ),
+        TworkType::Float64X2 => compute_sve_with_precision::<crate::Df64, K>(
+            kernel,
+            safe_epsilon,
+            cutoff.map(crate::Df64::from),
             max_num_svals,
         ),
         _ => panic!("Invalid TworkType: {:?}", twork_actual),
@@ -153,7 +156,7 @@ where
         TworkType::Float64X2 => compute_sve_general_with_precision::<crate::Df64, K>(
             kernel,
             safe_epsilon,
-            cutoff,
+            cutoff.map(crate::Df64::from),
             max_num_svals,
         ),
         _ => panic!("Invalid TworkType: {:?}", twork_actual),
@@ -169,7 +172,7 @@ where
 fn compute_sve_with_precision<T, K>(
     kernel: K,
     epsilon: f64,
-    cutoff: Option<f64>,
+    cutoff: Option<T>,
     max_num_svals: Option<usize>,
 ) -> SVEResult
 where
@@ -196,8 +199,9 @@ where
     }
 
     // 4. Truncate based on cutoff
-    let rtol = cutoff.unwrap_or(2.0 * f64::EPSILON);
-    let rtol_t = T::from_f64_unchecked(rtol);
+    // Default cutoff is 2.0 * T::epsilon() which adapts to the precision type (f64 or Df64)
+    let default_cutoff = T::from_f64_unchecked(2.0) * T::epsilon();
+    let rtol_t = cutoff.unwrap_or(default_cutoff);
     let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
 
     // 5. Post-process to create SVEResult
@@ -208,7 +212,7 @@ where
 fn compute_sve_general_with_precision<T, K>(
     kernel: K,
     epsilon: f64,
-    cutoff: Option<f64>,
+    cutoff: Option<T>,
     max_num_svals: Option<usize>,
 ) -> SVEResult
 where
@@ -235,8 +239,8 @@ where
     }
 
     // 4. Truncate based on cutoff
-    let rtol = cutoff.unwrap_or(2.0 * f64::EPSILON);
-    let rtol_t = T::from_f64_unchecked(rtol);
+    // Default cutoff is T::epsilon() which adapts to the precision type (f64 or Df64)
+    let rtol_t = cutoff.unwrap_or_else(T::epsilon);
     let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
 
     // 5. Post-process to create SVEResult

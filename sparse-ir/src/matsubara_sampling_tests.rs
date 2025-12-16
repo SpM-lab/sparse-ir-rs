@@ -425,7 +425,6 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip() {
 // In-place method tests
 // ============================================================================
 
-use crate::test_utils::movedim;
 use mdarray::{Shape, Tensor};
 
 /// Test MatsubaraSampling::evaluate_nd_to matches evaluate_nd
@@ -655,4 +654,77 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
             }
         }
     }
+}
+
+/// Test MatsubaraSampling creation with specific parameters matching debug.rs
+///
+/// This test verifies that MatsubaraSampling can be created correctly with
+/// the same parameters used in the debug example, and that the resulting
+/// basis size and sampling point count match expected values (consistent with C++).
+#[test]
+fn test_matsubara_sampling_debug_parameters() {
+    let t = 0.1;
+    let wmax = 1.0;
+
+    let beta = 1.0 / t;
+    // construction of the Kernel K
+
+    // Fermionic Basis
+    // Step 1: Create kernel
+    let lambda_ = beta * wmax;
+    let kernel = LogisticKernel::new(lambda_);
+
+    // Step 2: Compute SVE and create basis
+    // FiniteTempBasis::new automatically computes SVE internally
+    let eps = f64::EPSILON;
+    let basisf: FiniteTempBasis<LogisticKernel, Fermionic> =
+        FiniteTempBasis::new(kernel, beta, Some(eps), None);
+
+    // Step 3: Create Matsubara sampling
+    let matsf = MatsubaraSampling::new(&basisf);
+
+    // Verify expected values (matching C++ implementation)
+    // Basis size should be 19 for these parameters
+    assert_eq!(
+        basisf.size(),
+        19,
+        "Basis size should be 19 for T=0.1, wmax=1.0"
+    );
+
+    // Number of Matsubara sampling points should be 20
+    // (l_requested = 20 for Fermionic with L=19)
+    assert_eq!(
+        matsf.sampling_points().len(),
+        20,
+        "Number of Matsubara sampling points should be 20 for Fermionic basis with L=19"
+    );
+
+    // Verify sampling points are sorted
+    let sampling_points = matsf.sampling_points();
+    for i in 1..sampling_points.len() {
+        assert!(
+            sampling_points[i - 1] <= sampling_points[i],
+            "Sampling points should be sorted"
+        );
+    }
+
+    // Verify basis size consistency
+    assert_eq!(
+        matsf.basis_size(),
+        basisf.size(),
+        "MatsubaraSampling basis_size() should match basis.size()"
+    );
+
+    // Verify matrix dimensions
+    let matrix = matsf.matrix();
+    assert_eq!(
+        matrix.shape().0,
+        matsf.n_sampling_points(),
+        "Matrix rows should match number of sampling points"
+    );
+    assert_eq!(
+        matrix.shape().1,
+        basisf.size(),
+        "Matrix columns should match basis size"
+    );
 }
