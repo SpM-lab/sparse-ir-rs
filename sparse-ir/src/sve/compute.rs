@@ -196,7 +196,9 @@ where
     }
 
     // 4. Truncate based on cutoff
-    let rtol = cutoff.unwrap_or(2.0 * f64::EPSILON);
+    // NOTE: Changed default from 2.0 * f64::EPSILON to 0.0 to match C++ behavior
+    // C++ does not truncate in compute_sve, so we keep all singular values
+    let rtol = cutoff.unwrap_or(0.0);
     let rtol_t = T::from_f64_unchecked(rtol);
     let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
 
@@ -235,7 +237,9 @@ where
     }
 
     // 4. Truncate based on cutoff
-    let rtol = cutoff.unwrap_or(2.0 * f64::EPSILON);
+    // NOTE: Changed default from 2.0 * f64::EPSILON to 0.0 to match C++ behavior
+    // C++ does not truncate in compute_sve, so we keep all singular values
+    let rtol = cutoff.unwrap_or(0.0);
     let rtol_t = T::from_f64_unchecked(rtol);
     let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
 
