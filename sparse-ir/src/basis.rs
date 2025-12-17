@@ -318,7 +318,20 @@ where
     ///
     /// Returns sampling points in imaginary time τ ∈ [-β/2, β/2].
     pub fn default_tau_sampling_points(&self) -> Vec<f64> {
-        self.default_tau_sampling_points_size_requested(self.size())
+        let points = self.default_tau_sampling_points_size_requested(self.size());
+        let basis_size = self.size();
+        if points.len() < basis_size {
+            eprintln!(
+                "Warning: Number of tau sampling points ({}) is less than basis size ({}). \
+                 Basis parameters: beta={}, wmax={}, epsilon={:.2e}",
+                points.len(),
+                basis_size,
+                self.beta,
+                self.wmax(),
+                self.accuracy()
+            );
+        }
+        points
     }
 
     pub fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
@@ -396,12 +409,33 @@ where
         S: 'static,
     {
         let fence = false;
-        Self::default_matsubara_sampling_points_impl(
+        let points = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
             self.size(),
             fence,
             positive_only,
-        )
+        );
+        let basis_size = self.size();
+        // For positive_only=true, we need 2*n_sampling_points >= basis_size
+        // For positive_only=false, we need n_sampling_points >= basis_size
+        let effective_points = if positive_only {
+            2 * points.len()
+        } else {
+            points.len()
+        };
+        if effective_points < basis_size {
+            eprintln!(
+                "Warning: Number of Matsubara sampling points ({}{}) is less than basis size ({}). \
+                 Basis parameters: beta={}, wmax={}, epsilon={:.2e}",
+                points.len(),
+                if positive_only { " × 2" } else { "" },
+                basis_size,
+                self.beta,
+                self.wmax(),
+                self.accuracy()
+            );
+        }
+        points
     }
 
     /// Fence Matsubara sampling points to improve conditioning

@@ -588,6 +588,17 @@ impl ComplexToRealFitter {
     /// Ensure SVD is computed (lazy initialization)
     fn ensure_svd(&self) {
         if self.svd.borrow().is_none() {
+            let n_points = self.n_points();
+            let basis_size = self.basis_size();
+            // For positive-only mode, we have symmetry: 2*n_points effective points
+            let effective_points = 2 * n_points;
+            if effective_points < basis_size {
+                eprintln!(
+                    "Warning: Effective number of sampling points ({} × 2 = {}) is less than basis size ({}). \
+                     Fitting may be ill-conditioned.",
+                    n_points, effective_points, basis_size
+                );
+            }
             let svd_ext = RealSVDExtended::from_matrix(&self.matrix_real);
             *self.svd.borrow_mut() = Some(svd_ext);
         }

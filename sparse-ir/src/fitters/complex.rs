@@ -620,6 +620,15 @@ impl ComplexMatrixFitter {
     /// Ensure SVD is computed (lazy initialization)
     fn ensure_svd(&self) {
         if self.svd.borrow().is_none() {
+            let n_points = self.n_points();
+            let basis_size = self.basis_size();
+            if n_points < basis_size {
+                eprintln!(
+                    "Warning: Number of sampling points ({}) is less than basis size ({}). \
+                     Fitting may be ill-conditioned.",
+                    n_points, basis_size
+                );
+            }
             let svd = compute_complex_svd(&self.matrix);
             let svd_ext = ComplexSVDExtended::from_svd(svd, self.n_points(), self.basis_size());
             *self.svd.borrow_mut() = Some(svd_ext);

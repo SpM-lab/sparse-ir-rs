@@ -44,7 +44,18 @@ impl RealMatrixFitter {
 
     /// Get SVD decomposition, computing it lazily if needed
     fn get_svd(&self) -> &RealSVD {
-        self.svd.get_or_init(|| compute_real_svd(&self.matrix))
+        self.svd.get_or_init(|| {
+            let n_points = self.n_points();
+            let basis_size = self.basis_size();
+            if n_points < basis_size {
+                eprintln!(
+                    "Warning: Number of sampling points ({}) is less than basis size ({}). \
+                     Fitting may be ill-conditioned.",
+                    n_points, basis_size
+                );
+            }
+            compute_real_svd(&self.matrix)
+        })
     }
 
     /// Number of data points
