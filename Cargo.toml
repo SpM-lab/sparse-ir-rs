@@ -10,7 +10,6 @@ mdarray = "0.7.2"
 mdarray-linalg = "0.1.2"
 mdarray-linalg-faer = "0.1.2"
 sparse-ir = { version = "0.7.3", path = "sparse-ir" }
-sparse-ir-capi = { version = "0.7.3", path = "sparse-ir-capi" }
 faer = "0.23"
 faer-traits = "0.23"
 num-complex = "0.4"
