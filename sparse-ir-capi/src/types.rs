@@ -1110,9 +1110,47 @@ impl spir_funcs {
                     beta: self.beta,
                 })
             }
-            FuncsType::FTVector(_) => {
-                // FTVector slicing not yet supported (requires public constructor)
-                None
+            FuncsType::FTVector(ftv) => {
+                // Extract slice from PiecewiseLegendreFTVector
+                if ftv.statistics == Statistics::Fermionic {
+                    let ft = ftv.ft_fermionic.as_ref()?;
+                    let mut new_polyvec = Vec::with_capacity(indices.len());
+                    for &idx in indices {
+                        if idx >= ft.polyvec.len() {
+                            return None;
+                        }
+                        new_polyvec.push(ft.polyvec[idx].clone());
+                    }
+                    let new_ft_vector =
+                        Arc::new(PiecewiseLegendreFTVector::from_vector(new_polyvec));
+                    Some(Self {
+                        _private: Box::into_raw(Box::new(FuncsType::FTVector(FTVectorFuncs {
+                            ft_fermionic: Some(new_ft_vector),
+                            ft_bosonic: None,
+                            statistics: ftv.statistics,
+                        }))) as *mut std::ffi::c_void,
+                        beta: self.beta,
+                    })
+                } else {
+                    let ft = ftv.ft_bosonic.as_ref()?;
+                    let mut new_polyvec = Vec::with_capacity(indices.len());
+                    for &idx in indices {
+                        if idx >= ft.polyvec.len() {
+                            return None;
+                        }
+                        new_polyvec.push(ft.polyvec[idx].clone());
+                    }
+                    let new_ft_vector =
+                        Arc::new(PiecewiseLegendreFTVector::from_vector(new_polyvec));
+                    Some(Self {
+                        _private: Box::into_raw(Box::new(FuncsType::FTVector(FTVectorFuncs {
+                            ft_fermionic: None,
+                            ft_bosonic: Some(new_ft_vector),
+                            statistics: ftv.statistics,
+                        }))) as *mut std::ffi::c_void,
+                        beta: self.beta,
+                    })
+                }
             }
             FuncsType::DLRTau(dlr) => {
                 // Select subset of poles
