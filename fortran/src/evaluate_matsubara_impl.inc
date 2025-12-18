@@ -4,7 +4,7 @@
 
 SUBROUTINE evaluate_matsubara_zz_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:)
@@ -54,7 +54,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_zz_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:)
@@ -104,7 +104,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_zz_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:)
@@ -154,7 +154,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_zz_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:)
@@ -204,7 +204,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_zz_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:)
@@ -254,7 +254,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_zz_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:)
@@ -304,7 +304,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_zz_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:,:)
@@ -354,7 +354,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_dz_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:)
@@ -404,7 +404,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_dz_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:)
@@ -454,7 +454,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_dz_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:)
@@ -504,7 +504,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_dz_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:)
@@ -554,7 +554,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_dz_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:)
@@ -604,7 +604,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_dz_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:)
@@ -654,7 +654,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_matsubara_dz_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
 
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:,:)

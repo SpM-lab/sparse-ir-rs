@@ -1,8 +1,18 @@
-# Define test files
-set(TEST_FILES
-    test_integration
-    test_ext
-)
+# Use GLOB to automatically find test files
+file(GLOB TEST_F90_FILES "test_*.f90")
+
+# Collect all test files (exclude backup files)
+set(TEST_FILES "")
+
+foreach(FILE ${TEST_F90_FILES})
+    # Get filename without directory and extension
+    get_filename_component(FILENAME ${FILE} NAME_WE)
+    
+    # Exclude backup files
+    if(NOT FILENAME MATCHES ".*_backup$")
+        list(APPEND TEST_FILES ${FILENAME})
+    endif()
+endforeach()
 
 # Add test executables
 foreach(TEST ${TEST_FILES})

@@ -18,9 +18,10 @@ program test_integration
    integer(c_int), parameter :: order = SPIR_ORDER_COLUMN_MAJOR
 
    ! Initialize random seed with a fixed value
-   call random_seed(size=status)
-   if (status > 0) then
-      allocate (seed(status))
+   integer :: seed_size
+   call random_seed(size=seed_size)
+   if (seed_size > 0) then
+      allocate (seed(seed_size))
       seed = 982743  ! Fixed seed value
       call random_seed(put=seed)
       deallocate (seed)
@@ -29,6 +30,15 @@ program test_integration
    ! Test both Fermionic and Bosonic cases
    call test_case(SPIR_STATISTICS_FERMIONIC, "Fermionic")
    call test_case(SPIR_STATISTICS_BOSONIC, "Bosonic")
+
+   ! Test with positive_only variations
+   call test_case_with_positive_only(SPIR_STATISTICS_FERMIONIC, .FALSE., "Fermionic, all frequencies")
+   call test_case_with_positive_only(SPIR_STATISTICS_FERMIONIC, .TRUE., "Fermionic, positive only")
+   call test_case_with_positive_only(SPIR_STATISTICS_BOSONIC, .FALSE., "Bosonic, all frequencies")
+   call test_case_with_positive_only(SPIR_STATISTICS_BOSONIC, .TRUE., "Bosonic, positive only")
+
+   ! Test multi-dimensional integration
+   call test_multidimensional_integration()
 
 contains
 
@@ -391,6 +401,245 @@ contains
          print *, "relative error:", max_diff/max_ref
       end if
    end function compare_with_relative_error_z
+
+   subroutine test_case_with_positive_only(statistics, positive_only, case_name)
+      integer(c_int32_t), intent(in) :: statistics
+      logical, intent(in) :: positive_only
+      character(len=*), intent(in) :: case_name
+
+      type(c_ptr) :: k_ptr, k_copy_ptr
+      type(c_ptr) :: sve_ptr
+      type(c_ptr) :: basis_ptr, dlr_ptr
+      type(c_ptr) :: tau_sampling_ptr, matsu_sampling_ptr
+      integer(c_int), target :: basis_size, sve_size, max_size
+      real(c_double), allocatable, target :: taus(:)
+      integer(c_int64_t), allocatable, target :: matsus(:)
+      real(c_double), allocatable, target :: poles(:)
+      real(c_double), allocatable, target :: svals(:)
+      integer(c_int) :: positive_only_c
+      !
+      positive_only_c = MERGE(1_c_int, 0_c_int, positive_only)
+
+      print *, "Testing ", case_name, " case"
+
+      ! Create a new kernel
+      k_ptr = c_spir_logistic_kernel_new(lambda, c_loc(status))
+      if (status /= 0) then
+         print *, "Error creating kernel"
+         stop 1
+      end if
+
+      ! Create a copy of the kernel
+      k_copy_ptr = c_spir_kernel_clone(k_ptr)
+
+      ! Create a new SVE result
+      status = 0
+      sve_ptr = c_spir_sve_result_new(k_ptr, epsilon, -1_c_int, -1_c_int, SPIR_TWORK_AUTO, c_loc(status))
+      if (status /= 0) then
+         print *, "Error creating SVE result, status:", status
+         stop 1
+      end if
+
+      ! Get the size of the SVE result
+      status = c_spir_sve_result_get_size(sve_ptr, c_loc(sve_size))
+      if (status /= 0) then
+         print *, "Error getting SVE result size"
+         stop 1
+      end if
+
+      ! Get the singular values of the SVE result
+      allocate(svals(sve_size))
+      status = c_spir_sve_result_get_svals(sve_ptr, c_loc(svals))
+      if (status /= 0) then
+         print *, "Error getting SVE result singular values"
+         stop 1
+      end if
+
+      ! Create a new basis
+      max_size = -1
+      basis_ptr = c_spir_basis_new(statistics, beta, omega_max, epsilon, &
+                                   k_ptr, sve_ptr, max_size, c_loc(status))
+      if (status /= 0) then
+         print *, "Error creating basis, status:", status
+         stop 1
+      end if
+
+      ! Get the size of the basis
+      status = c_spir_basis_get_size(basis_ptr, c_loc(basis_size))
+      if (status /= 0) then
+         print *, "Error getting basis size"
+         stop 1
+      end if
+
+      ! Get default tau points
+      status = c_spir_basis_get_n_default_taus(basis_ptr, c_loc(ntaus))
+      if (status /= 0) then
+         print *, "Error getting number of tau points"
+         stop 1
+      end if
+
+      allocate(taus(ntaus))
+      status = c_spir_basis_get_default_taus(basis_ptr, c_loc(taus))
+      if (status /= 0) then
+         print *, "Error getting tau points"
+         stop 1
+      end if
+
+      ! Get default Matsubara points
+      status = c_spir_basis_get_n_default_matsus(basis_ptr, positive_only_c, c_loc(nmatsus))
+      if (status /= 0) then
+         print *, "Error getting number of Matsubara points"
+         stop 1
+      end if
+
+      allocate(matsus(nmatsus))
+      status = c_spir_basis_get_default_matsus(basis_ptr, positive_only_c, c_loc(matsus))
+      if (status /= 0) then
+         print *, "Error getting Matsubara points"
+         stop 1
+      end if
+
+      ! Create tau sampling
+      tau_sampling_ptr = c_spir_tau_sampling_new(basis_ptr, ntaus, c_loc(taus), c_loc(status))
+      if (status /= 0) then
+         print *, "Error creating tau sampling"
+         stop 1
+      end if
+
+      ! Create Matsubara sampling
+      matsu_sampling_ptr = c_spir_matsu_sampling_new(basis_ptr, positive_only_c, nmatsus, &
+                                                      c_loc(matsus), c_loc(status))
+      if (status /= 0) then
+         print *, "Error creating Matsubara sampling"
+         stop 1
+      end if
+
+      ! Create DLR
+      dlr_ptr = c_spir_dlr_new(basis_ptr, c_loc(status))
+      if (status /= 0) then
+         print *, "Error creating DLR"
+         stop 1
+      end if
+
+      ! Get number of poles
+      status = c_spir_dlr_get_npoles(dlr_ptr, c_loc(npoles))
+      if (status /= 0) then
+         print *, "Error getting number of poles"
+         stop 1
+      end if
+
+      ! Cleanup
+      deallocate(taus, matsus, svals)
+      call c_spir_sampling_release(tau_sampling_ptr)
+      call c_spir_sampling_release(matsu_sampling_ptr)
+      call c_spir_basis_release(dlr_ptr)
+      call c_spir_basis_release(basis_ptr)
+      call c_spir_sve_result_release(sve_ptr)
+      call c_spir_kernel_release(k_copy_ptr)
+      call c_spir_kernel_release(k_ptr)
+
+      print *, "  ", case_name, " case: PASSED"
+   end subroutine test_case_with_positive_only
+
+   subroutine test_multidimensional_integration()
+      type(c_ptr) :: k_ptr, sve_ptr, basis_ptr, dlr_ptr, tau_sampling_ptr
+      integer(c_int), target :: status, ntau, basis_size, npoles, ir_size
+      integer(c_int), target :: input_dims(3)
+      real(c_double), allocatable, target :: taus(:)
+      real(c_double), allocatable, target :: dlr_coeffs(:, :, :), ir_coeffs(:, :, :), tau_values(:, :, :)
+      real(c_double), parameter :: beta = 50.0_c_double
+      real(c_double), parameter :: omega_max = 1.0_c_double
+      real(c_double), parameter :: epsilon = 1.0e-8_c_double
+      real(c_double), parameter :: lambda = beta*omega_max
+      integer(c_int), parameter :: d1 = 2, d2 = 3
+      integer(c_int), target :: max_size
+      integer :: i, j, k
+      integer :: seed_size
+      integer, allocatable :: seed(:)
+
+      print *, "Testing multi-dimensional integration workflow..."
+
+      ! Initialize random seed
+      call random_seed(size=seed_size)
+      if (seed_size > 0) then
+         allocate(seed(seed_size))
+         seed = 982743
+         call random_seed(put=seed)
+         deallocate(seed)
+      end if
+
+      ! Create IR basis
+      k_ptr = c_spir_logistic_kernel_new(lambda, c_loc(status))
+      sve_ptr = c_spir_sve_result_new(k_ptr, epsilon, -1_c_int, -1_c_int, SPIR_TWORK_AUTO, c_loc(status))
+      max_size = -1
+      basis_ptr = c_spir_basis_new(SPIR_STATISTICS_FERMIONIC, beta, omega_max, epsilon, &
+                                   k_ptr, sve_ptr, max_size, c_loc(status))
+
+      status = c_spir_basis_get_size(basis_ptr, c_loc(ir_size))
+
+      ! Create DLR
+      dlr_ptr = c_spir_dlr_new(basis_ptr, c_loc(status))
+      status = c_spir_dlr_get_npoles(dlr_ptr, c_loc(npoles))
+
+      ! Get default tau points
+      status = c_spir_basis_get_n_default_taus(basis_ptr, c_loc(ntau))
+      allocate(taus(ntau))
+      status = c_spir_basis_get_default_taus(basis_ptr, c_loc(taus))
+
+      ! Create tau sampling
+      tau_sampling_ptr = c_spir_tau_sampling_new(basis_ptr, ntau, c_loc(taus), c_loc(status))
+
+      if (npoles > 0 .and. ir_size > 0) then
+         ! Create test 3D DLR coefficients
+         allocate(dlr_coeffs(npoles, d1, d2))
+         do k = 1, d2
+            do j = 1, d1
+               do i = 1, npoles
+                  call random_number(dlr_coeffs(i, j, k))
+                  dlr_coeffs(i, j, k) = (dlr_coeffs(i, j, k) - 0.5_c_double) * 0.1_c_double
+               end do
+            end do
+         end do
+
+         ! Convert DLR to IR
+         allocate(ir_coeffs(ir_size, d1, d2))
+         input_dims = [npoles, d1, d2]
+         status = c_spir_dlr2ir_dd(dlr_ptr, c_null_ptr, SPIR_ORDER_COLUMN_MAJOR, &
+                                   3_c_int, c_loc(input_dims), 0_c_int, c_loc(dlr_coeffs), c_loc(ir_coeffs))
+         if (status /= 0) then
+            print *, "Error: Failed to convert 3D DLR to IR"
+            stop 1
+         end if
+
+         ! Evaluate using tau sampling
+         input_dims = [ir_size, d1, d2]
+         allocate(tau_values(ntau, d1, d2))
+         status = c_spir_sampling_eval_dd(tau_sampling_ptr, c_null_ptr, SPIR_ORDER_COLUMN_MAJOR, &
+                                          3_c_int, c_loc(input_dims), 0_c_int, c_loc(ir_coeffs), c_loc(tau_values))
+         if (status /= 0) then
+            print *, "Error: Failed to evaluate 3D tau sampling"
+            stop 1
+         end if
+
+         ! Verify we got reasonable results
+         if (maxval(abs(tau_values)) < 1.0e-15_c_double) then
+            print *, "Error: All tau values are zero"
+            stop 1
+         end if
+
+         deallocate(tau_values, dlr_coeffs, ir_coeffs)
+      end if
+
+      ! Cleanup
+      deallocate(taus)
+      call c_spir_sampling_release(tau_sampling_ptr)
+      call c_spir_basis_release(dlr_ptr)
+      call c_spir_basis_release(basis_ptr)
+      call c_spir_sve_result_release(sve_ptr)
+      call c_spir_kernel_release(k_ptr)
+
+      print *, "  Multi-dimensional integration: PASSED"
+   end subroutine test_multidimensional_integration
 
    subroutine generate_random_coeffs(coeffs, poles, npoles, extra_size)
       real(c_double), intent(out) :: coeffs(:, :)

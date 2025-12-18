@@ -63,7 +63,7 @@ def generate_evaluate_tau_function(ndim, input_type, output_type):
     # Generate the function
     function = f"""SUBROUTINE evaluate_tau_{func_suffix}_{ndim}d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   {input_fortran_type}, INTENT(IN), TARGET :: arr {shape_str}
   {output_fortran_type}, INTENT(OUT), TARGET :: res {shape_str}

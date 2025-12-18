@@ -162,7 +162,7 @@ CONTAINS
    END FUNCTION create_sve_result
 
    FUNCTION create_basis(statistics, beta, wmax, eps, k_ptr, sve_ptr) RESULT(basis_ptr)
-      INTEGER, INTENT(IN) :: statistics
+      INTEGER(KIND=c_int), INTENT(IN) :: statistics
       REAL(KIND=DP), INTENT(IN) :: beta
       REAL(KIND=DP), INTENT(IN) :: wmax
       REAL(KIND=DP), INTENT(IN) :: eps
@@ -197,7 +197,7 @@ CONTAINS
       !
       status = c_spir_basis_get_size(basis_ptr, c_loc(size_c))
       IF (status /= 0) THEN
-         CALL errore('get_basis_size', 'Error getting basis size', status)
+         CALL errore('get_basis_size', 'Error getting basis size', INT(status))
       END IF
       size = size_c
    END FUNCTION get_basis_size
@@ -211,14 +211,14 @@ CONTAINS
       !
       status = c_spir_basis_get_size(basis_ptr, c_loc(nsvals_c))
       IF (status /= 0) THEN
-         call errore('basis_get_svals', 'Error getting number of singular values', status)
+         call errore('basis_get_svals', 'Error getting number of singular values', INT(status))
       END IF
       !
       ALLOCATE (svals_c(nsvals_c))
       !
       status = c_spir_basis_get_svals(basis_ptr, c_loc(svals_c))
       IF (status /= 0) THEN
-         CALL errore('basis_get_svals', 'Error getting singular values', status)
+         CALL errore('basis_get_svals', 'Error getting singular values', INT(status))
       END IF
       !
       ALLOCATE (svals(nsvals_c))
@@ -306,14 +306,14 @@ CONTAINS
       !
       status = c_spir_basis_get_n_default_ws(basis_ptr, c_loc(nomega_c))
       IF (status /= 0) THEN
-         CALL errore('basis_get_ws', 'Error getting number of real frequencies', status)
+         CALL errore('basis_get_ws', 'Error getting number of real frequencies', INT(status))
       END IF
       !
       ALLOCATE (ws_c(nomega_c))
       !
       status = c_spir_basis_get_default_ws(basis_ptr, c_loc(ws_c))
       IF (status /= 0) THEN
-         CALL errore('basis_get_ws', 'Error getting real frequencies', status)
+         CALL errore('basis_get_ws', 'Error getting real frequencies', INT(status))
       END IF
       !
       ALLOCATE (ws(nomega_c))
@@ -700,7 +700,7 @@ CONTAINS
 
    FUNCTION eval_u_tau(obj, statistics, tau) RESULT(res)
       TYPE(IR), INTENT(IN) :: obj
-      INTEGER, INTENT(IN) :: statistics
+      INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
       REAL(KIND=DP), INTENT(IN) :: tau
       !
       REAL(KIND=DP), ALLOCATABLE :: res(:)

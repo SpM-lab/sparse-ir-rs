@@ -59,7 +59,7 @@ def generate_fit_matsubara_function(ndim, input_type, output_type):
     # Generate the function
     function = f"""SUBROUTINE fit_matsubara_{func_suffix}_{ndim}d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   {input_fortran_type}, INTENT(IN), TARGET :: arr {shape_str}
 

@@ -4,7 +4,7 @@
 
 SUBROUTINE fit_matsubara_zz_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:)
 
@@ -55,7 +55,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zz_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:)
 
@@ -106,7 +106,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zz_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:)
 
@@ -157,7 +157,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zz_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:)
 
@@ -208,7 +208,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zz_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:)
 
@@ -259,7 +259,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zz_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:)
 
@@ -310,7 +310,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zz_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:,:)
 
@@ -361,7 +361,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zd_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:)
 
@@ -412,7 +412,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zd_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:)
 
@@ -463,7 +463,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zd_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:)
 
@@ -514,7 +514,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zd_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:)
 
@@ -565,7 +565,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zd_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:)
 
@@ -616,7 +616,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zd_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:)
 
@@ -667,7 +667,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_matsubara_zd_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:,:)
 
