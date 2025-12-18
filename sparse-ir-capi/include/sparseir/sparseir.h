@@ -57,7 +57,7 @@ typedef struct spir_kernel {
  * Contains singular values and singular functions from SVE computation.
  *
  * Note: Named `spir_sve_result` to match libsparseir C++ API exactly.
- * The internal structure is hidden using a void pointer to prevent exposing Arc<SVEResult> to C.
+ * The internal structure is hidden using a void pointer to prevent exposing `Arc<SVEResult>` to C.
  */
 typedef struct spir_sve_result {
   const void *_private;
@@ -860,7 +860,7 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * # Safety
  * - `xs` must have size >= `num_points`
  * - `out` must have size >= `num_points * spir_funcs_get_size(funcs)`
- * - Layout: row-major = out[point][func], column-major = out[func][point]
+ * - Layout: row-major = out\[point\]\[func\], column-major = out\[func\]\[point\]
  */
 
 StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
@@ -886,7 +886,7 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  * - `ns` must have size >= `num_freqs`
  * - `out` must have size >= `num_freqs * spir_funcs_get_size(funcs)`
  * - Complex numbers are laid out as [real, imag] pairs
- * - Layout: row-major = out[freq][func], column-major = out[func][freq]
+ * - Layout: row-major = out\[freq\]\[func\], column-major = out\[func\]\[freq\]
  */
 
 StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
@@ -1649,12 +1649,12 @@ struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
  * Truncate an SVE result based on epsilon and max_size
  *
  * This function creates a new SVE result containing only the singular values
- * that are larger than `epsilon * s[0]`, where `s[0]` is the largest singular value.
+ * that are larger than `epsilon * s\[0\]`, where `s\[0\]` is the largest singular value.
  * The result can also be limited to a maximum size.
  *
  * # Arguments
  * * `sve` - Source SVE result object
- * * `epsilon` - Relative threshold for truncation (singular values < epsilon * s[0] are removed)
+ * * `epsilon` - Relative threshold for truncation (singular values < epsilon * s\[0\] are removed)
  * * `max_size` - Maximum number of singular values to keep (-1 for no limit)
  * * `status` - Pointer to store status code
  *

@@ -473,7 +473,7 @@ pub extern "C" fn spir_funcs_eval_matsu(
 /// # Safety
 /// - `xs` must have size >= `num_points`
 /// - `out` must have size >= `num_points * spir_funcs_get_size(funcs)`
-/// - Layout: row-major = out[point][func], column-major = out[func][point]
+/// - Layout: row-major = out\[point\]\[func\], column-major = out\[func\]\[point\]
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_funcs_batch_eval(
     funcs: *const spir_funcs,
@@ -541,7 +541,7 @@ pub extern "C" fn spir_funcs_batch_eval(
 /// - `ns` must have size >= `num_freqs`
 /// - `out` must have size >= `num_freqs * spir_funcs_get_size(funcs)`
 /// - Complex numbers are laid out as [real, imag] pairs
-/// - Layout: row-major = out[freq][func], column-major = out[func][freq]
+/// - Layout: row-major = out\[freq\]\[func\], column-major = out\[func\]\[freq\]
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_funcs_batch_eval_matsu(
     funcs: *const spir_funcs,

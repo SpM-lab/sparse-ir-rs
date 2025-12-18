@@ -53,7 +53,7 @@ impl MemoryOrder {
 /// (mdarray_dims, mdarray_target_dim) - Dimensions and target_dim for row-major mdarray
 ///
 /// # Example
-/// ```ignore
+/// ```text
 /// // Julia: dims=[5, 3], target_dim=0, order=COLUMN_MAJOR
 /// convert_dims_for_row_major(&[5, 3], 0, MemoryOrder::ColumnMajor)
 /// → ([3, 5], 1)  // For row-major mdarray
