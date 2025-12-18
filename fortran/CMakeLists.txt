@@ -140,8 +140,10 @@ add_library(sparseir_fortran SHARED
 if(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
     # Intel Fortran: Put all arrays on heap to avoid stack overflow
     #target_compile_options(sparseir_fortran PRIVATE -heap-arrays 0)
-    # Intel C++ uses -fp-model=precise to disable fastmath for xprec compatibility
-    # This is handled in the C++ backend CMakeLists.txt
+    # Intel Fortran: Use precise floating-point model (same as Intel C++ for xprec compatibility)
+    target_compile_options(sparseir_fortran PRIVATE -fp-model precise)
+    # Also apply to test executables
+    set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fp-model precise")
 endif()
 
 # Add include directory
