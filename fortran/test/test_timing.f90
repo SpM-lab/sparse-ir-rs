@@ -322,7 +322,7 @@ CONTAINS
       TRIM(stat_name), CHAR(9), lreal_ir, CHAR(9), lreal_tau, CHAR(9), &
       num, CHAR(9), lsize_ir, CHAR(9), ir_obj%size, CHAR(9), &
       nfreq, CHAR(9), ir_obj%ntau, CHAR(9)
-    WRITE(*,'(ES12.6,A,ES12.6,A,ES12.6,A,ES12.6,A,ES12.6,A,ES12.6,A,ES12.6)') &
+    WRITE(*,'(ES13.6,A,ES13.6,A,ES13.6,A,ES13.6,A,ES13.6,A,ES13.6,A,ES13.6)') &
       time_fit_matsu, CHAR(9), time_eval_tau, CHAR(9), &
       time_fit_tau, CHAR(9), time_eval_matsu, CHAR(9), &
       time_total, CHAR(9), time_per_vector, CHAR(9), relative_error
