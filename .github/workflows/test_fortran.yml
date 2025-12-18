@@ -45,7 +45,7 @@ jobs:
 
       - name: Build and test Fortran bindings with GCC
         working-directory: fortran
-        run: ./test_with_fortran.sh --compiler=gfortran --clean
+        run: ./test_with_rust_capi.sh --compiler=gfortran --clean
 
   test-fortran-intel:
     runs-on: ubuntu-latest
@@ -91,7 +91,7 @@ jobs:
           export CC=icx
           export CXX=icpx
           export FC=ifx
-          ./test_with_fortran.sh --compiler=ifx --clean
+          ./test_with_rust_capi.sh --compiler=ifx --clean
 
   test-fortran-rollup:
     runs-on: ubuntu-latest
