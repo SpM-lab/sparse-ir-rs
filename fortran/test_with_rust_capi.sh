@@ -130,11 +130,3 @@ ctest --output-on-failure --verbose
 
 echo -e "${GREEN}=== All tests with $COMPILER completed successfully ===${NC}"
 
-
-
-
-
-
-
-
-
