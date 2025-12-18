@@ -51,7 +51,7 @@ foreach(TEST ${TEST_FILES})
     )
 endforeach()
 
-# Process each benchmark (similar setup but no add_test)
+# Process each benchmark (similar setup, add test_timing to ctest)
 foreach(BENCH ${BENCHMARK_FILES})
     target_include_directories(${BENCH} PRIVATE
         ${SPARSEIR_FORTRAN_MODDIR}
@@ -66,4 +66,12 @@ foreach(BENCH ${BENCHMARK_FILES})
         INSTALL_RPATH_USE_LINK_PATH ON
         INSTALL_RPATH "$<TARGET_FILE_DIR:sparseir_fortran>"
     )
+
+    # Add test_timing to ctest (uses default values, including num=185640)
+    if(${BENCH} STREQUAL "test_timing")
+        add_test(NAME fortran_${BENCH}
+            COMMAND ${BENCH}
+            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        )
+    endif()
 endforeach()

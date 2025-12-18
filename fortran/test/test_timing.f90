@@ -40,7 +40,7 @@ PROGRAM test_timing
   INTEGER(c_int32_t) :: statistics = SPIR_STATISTICS_FERMIONIC
   LOGICAL :: lreal_ir = .TRUE.
   LOGICAL :: lreal_tau = .TRUE.
-  INTEGER :: num = 2784600
+  INTEGER :: num = 185640
   INTEGER :: lsize_ir = 1
   !
   CHARACTER(LEN=256) :: arg
@@ -160,7 +160,7 @@ CONTAINS
     INTEGER :: time_begin, time_end, count_rate, count_max
     REAL(KIND = DP) :: time_fit_matsu, time_eval_tau, time_fit_tau, time_eval_matsu
     REAL(KIND = DP) :: time_total, time_per_vector
-    REAL(KIND = DP) :: sum_of_giv_expected, sum_of_giv_computed, relative_error
+    REAL(KIND = DP) :: sum_of_giv_expected, sum_of_giv_computed, relative_error, tol
     CHARACTER(LEN=16) :: stat_name
     INTEGER(KIND=8) :: freq_1
     !
@@ -271,6 +271,16 @@ CONTAINS
     !
     ! Calculate relative error
     relative_error = ABS(sum_of_giv_computed - sum_of_giv_expected) / ABS(sum_of_giv_expected)
+    !
+    ! Check relative error against tolerance (same as test_analytic_gf)
+    ! tol = 100 * eps, which is 1.d-6 for default ndigit=8
+    tol = 1.d2 * eps
+    IF (relative_error > tol) THEN
+      WRITE(*,*) 'FAILED: Relative error exceeds tolerance!'
+      WRITE(*,'(A,ES16.6)') '  Relative error = ', relative_error
+      WRITE(*,'(A,ES16.6)') '  Tolerance     = ', tol
+      STOP 1
+    ENDIF
     !
     ! Calculate total time and per-vector time
     time_total = time_fit_matsu + time_eval_tau + time_fit_tau + time_eval_matsu
