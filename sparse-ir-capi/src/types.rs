@@ -79,7 +79,7 @@ pub struct spir_kernel {
 /// Contains singular values and singular functions from SVE computation.
 ///
 /// Note: Named `spir_sve_result` to match libsparseir C++ API exactly.
-/// The internal structure is hidden using a void pointer to prevent exposing Arc<SVEResult> to C.
+/// The internal structure is hidden using a void pointer to prevent exposing `Arc<SVEResult>` to C.
 #[repr(C)]
 pub struct spir_sve_result {
     pub(crate) _private: *const std::ffi::c_void,

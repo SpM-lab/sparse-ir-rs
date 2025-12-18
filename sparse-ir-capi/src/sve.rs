@@ -217,12 +217,12 @@ pub extern "C" fn spir_sve_result_get_size(
 /// Truncate an SVE result based on epsilon and max_size
 ///
 /// This function creates a new SVE result containing only the singular values
-/// that are larger than `epsilon * s[0]`, where `s[0]` is the largest singular value.
+/// that are larger than `epsilon * s\[0\]`, where `s\[0\]` is the largest singular value.
 /// The result can also be limited to a maximum size.
 ///
 /// # Arguments
 /// * `sve` - Source SVE result object
-/// * `epsilon` - Relative threshold for truncation (singular values < epsilon * s[0] are removed)
+/// * `epsilon` - Relative threshold for truncation (singular values < epsilon * s\[0\] are removed)
 /// * `max_size` - Maximum number of singular values to keep (-1 for no limit)
 /// * `status` - Pointer to store status code
 ///
