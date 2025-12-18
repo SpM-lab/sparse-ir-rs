@@ -61,7 +61,7 @@ IFORT_PASSED=false
 
 # Step 1: Test with gfortran (baseline)
 echo -e "${YELLOW}Step 1: Testing with gfortran (baseline)...${NC}"
-if ./test_with_fortran.sh --compiler=gfortran 2>&1 | tee /tmp/gfortran_test.log; then
+if ./test_with_rust_capi.sh --compiler=gfortran 2>&1 | tee /tmp/gfortran_test.log; then
     echo -e "${GREEN}✓ gfortran tests passed${NC}"
     GFORTRAN_PASSED=true
 else
@@ -73,7 +73,7 @@ echo ""
 # Step 2: Test with Intel ifx (if available)
 if command -v ifx &> /dev/null; then
     echo -e "${YELLOW}Step 2: Testing with Intel ifx...${NC}"
-    if ./test_with_fortran.sh --compiler=ifx 2>&1 | tee /tmp/ifx_test.log; then
+    if ./test_with_rust_capi.sh --compiler=ifx 2>&1 | tee /tmp/ifx_test.log; then
         echo -e "${GREEN}✓ Intel ifx tests passed${NC}"
         IFX_PASSED=true
     else
@@ -89,7 +89,7 @@ fi
 # Step 3: Test with Intel ifort (if available)
 if command -v ifort &> /dev/null; then
     echo -e "${YELLOW}Step 3: Testing with Intel ifort...${NC}"
-    if ./test_with_fortran.sh --compiler=ifort 2>&1 | tee /tmp/ifort_test.log; then
+    if ./test_with_rust_capi.sh --compiler=ifort 2>&1 | tee /tmp/ifort_test.log; then
         echo -e "${GREEN}✓ Intel ifort tests passed${NC}"
         IFORT_PASSED=true
     else
