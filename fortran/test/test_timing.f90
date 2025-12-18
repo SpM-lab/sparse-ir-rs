@@ -163,6 +163,7 @@ CONTAINS
     REAL(KIND = DP) :: sum_of_giv_expected, sum_of_giv_computed, relative_error, tol
     CHARACTER(LEN=16) :: stat_name
     INTEGER(KIND=8) :: freq_1
+    INTEGER :: freq_1_idx  ! Index of freq_1 in the frequency array
     !
     lambda = 1.d1 ** nlambda
     beta = 1.d2  ! Fixed inverse temperature
@@ -196,13 +197,27 @@ CONTAINS
     ! Initialize IR object
     CALL init_ir(ir_obj, beta, lambda, eps, positive_only)
     !
-    ! Determine nfreq based on statistics
+    ! Determine nfreq, freq_1, and freq_1_idx based on statistics and positive_only
+    ! freq_1 should be the smallest positive Matsubara frequency (avoiding 0 for Boson)
+    ! freq_1_idx is the index in the frequency array
     IF (statistics == SPIR_STATISTICS_FERMIONIC) THEN
       nfreq = ir_obj%nfreq_f
-      freq_1 = ir_obj%freq_f(1)
+      IF (positive_only) THEN
+        freq_1_idx = 1  ! = 1
+        freq_1 = ir_obj%freq_f(freq_1_idx)
+      ELSE
+        freq_1_idx = nfreq/2 + 1  ! = 1 (first positive)
+        freq_1 = ir_obj%freq_f(freq_1_idx)
+      END IF
     ELSE
       nfreq = ir_obj%nfreq_b
-      freq_1 = ir_obj%freq_b(1)
+      IF (positive_only) THEN
+        freq_1_idx = 2  ! = 2 (skip 0)
+        freq_1 = ir_obj%freq_b(freq_1_idx)
+      ELSE
+        freq_1_idx = nfreq/2 + 2  ! = 2 (skip 0)
+        freq_1 = ir_obj%freq_b(freq_1_idx)
+      END IF
     END IF
     !
     num_iters = num / lsize_ir
@@ -266,8 +281,8 @@ CONTAINS
                           time_fit_matsu, time_eval_tau, time_fit_tau, time_eval_matsu)
     END IF
     !
-    ! Compute sum_of_giv for verification (just real + imag of giv_reconst(1,1))
-    sum_of_giv_computed = REAL(giv_reconst(1, 1), KIND = DP) + AIMAG(giv_reconst(1, 1))
+    ! Compute sum_of_giv for verification (just real + imag of giv_reconst at freq_1)
+    sum_of_giv_computed = REAL(giv_reconst(1, freq_1_idx), KIND = DP) + AIMAG(giv_reconst(1, freq_1_idx))
     !
     ! Calculate relative error
     relative_error = ABS(sum_of_giv_computed - sum_of_giv_expected) / ABS(sum_of_giv_expected)
