@@ -4,7 +4,7 @@
 
 SUBROUTINE fit_tau_dd_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   REAL(KIND=DP), intent(in), TARGET :: arr (:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:)
@@ -52,7 +52,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_dd_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   REAL(KIND=DP), intent(in), TARGET :: arr (:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:)
@@ -100,7 +100,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_dd_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   REAL(KIND=DP), intent(in), TARGET :: arr (:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:)
@@ -148,7 +148,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_dd_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   REAL(KIND=DP), intent(in), TARGET :: arr (:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:)
@@ -196,7 +196,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_dd_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   REAL(KIND=DP), intent(in), TARGET :: arr (:,:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:)
@@ -244,7 +244,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_dd_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   REAL(KIND=DP), intent(in), TARGET :: arr (:,:,:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:)
@@ -292,7 +292,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_dd_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   REAL(KIND=DP), intent(in), TARGET :: arr (:,:,:,:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:,:)
@@ -340,7 +340,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_zz_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   COMPLEX(KIND=DP), intent(in), TARGET :: arr (:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:)
@@ -388,7 +388,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_zz_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   COMPLEX(KIND=DP), intent(in), TARGET :: arr (:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:)
@@ -436,7 +436,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_zz_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   COMPLEX(KIND=DP), intent(in), TARGET :: arr (:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:)
@@ -484,7 +484,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_zz_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   COMPLEX(KIND=DP), intent(in), TARGET :: arr (:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:)
@@ -532,7 +532,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_zz_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   COMPLEX(KIND=DP), intent(in), TARGET :: arr (:,:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:)
@@ -580,7 +580,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_zz_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   COMPLEX(KIND=DP), intent(in), TARGET :: arr (:,:,:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:)
@@ -628,7 +628,7 @@ END SUBROUTINE
 
 SUBROUTINE fit_tau_zz_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), intent(in) :: obj
-  INTEGER, intent(in) :: statistics
+  INTEGER(KIND=c_int32_t), intent(in) :: statistics
   INTEGER, intent(in) :: target_dim
   COMPLEX(KIND=DP), intent(in), TARGET :: arr (:,:,:,:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:,:)

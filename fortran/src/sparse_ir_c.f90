@@ -8,7 +8,7 @@ module sparse_ir_c
    ! Export public interfaces
    !include '_fortran_types_public.inc'
    include '_cbinding_public.inc'
-   public :: SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC, SPIR_ORDER_COLUMN_MAJOR
+   public :: SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR
    public :: SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2, SPIR_TWORK_AUTO
 
    ! Constants for statistics types

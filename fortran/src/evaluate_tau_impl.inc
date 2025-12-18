@@ -4,7 +4,7 @@
 
 SUBROUTINE evaluate_tau_zz_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:)
@@ -53,7 +53,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_zz_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:)
@@ -102,7 +102,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_zz_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:)
@@ -151,7 +151,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_zz_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:)
@@ -200,7 +200,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_zz_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:)
@@ -249,7 +249,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_zz_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:)
@@ -298,7 +298,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_zz_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   COMPLEX(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:,:)
   COMPLEX(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:,:)
@@ -347,7 +347,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_dd_1d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:)
@@ -396,7 +396,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_dd_2d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:)
@@ -445,7 +445,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_dd_3d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:)
@@ -494,7 +494,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_dd_4d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:)
@@ -543,7 +543,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_dd_5d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:)
@@ -592,7 +592,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_dd_6d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:)
@@ -641,7 +641,7 @@ END SUBROUTINE
 
 SUBROUTINE evaluate_tau_dd_7d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
-  INTEGER, INTENT(IN) :: statistics
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   REAL(KIND=DP), INTENT(IN), TARGET :: arr (:,:,:,:,:,:,:)
   REAL(KIND=DP), INTENT(OUT), TARGET :: res (:,:,:,:,:,:,:)

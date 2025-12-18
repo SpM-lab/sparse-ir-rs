@@ -196,9 +196,64 @@ elseif(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
         endif()
     endif()
 else()
-    # On Linux with other compilers, use standard BLAS
-    find_package(BLAS REQUIRED)
-    target_link_libraries(sparseir_fortran PUBLIC ${BLAS_LIBRARIES})
+    # On Linux with other compilers (GNU, etc.), try multiple methods
+    # First, try MKL CONFIG mode (works with GNU compilers too if MKL is available)
+    find_package(MKL CONFIG QUIET)
+    if(MKL_FOUND)
+        message(STATUS "Found MKL via CONFIG mode")
+        target_link_libraries(sparseir_fortran PUBLIC MKL::MKL)
+    else()
+        # Try OpenBLAS (common on Linux)
+        find_package(OpenBLAS QUIET)
+        if(OpenBLAS_FOUND)
+            message(STATUS "Found OpenBLAS: ${OpenBLAS_LIBRARIES}")
+            target_link_libraries(sparseir_fortran PUBLIC ${OpenBLAS_LIBRARIES})
+        else()
+            # Try standard BLAS with BLA_VENDOR hint
+            # Try Generic first (works with most BLAS implementations)
+            set(BLA_VENDOR "Generic" CACHE STRING "BLAS vendor")
+            find_package(BLAS QUIET)
+            if(BLAS_FOUND)
+                message(STATUS "Found BLAS: ${BLAS_LIBRARIES}")
+                target_link_libraries(sparseir_fortran PUBLIC ${BLAS_LIBRARIES})
+            else()
+                # Try to find BLAS libraries manually
+                find_library(BLAS_LIB
+                    NAMES blas openblas
+                    PATHS
+                        /usr/lib
+                        /usr/lib64
+                        /usr/local/lib
+                        /usr/local/lib64
+                        /opt/OpenBLAS/lib
+                    NO_DEFAULT_PATH
+                )
+                if(BLAS_LIB)
+                    message(STATUS "Found BLAS library: ${BLAS_LIB}")
+                    target_link_libraries(sparseir_fortran PUBLIC ${BLAS_LIB})
+                else()
+                    # Try one more time with default paths
+                    find_library(BLAS_LIB
+                        NAMES blas openblas
+                    )
+                    if(BLAS_LIB)
+                        message(STATUS "Found BLAS library: ${BLAS_LIB}")
+                        target_link_libraries(sparseir_fortran PUBLIC ${BLAS_LIB})
+                    else()
+                        message(FATAL_ERROR
+                            "BLAS library not found.\n"
+                            "Please install BLAS library:\n"
+                            "  Ubuntu/Debian: sudo apt-get install libopenblas-dev\n"
+                            "  Fedora/RHEL: sudo dnf install openblas-devel\n"
+                            "  Arch Linux: sudo pacman -S openblas\n"
+                            "  Or set BLAS_LIBRARIES manually via -DBLAS_LIBRARIES=/path/to/libblas.so\n"
+                            "  Or set MKL_DIR if using Intel MKL: -DMKL_DIR=/path/to/mkl"
+                        )
+                    endif()
+                endif()
+            endif()
+        endif()
+    endif()
 endif()
 
 # Link Rust C API library
