@@ -1,30 +1,22 @@
-# Define test files
-set(TEST_FILES
-    test_integration
-    test_ext
-    test_core
-    test_sampling
-    test_dlr
-    test_multidim
-    test_basis_functions
-    test_error_handling
-    test_memory
-    test_analytic_gf
-)
+# Use GLOB to automatically find test files
+file(GLOB TEST_F90_FILES "test_*.f90")
 
-# Define benchmark files (not run during ctest)
-set(BENCHMARK_FILES
-    test_timing
-)
+# Collect all test files (exclude backup files)
+set(TEST_FILES "")
+
+foreach(FILE ${TEST_F90_FILES})
+    # Get filename without directory and extension
+    get_filename_component(FILENAME ${FILE} NAME_WE)
+    
+    # Exclude backup files
+    if(NOT FILENAME MATCHES ".*_backup$")
+        list(APPEND TEST_FILES ${FILENAME})
+    endif()
+endforeach()
 
 # Add test executables
 foreach(TEST ${TEST_FILES})
     add_executable(${TEST} ${TEST}.f90)
-endforeach()
-
-# Add benchmark executables
-foreach(BENCH ${BENCHMARK_FILES})
-    add_executable(${BENCH} ${BENCH}.f90)
 endforeach()
 
 get_target_property(SPARSEIR_FORTRAN_MODDIR sparseir_fortran Fortran_MODULE_DIRECTORY)
@@ -49,29 +41,4 @@ foreach(TEST ${TEST_FILES})
         COMMAND ${TEST}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     )
-endforeach()
-
-# Process each benchmark (similar setup, add test_timing to ctest)
-foreach(BENCH ${BENCHMARK_FILES})
-    target_include_directories(${BENCH} PRIVATE
-        ${SPARSEIR_FORTRAN_MODDIR}
-        ${CMAKE_CURRENT_SOURCE_DIR}/../src
-    )
-
-    target_link_libraries(${BENCH} PRIVATE sparseir_fortran)
-
-    set_target_properties(${BENCH} PROPERTIES
-        Fortran_MODULE_DIRECTORY ${SPARSEIR_FORTRAN_MODDIR}
-        BUILD_WITH_INSTALL_RPATH ON
-        INSTALL_RPATH_USE_LINK_PATH ON
-        INSTALL_RPATH "$<TARGET_FILE_DIR:sparseir_fortran>"
-    )
-
-    # Add test_timing to ctest (uses default values, including num=185640)
-    if(${BENCH} STREQUAL "test_timing")
-        add_test(NAME fortran_${BENCH}
-            COMMAND ${BENCH}
-            WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-        )
-    endif()
 endforeach()
