@@ -162,10 +162,10 @@ for COMPILER in "${COMPILERS[@]}"; do
         read -r NLAMBDA NDIGIT POSITIVE_ONLY STATISTICS LREAL_IR LREAL_TAU NUM <<< "$PATTERN"
         
         for LSIZE_IR in "${LSIZE_IR_VALUES[@]}"; do
-            print_msg "" "  Running: statistics=${STATISTICS}, positive_only=${POSITIVE_ONLY}, lreal=${LREAL_IR}, lsize_ir=${LSIZE_IR}..."
+            print_msg "" "  Running: statistics=${STATISTICS}, positive_only=${POSITIVE_ONLY}, lreal_ir=${LREAL_IR}, lreal_tau=${LREAL_TAU}, lsize_ir=${LSIZE_IR}..."
             
             # Write separator to raw output
-            echo "================== RUN: ${COMPILER} stat=${STATISTICS} pos=${POSITIVE_ONLY} lreal=${LREAL_IR} lsize=${LSIZE_IR} ==================" >> "$RAW_OUTPUT"
+            echo "================== RUN: ${COMPILER} stat=${STATISTICS} pos=${POSITIVE_ONLY} lreal_ir=${LREAL_IR} lreal_tau=${LREAL_TAU} lsize=${LSIZE_IR} ==================" >> "$RAW_OUTPUT"
             
             # Run test_timing and save ALL output to raw file
             "$TEST_TIMING" "$NLAMBDA" "$NDIGIT" "$POSITIVE_ONLY" "$STATISTICS" \
