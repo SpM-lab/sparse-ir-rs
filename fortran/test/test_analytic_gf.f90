@@ -42,6 +42,14 @@ PROGRAM test_analytic_gf
   CALL test_fermion(2, 8, .TRUE., .TRUE., .TRUE., 1)  ! positive_only, real arrays
   CALL test_boson  (2, 8, .TRUE., .TRUE., .TRUE., 1)
   !
+  ! Test with positive_only=T, lreal_ir=F, and/or lreal_tau=F
+  CALL test_fermion(2, 8, .TRUE., .FALSE., .FALSE., 1)  ! positive_only=T, lreal_ir=F, lreal_tau=F
+  CALL test_boson  (2, 8, .TRUE., .FALSE., .FALSE., 1)
+  CALL test_fermion(2, 8, .TRUE., .FALSE., .TRUE., 1)   ! positive_only=T, lreal_ir=F, lreal_tau=T
+  CALL test_boson  (2, 8, .TRUE., .FALSE., .TRUE., 1)
+  CALL test_fermion(2, 8, .TRUE., .TRUE., .FALSE., 1)  ! positive_only=T, lreal_ir=T, lreal_tau=F
+  CALL test_boson  (2, 8, .TRUE., .TRUE., .FALSE., 1)
+  !
   ! Test with larger batch size (like EPW with siz_ir ~ 100)
   WRITE(*,*) ''
   WRITE(*,*) '================================================'
@@ -196,16 +204,18 @@ CONTAINS
         DEALLOCATE(gl_tmp, gtau)
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, gl, giv_reconst2)
       ELSE IF (lreal_ir .AND. .NOT. lreal_tau) THEN
-        ! Use intermediate real array for tau, then convert to complex
+        ! Use intermediate real array for tau
+        ! gtau is already allocated (complex), need temporary gtau_d
+        ALLOCATE(gtau_d(batch_size, ir_obj%ntau))
         CALL evaluate_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, gl_d, gtau_d)
-        ALLOCATE(gtau(batch_size, ir_obj%ntau))
         gtau(:, :) = CMPLX(gtau_d, zero, KIND = DP)
+        DEALLOCATE(gtau_d)
         gl_d(:, :) = zero
         ! Use intermediate complex array for fit_tau, then convert to real
         ALLOCATE(gl_tmp(batch_size, ir_obj%size))
         CALL fit_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, gtau, gl_tmp)
         gl_d(:, :) = REAL(gl_tmp, KIND = DP)
-        DEALLOCATE(gl_tmp, gtau)
+        DEALLOCATE(gl_tmp)
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, gl_d, giv_reconst2)
       ELSE
         ! Both real
@@ -321,13 +331,11 @@ CONTAINS
         ALLOCATE(g2_l_d(batch_size, ir_obj%size))
       END IF
       !
-      IF (.NOT. lreal_tau) THEN
-        ALLOCATE(g1_tau(batch_size, ir_obj%ntau))
-        ALLOCATE(g2_tau(batch_size, ir_obj%ntau))
-      ELSE
+      IF (lreal_tau) THEN
         ALLOCATE(g1_tau_d(batch_size, ir_obj%ntau))
         ALLOCATE(g2_tau_d(batch_size, ir_obj%ntau))
       END IF
+      ! Note: g1_tau and g2_tau are already allocated above
       !
       ! G1: iω -> l -> τ
       IF (.NOT. lreal_ir .AND. .NOT. lreal_tau) THEN
@@ -336,16 +344,16 @@ CONTAINS
       ELSE IF (.NOT. lreal_ir .AND. lreal_tau) THEN
         CALL fit_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_iw, g1_l)
         ! Use intermediate complex array for evaluate_tau, then convert to real
-        ALLOCATE(gtau(batch_size, ir_obj%ntau))
-        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_l, gtau)
-        g1_tau_d(:, :) = REAL(gtau, KIND = DP)
-        g1_tau(:, :) = CMPLX(g1_tau_d, zero, KIND = DP)
-        DEALLOCATE(gtau)
+        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_l, g1_tau)
+        g1_tau_d(:, :) = REAL(g1_tau, KIND = DP)
       ELSE IF (lreal_ir .AND. .NOT. lreal_tau) THEN
         CALL fit_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_iw, g1_l_d)
         ! Use intermediate real array for evaluate_tau, then convert to complex
-        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_l_d, g1_tau_d)
-        g1_tau(:, :) = CMPLX(g1_tau_d, zero, KIND = DP)
+        ! g1_tau_d is not allocated, need temporary
+        ALLOCATE(gtau_d(batch_size, ir_obj%ntau))
+        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_l_d, gtau_d)
+        g1_tau(:, :) = CMPLX(gtau_d, zero, KIND = DP)
+        DEALLOCATE(gtau_d)
       ELSE
         CALL fit_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_iw, g1_l_d)
         CALL evaluate_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_l_d, g1_tau_d)
@@ -358,15 +366,17 @@ CONTAINS
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g2_l, g2_iw)
       ELSE IF (.NOT. lreal_ir .AND. lreal_tau) THEN
         ! Use intermediate complex array for fit_tau
+        g2_tau_d(:, :) = REAL(g2_tau, KIND = DP)  ! Save real part for comparison
         ALLOCATE(gl_tmp(batch_size, ir_obj%size))
         ALLOCATE(gtau(batch_size, ir_obj%ntau))
-        gtau(:, :) = CMPLX(REAL(g2_tau, KIND = DP), zero, KIND = DP)
+        gtau(:, :) = CMPLX(g2_tau_d, zero, KIND = DP)
         CALL fit_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, gtau, gl_tmp)
         g2_l(:, :) = gl_tmp(:, :)
         DEALLOCATE(gl_tmp, gtau)
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g2_l, g2_iw)
       ELSE IF (lreal_ir .AND. .NOT. lreal_tau) THEN
         ! Use intermediate complex array for fit_tau, then convert to real
+        ! g2_tau is complex, use it directly
         ALLOCATE(gl_tmp(batch_size, ir_obj%size))
         CALL fit_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g2_tau, gl_tmp)
         g2_l_d(:, :) = REAL(gl_tmp, KIND = DP)
@@ -404,11 +414,10 @@ CONTAINS
         DEALLOCATE(g1_l_d, g2_l_d)
       END IF
       !
-      IF (.NOT. lreal_tau) THEN
-        DEALLOCATE(g1_tau, g2_tau)
-      ELSE
+      IF (lreal_tau) THEN
         DEALLOCATE(g1_tau_d, g2_tau_d)
       END IF
+      ! Note: g1_tau and g2_tau are deallocated at the end of the subroutine
       !
     ELSE
       !
@@ -416,7 +425,7 @@ CONTAINS
       ALLOCATE(g1_l(batch_size, ir_obj%size))
       ALLOCATE(g2_l(batch_size, ir_obj%size))
       !
-      ! G1: iω -> l -> τ
+      ! G1: iω -> l → τ
       CALL fit_matsubara(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_iw, g1_l)
       CALL evaluate_tau(ir_obj, SPIR_STATISTICS_FERMIONIC, TARGET_DIM, g1_l, g1_tau)
       !
@@ -613,16 +622,18 @@ CONTAINS
         DEALLOCATE(gl_tmp, gtau)
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, gl, giv_reconst2)
       ELSE IF (lreal_ir .AND. .NOT. lreal_tau) THEN
-        ! Use intermediate real array for tau, then convert to complex
+        ! Use intermediate real array for tau
+        ! gtau is already allocated (complex), need temporary gtau_d
+        ALLOCATE(gtau_d(batch_size, ir_obj%ntau))
         CALL evaluate_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, gl_d, gtau_d)
-        ALLOCATE(gtau(batch_size, ir_obj%ntau))
         gtau(:, :) = CMPLX(gtau_d, zero, KIND = DP)
+        DEALLOCATE(gtau_d)
         gl_d(:, :) = zero
         ! Use intermediate complex array for fit_tau, then convert to real
         ALLOCATE(gl_tmp(batch_size, ir_obj%size))
         CALL fit_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, gtau, gl_tmp)
         gl_d(:, :) = REAL(gl_tmp, KIND = DP)
-        DEALLOCATE(gl_tmp, gtau)
+        DEALLOCATE(gl_tmp)
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, gl_d, giv_reconst2)
       ELSE
         ! Both real
@@ -738,13 +749,11 @@ CONTAINS
         ALLOCATE(g2_l_d(batch_size, ir_obj%size))
       END IF
       !
-      IF (.NOT. lreal_tau) THEN
-        ALLOCATE(g1_tau(batch_size, ir_obj%ntau))
-        ALLOCATE(g2_tau(batch_size, ir_obj%ntau))
-      ELSE
+      IF (lreal_tau) THEN
         ALLOCATE(g1_tau_d(batch_size, ir_obj%ntau))
         ALLOCATE(g2_tau_d(batch_size, ir_obj%ntau))
       END IF
+      ! Note: g1_tau and g2_tau are already allocated above
       !
       ! G1: iω -> l -> τ
       IF (.NOT. lreal_ir .AND. .NOT. lreal_tau) THEN
@@ -753,16 +762,16 @@ CONTAINS
       ELSE IF (.NOT. lreal_ir .AND. lreal_tau) THEN
         CALL fit_matsubara(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_iw, g1_l)
         ! Use intermediate complex array for evaluate_tau, then convert to real
-        ALLOCATE(gtau(batch_size, ir_obj%ntau))
-        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_l, gtau)
-        g1_tau_d(:, :) = REAL(gtau, KIND = DP)
-        g1_tau(:, :) = CMPLX(g1_tau_d, zero, KIND = DP)
-        DEALLOCATE(gtau)
+        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_l, g1_tau)
+        g1_tau_d(:, :) = REAL(g1_tau, KIND = DP)
       ELSE IF (lreal_ir .AND. .NOT. lreal_tau) THEN
         CALL fit_matsubara(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_iw, g1_l_d)
         ! Use intermediate real array for evaluate_tau, then convert to complex
-        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_l_d, g1_tau_d)
-        g1_tau(:, :) = CMPLX(g1_tau_d, zero, KIND = DP)
+        ! g1_tau_d is not allocated, need temporary
+        ALLOCATE(gtau_d(batch_size, ir_obj%ntau))
+        CALL evaluate_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_l_d, gtau_d)
+        g1_tau(:, :) = CMPLX(gtau_d, zero, KIND = DP)
+        DEALLOCATE(gtau_d)
       ELSE
         CALL fit_matsubara(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_iw, g1_l_d)
         CALL evaluate_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g1_l_d, g1_tau_d)
@@ -775,15 +784,17 @@ CONTAINS
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g2_l, g2_iw)
       ELSE IF (.NOT. lreal_ir .AND. lreal_tau) THEN
         ! Use intermediate complex array for fit_tau
+        g2_tau_d(:, :) = REAL(g2_tau, KIND = DP)  ! Save real part for comparison
         ALLOCATE(gl_tmp(batch_size, ir_obj%size))
         ALLOCATE(gtau(batch_size, ir_obj%ntau))
-        gtau(:, :) = CMPLX(REAL(g2_tau, KIND = DP), zero, KIND = DP)
+        gtau(:, :) = CMPLX(g2_tau_d, zero, KIND = DP)
         CALL fit_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, gtau, gl_tmp)
         g2_l(:, :) = gl_tmp(:, :)
         DEALLOCATE(gl_tmp, gtau)
         CALL evaluate_matsubara(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g2_l, g2_iw)
       ELSE IF (lreal_ir .AND. .NOT. lreal_tau) THEN
         ! Use intermediate complex array for fit_tau, then convert to real
+        ! g2_tau is complex, use it directly
         ALLOCATE(gl_tmp(batch_size, ir_obj%size))
         CALL fit_tau(ir_obj, SPIR_STATISTICS_BOSONIC, TARGET_DIM, g2_tau, gl_tmp)
         g2_l_d(:, :) = REAL(gl_tmp, KIND = DP)
@@ -821,11 +832,10 @@ CONTAINS
         DEALLOCATE(g1_l_d, g2_l_d)
       END IF
       !
-      IF (.NOT. lreal_tau) THEN
-        DEALLOCATE(g1_tau, g2_tau)
-      ELSE
+      IF (lreal_tau) THEN
         DEALLOCATE(g1_tau_d, g2_tau_d)
       END IF
+      ! Note: g1_tau and g2_tau are deallocated at the end of the subroutine
       !
     ELSE
       !
