@@ -1,4 +1,4 @@
-//! Tests for README code samples
+//! Tests for README code examples
 //!
 //! This file contains tests that verify all code examples in the README compile and run correctly.
 

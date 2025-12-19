@@ -13,7 +13,7 @@ fortran/
 ├── script/                 # Code generation scripts (for developers)
 │   └── generate_*.py       # Scripts to generate .inc files
 ├── test/                   # Test programs
-├── sample/                 # Sample programs
+├── examples/               # Example programs
 ├── CMakeLists.txt          # CMake build configuration
 └── test_with_rust_capi.sh # Main test script
 ```
@@ -57,21 +57,21 @@ To start from scratch, use the `--clean` option:
 
 This will remove the `_build/` directory and Rust `target/` directory before building.
 
-### Running Sample Programs
+### Running Example Programs
 
-To build and run the sample program:
+To build and run the example program:
 
 ```sh
-cd sample
+cd examples
 ./build_and_run.sh
 ```
 
 This script will:
 1. Build the Rust C-API library if needed
-2. Build the Fortran sample program
-3. Run the sample program
+2. Build the Fortran example program
+3. Run the example program
 
-The sample program demonstrates:
+The example program demonstrates:
 - Creating an IR basis
 - Computing Green's functions
 - Transforming between different representations
@@ -185,7 +185,7 @@ If you encounter code generation errors (only relevant for developers modifying 
 
 ## API Usage
 
-See the `sample/` directory for example usage of the Fortran API.
+See the `examples/` directory for example usage of the Fortran API.
 
 The main modules are:
 - `sparse_ir_c` - Core C-API bindings

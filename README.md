@@ -63,13 +63,13 @@ Note: the name **sparse-ir** is used both for the Rust crate (`sparse-ir`) and t
 |---------|-------------|
 | [`sparse-ir/examples/roundtrip.rs`](sparse-ir/examples/roundtrip.rs) | Complete DLR/IR/sampling cycle with round-trip tests |
 | [`sparse-ir/examples/basisgen.rs`](sparse-ir/examples/basisgen.rs) | Basis generation and sampling point validation tests |
-| [`sparse-ir/tests/readme_sample.rs`](sparse-ir/tests/readme_sample.rs) | Basic usage examples |
+| [`sparse-ir/tests/readme_examples.rs`](sparse-ir/tests/readme_examples.rs) | Basic usage examples |
 
-### Fortran sample
+### Fortran examples
 
-| Sample | Description |
-|--------|-------------|
-| [`fortran/sample/second_order_perturbation_fort.f90`](fortran/sample/second_order_perturbation_fort.f90) | Second-order perturbation theory |
+| Example | Description |
+|---------|-------------|
+| [`fortran/examples/second_order_perturbation_fort.f90`](fortran/examples/second_order_perturbation_fort.f90) | Second-order perturbation theory |
 
 ### C/C++ integration tests
 
@@ -113,7 +113,7 @@ sparseir-rust/
 │   └── tests/           # Python tests
 ├── fortran/             # Fortran bindings via C-API
 │   ├── src/             # Fortran modules
-│   ├── sample/          # Sample programs
+│   ├── examples/        # Example programs
 │   └── test/            # Test programs
 ├── cxx_tests/           # C/C++ integration tests
 ├── capi_benchmark/      # C-API benchmarks
