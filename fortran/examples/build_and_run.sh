@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build and run Fortran sample using Rust C-API
+# Build and run Fortran example using Rust C-API
 
 set -e
 
@@ -29,7 +29,7 @@ if [ ! -f "$FORTRAN_DIR/_install/lib/libsparse_ir_capi.dylib" ] && [ ! -f "$FORT
     fi
 fi
 
-# Build sample
+# Build example
 cd "$SCRIPT_DIR"
 rm -rf build
 cmake -B build -DCMAKE_PREFIX_PATH="$FORTRAN_DIR/_install"
