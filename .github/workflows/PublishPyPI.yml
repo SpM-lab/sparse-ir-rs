@@ -89,7 +89,7 @@ jobs:
           name: wheels-${{ matrix.os }}-${{ matrix.cibw_archs }}-${{ matrix.py_tag }}
           path: dist/*
 
-  publish-testpypi:
+  publish-pypi:
     needs: build-wheels
     runs-on: ubuntu-latest
     environment:
