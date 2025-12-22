@@ -144,6 +144,10 @@ where
     }
 
     /// Get default Matsubara sampling points as i64 indices with mitigate parameter (for C-API)
+    ///
+    /// # Panics
+    /// Panics if the kernel is not centrosymmetric. This method relies on
+    /// centrosymmetry to generate sampling points.
     pub fn default_matsubara_sampling_points_i64_with_mitigate(
         &self,
         positive_only: bool,
@@ -153,6 +157,12 @@ where
     where
         S: 'static,
     {
+        if !self.kernel().is_centrosymmetric() {
+            panic!(
+                "default_matsubara_sampling_points_i64_with_mitigate is not supported for non-centrosymmetric kernels. \
+                 The current implementation relies on centrosymmetry to generate sampling points."
+            );
+        }
         let fence = mitigate;
         let freqs = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
@@ -317,7 +327,17 @@ where
     /// C++ implementation: libsparseir/include/sparseir/basis.hpp:229-270
     ///
     /// Returns sampling points in imaginary time τ ∈ [-β/2, β/2].
+    ///
+    /// # Panics
+    /// Panics if the kernel is not centrosymmetric. This method relies on
+    /// centrosymmetry to generate symmetric sampling points.
     pub fn default_tau_sampling_points(&self) -> Vec<f64> {
+        if !self.kernel().is_centrosymmetric() {
+            panic!(
+                "default_tau_sampling_points is not supported for non-centrosymmetric kernels. \
+                 The current implementation relies on centrosymmetry to generate symmetric sampling points."
+            );
+        }
         let points = self.default_tau_sampling_points_size_requested(self.size());
         let basis_size = self.size();
         if points.len() < basis_size {
@@ -334,7 +354,18 @@ where
         points
     }
 
+    /// Get default tau sampling points with a requested size
+    ///
+    /// # Panics
+    /// Panics if the kernel is not centrosymmetric. This method relies on
+    /// centrosymmetry to generate symmetric sampling points.
     pub fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
+        if !self.kernel().is_centrosymmetric() {
+            panic!(
+                "default_tau_sampling_points_size_requested is not supported for non-centrosymmetric kernels. \
+                 The current implementation relies on centrosymmetry to generate symmetric sampling points."
+            );
+        }
         // C++: Eigen::VectorXd x = default_sampling_points(*(this->sve_result->u), sz);
         let x = default_sampling_points(&self.sve_result.u, size_requested);
         // C++: Extract unique half of sampling points
@@ -401,6 +432,10 @@ where
     ///
     /// # Returns
     /// Vector of Matsubara frequency sampling points
+    ///
+    /// # Panics
+    /// Panics if the kernel is not centrosymmetric. This method relies on
+    /// centrosymmetry to generate sampling points.
     pub fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
@@ -408,6 +443,12 @@ where
     where
         S: 'static,
     {
+        if !self.kernel().is_centrosymmetric() {
+            panic!(
+                "default_matsubara_sampling_points is not supported for non-centrosymmetric kernels. \
+                 The current implementation relies on centrosymmetry to generate sampling points."
+            );
+        }
         let fence = false;
         let points = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
