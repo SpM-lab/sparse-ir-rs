@@ -1,4 +1,4 @@
-# Fortran API documentation
+# Fortran wrapper documentation
 
 Fortran bindings for the [sparse-ir C-API](../sparse-ir-capi/).
 
@@ -24,10 +24,11 @@ fortran/
   - **Fortran 2003 or later** (required for `iso_c_binding` and `procedure` statements)
 - CMake (3.15 or later)
 - Rust toolchain (for building the C-API)
-- BLAS/LAPACK library with **LP64 interface (32-bit integers)**
-  - macOS: Accelerate framework (automatic)
+- BLAS/LAPACK library with **LP64 interface (32-bit integers)** (must be discoverable at CMake configure time)
+  - macOS: Accelerate framework is detected automatically (fallback: `find_package(BLAS)`)
   - Linux: OpenBLAS, MKL, or any LP64-compatible BLAS library
   - The wrapper accepts any BLAS library that provides `dgemm` and `zgemm` with 32-bit integer arguments
+  - If CMake cannot find BLAS automatically, pass it explicitly (e.g. `-DBLAS_LIBRARIES=/path/to/libblas.so`, or `-DMKL_DIR=/path/to/mkl`)
 
 ## Building and Testing
 
