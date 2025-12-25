@@ -345,8 +345,8 @@ mod tests {
         }
     }
 
-    // System BLAS integration tests (always enabled during tests)
-    #[cfg(test)]
+    // System BLAS integration tests (only when system-blas feature is enabled)
+    #[cfg(all(test, feature = "system-blas"))]
     mod system_blas_tests {
         use super::*;
         use blas_sys::{dgemm_, zgemm_};
