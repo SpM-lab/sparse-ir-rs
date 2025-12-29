@@ -59,6 +59,7 @@ FUNCTIONS = {
     'spir_funcs_batch_eval': ('c_int', ['POINTER(struct spir_funcs)', 'c_int', 'c_int', 'POINTER(c_double)', 'POINTER(c_double)']),
     'spir_funcs_batch_eval_matsu': ('c_int', ['POINTER(struct spir_funcs)', 'c_int', 'c_int', 'POINTER(c_int64)', 'POINTER(struct Complex64)']),
     'spir_funcs_clone': ('POINTER(struct spir_funcs)', ['POINTER(struct spir_funcs)']),
+    'spir_funcs_deriv': ('POINTER(struct spir_funcs)', ['POINTER(struct spir_funcs)', 'c_int', 'POINTER(c_int)']),
     'spir_funcs_eval': ('c_int', ['POINTER(struct spir_funcs)', 'c_double', 'POINTER(c_double)']),
     'spir_funcs_eval_matsu': ('c_int', ['POINTER(struct spir_funcs)', 'c_int64', 'POINTER(struct Complex64)']),
     'spir_funcs_from_piecewise_legendre': ('POINTER(struct spir_funcs)', ['POINTER(c_double)', 'c_int', 'POINTER(c_double)', 'c_int', 'c_int', 'POINTER(c_int)']),
