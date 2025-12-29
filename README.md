@@ -264,11 +264,13 @@ After the new version is published to crates.io and available:
    python3 check_version.py
    ```
 
-3. Commit and push:
+3. Create a PR for the Julia version bump:
    ```bash
+   git checkout -b update-julia-v0.8.0
    git add julia/build_tarballs.jl
    git commit -m "chore: bump Julia bindings version to 0.8.0"
-   git push origin main
+   git push origin update-julia-v0.8.0
    ```
+   Then create a PR on GitHub and get it reviewed.
 
-4. Follow the Julia package release process (Yggdrasil PR, etc.)
+4. After the PR is merged, follow the Julia package release process (Yggdrasil PR, etc.)
