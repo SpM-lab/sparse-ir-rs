@@ -212,22 +212,35 @@ The release process is done in **two stages** because Julia bindings depend on t
    version = "0.8.0"  # Update this
    ```
 
-3. Verify version consistency:
+3. Verify version consistency and test publishing (dry run):
    ```bash
    python3 check_version.py
+   cd sparse-ir && cargo publish --dry-run
+   cd ../sparse-ir-capi && cargo publish --dry-run
+   cd ..
    ```
 
-4. Commit and push:
+4. Create a PR for the version bump:
    ```bash
+   git checkout -b release/v0.8.0
    git add Cargo.toml python/pyproject.toml
    git commit -m "chore: bump version to 0.8.0"
-   git push origin main  # or your release branch
+   git push origin release/v0.8.0
    ```
+   Then create a PR on GitHub and get it reviewed.
 
-5. Create a git tag and publish to crates.io:
+5. After the PR is merged, get the merge commit hash and create a tag:
    ```bash
+   git checkout main
+   git pull origin main
+   COMMIT_HASH=$(git rev-parse HEAD)
+   echo "Merge commit: $COMMIT_HASH"
    git tag v0.8.0
    git push origin v0.8.0
+   ```
+
+6. Publish to crates.io:
+   ```bash
    cd sparse-ir && cargo publish
    cd ../sparse-ir-capi && cargo publish
    ```
@@ -236,21 +249,15 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 After the new version is published to crates.io and available:
 
-1. Update the version and commit hash in `julia/build_tarballs.jl`:
-   ```julia
-   version = v"0.8.0"  # Update version
-   
-   # Update the commit hash to match the tagged release
-   sources = [
-       GitSource("https://github.com/SpM-lab/sparse-ir-rs.git",
-                 "abc123...")  # Update this hash
-   ]
-   ```
-   
-   To get the commit hash after tagging:
+1. Update `julia/build_tarballs.jl` using the update script:
    ```bash
-   git rev-parse v0.8.0
+   julia julia/update_build_tarballs.jl v0.8.0
    ```
+   
+   This script automatically:
+   - Updates the version number
+   - Fetches and updates the commit hash for the tag
+   - Updates the comment with the tag reference
 
 2. Verify version consistency:
    ```bash
