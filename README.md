@@ -236,9 +236,20 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 After the new version is published to crates.io and available:
 
-1. Update the version in `julia/build_tarballs.jl`:
+1. Update the version and commit hash in `julia/build_tarballs.jl`:
    ```julia
-   version = v"0.8.0"  # Update this
+   version = v"0.8.0"  # Update version
+   
+   # Update the commit hash to match the tagged release
+   sources = [
+       GitSource("https://github.com/SpM-lab/sparse-ir-rs.git",
+                 "abc123...")  # Update this hash
+   ]
+   ```
+   
+   To get the commit hash after tagging:
+   ```bash
+   git rev-parse v0.8.0
    ```
 
 2. Verify version consistency:
