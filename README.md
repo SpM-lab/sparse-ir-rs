@@ -179,7 +179,9 @@ See [`.github/workflows/`](.github/workflows/) for CI configurations.
 cd capi_benchmark && ./run_with_rust_capi.sh
 ```
 
-### Version consistency check
+### Version management
+
+#### Version consistency check
 
 Check version consistency across the workspace:
 
@@ -188,3 +190,78 @@ python3 check_version.py
 ```
 
 This script reads the canonical version from `[workspace.package]` in `Cargo.toml` and warns if Julia (`julia/build_tarballs.jl`) or Python (`python/pyproject.toml`) versions don't match.
+
+#### Releasing a new version
+
+The release process is done in **two stages** because Julia bindings depend on the published crates.io version:
+
+**Stage 1: Rust + Python version bump**
+
+1. Update the version in `Cargo.toml`:
+   ```toml
+   [workspace.package]
+   version = "0.8.0"  # Update this
+   
+   [workspace.dependencies]
+   sparse-ir = { version = "0.8.0", path = "sparse-ir" }  # And this
+   ```
+
+2. Update the Python bindings version in `python/pyproject.toml`:
+   ```toml
+   [project]
+   version = "0.8.0"  # Update this
+   ```
+
+3. Verify version consistency:
+   ```bash
+   python3 check_version.py
+   ```
+
+4. Commit and push:
+   ```bash
+   git add Cargo.toml python/pyproject.toml
+   git commit -m "chore: bump version to 0.8.0"
+   git push origin main  # or your release branch
+   ```
+
+5. Create a git tag and publish to crates.io:
+   ```bash
+   git tag v0.8.0
+   git push origin v0.8.0
+   cd sparse-ir && cargo publish
+   cd ../sparse-ir-capi && cargo publish
+   ```
+
+**Stage 2: Julia version bump (after crates.io publication)**
+
+After the new version is published to crates.io and available:
+
+1. Update the version and commit hash in `julia/build_tarballs.jl`:
+   ```julia
+   version = v"0.8.0"  # Update version
+   
+   # Update the commit hash to match the tagged release
+   sources = [
+       GitSource("https://github.com/SpM-lab/sparse-ir-rs.git",
+                 "abc123...")  # Update this hash
+   ]
+   ```
+   
+   To get the commit hash after tagging:
+   ```bash
+   git rev-parse v0.8.0
+   ```
+
+2. Verify version consistency:
+   ```bash
+   python3 check_version.py
+   ```
+
+3. Commit and push:
+   ```bash
+   git add julia/build_tarballs.jl
+   git commit -m "chore: bump Julia bindings version to 0.8.0"
+   git push origin main
+   ```
+
+4. Follow the Julia package release process (Yggdrasil PR, etc.)
