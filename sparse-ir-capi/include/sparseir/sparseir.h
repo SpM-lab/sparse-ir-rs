@@ -719,6 +719,25 @@ StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
  int32_t spir_funcs_is_assigned(const struct spir_funcs *obj);
 
 /**
+ * Compute the n-th derivative of basis functions
+ *
+ * Creates a new funcs object representing the n-th derivative of the input functions.
+ * For n=0, returns a clone of the input. For n=1, returns the first derivative, etc.
+ *
+ * # Arguments
+ * * `funcs` - Pointer to the input funcs object
+ * * `n` - Order of derivative (0 = no derivative, 1 = first derivative, etc.)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created derivative funcs object, or NULL if computation fails
+ *
+ * # Safety
+ * Caller must ensure `funcs` is a valid pointer and `status` is non-null
+ */
+ struct spir_funcs *spir_funcs_deriv(const struct spir_funcs *funcs, int n, StatusCode *status);
+
+/**
  * Create a spir_funcs object from piecewise Legendre polynomial coefficients
  *
  * Constructs a continuous function object from segments and Legendre polynomial

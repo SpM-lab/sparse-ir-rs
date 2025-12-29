@@ -3,6 +3,8 @@
 //! This module provides C-compatible functions for working with basis functions.
 
 use crate::types::spir_funcs;
+use sparse_ir::traits::Statistics;
+use std::sync::Arc;
 
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
@@ -43,6 +45,107 @@ pub extern "C" fn spir_funcs_is_assigned(obj: *const spir_funcs) -> i32 {
     }));
 
     result.unwrap_or(0)
+}
+
+/// Compute the n-th derivative of basis functions
+///
+/// Creates a new funcs object representing the n-th derivative of the input functions.
+/// For n=0, returns a clone of the input. For n=1, returns the first derivative, etc.
+///
+/// # Arguments
+/// * `funcs` - Pointer to the input funcs object
+/// * `n` - Order of derivative (0 = no derivative, 1 = first derivative, etc.)
+/// * `status` - Pointer to store the status code
+///
+/// # Returns
+/// Pointer to the newly created derivative funcs object, or NULL if computation fails
+///
+/// # Safety
+/// Caller must ensure `funcs` is a valid pointer and `status` is non-null
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_funcs_deriv(
+    funcs: *const spir_funcs,
+    n: libc::c_int,
+    status: *mut crate::StatusCode,
+) -> *mut spir_funcs {
+    use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
+    use std::panic::catch_unwind;
+
+    if status.is_null() {
+        return std::ptr::null_mut();
+    }
+
+    if funcs.is_null() {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
+    if n < 0 {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
+    let result = catch_unwind(|| unsafe {
+        let funcs_ref = &*funcs;
+        let inner = funcs_ref.inner_type();
+
+        // Only PolyVector types support derivatives
+        match inner {
+            crate::types::FuncsType::PolyVector(poly_funcs) => {
+                // Apply deriv to each polynomial in the vector
+                let deriv_polyvec: Vec<_> = poly_funcs
+                    .poly
+                    .polyvec
+                    .iter()
+                    .map(|poly| poly.deriv(n as usize))
+                    .collect();
+
+                let deriv_poly = sparse_ir::poly::PiecewiseLegendrePolyVector::new(deriv_polyvec);
+                let deriv_arc = Arc::new(deriv_poly);
+
+                // Create appropriate funcs based on domain
+                let deriv_funcs = match poly_funcs.domain {
+                    crate::types::FunctionDomain::Tau(Statistics::Fermionic) => {
+                        spir_funcs::from_u_fermionic(deriv_arc, funcs_ref.beta)
+                    }
+                    crate::types::FunctionDomain::Tau(Statistics::Bosonic) => {
+                        spir_funcs::from_u_bosonic(deriv_arc, funcs_ref.beta)
+                    }
+                    crate::types::FunctionDomain::Omega => {
+                        spir_funcs::from_v(deriv_arc, funcs_ref.beta)
+                    }
+                };
+                Box::into_raw(Box::new(deriv_funcs))
+            }
+            crate::types::FuncsType::FTVector(_) => {
+                // FT vectors don't support derivatives in the current implementation
+                std::ptr::null_mut()
+            }
+            _ => {
+                // Other types don't support derivatives
+                std::ptr::null_mut()
+            }
+        }
+    });
+
+    match result {
+        Ok(ptr) if !ptr.is_null() => {
+            unsafe {
+                *status = SPIR_COMPUTATION_SUCCESS;
+            }
+            ptr
+        }
+        _ => {
+            unsafe {
+                *status = SPIR_INTERNAL_ERROR;
+            }
+            std::ptr::null_mut()
+        }
+    }
 }
 
 /// Create a spir_funcs object from piecewise Legendre polynomial coefficients
