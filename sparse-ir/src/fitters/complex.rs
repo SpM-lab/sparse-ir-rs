@@ -6,7 +6,7 @@
 use crate::gemm::GemmBackendHandle;
 use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
-use std::cell::RefCell;
+use std::sync::OnceLock;
 
 use super::common::{
     ComplexSVD, InplaceFitter, combine_complex, compute_complex_svd, copy_from_contiguous,
@@ -35,7 +35,7 @@ pub(crate) struct ComplexMatrixFitter {
     matrix_im: DTensor<f64, 2>,   // (n_points, basis_size)
     matrix_re_t: DTensor<f64, 2>, // (basis_size, n_points) - transposed
     matrix_im_t: DTensor<f64, 2>, // (basis_size, n_points) - transposed
-    svd: RefCell<Option<ComplexSVDExtended>>,
+    svd: OnceLock<ComplexSVDExtended>,
 }
 
 /// Extended SVD structure with pre-computed transposes for dim=1 operations
@@ -92,7 +92,7 @@ impl ComplexMatrixFitter {
             matrix_im,
             matrix_re_t,
             matrix_im_t,
-            svd: RefCell::new(None),
+            svd: OnceLock::new(),
         }
     }
 
@@ -383,10 +383,7 @@ impl ComplexMatrixFitter {
         );
 
         // Compute SVD lazily
-        self.ensure_svd();
-
-        let svd_ext = self.svd.borrow();
-        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd_ext = self.get_svd();
         let svd = &svd_ext.svd;
 
         // coeffs_2d = V * S^{-1} * U^H * values_2d
@@ -527,10 +524,7 @@ impl ComplexMatrixFitter {
         let (out_rows, out_cols) = *out.shape();
 
         // Compute SVD lazily
-        self.ensure_svd();
-
-        let svd_ext = self.svd.borrow();
-        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd_ext = self.get_svd();
         let svd = &svd_ext.svd;
         let min_dim = svd.s.len();
 
@@ -617,9 +611,9 @@ impl ComplexMatrixFitter {
         }
     }
 
-    /// Ensure SVD is computed (lazy initialization)
-    fn ensure_svd(&self) {
-        if self.svd.borrow().is_none() {
+    /// Get extended SVD, computing it lazily if needed.
+    fn get_svd(&self) -> &ComplexSVDExtended {
+        self.svd.get_or_init(|| {
             let n_points = self.n_points();
             let basis_size = self.basis_size();
             if n_points < basis_size {
@@ -630,9 +624,8 @@ impl ComplexMatrixFitter {
                 );
             }
             let svd = compute_complex_svd(&self.matrix);
-            let svd_ext = ComplexSVDExtended::from_svd(svd, self.n_points(), self.basis_size());
-            *self.svd.borrow_mut() = Some(svd_ext);
-        }
+            ComplexSVDExtended::from_svd(svd, self.n_points(), self.basis_size())
+        })
     }
 
     /// Evaluate ND complex tensor (along specified dim)

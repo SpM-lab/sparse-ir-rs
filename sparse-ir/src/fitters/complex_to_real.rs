@@ -10,7 +10,7 @@
 use crate::gemm::GemmBackendHandle;
 use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
-use std::cell::RefCell;
+use std::sync::OnceLock;
 
 use super::common::{InplaceFitter, RealSVD, compute_real_svd};
 
@@ -114,7 +114,7 @@ pub(crate) struct ComplexToRealFitter {
     matrix_re_t: DTensor<f64, 2>,         // (basis_size, n_points)
     matrix_im_t: DTensor<f64, 2>,         // (basis_size, n_points)
     pub matrix: DTensor<Complex<f64>, 2>, // (n_points, basis_size) - original complex matrix
-    svd: RefCell<Option<RealSVDExtended>>,
+    svd: OnceLock<RealSVDExtended>,
     n_points: usize, // Original complex point count
 }
 
@@ -184,7 +184,7 @@ impl ComplexToRealFitter {
             matrix_re_t,
             matrix_im_t,
             matrix: matrix_complex.clone(),
-            svd: RefCell::new(None),
+            svd: OnceLock::new(),
             n_points,
         }
     }
@@ -554,14 +554,11 @@ impl ComplexToRealFitter {
         );
 
         // Compute SVD lazily
-        self.ensure_svd();
-
         // Flatten complex values to real: [n_points, extra_size] → [2*n_points, extra_size]
         let mut values_flat = DTensor::<f64, 2>::zeros([2 * n_points, extra_size]);
         flatten_complex_to_real_rows(values_2d, &mut values_flat);
 
-        let svd_ext = self.svd.borrow();
-        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd_ext = self.get_svd();
         let svd = &svd_ext.svd;
 
         // coeffs = V * S^{-1} * U^T * values_flat
@@ -585,9 +582,9 @@ impl ComplexToRealFitter {
         matmul_par_to_viewmut(&v_view, &ut_values_view, out, backend);
     }
 
-    /// Ensure SVD is computed (lazy initialization)
-    fn ensure_svd(&self) {
-        if self.svd.borrow().is_none() {
+    /// Get extended SVD, computing it lazily if needed.
+    fn get_svd(&self) -> &RealSVDExtended {
+        self.svd.get_or_init(|| {
             let n_points = self.n_points();
             let basis_size = self.basis_size();
             // For positive-only mode, we have symmetry: 2*n_points effective points
@@ -599,9 +596,8 @@ impl ComplexToRealFitter {
                     n_points, effective_points, basis_size
                 );
             }
-            let svd_ext = RealSVDExtended::from_matrix(&self.matrix_real);
-            *self.svd.borrow_mut() = Some(svd_ext);
-        }
+            RealSVDExtended::from_matrix(&self.matrix_real)
+        })
     }
 
     /// Fit 2D complex tensor to real coefficients with configurable target dimension
@@ -623,10 +619,7 @@ impl ComplexToRealFitter {
         let (out_rows, out_cols) = *out.shape();
 
         // Compute SVD lazily
-        self.ensure_svd();
-
-        let svd_ext = self.svd.borrow();
-        let svd_ext = svd_ext.as_ref().unwrap();
+        let svd_ext = self.get_svd();
         let svd = &svd_ext.svd;
         let min_dim = svd.s.len();
         let n_points = self.n_points();

@@ -16,6 +16,8 @@ use sparse_ir_capi::{
     spir_sampling_fit_dd, spir_sampling_fit_zd, spir_sampling_fit_zz, spir_sampling_release,
     spir_sve_result, spir_sve_result_new, spir_sve_result_release, spir_tau_sampling_new,
 };
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 // ============================================================================
 // Helper Functions
@@ -704,6 +706,172 @@ fn test_complex_coefficients(#[case] epsilon: f64) {
         assert!(max_error < 1e-10);
 
         // Cleanup
+        spir_sampling_release(matsu_sampling);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
+
+#[test]
+fn test_concurrent_matsubara_fit_zz_is_thread_safe() {
+    let beta = 0.7;
+    let wmax = 8.0;
+    let epsilon = 1e-2;
+
+    unsafe {
+        let (kernel, sve, basis) = create_ir_basis(1, beta, wmax, epsilon);
+        let basis_size = get_basis_size(basis) as usize;
+        let matsu_points = get_default_matsubara_points(basis, false);
+        let num_matsu = matsu_points.len();
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let matsu_sampling = spir_matsu_sampling_new(
+            basis,
+            false,
+            num_matsu as i32,
+            matsu_points.as_ptr(),
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!matsu_sampling.is_null());
+
+        let coeffs: Vec<Complex64> = (0..basis_size)
+            .map(|i| Complex64::new((i as f64 + 1.0) * 0.1, (i as f64 + 1.0) * 0.05))
+            .collect();
+
+        let mut giw = vec![Complex64::new(0.0, 0.0); num_matsu];
+        let dims = [basis_size as i32];
+        let status = spir_sampling_eval_zz(
+            matsu_sampling,
+            std::ptr::null(),
+            SPIR_ORDER_ROW_MAJOR,
+            1,
+            dims.as_ptr(),
+            0,
+            coeffs.as_ptr(),
+            giw.as_mut_ptr(),
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let barrier = Arc::new(Barrier::new(8));
+        let sampling_addr = matsu_sampling as usize;
+        let giw = Arc::new(giw);
+
+        thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for _ in 0..8 {
+                let barrier = Arc::clone(&barrier);
+                let giw = Arc::clone(&giw);
+                handles.push(scope.spawn(move || {
+                    barrier.wait();
+                    for _ in 0..20 {
+                        let mut coeffs_fit = vec![Complex64::new(0.0, 0.0); basis_size];
+                        let dims_matsu = [num_matsu as i32];
+                        let status = unsafe {
+                            spir_sampling_fit_zz(
+                                sampling_addr as *const _,
+                                std::ptr::null(),
+                                SPIR_ORDER_ROW_MAJOR,
+                                1,
+                                dims_matsu.as_ptr(),
+                                0,
+                                giw.as_ptr(),
+                                coeffs_fit.as_mut_ptr(),
+                            )
+                        };
+                        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                    }
+                }));
+            }
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
+
+        spir_sampling_release(matsu_sampling);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
+
+#[test]
+fn test_concurrent_matsubara_fit_zd_positive_only_is_thread_safe() {
+    let beta = 0.7;
+    let wmax = 8.0;
+    let epsilon = 1e-2;
+
+    unsafe {
+        let (kernel, sve, basis) = create_ir_basis(1, beta, wmax, epsilon);
+        let basis_size = get_basis_size(basis) as usize;
+        let matsu_points = get_default_matsubara_points(basis, true);
+        let num_matsu = matsu_points.len();
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let matsu_sampling = spir_matsu_sampling_new(
+            basis,
+            true,
+            num_matsu as i32,
+            matsu_points.as_ptr(),
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!matsu_sampling.is_null());
+
+        let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64 + 1.0) * 0.25).collect();
+
+        let mut giw = vec![Complex64::new(0.0, 0.0); num_matsu];
+        let dims = [basis_size as i32];
+        let status = spir_sampling_eval_dz(
+            matsu_sampling,
+            std::ptr::null(),
+            SPIR_ORDER_ROW_MAJOR,
+            1,
+            dims.as_ptr(),
+            0,
+            coeffs.as_ptr(),
+            giw.as_mut_ptr(),
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let barrier = Arc::new(Barrier::new(8));
+        let sampling_addr = matsu_sampling as usize;
+        let giw = Arc::new(giw);
+
+        thread::scope(|scope| {
+            let mut handles = Vec::new();
+            for _ in 0..8 {
+                let barrier = Arc::clone(&barrier);
+                let giw = Arc::clone(&giw);
+                handles.push(scope.spawn(move || {
+                    barrier.wait();
+                    for _ in 0..20 {
+                        let mut coeffs_fit = vec![0.0; basis_size];
+                        let dims_matsu = [num_matsu as i32];
+                        let status = unsafe {
+                            spir_sampling_fit_zd(
+                                sampling_addr as *const _,
+                                std::ptr::null(),
+                                SPIR_ORDER_ROW_MAJOR,
+                                1,
+                                dims_matsu.as_ptr(),
+                                0,
+                                giw.as_ptr(),
+                                coeffs_fit.as_mut_ptr(),
+                            )
+                        };
+                        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                    }
+                }));
+            }
+
+            for handle in handles {
+                handle.join().unwrap();
+            }
+        });
+
         spir_sampling_release(matsu_sampling);
         spir_basis_release(basis);
         spir_sve_result_release(sve);
