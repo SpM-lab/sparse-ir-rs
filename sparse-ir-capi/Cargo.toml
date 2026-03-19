@@ -5,6 +5,7 @@ edition.workspace = true
 authors.workspace = true
 description = "C API for SparseIR Rust implementation"
 license.workspace = true
+repository.workspace = true
 exclude = [
     ".cargo_vcs_info.json",
     ".gitignore",

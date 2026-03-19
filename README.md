@@ -181,6 +181,8 @@ cd capi_benchmark && ./run_with_rust_capi.sh
 
 ### Version management
 
+Agent-facing guidance for release work lives in [`AGENTS.md`](AGENTS.md). Repo-local skills for version suggestion and release execution live under [`agent-skills/`](agent-skills/).
+
 #### Version consistency check
 
 Check version consistency across the workspace:
@@ -200,50 +202,57 @@ The release process is done in **two stages** because Julia bindings depend on t
 1. Update the version in `Cargo.toml`:
    ```toml
    [workspace.package]
-   version = "0.8.0"  # Update this
+   version = "0.8.1"  # Update this
    
    [workspace.dependencies]
-   sparse-ir = { version = "0.8.0", path = "sparse-ir" }  # And this
+   sparse-ir = { version = "0.8.1", path = "sparse-ir" }  # And this
    ```
 
 2. Update the Python bindings version in `python/pyproject.toml`:
    ```toml
    [project]
-   version = "0.8.0"  # Update this
+   version = "0.8.1"  # Update this
    ```
 
 3. Verify version consistency and test publishing (dry run):
    ```bash
    python3 check_version.py
-   cd sparse-ir && cargo publish --dry-run
-   cd ../sparse-ir-capi && cargo publish --dry-run
-   cd ..
+   cargo publish -p sparse-ir --dry-run
    ```
+
+   `sparse-ir-capi` depends on the just-bumped `sparse-ir` version, so its registry verification only
+   succeeds after that `sparse-ir` version is visible on crates.io. The manual release workflow
+   handles that ordering automatically.
 
 4. Create a PR for the version bump:
    ```bash
-   git checkout -b release/v0.8.0
+   git checkout -b release/v0.8.1
    git add Cargo.toml python/pyproject.toml
-   git commit -m "chore: bump version to 0.8.0"
-   git push origin release/v0.8.0
+   git commit -m "chore: bump version to 0.8.1"
+   git push origin release/v0.8.1
    ```
    Then create a PR on GitHub and get it reviewed.
 
-5. After the PR is merged, get the merge commit hash and create a tag:
+5. After the PR is merged, start the manual Rust release workflow:
    ```bash
-   git checkout main
-   git pull origin main
-   COMMIT_HASH=$(git rev-parse HEAD)
-   echo "Merge commit: $COMMIT_HASH"
-   git tag v0.8.0
-   git push origin v0.8.0
+   gh workflow run manual-rust-release.yml \
+     -f release_ref=main \
+     -f expected_version=0.8.1 \
+     -f confirm_publish=true
    ```
 
-6. Publish to crates.io:
+6. Watch the workflow:
    ```bash
-   cd sparse-ir && cargo publish
-   cd ../sparse-ir-capi && cargo publish
+   RUN_ID=$(gh run list --workflow manual-rust-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run watch "$RUN_ID"
    ```
+
+   The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `v0.8.1`.
+
+   Requirements:
+   - GitHub Actions secret `CRATES_IO_TOKEN` must be configured.
+   - The workflow file is `.github/workflows/manual-rust-release.yml`.
+   - Julia and BinaryBuilder follow-up work still happen after crates.io publication.
 
 **Stage 2: Julia version bump (after crates.io publication)**
 
@@ -251,7 +260,7 @@ After the new version is published to crates.io and available:
 
 1. Update `julia/build_tarballs.jl` using the update script:
    ```bash
-   julia julia/update_build_tarballs.jl v0.8.0
+   julia julia/update_build_tarballs.jl v0.8.1
    ```
    
    This script automatically:
@@ -266,10 +275,10 @@ After the new version is published to crates.io and available:
 
 3. Create a PR for the Julia version bump:
    ```bash
-   git checkout -b update-julia-v0.8.0
+   git checkout -b update-julia-v0.8.1
    git add julia/build_tarballs.jl
-   git commit -m "chore: bump Julia bindings version to 0.8.0"
-   git push origin update-julia-v0.8.0
+   git commit -m "chore: bump Julia bindings version to 0.8.1"
+   git push origin update-julia-v0.8.1
    ```
    Then create a PR on GitHub and get it reviewed.
 

@@ -1,0 +1,174 @@
+name: Manual Rust Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_ref:
+        description: Git ref to release (branch, tag, or commit SHA)
+        required: true
+        default: main
+        type: string
+      expected_version:
+        description: Expected version without the leading v (optional)
+        required: false
+        type: string
+      confirm_publish:
+        description: Confirm that this run may publish to crates.io and push the tag
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: manual-rust-release-${{ inputs.release_ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish-and-tag:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+    steps:
+      - name: Check out release ref
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_ref }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Preflight validation
+        id: preflight
+        shell: bash
+        env:
+          INPUT_EXPECTED_VERSION: ${{ inputs.expected_version }}
+          INPUT_CONFIRM_PUBLISH: ${{ inputs.confirm_publish }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${INPUT_CONFIRM_PUBLISH}" != "true" ]]; then
+            echo "::error::confirm_publish must be true for a release run"
+            exit 1
+          fi
+
+          if [[ -z "${CARGO_REGISTRY_TOKEN:-}" ]]; then
+            echo "::error::Missing CRATES_IO_TOKEN secret"
+            exit 1
+          fi
+
+          python3 check_version.py
+
+          version="$(python3 - <<'PY'
+          import re
+          from pathlib import Path
+
+          cargo_toml = Path("Cargo.toml").read_text(encoding="utf-8")
+          section = re.search(r"\[workspace\.package\]\s*\n(.*?)(?=\n\[|\Z)", cargo_toml, re.DOTALL)
+          if not section:
+              raise SystemExit("workspace.package section not found")
+          version_match = re.search(r'version\s*=\s*"([^"]+)"', section.group(1))
+          if not version_match:
+              raise SystemExit("workspace version not found")
+          print(version_match.group(1))
+          PY
+          )"
+
+          if [[ -n "${INPUT_EXPECTED_VERSION}" && "${INPUT_EXPECTED_VERSION}" != "${version}" ]]; then
+            echo "::error::Expected version ${INPUT_EXPECTED_VERSION}, found ${version}"
+            exit 1
+          fi
+
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?([+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Version ${version} does not look like SemVer"
+            exit 1
+          fi
+
+          tag="v${version}"
+          git fetch --force --tags origin
+
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            echo "::error::Tag ${tag} already exists"
+            exit 1
+          fi
+
+          for crate in sparse-ir sparse-ir-capi; do
+            status_code="$(curl -sS -o /tmp/${crate}.json -w '%{http_code}' "https://crates.io/api/v1/crates/${crate}/${version}")"
+            if [[ "${status_code}" == "200" ]]; then
+              echo "::error::${crate} ${version} is already published on crates.io"
+              cat /tmp/${crate}.json
+              exit 1
+            fi
+            if [[ "${status_code}" != "404" ]]; then
+              echo "::error::Unexpected crates.io API status ${status_code} while checking ${crate} ${version}"
+              cat /tmp/${crate}.json || true
+              exit 1
+            fi
+          done
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish sparse-ir
+        shell: bash
+        run: cargo publish -p sparse-ir --locked
+
+      - name: Wait for sparse-ir to appear on crates.io
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          for attempt in $(seq 1 30); do
+            status_code="$(curl -sS -o /tmp/sparse-ir-release.json -w '%{http_code}' "https://crates.io/api/v1/crates/sparse-ir/${VERSION}")"
+            if [[ "${status_code}" == "200" ]]; then
+              exit 0
+            fi
+            echo "sparse-ir ${VERSION} not visible on crates.io yet (attempt ${attempt}/30)"
+            sleep 10
+          done
+
+          echo "::error::sparse-ir ${VERSION} did not become visible on crates.io in time"
+          exit 1
+
+      - name: Publish sparse-ir-capi
+        shell: bash
+        run: cargo publish -p sparse-ir-capi --locked
+
+      - name: Create and push release tag
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.preflight.outputs.tag }}
+          RELEASE_SHA: ${{ steps.preflight.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${RELEASE_TAG}" "${RELEASE_SHA}" -m "Release ${RELEASE_TAG}"
+          git push origin "${RELEASE_TAG}"
+
+      - name: Write summary
+        shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+          RELEASE_TAG: ${{ steps.preflight.outputs.tag }}
+          RELEASE_SHA: ${{ steps.preflight.outputs.sha }}
+        run: |
+          {
+            echo "## Manual Rust Release"
+            echo
+            echo "- Version: ${VERSION}"
+            echo "- Tag: ${RELEASE_TAG}"
+            echo "- Commit: ${RELEASE_SHA}"
+            echo "- crates.io publish: completed before tag push"
+          } >> "${GITHUB_STEP_SUMMARY}"
