@@ -30,6 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
+      CRATES_IO_USER_AGENT: sparse-ir-rs-manual-release (GitHub Actions)
     steps:
       - name: Check out release ref
         uses: actions/checkout@v6
@@ -100,7 +101,7 @@ jobs:
           fi
 
           for crate in sparse-ir sparse-ir-capi; do
-            status_code="$(curl -sS -o /tmp/${crate}.json -w '%{http_code}' "https://crates.io/api/v1/crates/${crate}/${version}")"
+            status_code="$(curl -sS -A "${CRATES_IO_USER_AGENT}" -H 'Accept: application/json' -o /tmp/${crate}.json -w '%{http_code}' "https://crates.io/api/v1/crates/${crate}/${version}")"
             if [[ "${status_code}" == "200" ]]; then
               echo "::error::${crate} ${version} is already published on crates.io"
               cat /tmp/${crate}.json
@@ -129,7 +130,7 @@ jobs:
           set -euo pipefail
 
           for attempt in $(seq 1 30); do
-            status_code="$(curl -sS -o /tmp/sparse-ir-release.json -w '%{http_code}' "https://crates.io/api/v1/crates/sparse-ir/${VERSION}")"
+            status_code="$(curl -sS -A "${CRATES_IO_USER_AGENT}" -H 'Accept: application/json' -o /tmp/sparse-ir-release.json -w '%{http_code}' "https://crates.io/api/v1/crates/sparse-ir/${VERSION}")"
             if [[ "${status_code}" == "200" ]]; then
               exit 0
             fi
