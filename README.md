@@ -202,16 +202,16 @@ The release process is done in **two stages** because Julia bindings depend on t
 1. Update the version in `Cargo.toml`:
    ```toml
    [workspace.package]
-   version = "0.8.2"  # Update this
+   version = "0.8.3"  # Update this
    
    [workspace.dependencies]
-   sparse-ir = { version = "0.8.2", path = "sparse-ir" }  # And this
+   sparse-ir = { version = "0.8.3", path = "sparse-ir" }  # And this
    ```
 
 2. Update the Python bindings version in `python/pyproject.toml`:
    ```toml
    [project]
-   version = "0.8.2"  # Update this
+   version = "0.8.3"  # Update this
    ```
 
 3. Verify version consistency and test publishing (dry run):
@@ -226,10 +226,10 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 4. Create a PR for the version bump:
    ```bash
-   git checkout -b release/v0.8.2
+   git checkout -b release/v0.8.3
    git add Cargo.toml python/pyproject.toml
-   git commit -m "chore: bump version to 0.8.2"
-   git push origin release/v0.8.2
+   git commit -m "chore: bump version to 0.8.3"
+   git push origin release/v0.8.3
    ```
    Then create a PR on GitHub and get it reviewed.
 
@@ -237,7 +237,7 @@ The release process is done in **two stages** because Julia bindings depend on t
    ```bash
    gh workflow run manual-rust-release.yml \
      -f release_ref=main \
-     -f expected_version=0.8.2 \
+     -f expected_version=0.8.3 \
      -f confirm_publish=true
    ```
 
@@ -247,7 +247,21 @@ The release process is done in **two stages** because Julia bindings depend on t
    gh run watch "$RUN_ID"
    ```
 
-   The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `v0.8.2`.
+   The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `v0.8.3`.
+
+7. Publish `pylibsparseir` from the release tag:
+   ```bash
+   gh workflow run PublishPyPI.yml --ref v0.8.3
+   ```
+
+   Then watch the PyPI workflow and confirm the package is visible:
+   ```bash
+   PYPI_RUN_ID=$(gh run list --workflow PublishPyPI.yml --limit 10 --json databaseId,displayTitle --jq '.[] | select(.displayTitle | contains("v0.8.3")) | .databaseId' | head -n1)
+   gh run watch "$PYPI_RUN_ID"
+   curl -fsSL "https://pypi.org/pypi/pylibsparseir/0.8.3/json" >/dev/null
+   ```
+
+   Although `.github/workflows/PublishPyPI.yml` also listens to `push` on `v*` tags, the tag pushed by `.github/workflows/manual-rust-release.yml` should not be assumed to auto-trigger it, so manual dispatch is the reliable path.
 
    Requirements:
    - GitHub Actions secret `CRATES_IO_TOKEN` must be configured.
@@ -260,7 +274,7 @@ After the new version is published to crates.io and available:
 
 1. Update `julia/build_tarballs.jl` using the update script:
    ```bash
-   julia julia/update_build_tarballs.jl v0.8.2
+   julia julia/update_build_tarballs.jl v0.8.3
    ```
    
    This script automatically:
@@ -275,10 +289,10 @@ After the new version is published to crates.io and available:
 
 3. Create a PR for the Julia version bump:
    ```bash
-   git checkout -b update-julia-v0.8.2
+   git checkout -b update-julia-v0.8.3
    git add julia/build_tarballs.jl
-   git commit -m "chore: bump Julia bindings version to 0.8.2"
-   git push origin update-julia-v0.8.2
+   git commit -m "chore: bump Julia bindings version to 0.8.3"
+   git push origin update-julia-v0.8.3
    ```
    Then create a PR on GitHub and get it reviewed.
 

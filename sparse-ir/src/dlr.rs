@@ -115,7 +115,11 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     // G(τ + β) = G(τ) for bosons
     let tau_normalized = normalize_tau::<Bosonic>(tau, beta).0;
 
-    (-omega * tau_normalized).exp() / (1.0 - (-beta * omega).exp())
+    if omega >= 0.0 {
+        (-omega * tau_normalized).exp() / (1.0 - (-beta * omega).exp())
+    } else {
+        -(omega * (beta - tau_normalized)).exp() / (1.0 - (beta * omega).exp())
+    }
 }
 
 /// Generic single-pole Green's function at Matsubara frequency
@@ -573,10 +577,14 @@ where
                 Statistics::Bosonic => {
                     if pole == 0.0 {
                         self.zero_pole_tau_limit()
-                    } else {
+                    } else if pole > 0.0 {
                         let tau_norm = normalize_tau::<S>(tau_val, self.beta).0;
                         let denominator = -(-self.beta * pole).exp_m1();
                         -(-tau_norm * pole).exp() * pole_weight / denominator
+                    } else {
+                        let tau_norm = normalize_tau::<S>(tau_val, self.beta).0;
+                        let denominator = -(self.beta * pole).exp_m1();
+                        (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
                     }
                 }
             }

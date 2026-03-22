@@ -606,9 +606,12 @@ impl DLRTauFuncs {
                 let (tau_reg, sign) = normalize_tau::<Bosonic>(tau, self.beta);
                 if pole == 0.0 {
                     sign * self.zero_pole_tau_limit()
-                } else {
+                } else if pole > 0.0 {
                     let denominator = -(-self.beta * pole).exp_m1();
                     sign * (-(-tau_reg * pole).exp() * pole_weight / denominator)
+                } else {
+                    let denominator = -(self.beta * pole).exp_m1();
+                    sign * ((pole * (self.beta - tau_reg)).exp() * pole_weight / denominator)
                 }
             }
         }
