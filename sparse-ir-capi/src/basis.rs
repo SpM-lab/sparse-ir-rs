@@ -666,19 +666,20 @@ pub unsafe extern "C" fn spir_basis_get_u(
             BasisType::RegularizedBoseBosonic(basis) => {
                 spir_funcs::from_u_bosonic(basis.u().clone(), beta)
             }
-            // DLR: tau-domain functions using discrete poles
-            // Note: DLR always uses LogisticKernel
+            // DLR: tau-domain functions using kernel-aware pole weights
             BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_tau_fermionic(
                 dlr.poles.clone(),
                 beta,
                 dlr.wmax,
-                dlr.regularizers.clone(),
+                dlr.pole_weights().to_vec(),
+                dlr.kernel_ypower(),
             ),
             BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_tau_bosonic(
                 dlr.poles.clone(),
                 beta,
                 dlr.wmax,
-                dlr.regularizers.clone(),
+                dlr.pole_weights().to_vec(),
+                dlr.kernel_ypower(),
             ),
         };
 
@@ -893,12 +894,16 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
             BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_matsubara_fermionic(
                 dlr.poles.clone(),
                 beta,
-                dlr.regularizers.clone(),
+                dlr.wmax,
+                dlr.pole_weights().to_vec(),
+                dlr.kernel_ypower(),
             ),
             BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_matsubara_bosonic(
                 dlr.poles.clone(),
                 beta,
-                dlr.regularizers.clone(),
+                dlr.wmax,
+                dlr.pole_weights().to_vec(),
+                dlr.kernel_ypower(),
             ),
         };
 

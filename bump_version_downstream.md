@@ -5,8 +5,7 @@ This note covers the downstream version bumps most likely to matter after a new 
 - the repo-local Python wrapper in `python/`
 - the repo-local Julia BinaryBuilder recipe in `julia/`
 - the external Julia wrapper in `SpM-lab/SparseIR.jl`
-
-It does not cover the external full-featured Python wrapper in `SpM-lab/sparse-ir`.
+- the external full-featured Python wrapper in `SpM-lab/sparse-ir`
 
 ## Release Order
 
@@ -79,6 +78,27 @@ Normal release flow is:
 4. let the pushed `vX.Y.Z` tag trigger `.github/workflows/PublishPyPI.yml`
 
 If downstream projects resolve `pylibsparseir` from PyPI, wait until the package is visible there before updating those repositories.
+
+### Monitoring publication
+
+After the manual Rust release workflow pushes `vX.Y.Z`, monitor the PyPI publish workflow:
+
+```bash
+PYPI_RUN_ID=$(gh run list \
+  --repo SpM-lab/sparse-ir-rs \
+  --workflow PublishPyPI.yml \
+  --limit 10 \
+  --json databaseId,displayTitle \
+  --jq '.[] | select(.displayTitle | contains("vX.Y.Z")) | .databaseId' \
+  | head -n1)
+gh run watch --repo SpM-lab/sparse-ir-rs "$PYPI_RUN_ID"
+```
+
+Then confirm the package is visible on PyPI before bumping downstream consumers:
+
+```bash
+curl -fsSL "https://pypi.org/pypi/pylibsparseir/X.Y.Z/json" >/dev/null
+```
 
 ## Julia Recipe
 
@@ -188,6 +208,19 @@ In the `SparseIR.jl` repository, rebuild after the bump:
 julia --project=. -e 'using Pkg; Pkg.build("SparseIR")'
 ```
 
+Recommended branch flow:
+
+```bash
+cd /path/to/SparseIR.jl
+git checkout -b bump-rust-backend-X.Y.Z
+# edit Project.toml
+julia --project=. -e 'using Pkg; Pkg.build("SparseIR")'
+julia --project=. -e 'using Pkg; Pkg.test()'
+git add Project.toml
+git commit -m "chore: bump Rust backend to X.Y.Z"
+git push origin bump-rust-backend-X.Y.Z
+```
+
 If needed, point it at a local backend checkout during coordinated development:
 
 ```bash
@@ -215,10 +248,27 @@ Consistency check:
 python3 check_libsparseir_version_consistency.py
 ```
 
+Typical branch flow:
+
+```bash
+cd /path/to/sparse-ir
+git checkout -b bump-pylibsparseir-X.Y.Z
+# edit pyproject.toml and .conda/meta.yaml
+python3 check_libsparseir_version_consistency.py
+```
+
 After `pylibsparseir X.Y.Z` is published:
 
 ```bash
 uv run pytest tests/ -q
+```
+
+Then commit and push:
+
+```bash
+git add pyproject.toml .conda/meta.yaml
+git commit -m "chore: require pylibsparseir X.Y.Z"
+git push origin bump-pylibsparseir-X.Y.Z
 ```
 
 Before publication, resolver-based `uv run` is expected to fail because the required `pylibsparseir` version is not on the index yet. In that case, verify against a local backend build instead:

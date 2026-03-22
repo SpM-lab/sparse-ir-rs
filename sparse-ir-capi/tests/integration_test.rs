@@ -12,9 +12,10 @@ use sparse_ir_capi::{
     spir_basis_get_u, spir_basis_get_uhat, spir_basis_new, spir_basis_release, spir_dlr_get_npoles,
     spir_dlr_get_poles, spir_dlr_new, spir_dlr2ir_dd, spir_funcs_eval, spir_funcs_eval_matsu,
     spir_funcs_release, spir_ir2dlr_dd, spir_kernel, spir_kernel_release, spir_logistic_kernel_new,
-    spir_matsu_sampling_new, spir_sampling_eval_dd, spir_sampling_eval_dz, spir_sampling_eval_zz,
-    spir_sampling_fit_dd, spir_sampling_fit_zd, spir_sampling_fit_zz, spir_sampling_release,
-    spir_sve_result, spir_sve_result_new, spir_sve_result_release, spir_tau_sampling_new,
+    spir_matsu_sampling_new, spir_reg_bose_kernel_new, spir_sampling_eval_dd,
+    spir_sampling_eval_dz, spir_sampling_eval_zz, spir_sampling_fit_dd, spir_sampling_fit_zd,
+    spir_sampling_fit_zz, spir_sampling_release, spir_sve_result, spir_sve_result_new,
+    spir_sve_result_release, spir_tau_sampling_new,
 };
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -43,6 +44,42 @@ fn create_ir_basis(
 ) -> (*mut spir_kernel, *mut spir_sve_result, *mut spir_basis) {
     unsafe {
         let kernel = create_logistic_kernel(beta * wmax);
+
+        let mut sve_status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, 0, &mut sve_status);
+        assert_eq!(sve_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!sve.is_null());
+
+        let mut basis_status = SPIR_INTERNAL_ERROR;
+        let basis = spir_basis_new(
+            statistics,
+            beta,
+            wmax,
+            epsilon,
+            kernel,
+            sve,
+            -1,
+            &mut basis_status,
+        );
+        assert_eq!(basis_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!basis.is_null());
+
+        (kernel, sve, basis)
+    }
+}
+
+/// Create a regularized-bose IR basis
+fn create_regularized_bose_ir_basis(
+    statistics: i32,
+    beta: f64,
+    wmax: f64,
+    epsilon: f64,
+) -> (*mut spir_kernel, *mut spir_sve_result, *mut spir_basis) {
+    unsafe {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_reg_bose_kernel_new(beta * wmax, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!kernel.is_null());
 
         let mut sve_status = SPIR_INTERNAL_ERROR;
         let sve = spir_sve_result_new(kernel, epsilon, -1, -1, 0, &mut sve_status);
@@ -454,6 +491,230 @@ fn test_dlr_sampling_integration(#[case] epsilon: f64) {
         // Cleanup
         spir_funcs_release(ir_u);
         spir_funcs_release(dlr_u);
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
+
+#[test]
+fn test_fermionic_dlr_tau_sampling_matches_dlr_funcs() {
+    let beta = 1000.0;
+    let wmax = 2.0;
+    let epsilon = 1e-8;
+
+    unsafe {
+        let (kernel, sve, basis) = create_ir_basis(1, beta, wmax, epsilon);
+        let tau_points = get_default_tau_points(basis);
+        let num_tau = tau_points.len() as i32;
+
+        let mut dlr_status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new(basis, &mut dlr_status);
+        assert_eq!(dlr_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut npoles = 0;
+        spir_dlr_get_npoles(dlr, &mut npoles);
+        assert!(npoles > 0);
+
+        let mut sampling_status = SPIR_INTERNAL_ERROR;
+        let tau_sampling =
+            spir_tau_sampling_new(dlr, num_tau, tau_points.as_ptr(), &mut sampling_status);
+        assert_eq!(sampling_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut u_status = SPIR_INTERNAL_ERROR;
+        let dlr_u = spir_basis_get_u(dlr, &mut u_status);
+        assert_eq!(u_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!dlr_u.is_null());
+
+        let coeffs: Vec<f64> = (0..npoles).map(|i| (i as f64 + 1.0) * 0.1).collect();
+
+        let mut gtau_from_funcs = vec![0.0; num_tau as usize];
+        for (i, &tau) in tau_points.iter().enumerate() {
+            let mut u_values = vec![0.0; npoles as usize];
+            let status = spir_funcs_eval(dlr_u, tau, u_values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            gtau_from_funcs[i] = coeffs.iter().zip(&u_values).map(|(c, u)| c * u).sum();
+        }
+
+        let mut gtau_from_sampling = vec![0.0; num_tau as usize];
+        let dims = [npoles];
+        let status = spir_sampling_eval_dd(
+            tau_sampling,
+            std::ptr::null(),
+            SPIR_ORDER_ROW_MAJOR,
+            1,
+            dims.as_ptr(),
+            0,
+            coeffs.as_ptr(),
+            gtau_from_sampling.as_mut_ptr(),
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let max_diff = gtau_from_funcs
+            .iter()
+            .zip(&gtau_from_sampling)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f64, f64::max);
+        assert!(
+            max_diff < 1e-8,
+            "Fermionic DLR tau funcs and tau sampling should match, max diff = {:.3e}",
+            max_diff
+        );
+
+        spir_funcs_release(dlr_u);
+        spir_sampling_release(tau_sampling);
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
+
+#[test]
+fn test_bosonic_dlr_tau_sampling_matches_dlr_funcs() {
+    let beta = 100.0;
+    let wmax = 2.0;
+    let epsilon = 1e-7;
+
+    unsafe {
+        let (kernel, sve, basis) = create_regularized_bose_ir_basis(0, beta, wmax, epsilon);
+        let tau_points = get_default_tau_points(basis);
+        let num_tau = tau_points.len() as i32;
+
+        let mut dlr_status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new(basis, &mut dlr_status);
+        assert_eq!(dlr_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut npoles = 0;
+        spir_dlr_get_npoles(dlr, &mut npoles);
+        assert!(npoles > 0);
+
+        let mut sampling_status = SPIR_INTERNAL_ERROR;
+        let tau_sampling =
+            spir_tau_sampling_new(dlr, num_tau, tau_points.as_ptr(), &mut sampling_status);
+        assert_eq!(sampling_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut u_status = SPIR_INTERNAL_ERROR;
+        let dlr_u = spir_basis_get_u(dlr, &mut u_status);
+        assert_eq!(u_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!dlr_u.is_null());
+
+        let coeffs: Vec<f64> = (0..npoles).map(|i| (i as f64 + 1.0) * 0.1).collect();
+
+        let mut gtau_from_funcs = vec![0.0; num_tau as usize];
+        for (i, &tau) in tau_points.iter().enumerate() {
+            let mut u_values = vec![0.0; npoles as usize];
+            let status = spir_funcs_eval(dlr_u, tau, u_values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            gtau_from_funcs[i] = coeffs.iter().zip(&u_values).map(|(c, u)| c * u).sum();
+        }
+
+        let mut gtau_from_sampling = vec![0.0; num_tau as usize];
+        let dims = [npoles];
+        let status = spir_sampling_eval_dd(
+            tau_sampling,
+            std::ptr::null(),
+            SPIR_ORDER_ROW_MAJOR,
+            1,
+            dims.as_ptr(),
+            0,
+            coeffs.as_ptr(),
+            gtau_from_sampling.as_mut_ptr(),
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let max_diff = gtau_from_funcs
+            .iter()
+            .zip(&gtau_from_sampling)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f64, f64::max);
+        assert!(
+            max_diff < 1e-8,
+            "DLR tau funcs and tau sampling should match, max diff = {:.3e}",
+            max_diff
+        );
+
+        spir_funcs_release(dlr_u);
+        spir_sampling_release(tau_sampling);
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
+
+#[test]
+fn test_bosonic_dlr_matsubara_sampling_matches_dlr_funcs() {
+    let beta = 100.0;
+    let wmax = 2.0;
+    let epsilon = 1e-7;
+
+    unsafe {
+        let (kernel, sve, basis) = create_regularized_bose_ir_basis(0, beta, wmax, epsilon);
+        let matsu_points = get_default_matsubara_points(basis, false);
+        let num_matsu = matsu_points.len() as i32;
+
+        let mut dlr_status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new(basis, &mut dlr_status);
+        assert_eq!(dlr_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut npoles = 0;
+        spir_dlr_get_npoles(dlr, &mut npoles);
+        assert!(npoles > 0);
+
+        let mut sampling_status = SPIR_INTERNAL_ERROR;
+        let matsu_sampling = spir_matsu_sampling_new(
+            dlr,
+            false,
+            num_matsu,
+            matsu_points.as_ptr(),
+            &mut sampling_status,
+        );
+        assert_eq!(sampling_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut uhat_status = SPIR_INTERNAL_ERROR;
+        let dlr_uhat = spir_basis_get_uhat(dlr, &mut uhat_status);
+        assert_eq!(uhat_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!dlr_uhat.is_null());
+
+        let coeffs: Vec<f64> = (0..npoles).map(|i| (i as f64 + 1.0) * 0.1).collect();
+
+        let mut giw_from_funcs = vec![Complex64::new(0.0, 0.0); num_matsu as usize];
+        for (i, &n) in matsu_points.iter().enumerate() {
+            let mut uhat_values = vec![Complex64::new(0.0, 0.0); npoles as usize];
+            let status = spir_funcs_eval_matsu(dlr_uhat, n, uhat_values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            giw_from_funcs[i] = coeffs.iter().zip(&uhat_values).map(|(c, u)| *c * *u).sum();
+        }
+
+        let mut giw_from_sampling = vec![Complex64::new(0.0, 0.0); num_matsu as usize];
+        let dims = [npoles];
+        let status = spir_sampling_eval_dz(
+            matsu_sampling,
+            std::ptr::null(),
+            SPIR_ORDER_ROW_MAJOR,
+            1,
+            dims.as_ptr(),
+            0,
+            coeffs.as_ptr(),
+            giw_from_sampling.as_mut_ptr(),
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let max_diff = giw_from_funcs
+            .iter()
+            .zip(&giw_from_sampling)
+            .map(|(a, b)| (*a - *b).norm())
+            .fold(0.0f64, f64::max);
+        assert!(
+            max_diff < 1e-8,
+            "DLR Matsubara funcs and Matsubara sampling should match, max diff = {:.3e}",
+            max_diff
+        );
+
+        spir_funcs_release(dlr_uhat);
+        spir_sampling_release(matsu_sampling);
         spir_basis_release(dlr);
         spir_basis_release(basis);
         spir_sve_result_release(sve);

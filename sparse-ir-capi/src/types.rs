@@ -574,67 +574,68 @@ pub(crate) struct DLRTauFuncs {
     pub poles: Vec<f64>,
     pub beta: f64,
     pub wmax: f64,
-    pub regularizers: Vec<f64>,
+    pub pole_weights: Vec<f64>,
+    pub kernel_ypower: i32,
     pub statistics: Statistics,
 }
 
 impl DLRTauFuncs {
+    fn zero_pole_tau_limit(&self) -> f64 {
+        match self.kernel_ypower {
+            0 => -0.5,
+            1 => -1.0 / (self.beta * self.wmax * self.wmax),
+            _ => panic!(
+                "DLR tau evaluation does not support kernel ypower = {}",
+                self.kernel_ypower
+            ),
+        }
+    }
+
+    fn evaluate_single(&self, tau: f64, pole: f64, pole_weight: f64) -> f64 {
+        match self.statistics {
+            Statistics::Fermionic => {
+                let (tau_reg, sign) = normalize_tau::<Fermionic>(tau, self.beta);
+                let value = if pole >= 0.0 {
+                    -(-pole * tau_reg).exp() / (1.0 + (-self.beta * pole).exp())
+                } else {
+                    -(pole * (self.beta - tau_reg)).exp() / (1.0 + (self.beta * pole).exp())
+                };
+                sign * value * pole_weight
+            }
+            Statistics::Bosonic => {
+                let (tau_reg, sign) = normalize_tau::<Bosonic>(tau, self.beta);
+                if pole == 0.0 {
+                    sign * self.zero_pole_tau_limit()
+                } else {
+                    let denominator = -(-self.beta * pole).exp_m1();
+                    sign * (-(-tau_reg * pole).exp() * pole_weight / denominator)
+                }
+            }
+        }
+    }
+
     /// Evaluate all DLR tau functions at a single point
     pub fn evaluate_at(&self, tau: f64) -> Vec<f64> {
-        use sparse_ir::kernel::LogisticKernel;
-
-        // Normalize tau to [0, beta] using the appropriate statistics
-        let (tau_reg, sign) = match self.statistics {
-            Statistics::Fermionic => normalize_tau::<Fermionic>(tau, self.beta),
-            Statistics::Bosonic => normalize_tau::<Bosonic>(tau, self.beta),
-        };
-
-        // Compute kernel parameters
-        // DLR always uses LogisticKernel in tau domain.
-        // Statistics-dependent regularization factors (e.g. tanh(βω/2) for bosons)
-        // are applied only in the Matsubara representation via regularizers and
-        // do NOT enter the tau basis functions themselves.
-        let lambda = self.beta * self.wmax;
-        let kernel = LogisticKernel::new(lambda);
-        let x_kern = 2.0 * tau_reg / self.beta - 1.0; // x_kern ∈ [-1, 1]
-
-        // Evaluate DLR tau basis functions: u_l(τ) = sign * (-K(x, y_l))
         self.poles
             .iter()
-            .map(|&pole| {
-                let y = pole / self.wmax;
-                let k_val = kernel.compute(x_kern, y);
-                sign * (-k_val)
-            })
+            .zip(self.pole_weights.iter())
+            .map(|(&pole, &pole_weight)| self.evaluate_single(tau, pole, pole_weight))
             .collect()
     }
 
     /// Batch evaluate all DLR tau functions at multiple points
     /// Returns Vec<Vec<f64>> where result[i][j] is function i evaluated at point j
     pub fn batch_evaluate_at(&self, taus: &[f64]) -> Vec<Vec<f64>> {
-        use sparse_ir::kernel::LogisticKernel;
-
         let n_funcs = self.poles.len();
         let n_points = taus.len();
         let mut result = vec![vec![0.0; n_points]; n_funcs];
 
-        // DLR always uses LogisticKernel in tau domain
-        let lambda = self.beta * self.wmax;
-        let kernel = LogisticKernel::new(lambda);
-
         // Evaluate at each point
         for (j, &tau) in taus.iter().enumerate() {
-            // Normalize tau to [0, beta] using the appropriate statistics
-            let (tau_reg, sign) = match self.statistics {
-                Statistics::Fermionic => normalize_tau::<Fermionic>(tau, self.beta),
-                Statistics::Bosonic => normalize_tau::<Bosonic>(tau, self.beta),
-            };
-            let x_kern = 2.0 * tau_reg / self.beta - 1.0;
-
-            for (i, &pole) in self.poles.iter().enumerate() {
-                let y = pole / self.wmax;
-                let k_val = kernel.compute(x_kern, y);
-                result[i][j] = sign * (-k_val);
+            for (i, (&pole, &pole_weight)) in
+                self.poles.iter().zip(self.pole_weights.iter()).enumerate()
+            {
+                result[i][j] = self.evaluate_single(tau, pole, pole_weight);
             }
         }
 
@@ -647,8 +648,23 @@ impl DLRTauFuncs {
 pub(crate) struct DLRMatsubaraFuncs {
     pub poles: Vec<f64>,
     pub beta: f64,
-    pub regularizers: Vec<f64>,
+    pub wmax: f64,
+    pub pole_weights: Vec<f64>,
+    pub kernel_ypower: i32,
     pub statistics: Statistics,
+}
+
+impl DLRMatsubaraFuncs {
+    fn zero_pole_matsubara_limit(&self) -> f64 {
+        match self.kernel_ypower {
+            0 => -0.5 * self.beta,
+            1 => -1.0 / (self.wmax * self.wmax),
+            _ => panic!(
+                "DLR Matsubara evaluation does not support kernel ypower = {}",
+                self.kernel_ypower
+            ),
+        }
+    }
 }
 
 // ============================================================================
@@ -805,13 +821,15 @@ impl spir_funcs {
         poles: Vec<f64>,
         beta: f64,
         wmax: f64,
-        regularizers: Vec<f64>,
+        pole_weights: Vec<f64>,
+        kernel_ypower: i32,
     ) -> Self {
         let inner = FuncsType::DLRTau(DLRTauFuncs {
             poles,
             beta,
             wmax,
-            regularizers,
+            pole_weights,
+            kernel_ypower,
             statistics: Statistics::Fermionic,
         });
         Self {
@@ -826,13 +844,15 @@ impl spir_funcs {
         poles: Vec<f64>,
         beta: f64,
         wmax: f64,
-        regularizers: Vec<f64>,
+        pole_weights: Vec<f64>,
+        kernel_ypower: i32,
     ) -> Self {
         let inner = FuncsType::DLRTau(DLRTauFuncs {
             poles,
             beta,
             wmax,
-            regularizers,
+            pole_weights,
+            kernel_ypower,
             statistics: Statistics::Bosonic,
         });
         Self {
@@ -845,12 +865,16 @@ impl spir_funcs {
     pub(crate) fn from_dlr_matsubara_fermionic(
         poles: Vec<f64>,
         beta: f64,
-        regularizers: Vec<f64>,
+        wmax: f64,
+        pole_weights: Vec<f64>,
+        kernel_ypower: i32,
     ) -> Self {
         let inner = FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
             poles,
             beta,
-            regularizers,
+            wmax,
+            pole_weights,
+            kernel_ypower,
             statistics: Statistics::Fermionic,
         });
         Self {
@@ -863,12 +887,16 @@ impl spir_funcs {
     pub(crate) fn from_dlr_matsubara_bosonic(
         poles: Vec<f64>,
         beta: f64,
-        regularizers: Vec<f64>,
+        wmax: f64,
+        pole_weights: Vec<f64>,
+        kernel_ypower: i32,
     ) -> Self {
         let inner = FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
             poles,
             beta,
-            regularizers,
+            wmax,
+            pole_weights,
+            kernel_ypower,
             statistics: Statistics::Bosonic,
         });
         Self {
@@ -961,27 +989,34 @@ impl spir_funcs {
                 }
             }
             FuncsType::DLRMatsubara(dlr) => {
-                // Evaluate DLR Matsubara functions: uhat_l(iν_n) = regularizer[l] / (iν_n - pole_l)
+                // Evaluate DLR Matsubara functions using the kernel-aware pole weights.
                 use num_complex::Complex;
 
                 let mut result = Vec::with_capacity(dlr.poles.len());
                 if dlr.statistics == Statistics::Fermionic {
-                    // Fermionic
                     let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
                     let iv = freq.value_imaginary(dlr.beta);
                     for (i, &pole) in dlr.poles.iter().enumerate() {
-                        let regularizer = dlr.regularizers[i];
+                        let pole_weight = dlr.pole_weights[i];
                         result
-                            .push(Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0)));
+                            .push(Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0)));
                     }
                 } else {
-                    // Bosonic
                     let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
                     let iv = freq.value_imaginary(dlr.beta);
                     for (i, &pole) in dlr.poles.iter().enumerate() {
-                        let regularizer = dlr.regularizers[i];
-                        result
-                            .push(Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0)));
+                        if pole == 0.0 {
+                            if freq.n() == 0 {
+                                result.push(Complex::new(dlr.zero_pole_matsubara_limit(), 0.0));
+                            } else {
+                                result.push(Complex::new(0.0, 0.0));
+                            }
+                        } else {
+                            let pole_weight = dlr.pole_weights[i];
+                            result.push(
+                                Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0)),
+                            );
+                        }
                     }
                 }
                 Some(result)
@@ -1045,7 +1080,7 @@ impl spir_funcs {
                 }
             }
             FuncsType::DLRMatsubara(dlr) => {
-                // Batch evaluate DLR Matsubara functions: uhat_l(iν_n) = regularizer[l] / (iν_n - pole_l)
+                // Batch evaluate DLR Matsubara functions using the kernel-aware pole weights.
                 use num_complex::Complex;
 
                 let n_funcs = dlr.poles.len();
@@ -1054,22 +1089,29 @@ impl spir_funcs {
 
                 for (j, &n) in ns.iter().enumerate() {
                     if dlr.statistics == Statistics::Fermionic {
-                        // Fermionic
                         let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
                         let iv = freq.value_imaginary(dlr.beta);
                         for (i, &pole) in dlr.poles.iter().enumerate() {
-                            let regularizer = dlr.regularizers[i];
+                            let pole_weight = dlr.pole_weights[i];
                             result[i][j] =
-                                Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0));
+                                Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0));
                         }
                     } else {
-                        // Bosonic
                         let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
                         let iv = freq.value_imaginary(dlr.beta);
                         for (i, &pole) in dlr.poles.iter().enumerate() {
-                            let regularizer = dlr.regularizers[i];
-                            result[i][j] =
-                                Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0));
+                            if pole == 0.0 {
+                                if freq.n() == 0 {
+                                    result[i][j] =
+                                        Complex::new(dlr.zero_pole_matsubara_limit(), 0.0);
+                                } else {
+                                    result[i][j] = Complex::new(0.0, 0.0);
+                                }
+                            } else {
+                                let pole_weight = dlr.pole_weights[i];
+                                result[i][j] =
+                                    Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0));
+                            }
                         }
                     }
                 }
@@ -1155,20 +1197,21 @@ impl spir_funcs {
             FuncsType::DLRTau(dlr) => {
                 // Select subset of poles
                 let mut new_poles = Vec::with_capacity(indices.len());
-                let mut new_regularizers = Vec::with_capacity(indices.len());
+                let mut new_pole_weights = Vec::with_capacity(indices.len());
                 for &idx in indices {
                     if idx >= dlr.poles.len() {
                         return None;
                     }
                     new_poles.push(dlr.poles[idx]);
-                    new_regularizers.push(dlr.regularizers[idx]);
+                    new_pole_weights.push(dlr.pole_weights[idx]);
                 }
                 Some(Self {
                     _private: Box::into_raw(Box::new(FuncsType::DLRTau(DLRTauFuncs {
                         poles: new_poles,
                         beta: dlr.beta,
                         wmax: dlr.wmax,
-                        regularizers: new_regularizers,
+                        pole_weights: new_pole_weights,
+                        kernel_ypower: dlr.kernel_ypower,
                         statistics: dlr.statistics,
                     }))) as *mut std::ffi::c_void,
                     beta: dlr.beta,
@@ -1177,19 +1220,21 @@ impl spir_funcs {
             FuncsType::DLRMatsubara(dlr) => {
                 // Select subset of poles
                 let mut new_poles = Vec::with_capacity(indices.len());
-                let mut new_regularizers = Vec::with_capacity(indices.len());
+                let mut new_pole_weights = Vec::with_capacity(indices.len());
                 for &idx in indices {
                     if idx >= dlr.poles.len() {
                         return None;
                     }
                     new_poles.push(dlr.poles[idx]);
-                    new_regularizers.push(dlr.regularizers[idx]);
+                    new_pole_weights.push(dlr.pole_weights[idx]);
                 }
                 Some(Self {
                     _private: Box::into_raw(Box::new(FuncsType::DLRMatsubara(DLRMatsubaraFuncs {
                         poles: new_poles,
                         beta: dlr.beta,
-                        regularizers: new_regularizers,
+                        wmax: dlr.wmax,
+                        pole_weights: new_pole_weights,
+                        kernel_ypower: dlr.kernel_ypower,
                         statistics: dlr.statistics,
                     }))) as *mut std::ffi::c_void,
                     beta: dlr.beta,
