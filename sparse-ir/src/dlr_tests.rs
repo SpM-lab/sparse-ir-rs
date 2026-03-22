@@ -2,10 +2,57 @@
 
 use crate::{
     Basis, Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
-    RegularizedBoseKernel, TauSampling,
+    MatsubaraSampling, RegularizedBoseKernel, TauSampling,
 };
-use mdarray::Tensor;
+use mdarray::{DTensor, Shape, Tensor};
 use num_complex::Complex;
+
+fn max_relative_error_real(lhs: &Tensor<f64, mdarray::DynRank>, rhs: &DTensor<f64, 2>) -> f64 {
+    assert_eq!(lhs.rank(), 2);
+    assert_eq!(*rhs.shape(), (lhs.shape().dim(0), lhs.shape().dim(1)));
+
+    let mut max_diff = 0.0_f64;
+    let mut max_ref = 0.0_f64;
+    for i in 0..lhs.shape().dim(0) {
+        for j in 0..lhs.shape().dim(1) {
+            let a = lhs[&[i, j][..]];
+            let b = rhs[[i, j]];
+            max_diff = max_diff.max((a - b).abs());
+            max_ref = max_ref.max(a.abs());
+        }
+    }
+
+    if max_ref == 0.0 {
+        max_diff
+    } else {
+        max_diff / max_ref
+    }
+}
+
+fn max_relative_error_complex(
+    lhs: &Tensor<Complex<f64>, mdarray::DynRank>,
+    rhs: &DTensor<Complex<f64>, 2>,
+) -> f64 {
+    assert_eq!(lhs.rank(), 2);
+    assert_eq!(*rhs.shape(), (lhs.shape().dim(0), lhs.shape().dim(1)));
+
+    let mut max_diff = 0.0_f64;
+    let mut max_ref = 0.0_f64;
+    for i in 0..lhs.shape().dim(0) {
+        for j in 0..lhs.shape().dim(1) {
+            let a = lhs[&[i, j][..]];
+            let b = rhs[[i, j]];
+            max_diff = max_diff.max((a - b).norm());
+            max_ref = max_ref.max(a.norm());
+        }
+    }
+
+    if max_ref == 0.0 {
+        max_diff
+    } else {
+        max_diff / max_ref
+    }
+}
 
 #[test]
 fn test_dlr_construction_fermionic() {
@@ -51,6 +98,36 @@ fn test_dlr_with_custom_poles() {
 
     assert_eq!(dlr.poles, poles);
     assert_eq!(dlr.beta, beta);
+
+    let tau_values = dlr.evaluate_tau(&[0.0, beta / 3.0, beta]);
+    for i in 0..3 {
+        assert!(
+            tau_values[[i, 2]].is_finite(),
+            "tau basis value for zero pole must be finite"
+        );
+        assert!(
+            (tau_values[[i, 2]] + 0.5).abs() < 1e-12,
+            "zero-pole tau basis should match the logistic limit"
+        );
+    }
+
+    let freqs = [
+        crate::MatsubaraFreq::<Bosonic>::new(0).unwrap(),
+        crate::MatsubaraFreq::<Bosonic>::new(2).unwrap(),
+    ];
+    let matsubara_values = dlr.evaluate_matsubara(&freqs);
+    assert!(
+        matsubara_values[[0, 2]].re.is_finite() && matsubara_values[[0, 2]].im.is_finite(),
+        "zero-pole Matsubara basis at n=0 must be finite"
+    );
+    assert!(
+        (matsubara_values[[0, 2]].re + 0.5 * beta).abs() < 1e-12,
+        "zero-pole Matsubara basis should match the logistic limit"
+    );
+    assert!(
+        matsubara_values[[1, 2]].norm() < 1e-12,
+        "zero-pole Matsubara basis should vanish away from n=0"
+    );
 }
 
 /// Generic test for from_IR_nd/to_IR_nd roundtrip
@@ -278,6 +355,7 @@ fn test_dlr_regularized_bose_construction() {
     }
 }
 
+#[test]
 fn test_dlr_regularized_bose_with_custom_poles() {
     let beta = 10.0;
     let wmax = 10.0;
@@ -294,6 +372,36 @@ fn test_dlr_regularized_bose_with_custom_poles() {
 
     assert_eq!(dlr.poles, poles);
     assert_eq!(dlr.beta, beta);
+
+    let tau_values = dlr.evaluate_tau(&[0.0, beta / 3.0, beta]);
+    for i in 0..3 {
+        assert!(
+            tau_values[[i, 2]].is_finite(),
+            "tau basis value for zero pole must be finite"
+        );
+        assert!(
+            (tau_values[[i, 2]] + 1.0 / (beta * wmax * wmax)).abs() < 1e-12,
+            "zero-pole tau basis should match the regularized limit"
+        );
+    }
+
+    let freqs = [
+        crate::MatsubaraFreq::<Bosonic>::new(0).unwrap(),
+        crate::MatsubaraFreq::<Bosonic>::new(2).unwrap(),
+    ];
+    let matsubara_values = dlr.evaluate_matsubara(&freqs);
+    assert!(
+        matsubara_values[[0, 2]].re.is_finite() && matsubara_values[[0, 2]].im.is_finite(),
+        "zero-pole Matsubara basis at n=0 must be finite"
+    );
+    assert!(
+        (matsubara_values[[0, 2]].re + 1.0 / (wmax * wmax)).abs() < 1e-12,
+        "zero-pole Matsubara basis should match the regularized limit"
+    );
+    assert!(
+        matsubara_values[[1, 2]].norm() < 1e-12,
+        "zero-pole Matsubara basis should vanish away from n=0"
+    );
 
     println!("\n=== RegularizedBoseKernel DLR with Custom Poles ===");
     println!("Successfully created DLR with {} custom poles", poles.len());
@@ -393,4 +501,68 @@ where
             max_error
         );
     }
+}
+
+#[test]
+fn test_dlr_regularized_bose_matches_ir_evaluations() {
+    let beta = 1e4;
+    let lambda = 1e2;
+    let epsilon = 1e-10;
+
+    let kernel = RegularizedBoseKernel::new(lambda);
+    let basis =
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis);
+
+    let tau_points = basis.default_tau_sampling_points();
+    let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&basis, tau_points.clone());
+
+    let matsubara_points = basis.default_matsubara_sampling_points(false);
+    let matsubara_sampling =
+        MatsubaraSampling::<Bosonic>::with_sampling_points(&basis, matsubara_points.clone());
+
+    let n_poles = dlr.poles.len();
+    let dlr_coeffs_2d = DTensor::<f64, 2>::from_fn([n_poles, 1], |idx| {
+        let pole = dlr.poles[idx[0]];
+        (idx[0] as f64 + 1.0) / (1.0 + pole.abs())
+    });
+    let dlr_coeffs = dlr_coeffs_2d.clone().into_dyn().to_tensor();
+
+    let ir_coeffs = dlr.to_ir_nd::<f64>(None, &dlr_coeffs, 0);
+
+    let g_tau_ir = tau_sampling.evaluate_nd(None, &ir_coeffs, 0);
+    let dlr_tau = dlr.evaluate_tau(&tau_points);
+    let g_tau_dlr = DTensor::<f64, 2>::from_fn([tau_points.len(), 1], |idx| {
+        let i = idx[0];
+        let mut sum = 0.0;
+        for p in 0..n_poles {
+            sum += dlr_tau[[i, p]] * dlr_coeffs_2d[[p, 0]];
+        }
+        sum
+    });
+
+    let g_iw_ir = matsubara_sampling.evaluate_nd_real(None, &ir_coeffs, 0);
+    let dlr_iw = dlr.evaluate_matsubara(&matsubara_points);
+    let g_iw_dlr = DTensor::<Complex<f64>, 2>::from_fn([matsubara_points.len(), 1], |idx| {
+        let i = idx[0];
+        let mut sum = Complex::new(0.0, 0.0);
+        for p in 0..n_poles {
+            sum += dlr_iw[[i, p]] * dlr_coeffs_2d[[p, 0]];
+        }
+        sum
+    });
+
+    let tau_error = max_relative_error_real(&g_tau_ir, &g_tau_dlr);
+    let matsubara_error = max_relative_error_complex(&g_iw_ir, &g_iw_dlr);
+
+    assert!(
+        tau_error < 1e-8,
+        "RegularizedBose DLR tau evaluation mismatch: {:.3e}",
+        tau_error
+    );
+    assert!(
+        matsubara_error < 1e-8,
+        "RegularizedBose DLR Matsubara evaluation mismatch: {:.3e}",
+        matsubara_error
+    );
 }
