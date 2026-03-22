@@ -1,6 +1,7 @@
 # Agent Instructions
 
 Before changing release automation or version metadata, read the version-management section in [README.md](README.md).
+For downstream wrapper version bumps, also read [bump_version_downstream.md](bump_version_downstream.md).
 
 Use these repo-local skills when the task matches:
 

@@ -73,7 +73,15 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     // G(τ + β) = -G(τ) for fermions
     let (tau_normalized, sign) = normalize_tau::<Fermionic>(tau, beta);
 
-    sign * (-(-omega * tau_normalized).exp() / (1.0 + (-beta * omega).exp()))
+    // Avoid overflow for large negative ω by factoring out exp(βω).
+    // Both branches keep the exponent non-positive.
+    let value = if omega >= 0.0 {
+        -(-omega * tau_normalized).exp() / (1.0 + (-beta * omega).exp())
+    } else {
+        -(omega * (beta - tau_normalized)).exp() / (1.0 + (beta * omega).exp())
+    };
+
+    sign * value
 }
 
 /// Compute bosonic single-pole Green's function at imaginary time τ
@@ -209,6 +217,14 @@ impl<S> DiscreteLehmannRepresentation<S>
 where
     S: StatisticsType,
 {
+    pub fn kernel_ypower(&self) -> i32 {
+        self.kernel_ypower
+    }
+
+    pub fn pole_weights(&self) -> &[f64] {
+        &self.pole_weights
+    }
+
     /// Create DLR from IR basis with custom poles
     ///
     /// The tau-domain pole basis is built from the logistic representation, while
