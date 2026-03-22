@@ -7,7 +7,6 @@
 use crate::fitters::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
-use crate::kernel::AbstractKernel;
 use crate::traits::{Statistics, StatisticsType};
 use mdarray::DTensor;
 use num_complex::Complex;
@@ -153,9 +152,11 @@ pub fn giwn_single_pole<S: StatisticsType>(
 /// where:
 /// - `ω[i]` are pole positions on the real axis
 /// - `a[i]` are expansion coefficients
-/// - `reg[i]` are regularization factors (1 for fermions, tanh(βω/2) for bosons)
+/// - `reg[i]` are kernel-dependent pole weights on the physical ω grid
 ///
-/// Note: DLR always uses LogisticKernel-type weights, regardless of the IR basis kernel type.
+/// The public `regularizers` field stores the raw kernel regularizer
+/// `w(β, ω_i)`. Internally, DLR evaluations use `pole_weights`, which include
+/// the ω-domain normalization carried by `FiniteTempBasis`.
 ///
 /// # Type Parameters
 /// * `S` - Statistics type (Fermionic or Bosonic)
@@ -172,18 +173,26 @@ where
     /// Maximum frequency ωmax
     pub wmax: f64,
 
-    /// LogisticKernel used for weight computations
-    /// DLR always uses LogisticKernel regardless of the IR basis kernel type
+    /// LogisticKernel reference basis used for Basis trait compatibility
     kernel: crate::kernel::LogisticKernel,
+
+    /// Power with which the source kernel scales the spectral variable.
+    kernel_ypower: i32,
 
     /// Accuracy of the representation
     pub accuracy: f64,
 
     /// Regularizers for each pole: regularizer[i] = w(β, ω_i)
-    /// Always computed using LogisticKernel:
-    /// - Fermionic: regularizer = 1.0
-    /// - Bosonic: regularizer = tanh(β·ω/2)
+    /// These are computed from the source IR basis kernel.
     pub regularizers: Vec<f64>,
+
+    /// Pole weights used in tau and Matsubara evaluations.
+    ///
+    /// `FiniteTempBasis` rescales the ω-domain singular values by `wmax^-ypower`.
+    /// Combined with the dimensionless kernel regularizer `y^ypower =
+    /// (ω / wmax)^ypower`, the physical pole basis carries an additional
+    /// factor `wmax^(-2 * ypower)`.
+    pole_weights: Vec<f64>,
 
     /// Fitting matrix from IR: fitmat = -s · V(poles)
     /// Used for to_IR transformation
@@ -202,7 +211,8 @@ where
 {
     /// Create DLR from IR basis with custom poles
     ///
-    /// Note: Always uses LogisticKernel-type weights, regardless of the basis kernel type.
+    /// The tau-domain pole basis is built from the logistic representation, while
+    /// kernel-specific regularizers are preserved for compatible kernels.
     ///
     /// # Arguments
     /// * `basis` - The IR basis to construct DLR from
@@ -218,11 +228,12 @@ where
         S: 'static,
         K: crate::kernel::KernelProperties + Clone,
     {
-        use crate::kernel::{KernelProperties, LogisticKernel};
+        use crate::kernel::LogisticKernel;
 
         let beta = basis.beta();
         let wmax = basis.wmax();
         let accuracy = basis.accuracy();
+        let kernel_ypower = basis.kernel().ypower();
 
         // Compute fitting matrix: fitmat = -s · V(poles)
         // This transforms DLR coefficients to IR coefficients
@@ -243,13 +254,16 @@ where
         // Create fitter for from_IR (inverse operation)
         let fitter = RealMatrixFitter::new(fitmat.clone());
 
-        // Compute regularizers for each pole using LogisticKernel
-        // (regardless of the basis kernel type)
         let lambda = beta * wmax;
         let logistic_kernel = LogisticKernel::new(lambda);
         let regularizers: Vec<f64> = poles
             .iter()
-            .map(|&pole| logistic_kernel.regularizer::<S>(beta, pole))
+            .map(|&pole| basis.kernel().regularizer::<S>(beta, pole))
+            .collect();
+        let pole_weight_scale = wmax.powi(2 * kernel_ypower);
+        let pole_weights: Vec<f64> = regularizers
+            .iter()
+            .map(|&regularizer| regularizer / pole_weight_scale)
             .collect();
 
         Self {
@@ -257,11 +271,35 @@ where
             beta,
             wmax,
             kernel: logistic_kernel,
+            kernel_ypower,
             accuracy,
             regularizers,
+            pole_weights,
             fitmat,
             fitter,
             _phantom: PhantomData,
+        }
+    }
+
+    fn zero_pole_tau_limit(&self) -> f64 {
+        match self.kernel_ypower {
+            0 => -0.5,
+            1 => -1.0 / (self.beta * self.wmax * self.wmax),
+            _ => panic!(
+                "DLR tau evaluation does not support kernel ypower = {}",
+                self.kernel_ypower
+            ),
+        }
+    }
+
+    fn zero_pole_matsubara_limit(&self) -> f64 {
+        match self.kernel_ypower {
+            0 => -0.5 * self.beta,
+            1 => -1.0 / (self.wmax * self.wmax),
+            _ => panic!(
+                "DLR Matsubara evaluation does not support kernel ypower = {}",
+                self.kernel_ypower
+            ),
         }
     }
 
@@ -508,46 +546,25 @@ where
 
         let n_points = tau.len();
         let n_poles = self.poles.len();
-
-        // Evaluate tau-domain DLR basis functions:
-        //   u_i(τ) = sign * ( -K_logistic(x, y_i) )
-        // where x = 2τ/β - 1, y_i = pole_i/ωmax and
-        //   sign encodes (anti-)periodicity:
-        //     Fermionic: G(τ + β) = -G(τ)
-        //     Bosonic:  G(τ + β) =  G(τ)
-        //
-        // NOTE: Statistics-dependent regularization factors
-        // (tanh(βω/2) for bosons) are applied only in the
-        // Matsubara representation via `regularizers` and
-        // do NOT enter the tau basis functions themselves.
-
-        let mut result = DTensor::<f64, 2>::zeros([n_points, n_poles]);
-
-        // Loop over tau points: for each tau, normalize once and compute for all poles
-        for i in 0..n_points {
-            let tau_val = tau[i];
-
-            // Normalize tau to [0, β] with statistics-dependent sign
-            let (tau_norm, sign) = normalize_tau::<S>(tau_val, self.beta);
-
-            // Compute x coordinate once for this tau
-            let x = 2.0 * tau_norm / self.beta - 1.0;
-
-            // Loop over poles: sign is the same for all poles at this tau
-            for j in 0..n_poles {
-                let pole = self.poles[j];
-                let y = pole / self.wmax;
-
-                // Compute kernel value
-                let kernel_val = self.kernel.compute(x, y);
-
-                // Tau basis: u_i(τ) = sign * (-K(x, y_i))
-                let value = sign * (-kernel_val);
-                result[[i, j]] += value;
+        DTensor::<f64, 2>::from_fn([n_points, n_poles], |idx| {
+            let tau_val = tau[idx[0]];
+            let pole = self.poles[idx[1]];
+            let pole_weight = self.pole_weights[idx[1]];
+            match S::STATISTICS {
+                Statistics::Fermionic => {
+                    gtau_single_pole::<S>(tau_val, pole, self.beta) * pole_weight
+                }
+                Statistics::Bosonic => {
+                    if pole == 0.0 {
+                        self.zero_pole_tau_limit()
+                    } else {
+                        let tau_norm = normalize_tau::<S>(tau_val, self.beta).0;
+                        let denominator = -(-self.beta * pole).exp_m1();
+                        -(-tau_norm * pole).exp() * pole_weight / denominator
+                    }
+                }
             }
-        }
-
-        result
+        })
     }
 
     fn evaluate_matsubara(
@@ -564,15 +581,22 @@ where
         DTensor::<Complex<f64>, 2>::from_fn([n_points, n_poles], |idx| {
             let freq = &freqs[idx[0]];
             let pole = self.poles[idx[1]];
-            let regularizer = self.regularizers[idx[1]];
+            let pole_weight = self.pole_weights[idx[1]];
 
             // iν = i * π * (2n + ζ) / β
             let iv = freq.value_imaginary(self.beta);
 
-            // u_i(iν) = regularizer / (iν - pole_i)
-            // Fermionic: regularizer = 1.0
-            // Bosonic: regularizer = tanh(β·pole_i/2)
-            Complex::new(regularizer, 0.0) / (iv - Complex::new(pole, 0.0))
+            // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight`
+            // matches the ω-domain normalization of the source IR basis.
+            if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
+                if crate::freq::is_zero(freq) {
+                    Complex::new(self.zero_pole_matsubara_limit(), 0.0)
+                } else {
+                    Complex::new(0.0, 0.0)
+                }
+            } else {
+                Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0))
+            }
         })
     }
 
