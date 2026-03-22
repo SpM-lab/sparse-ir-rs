@@ -16,9 +16,11 @@ It does not cover the external full-featured Python wrapper in `SpM-lab/sparse-i
 4. Merge the release PR.
 5. Run `.github/workflows/manual-rust-release.yml` to publish `sparse-ir` and `sparse-ir-capi`.
 6. Let the release workflow push tag `vX.Y.Z`.
-7. Let `.github/workflows/PublishPyPI.yml` publish the Python wrapper from that tag.
-8. After crates.io publication and tag creation, bump `julia/build_tarballs.jl` if the BinaryBuilder recipe in this repo still needs to follow the release.
-9. After crates.io publication, bump `SpM-lab/SparseIR.jl` to the new backend version if that wrapper should consume the release.
+7. Let `.github/workflows/PublishPyPI.yml` publish `pylibsparseir` from that tag.
+8. Confirm that `pylibsparseir X.Y.Z` is actually available on PyPI before bumping downstream Python consumers that resolve from package indexes.
+9. After crates.io publication and tag creation, bump `julia/build_tarballs.jl` if the BinaryBuilder recipe in this repo still needs to follow the release.
+10. After crates.io publication, bump `SpM-lab/SparseIR.jl` to the new backend version if that wrapper should consume the release.
+11. After `pylibsparseir X.Y.Z` is available, bump `SpM-lab/sparse-ir` to depend on it.
 
 The critical dependency is that the Julia update script requires an existing `vX.Y.Z` tag, while the Python wrapper version must already match the workspace version before the Rust release.
 
@@ -67,7 +69,7 @@ cd python && uv sync && uv run pytest tests/ -v
 ### Publish Path
 
 - `.github/workflows/CI_PublishPyPI.yml` builds wheels on `main`, pull requests, and manual dispatch, then publishes to TestPyPI.
-- `.github/workflows/PublishPyPI.yml` builds wheels on `v*` tags and publishes to PyPI.
+- `.github/workflows/PublishPyPI.yml` builds wheels on `v*` tags and publishes `pylibsparseir` to PyPI.
 
 Normal release flow is:
 
@@ -75,6 +77,8 @@ Normal release flow is:
 2. merge the PR
 3. run `.github/workflows/manual-rust-release.yml`
 4. let the pushed `vX.Y.Z` tag trigger `.github/workflows/PublishPyPI.yml`
+
+If downstream projects resolve `pylibsparseir` from PyPI, wait until the package is visible there before updating those repositories.
 
 ## Julia Recipe
 
@@ -189,4 +193,41 @@ If needed, point it at a local backend checkout during coordinated development:
 ```bash
 export SPARSEIR_RUST_BACKEND_DIR=/path/to/sparse-ir-rs
 julia --project=. -e 'using Pkg; Pkg.build("SparseIR")'
+```
+
+## External Python Wrapper: `SpM-lab/sparse-ir`
+
+`SpM-lab/sparse-ir` depends on the published `pylibsparseir` package, so its resolver-based CI will not pass until `pylibsparseir X.Y.Z` is available on PyPI.
+
+### What to bump
+
+In `SpM-lab/sparse-ir`, update:
+
+- package version in `pyproject.toml`
+- `pylibsparseir>=X.Y.Z,<0.9.0` in `pyproject.toml`
+- `spm-lab::pylibsparseir >=X.Y.Z,<0.9.0` in `.conda/meta.yaml`
+
+### Verification
+
+Consistency check:
+
+```bash
+python3 check_libsparseir_version_consistency.py
+```
+
+After `pylibsparseir X.Y.Z` is published:
+
+```bash
+uv run pytest tests/ -q
+```
+
+Before publication, resolver-based `uv run` is expected to fail because the required `pylibsparseir` version is not on the index yet. In that case, verify against a local backend build instead:
+
+```bash
+python3 -m venv /tmp/sparse-ir-verify
+source /tmp/sparse-ir-verify/bin/activate
+python -m pip install -U pip setuptools wheel pytest numpy scipy
+python -m pip install /path/to/sparse-ir-rs/python
+python -m pip install -e /path/to/sparse-ir --no-deps
+pytest tests/ -q
 ```
