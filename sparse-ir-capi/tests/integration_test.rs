@@ -645,6 +645,93 @@ fn test_bosonic_dlr_tau_sampling_matches_dlr_funcs() {
 }
 
 #[test]
+fn test_bosonic_logistic_dlr_tau_sampling_matches_dlr_funcs() {
+    let beta = 1000.0;
+    let wmax = 2.0;
+    let epsilon = 1e-8;
+
+    unsafe {
+        let (kernel, sve, basis) = create_ir_basis(0, beta, wmax, epsilon);
+        let tau_points = get_default_tau_points(basis);
+        let num_tau = tau_points.len() as i32;
+
+        let mut dlr_status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new(basis, &mut dlr_status);
+        assert_eq!(dlr_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut npoles = 0;
+        spir_dlr_get_npoles(dlr, &mut npoles);
+        assert!(npoles > 0);
+
+        let mut sampling_status = SPIR_INTERNAL_ERROR;
+        let tau_sampling =
+            spir_tau_sampling_new(dlr, num_tau, tau_points.as_ptr(), &mut sampling_status);
+        assert_eq!(sampling_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut u_status = SPIR_INTERNAL_ERROR;
+        let dlr_u = spir_basis_get_u(dlr, &mut u_status);
+        assert_eq!(u_status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!dlr_u.is_null());
+
+        let coeffs: Vec<f64> = (0..npoles).map(|i| (i as f64 + 1.0) * 0.1).collect();
+
+        let mut gtau_from_funcs = vec![0.0; num_tau as usize];
+        for (i, &tau) in tau_points.iter().enumerate() {
+            let mut u_values = vec![0.0; npoles as usize];
+            let status = spir_funcs_eval(dlr_u, tau, u_values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(
+                u_values.iter().all(|value| value.is_finite()),
+                "DLR tau funcs must stay finite at tau = {}",
+                tau
+            );
+            gtau_from_funcs[i] = coeffs.iter().zip(&u_values).map(|(c, u)| c * u).sum();
+            assert!(
+                gtau_from_funcs[i].is_finite(),
+                "DLR tau funcs produced non-finite sampled value at tau = {}",
+                tau
+            );
+        }
+
+        let mut gtau_from_sampling = vec![0.0; num_tau as usize];
+        let dims = [npoles];
+        let status = spir_sampling_eval_dd(
+            tau_sampling,
+            std::ptr::null(),
+            SPIR_ORDER_ROW_MAJOR,
+            1,
+            dims.as_ptr(),
+            0,
+            coeffs.as_ptr(),
+            gtau_from_sampling.as_mut_ptr(),
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(
+            gtau_from_sampling.iter().all(|value| value.is_finite()),
+            "DLR tau sampling must stay finite for logistic bosons"
+        );
+
+        let max_diff = gtau_from_funcs
+            .iter()
+            .zip(&gtau_from_sampling)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0f64, f64::max);
+        assert!(
+            max_diff < 1e-8,
+            "Logistic bosonic DLR tau funcs and tau sampling should match, max diff = {:.3e}",
+            max_diff
+        );
+
+        spir_funcs_release(dlr_u);
+        spir_sampling_release(tau_sampling);
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
+
+#[test]
 fn test_bosonic_dlr_matsubara_sampling_matches_dlr_funcs() {
     let beta = 100.0;
     let wmax = 2.0;

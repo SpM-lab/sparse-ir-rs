@@ -618,3 +618,56 @@ fn test_fermionic_dlr_tau_sampling_matrix_matches_stable_kernel() {
         rel_error
     );
 }
+
+#[test]
+fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
+    let beta = 10_000.0;
+    let wmax = 1.0;
+    let epsilon = 1e-12;
+
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis);
+    let tau_points = basis.default_tau_sampling_points();
+    let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&dlr, tau_points.clone());
+
+    let expected = DTensor::<f64, 2>::from_fn([tau_points.len(), dlr.poles.len()], |idx| {
+        let tau = tau_points[idx[0]];
+        let pole = dlr.poles[idx[1]];
+        let (tau_norm, sign) = crate::taufuncs::normalize_tau::<Bosonic>(tau, beta);
+        let x = 2.0 * tau_norm / beta - 1.0;
+        let y = pole / wmax;
+        sign * (-kernel.compute(x, y))
+    });
+
+    let matrix = tau_sampling.matrix();
+    let mut max_diff = 0.0_f64;
+    let mut max_ref = 0.0_f64;
+    for i in 0..tau_points.len() {
+        for p in 0..dlr.poles.len() {
+            let actual = matrix[[i, p]];
+            let reference = expected[[i, p]];
+            assert!(
+                actual.is_finite(),
+                "tau sampling matrix contains non-finite value at ({}, {}) for pole {} and tau {}",
+                i,
+                p,
+                dlr.poles[p],
+                tau_points[i]
+            );
+            max_diff = max_diff.max((actual - reference).abs());
+            max_ref = max_ref.max(reference.abs());
+        }
+    }
+
+    let rel_error = if max_ref == 0.0 {
+        max_diff
+    } else {
+        max_diff / max_ref
+    };
+    assert!(
+        rel_error < 1e-12,
+        "bosonic logistic DLR tau sampling matrix mismatch: {:.3e}",
+        rel_error
+    );
+}
