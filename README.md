@@ -62,7 +62,6 @@ Note: the name **sparse-ir** is used both for the Rust crate (`sparse-ir`) and t
 | Example | Description |
 |---------|-------------|
 | [`sparse-ir/examples/roundtrip.rs`](sparse-ir/examples/roundtrip.rs) | Complete DLR/IR/sampling cycle with round-trip tests |
-| [`sparse-ir/examples/basisgen.rs`](sparse-ir/examples/basisgen.rs) | Basis generation and sampling point validation tests |
 | [`sparse-ir/tests/readme_examples.rs`](sparse-ir/tests/readme_examples.rs) | Basic usage examples |
 
 ### Fortran examples
