@@ -7,7 +7,9 @@ This demonstrates how to call the SparseIR Rust library from Julia.
 
 using Libdl: dlext
 # Load the shared library
-const libpath = "../../target/debug/libsparse_ir_capi.$(dlext)"  # macOS
+const libpath_release = joinpath(@__DIR__, "..", "..", "target", "release", "libsparse_ir_capi.$(dlext)")
+const libpath_debug = joinpath(@__DIR__, "..", "..", "target", "debug", "libsparse_ir_capi.$(dlext)")
+const libpath = isfile(libpath_release) ? libpath_release : libpath_debug
 
 # Error codes (compatible with libsparseir)
 const SPIR_COMPUTATION_SUCCESS = Int32(0)
