@@ -6,6 +6,7 @@ This is a low-level binding for the [sparse-ir-capi](https://github.com/SpM-lab/
 
 - Python >= 3.10
 - Rust toolchain (for building the Rust library)
+- [uv](https://docs.astral.sh/uv/) (for building and managing Python dependencies)
 - numpy >= 1.26.4
 - scipy
 
