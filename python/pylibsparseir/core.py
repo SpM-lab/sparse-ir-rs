@@ -106,7 +106,7 @@ try:
     _lib.spir_gemm_backend_new_from_fblas_lp64.restype = spir_gemm_backend
     _blas_backend = _lib.spir_gemm_backend_new_from_fblas_lp64(ptr, ptr_z)
 
-    if _blas_backend is None:
+    if not _blas_backend:
         raise RuntimeError("Failed to create BLAS backend handle")
 
     if os.environ.get("SPARSEIR_DEBUG", "").lower() in ("1", "true", "yes", "on"):
@@ -134,7 +134,7 @@ def release_blas_backend(backend):
     Args:
         backend: The backend handle to release (can be None).
     """
-    if backend is not None:
+    if backend:
         _lib.spir_gemm_backend_release.argtypes = [spir_gemm_backend]
         _lib.spir_gemm_backend_release.restype = None
         _lib.spir_gemm_backend_release(backend)
@@ -515,26 +515,26 @@ def basis_get_default_matsubara_sampling_points(basis, positive_only=False):
     # Get number of points
     n_points = c_int()
     status = _lib.spir_basis_get_n_default_matsus(
-        basis, c_int(1 if positive_only else 0), byref(n_points))
+        basis, c_bool(positive_only), byref(n_points))
     if status != COMPUTATION_SUCCESS:
         raise RuntimeError(
             f"Failed to get number of default Matsubara points: {status}")
 
     # Get the points
     points = np.zeros(n_points.value, dtype=np.int64)
-    status = _lib.spir_basis_get_default_matsus(basis, c_int(
-        1 if positive_only else 0), points.ctypes.data_as(POINTER(c_int64)))
+    status = _lib.spir_basis_get_default_matsus(basis, c_bool(
+        positive_only), points.ctypes.data_as(POINTER(c_int64)))
     if status != COMPUTATION_SUCCESS:
         raise RuntimeError(f"Failed to get default Matsubara points: {status}")
 
     return points
 
 
-def basis_get_n_default_matsus_ext(basis, n_points, positive_only):
+def basis_get_n_default_matsus_ext(basis, n_points, positive_only, mitigate=False):
     """Get the number of default Matsubara sampling points for a basis."""
     n_points_returned = c_int()
     status = _lib.spir_basis_get_n_default_matsus_ext(
-        basis, c_int(1 if positive_only else 0), n_points, byref(n_points_returned))
+        basis, c_bool(positive_only), c_bool(mitigate), c_int(n_points), byref(n_points_returned))
     if status != COMPUTATION_SUCCESS:
         raise RuntimeError(
             f"Failed to get number of default Matsubara points: {status}")
@@ -544,8 +544,8 @@ def basis_get_n_default_matsus_ext(basis, n_points, positive_only):
 def basis_get_default_matsus_ext(basis, positive_only, points):
     n_points = len(points)
     n_points_returned = c_int()
-    status = _lib.spir_basis_get_default_matsus_ext(basis, c_int(
-        1 if positive_only else 0), c_int(0), n_points, points.ctypes.data_as(POINTER(c_int64)), byref(n_points_returned))
+    status = _lib.spir_basis_get_default_matsus_ext(basis, c_bool(
+        positive_only), c_bool(False), c_int(n_points), points.ctypes.data_as(POINTER(c_int64)), byref(n_points_returned))
     if status != COMPUTATION_SUCCESS:
         raise RuntimeError(f"Failed to get default Matsubara points: {status}")
     return points
