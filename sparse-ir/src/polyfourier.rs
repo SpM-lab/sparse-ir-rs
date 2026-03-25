@@ -750,7 +750,60 @@ fn func_for_part<S: StatisticsType + 'static>(
     })
 }
 
-/// Find all sign changes of a function on a grid
+/// Integer bisection: find the zero crossing of f in [a, b] where f(a) and f(b)
+/// have different signs. Returns the largest integer x such that f(x) has the
+/// same sign as f(a). Matches Julia's `bisect` implementation.
+fn bisect(f: &dyn Fn(i64) -> f64, a: i64, b: i64, fa: f64) -> i64 {
+    let mut lo = a;
+    let mut hi = b;
+    let mut flo = fa;
+
+    while (hi - lo).abs() > 1 {
+        let mid = lo + (hi - lo) / 2;
+        let fmid = f(mid);
+        if flo.signum() != fmid.signum() {
+            hi = mid;
+        } else {
+            lo = mid;
+            flo = fmid;
+        }
+    }
+    lo
+}
+
+/// Integer bisection for extrema: find the discrete extremum of f in [a, b].
+/// Returns the integer x in [a, b] that maximizes |f(x)|.
+/// Matches Julia's `bisect_discr_extremum` implementation.
+fn bisect_discr_extremum(f: &dyn Fn(i64) -> f64, a: i64, b: i64) -> i64 {
+    let mut lo = a;
+    let mut hi = b;
+
+    while hi - lo > 2 {
+        let mid1 = lo + (hi - lo) / 3;
+        let mid2 = hi - (hi - lo) / 3;
+        if f(mid1).abs() < f(mid2).abs() {
+            lo = mid1;
+        } else {
+            hi = mid2;
+        }
+    }
+
+    // Check all remaining candidates
+    let mut best = lo;
+    let mut best_val = f(lo).abs();
+    for x in (lo + 1)..=hi {
+        let val = f(x).abs();
+        if val > best_val {
+            best = x;
+            best_val = val;
+        }
+    }
+    best
+}
+
+/// Find all sign changes of a function on a grid, using bisection to locate
+/// the precise integer position within each grid interval.
+/// Matches Julia's `find_all` with `bisect`.
 fn find_all(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
     if xgrid.is_empty() {
         return Vec::new();
@@ -761,8 +814,11 @@ fn find_all(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
 
     for i in 1..xgrid.len() {
         let val = f(xgrid[i]);
-        if prev_val.signum() != val.signum() && val != 0.0 {
-            results.push(xgrid[i - 1]);
+        // Detect sign change (both values must be nonzero)
+        if prev_val.signum() != val.signum() && prev_val != 0.0 && val != 0.0 {
+            // Bisect to find precise integer location of the zero
+            let root = bisect(f, xgrid[i - 1], xgrid[i], prev_val);
+            results.push(root);
         }
         prev_val = val;
     }
@@ -770,29 +826,38 @@ fn find_all(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
     results
 }
 
-/// Find discrete extrema of a function on a grid
+/// Find discrete extrema of a function on a grid, using bisection to locate
+/// the precise integer position within each grid interval.
+/// Also checks boundary extrema. Matches Julia's `discrete_extrema` with
+/// `bisect_discr_extremum`.
 fn discrete_extrema(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
-    let mut results = Vec::new();
-
     if xgrid.len() < 3 {
-        return results;
+        return Vec::new();
     }
 
-    let mut prev_val = f(xgrid[0]);
-    let mut curr_val = f(xgrid[1]);
+    let mut results = Vec::new();
+    let fx: Vec<f64> = xgrid.iter().map(|&x| f(x)).collect();
 
-    for i in 2..xgrid.len() {
-        let next_val = f(xgrid[i]);
+    // Check boundary: first point is extremum if |f(first)| > |f(second)|
+    if fx[0].abs() > fx[1].abs() {
+        results.push(xgrid[0]);
+    }
 
-        // Check if curr_val is a local extremum
-        if (curr_val > prev_val && curr_val > next_val)
-            || (curr_val < prev_val && curr_val < next_val)
-        {
-            results.push(xgrid[i - 1]);
+    // Interior extrema
+    for i in 1..fx.len() - 1 {
+        let is_extremum =
+            (fx[i] > fx[i - 1] && fx[i] > fx[i + 1]) || (fx[i] < fx[i - 1] && fx[i] < fx[i + 1]);
+        if is_extremum {
+            // Bisect within [xgrid[i-1], xgrid[i+1]] to find precise location
+            let refined = bisect_discr_extremum(f, xgrid[i - 1], xgrid[i + 1]);
+            results.push(refined);
         }
+    }
 
-        prev_val = curr_val;
-        curr_val = next_val;
+    // Check boundary: last point is extremum if |f(last)| > |f(second-to-last)|
+    let n = fx.len();
+    if fx[n - 1].abs() > fx[n - 2].abs() {
+        results.push(xgrid[n - 1]);
     }
 
     results
