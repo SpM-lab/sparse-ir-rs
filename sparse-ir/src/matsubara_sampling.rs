@@ -727,7 +727,11 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         // Sort and validate (all n >= 0)
         sampling_points.sort();
 
-        // TODO: Validate that all points are non-negative
+        // Validate that all points are non-negative
+        assert!(
+            sampling_points.iter().all(|f| f.n() >= 0),
+            "All sampling points must be non-negative for positive-only Matsubara sampling"
+        );
 
         // Evaluate matrix at sampling points
         // Use Basis trait's evaluate_matsubara method
