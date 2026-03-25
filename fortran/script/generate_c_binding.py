@@ -27,6 +27,8 @@ def map_c_type_to_fortran(ctype):
     kind = ctype.kind
     if kind == TypeKind.VOID:
         return 'subroutine'
+    elif kind == TypeKind.BOOL:
+        return 'logical(c_bool), value'
     elif kind == TypeKind.DOUBLE:
         return 'real(c_double), value'
     elif kind == TypeKind.INT or kind == TypeKind.INT:
@@ -124,6 +126,8 @@ def generate_fortran_interface(cursor, types):
     def add_imports_from_ftype(ftype: str):
         if 'c_ptr' in ftype:
             import_types.add('c_ptr')
+        if 'c_bool' in ftype:
+            import_types.add('c_bool')
         if 'c_double_complex' in ftype:
             import_types.add('c_double_complex')
         if 'c_double' in ftype:

@@ -57,14 +57,16 @@ def generate_dlr2ir_function(ndim, input_type, output_type):
     c_function = f"c_spir_dlr2ir_{func_suffix}"
     
     # Generate the function
-    function = f"""SUBROUTINE dlr2ir_{func_suffix}_{ndim}d(obj, target_dim, arr, res)
+    function = f"""SUBROUTINE dlr2ir_{func_suffix}_{ndim}d(obj, statistics, target_dim, arr, res)
   TYPE(IR), INTENT(IN) :: obj
+  INTEGER(KIND=c_int32_t), INTENT(IN) :: statistics
   INTEGER, INTENT(IN) :: target_dim
   {input_fortran_type}, INTENT(IN), TARGET :: arr {shape_str}
   {output_fortran_type}, INTENT(OUT), TARGET :: res {shape_str}
 
   INTEGER(KIND=c_int) :: ndim_c, target_dim_c, status_c
   {dim_array_decl}
+  TYPE(c_ptr) :: dlr_ptr
   input_dims_c = SHAPE(arr)
   output_dims_c = SHAPE(res)
   ndim_c = {ndim}
@@ -81,9 +83,15 @@ def generate_dlr2ir_function(ndim, input_type, output_type):
   IF (SIZE(res, target_dim) /= obj%size) THEN
      CALL errore('dlr2ir_{func_suffix}_{ndim}d', 'Output dimension is not the same as the size of the IR', 1)
   ENDIF
+  ! Select DLR pointer based on statistics
+  IF (statistics == SPIR_STATISTICS_FERMIONIC) THEN
+    dlr_ptr = obj%dlr_f_ptr
+  ELSE
+    dlr_ptr = obj%dlr_b_ptr
+  END IF
   target_dim_c = target_dim - 1
 
-  status_c = {c_function}(obj%dlr_f_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
+  status_c = {c_function}(dlr_ptr, obj%backend_ptr, SPIR_ORDER_COLUMN_MAJOR, &
     ndim_c, c_loc(input_dims_c), target_dim_c, c_loc(arr), c_loc(res))
   IF (status_c /= 0) THEN
     CALL errore('dlr2ir_{func_suffix}_{ndim}d', 'Error converting DLR to IR', INT(status_c))

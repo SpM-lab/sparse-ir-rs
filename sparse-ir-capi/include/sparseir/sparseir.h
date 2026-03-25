@@ -149,7 +149,14 @@ extern "C" {
  struct spir_basis *spir_basis_clone(const struct spir_basis *src);
 
 /**
- * Manual is_assigned function (replaces macro-generated one)
+ * Check if the basis pointer is non-null.
+ *
+ * Note: This only performs a null check. It cannot detect dangling
+ * pointers; dereferencing an arbitrary non-null pointer would be
+ * undefined behaviour that `catch_unwind` cannot reliably catch.
+ *
+ * # Returns
+ * 1 if the pointer is non-null, 0 otherwise
  */
  int32_t spir_basis_is_assigned(const struct spir_basis *obj);
 
@@ -195,8 +202,9 @@ struct spir_basis *spir_basis_new(int statistics,
  * * `omega_max` - Frequency cutoff (must be > 0)
  * * `epsilon` - Accuracy target (must be > 0)
  * * `lambda` - Kernel parameter Λ = β * ωmax (must be > 0)
- * * `ypower` - Power of y in kernel (typically 0 or 1)
- * * `conv_radius` - Convergence radius for Fourier transform
+ * * `ypower` - Power of y in kernel: 0 for `LogisticKernel`, 1 for `RegularizedBoseKernel`.
+ *              Other values return `SPIR_INVALID_ARGUMENT`.
+ * * `conv_radius` - Convergence radius for Fourier transform (currently unused)
  * * `sve` - Pre-computed SVE result (must not be NULL)
  * * `regularizer_funcs` - Custom regularizer function (must not be NULL)
  * * `max_size` - Maximum basis size (-1 for no limit)
@@ -206,10 +214,9 @@ struct spir_basis *spir_basis_new(int statistics,
  * * Pointer to basis object, or NULL on failure
  *
  * # Note
- * Currently, the regularizer function is evaluated but the custom weight is not
- * fully integrated into the basis construction. The basis is created using
- * the standard from_sve_result method with the kernel's default regularizer.
- * This is a limitation of the current Rust implementation compared to the C++ version.
+ * The kernel type is determined by `ypower`: 0 selects `LogisticKernel`, 1 selects
+ * `RegularizedBoseKernel`. The regularizer function is evaluated for validity but
+ * the custom weight is not yet fully integrated into basis construction.
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
@@ -220,7 +227,7 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
                                                            double omega_max,
                                                            double epsilon,
                                                            double lambda,
-                                                           int _ypower,
+                                                           int ypower,
                                                            double _conv_radius,
                                                            const struct spir_sve_result *sve,
                                                            const struct spir_funcs *regularizer_funcs,
@@ -714,7 +721,14 @@ StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
  struct spir_funcs *spir_funcs_clone(const struct spir_funcs *src);
 
 /**
- * Manual is_assigned function (replaces macro-generated one)
+ * Check if the funcs pointer is non-null.
+ *
+ * Note: This only performs a null check. It cannot detect dangling
+ * pointers; dereferencing an arbitrary non-null pointer would be
+ * undefined behaviour that `catch_unwind` cannot reliably catch.
+ *
+ * # Returns
+ * 1 if the pointer is non-null, 0 otherwise
  */
  int32_t spir_funcs_is_assigned(const struct spir_funcs *obj);
 
@@ -1104,7 +1118,14 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
  struct spir_kernel *spir_kernel_clone(const struct spir_kernel *src);
 
 /**
- * Manual is_assigned function (replaces macro-generated one)
+ * Check if the kernel pointer is non-null.
+ *
+ * Note: This only performs a null check. It cannot detect dangling
+ * pointers; dereferencing an arbitrary non-null pointer would be
+ * undefined behaviour that `catch_unwind` cannot reliably catch.
+ *
+ * # Returns
+ * 1 if the pointer is non-null, 0 otherwise
  */
  int32_t spir_kernel_is_assigned(const struct spir_kernel *obj);
 
@@ -1134,14 +1155,16 @@ StatusCode spir_kernel_get_domain(const struct spir_kernel *k,
  * Get x-segments for SVE discretization hints from a kernel
  *
  * This function should be called twice:
- * 1. First call with segments=NULL: set n_segments to the required array size
- * 2. Second call with segments allocated: fill segments[0..n_segments-1] with values
+ * 1. First call with segments=NULL: sets `*n_segments` to the number of segment intervals.
+ * 2. Second call with segments allocated: fills `segments[0..n_segments]` with boundary
+ *    points (`n_segments + 1` values total). The caller must allocate at least
+ *    `n_segments + 1` elements.
  *
  * # Arguments
  * * `k` - Kernel object
  * * `epsilon` - Accuracy target for the basis
  * * `segments` - Pointer to store segments array (NULL for first call)
- * * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segments
+ * * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segment intervals
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` on success
@@ -1158,14 +1181,16 @@ StatusCode spir_kernel_get_sve_hints_segments_x(const struct spir_kernel *k,
  * Get y-segments for SVE discretization hints from a kernel
  *
  * This function should be called twice:
- * 1. First call with segments=NULL: set n_segments to the required array size
- * 2. Second call with segments allocated: fill segments[0..n_segments-1] with values
+ * 1. First call with segments=NULL: sets `*n_segments` to the number of segment intervals.
+ * 2. Second call with segments allocated: fills `segments[0..n_segments]` with boundary
+ *    points (`n_segments + 1` values total). The caller must allocate at least
+ *    `n_segments + 1` elements.
  *
  * # Arguments
  * * `k` - Kernel object
  * * `epsilon` - Accuracy target for the basis
  * * `segments` - Pointer to store segments array (NULL for first call)
- * * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segments
+ * * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segment intervals
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` on success
@@ -1225,7 +1250,14 @@ StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
  struct spir_sampling *spir_sampling_clone(const struct spir_sampling *src);
 
 /**
- * Manual is_assigned function (replaces macro-generated one)
+ * Check if the sampling pointer is non-null.
+ *
+ * Note: This only performs a null check. It cannot detect dangling
+ * pointers; dereferencing an arbitrary non-null pointer would be
+ * undefined behaviour that `catch_unwind` cannot reliably catch.
+ *
+ * # Returns
+ * 1 if the pointer is non-null, 0 otherwise
  */
  int32_t spir_sampling_is_assigned(const struct spir_sampling *obj);
 
@@ -1616,7 +1648,14 @@ StatusCode spir_sampling_fit_zd(const struct spir_sampling *s,
  struct spir_sve_result *spir_sve_result_clone(const struct spir_sve_result *src);
 
 /**
- * Manual is_assigned function (replaces macro-generated one)
+ * Check if the SVE result pointer is non-null.
+ *
+ * Note: This only performs a null check. It cannot detect dangling
+ * pointers; dereferencing an arbitrary non-null pointer would be
+ * undefined behaviour that `catch_unwind` cannot reliably catch.
+ *
+ * # Returns
+ * 1 if the pointer is non-null, 0 otherwise
  */
  int32_t spir_sve_result_is_assigned(const struct spir_sve_result *obj);
 

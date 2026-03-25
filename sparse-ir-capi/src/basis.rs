@@ -38,19 +38,17 @@ pub unsafe extern "C" fn spir_basis_clone(src: *const spir_basis) -> *mut spir_b
     result.unwrap_or(std::ptr::null_mut())
 }
 
-/// Manual is_assigned function (replaces macro-generated one)
+/// Check if the basis pointer is non-null.
+///
+/// Note: This only performs a null check. It cannot detect dangling
+/// pointers; dereferencing an arbitrary non-null pointer would be
+/// undefined behaviour that `catch_unwind` cannot reliably catch.
+///
+/// # Returns
+/// 1 if the pointer is non-null, 0 otherwise
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
-    if obj.is_null() {
-        return 0;
-    }
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-        let _ = &*obj;
-        1
-    }));
-
-    result.unwrap_or(0)
+    if obj.is_null() { 0 } else { 1 }
 }
 
 /// Create a finite temperature basis (libsparseir compatible)
@@ -235,8 +233,9 @@ pub extern "C" fn spir_basis_new(
 /// * `omega_max` - Frequency cutoff (must be > 0)
 /// * `epsilon` - Accuracy target (must be > 0)
 /// * `lambda` - Kernel parameter Λ = β * ωmax (must be > 0)
-/// * `ypower` - Power of y in kernel (typically 0 or 1)
-/// * `conv_radius` - Convergence radius for Fourier transform
+/// * `ypower` - Power of y in kernel: 0 for `LogisticKernel`, 1 for `RegularizedBoseKernel`.
+///              Other values return `SPIR_INVALID_ARGUMENT`.
+/// * `conv_radius` - Convergence radius for Fourier transform (currently unused)
 /// * `sve` - Pre-computed SVE result (must not be NULL)
 /// * `regularizer_funcs` - Custom regularizer function (must not be NULL)
 /// * `max_size` - Maximum basis size (-1 for no limit)
@@ -246,10 +245,9 @@ pub extern "C" fn spir_basis_new(
 /// * Pointer to basis object, or NULL on failure
 ///
 /// # Note
-/// Currently, the regularizer function is evaluated but the custom weight is not
-/// fully integrated into the basis construction. The basis is created using
-/// the standard from_sve_result method with the kernel's default regularizer.
-/// This is a limitation of the current Rust implementation compared to the C++ version.
+/// The kernel type is determined by `ypower`: 0 selects `LogisticKernel`, 1 selects
+/// `RegularizedBoseKernel`. The regularizer function is evaluated for validity but
+/// the custom weight is not yet fully integrated into basis construction.
 ///
 /// # Safety
 /// The caller must ensure `status` is a valid pointer.
@@ -260,7 +258,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
     omega_max: f64,
     epsilon: f64,
     lambda: f64,
-    _ypower: libc::c_int,
+    ypower: libc::c_int,
     _conv_radius: f64,
     sve: *const spir_sve_result,
     regularizer_funcs: *const spir_funcs,
@@ -304,6 +302,14 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
         return std::ptr::null_mut();
     }
 
+    // Validate ypower: 0 => LogisticKernel, 1 => RegularizedBoseKernel
+    if ypower != 0 && ypower != 1 {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
     // Convert max_size
     let max_size_opt = if max_size < 0 {
         None
@@ -326,41 +332,68 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
             }
         };
 
-        // Create kernel with the specified lambda
-        // Note: We need to determine kernel type from SVE result or use default LogisticKernel
-        // For now, we'll use LogisticKernel as default
-        use sparse_ir::kernel::LogisticKernel;
-        let kernel = LogisticKernel::new(lambda);
+        // Select kernel type based on ypower:
+        //   ypower == 0 => LogisticKernel
+        //   ypower == 1 => RegularizedBoseKernel
+        if ypower == 0 {
+            use sparse_ir::kernel::LogisticKernel;
+            let kernel = LogisticKernel::new(lambda);
 
-        // Create basis using from_sve_result
-        // Note: The custom regularizer is not currently used in the Rust implementation
-        // This is a limitation compared to the C++ version
-        if statistics == SPIR_STATISTICS_FERMIONIC {
-            // Fermionic
-            let basis =
-                FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Fermionic>::from_sve_result(
-                    kernel,
-                    beta,
-                    sve_result,
-                    Some(epsilon),
-                    max_size_opt,
-                );
-            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
-                spir_basis::new_logistic_fermionic(basis),
-            )))
+            if statistics == SPIR_STATISTICS_FERMIONIC {
+                let basis =
+                    FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Fermionic>::from_sve_result(
+                        kernel,
+                        beta,
+                        sve_result,
+                        Some(epsilon),
+                        max_size_opt,
+                    );
+                Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
+                    spir_basis::new_logistic_fermionic(basis),
+                )))
+            } else {
+                let basis =
+                    FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Bosonic>::from_sve_result(
+                        kernel,
+                        beta,
+                        sve_result,
+                        Some(epsilon),
+                        max_size_opt,
+                    );
+                Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
+                    spir_basis::new_logistic_bosonic(basis),
+                )))
+            }
         } else {
-            // Bosonic
-            let basis =
-                FiniteTempBasis::<LogisticKernel, sparse_ir::traits::Bosonic>::from_sve_result(
-                    kernel,
-                    beta,
-                    sve_result,
-                    Some(epsilon),
-                    max_size_opt,
-                );
-            Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
-                spir_basis::new_logistic_bosonic(basis),
-            )))
+            // ypower == 1
+            use sparse_ir::kernel::RegularizedBoseKernel;
+            let kernel = RegularizedBoseKernel::new(lambda);
+
+            if statistics == SPIR_STATISTICS_FERMIONIC {
+                let basis =
+                    FiniteTempBasis::<RegularizedBoseKernel, sparse_ir::traits::Fermionic>::from_sve_result(
+                        kernel,
+                        beta,
+                        sve_result,
+                        Some(epsilon),
+                        max_size_opt,
+                    );
+                Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
+                    spir_basis::new_regularized_bose_fermionic(basis),
+                )))
+            } else {
+                let basis =
+                    FiniteTempBasis::<RegularizedBoseKernel, sparse_ir::traits::Bosonic>::from_sve_result(
+                        kernel,
+                        beta,
+                        sve_result,
+                        Some(epsilon),
+                        max_size_opt,
+                    );
+                Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
+                    spir_basis::new_regularized_bose_bosonic(basis),
+                )))
+            }
         }
     }));
 

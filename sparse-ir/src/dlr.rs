@@ -546,18 +546,27 @@ where
     }
 
     fn default_tau_sampling_points(&self) -> Vec<f64> {
-        // TODO: Could use the original IR basis sampling points
-        // For now, return empty - not well-defined for DLR
-        vec![]
+        // DLR does not own the underlying IR basis, so it cannot delegate.
+        // Callers should obtain tau sampling points from the IR basis that
+        // was used to construct this DLR, e.g. `ir_basis.default_tau_sampling_points()`.
+        unimplemented!(
+            "DLR does not directly support default tau sampling points; \
+             use the underlying IR basis"
+        )
     }
 
     fn default_matsubara_sampling_points(
         &self,
         _positive_only: bool,
     ) -> Vec<crate::freq::MatsubaraFreq<S>> {
-        // TODO: Could use the original IR basis sampling points
-        // For now, return empty - not well-defined for DLR
-        vec![]
+        // DLR does not own the underlying IR basis, so it cannot delegate.
+        // Callers should obtain Matsubara sampling points from the IR basis
+        // that was used to construct this DLR, e.g.
+        // `ir_basis.default_matsubara_sampling_points(positive_only)`.
+        unimplemented!(
+            "DLR does not directly support default Matsubara sampling points; \
+             use the underlying IR basis"
+        )
     }
 
     fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
@@ -624,15 +633,22 @@ where
         })
     }
 
-    fn evaluate_omega(&self, omega: &[f64]) -> mdarray::DTensor<f64, 2> {
-        use mdarray::DTensor;
-
-        let n_points = omega.len();
-        let n_poles = self.poles.len();
-
-        // For DLR, this could return identity or delta function
-        // For now, return zeros (not well-defined)
-        DTensor::<f64, 2>::from_fn([n_points, n_poles], |_idx| 0.0)
+    fn evaluate_omega(&self, _omega: &[f64]) -> mdarray::DTensor<f64, 2> {
+        // TODO(#205): For the IR basis, evaluate_omega returns V_l(omega).
+        // For DLR, the "basis functions" in omega-space are single-pole
+        // functions (conceptually delta functions at the pole positions),
+        // which do not have a well-defined continuous representation on the
+        // real-frequency axis analogous to V_l(omega).  A proper
+        // implementation would require either:
+        //   (a) returning the IR basis's V_l(omega) (but DLR does not store
+        //       the IR basis), or
+        //   (b) defining an appropriate discretized representation for the
+        //       pole basis in omega-space.
+        // Until the semantics are clarified, this remains unimplemented.
+        unimplemented!(
+            "evaluate_omega is not well-defined for DLR; \
+             use the underlying IR basis for real-frequency evaluation"
+        )
     }
 
     fn default_omega_sampling_points(&self) -> Vec<f64> {

@@ -123,9 +123,9 @@ end function
 function c_spir_basis_get_n_default_matsus( &
     & b, positive_only, num_points) &
     bind(c, name="spir_basis_get_n_default_matsus")
-  import :: c_int, c_ptr
+  import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
-  integer(c_int), value :: positive_only
+  logical(c_bool), value :: positive_only
   type(c_ptr), value :: num_points
   integer(c_int) :: c_spir_basis_get_n_default_matsus
 
@@ -134,9 +134,9 @@ end function
 function c_spir_basis_get_default_matsus( &
     & b, positive_only, points) &
     bind(c, name="spir_basis_get_default_matsus")
-  import :: c_int, c_ptr
+  import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
-  integer(c_int), value :: positive_only
+  logical(c_bool), value :: positive_only
   type(c_ptr), value :: points
   integer(c_int) :: c_spir_basis_get_default_matsus
 
@@ -217,9 +217,9 @@ end function
 function c_spir_basis_get_n_default_matsus_ext( &
     & b, positive_only, L, num_points_returned) &
     bind(c, name="spir_basis_get_n_default_matsus_ext")
-  import :: c_int, c_ptr
+  import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
-  integer(c_int), value :: positive_only
+  logical(c_bool), value :: positive_only
   integer(c_int), value :: L
   type(c_ptr), value :: num_points_returned
   integer(c_int) :: c_spir_basis_get_n_default_matsus_ext
@@ -229,10 +229,10 @@ end function
 function c_spir_basis_get_default_matsus_ext( &
     & b, positive_only, mitigate, n_points, points, n_points_returned) &
     bind(c, name="spir_basis_get_default_matsus_ext")
-  import :: c_int, c_ptr
+  import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
-  integer(c_int), value :: positive_only
-  integer(c_int), value :: mitigate
+  logical(c_bool), value :: positive_only
+  logical(c_bool), value :: mitigate
   integer(c_int), value :: n_points
   type(c_ptr), value :: points
   type(c_ptr), value :: n_points_returned
@@ -478,11 +478,11 @@ end function
 function c_spir_uhat_get_default_matsus( &
     & uhat, l, positive_only, mitigate, points, n_points_returned) &
     bind(c, name="spir_uhat_get_default_matsus")
-  import :: c_int, c_ptr
+  import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: uhat
   integer(c_int), value :: l
-  integer(c_int), value :: positive_only
-  integer(c_int), value :: mitigate
+  logical(c_bool), value :: positive_only
+  logical(c_bool), value :: mitigate
   type(c_ptr), value :: points
   type(c_ptr), value :: n_points_returned
   integer(c_int) :: c_spir_uhat_get_default_matsus
@@ -682,9 +682,9 @@ end function
 function c_spir_matsu_sampling_new( &
     & b, positive_only, num_points, points, status) &
     bind(c, name="spir_matsu_sampling_new")
-  import :: c_int, c_ptr
+  import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
-  integer(c_int), value :: positive_only
+  logical(c_bool), value :: positive_only
   integer(c_int), value :: num_points
   type(c_ptr), value :: points
   type(c_ptr), value :: status
@@ -710,11 +710,11 @@ end function
 function c_spir_matsu_sampling_new_with_matrix( &
     & order, statistics, basis_size, positive_only, num_points, points, matrix, status) &
     bind(c, name="spir_matsu_sampling_new_with_matrix")
-  import :: c_int, c_ptr
+  import :: c_bool, c_int, c_ptr
   integer(c_int), value :: order
   integer(c_int), value :: statistics
   integer(c_int), value :: basis_size
-  integer(c_int), value :: positive_only
+  logical(c_bool), value :: positive_only
   integer(c_int), value :: num_points
   type(c_ptr), value :: points
   type(c_ptr), value :: matrix

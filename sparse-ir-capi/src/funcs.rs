@@ -32,19 +32,17 @@ pub extern "C" fn spir_funcs_clone(src: *const spir_funcs) -> *mut spir_funcs {
     result.unwrap_or(std::ptr::null_mut())
 }
 
-/// Manual is_assigned function (replaces macro-generated one)
+/// Check if the funcs pointer is non-null.
+///
+/// Note: This only performs a null check. It cannot detect dangling
+/// pointers; dereferencing an arbitrary non-null pointer would be
+/// undefined behaviour that `catch_unwind` cannot reliably catch.
+///
+/// # Returns
+/// 1 if the pointer is non-null, 0 otherwise
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_funcs_is_assigned(obj: *const spir_funcs) -> i32 {
-    if obj.is_null() {
-        return 0;
-    }
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-        let _ = &*obj;
-        1
-    }));
-
-    result.unwrap_or(0)
+    if obj.is_null() { 0 } else { 1 }
 }
 
 /// Compute the n-th derivative of basis functions

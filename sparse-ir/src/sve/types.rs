@@ -68,8 +68,13 @@ pub fn safe_epsilon(
         other => other,
     };
 
-    // Next, work out the actual epsilon
-    let safe_eps = match twork_actual {
+    // Next, work out the actual epsilon.
+    // The precision floor is the smallest epsilon achievable with the chosen
+    // working type.  The returned epsilon is the *larger* of the user's
+    // request and this floor so that (a) we never promise more accuracy than
+    // the arithmetic can deliver and (b) a user who asks for *less* accuracy
+    // actually gets what they asked for.
+    let precision_floor = match twork_actual {
         TworkType::Float64 => {
             // This is technically a bit too low (the true value is about 1.5e-8),
             // but it's not too far off and easier to remember for the user.
@@ -81,6 +86,11 @@ pub fn safe_epsilon(
             crate::Df64::epsilon().sqrt().to_f64()
         }
         _ => 1e-8,
+    };
+    let safe_eps = if epsilon.is_nan() {
+        precision_floor
+    } else {
+        epsilon.max(precision_floor)
     };
 
     // Work out the SVD strategy to be used
@@ -105,25 +115,26 @@ mod tests {
 
     #[test]
     fn test_safe_epsilon_auto_float64() {
+        // epsilon=1e-7 > floor=1e-8 → safe_eps should honour the user's request
         let (safe_eps, twork, _) = safe_epsilon(1e-7, TworkType::Auto, SVDStrategy::Auto);
         assert_eq!(twork, TworkType::Float64);
-        assert_eq!(safe_eps, 1e-8);
+        assert_eq!(safe_eps, 1e-7);
     }
 
     #[test]
     fn test_safe_epsilon_auto_float64x2() {
+        // epsilon=1e-10 > floor≈1.57e-16 → safe_eps should be the user's epsilon
         let (safe_eps, twork, _) = safe_epsilon(1e-10, TworkType::Auto, SVDStrategy::Auto);
         assert_eq!(twork, TworkType::Float64X2);
-        // sqrt(Df64 epsilon) ≈ 1.57e-16
-        assert!((safe_eps - 1.5700924586837752e-16).abs() < 1e-20);
+        assert_eq!(safe_eps, 1e-10);
     }
 
     #[test]
     fn test_safe_epsilon_explicit_precision() {
+        // epsilon=1e-7 > floor≈1.57e-16 → safe_eps should honour the user's epsilon
         let (safe_eps, twork, _) = safe_epsilon(1e-7, TworkType::Float64X2, SVDStrategy::Auto);
         assert_eq!(twork, TworkType::Float64X2);
-        // sqrt(Df64 epsilon) ≈ 1.57e-16
-        assert!((safe_eps - 1.5700924586837752e-16).abs() < 1e-20);
+        assert_eq!(safe_eps, 1e-7);
     }
 
     #[test]

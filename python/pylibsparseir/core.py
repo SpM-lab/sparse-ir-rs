@@ -2,6 +2,7 @@
 Core functionality for the SparseIR Python bindings.
 """
 
+import atexit
 import os
 import sys
 import ctypes
@@ -149,6 +150,15 @@ def release_blas_backend(backend):
         _lib.spir_gemm_backend_release.argtypes = [spir_gemm_backend]
         _lib.spir_gemm_backend_release.restype = None
         _lib.spir_gemm_backend_release(backend)
+
+
+def _cleanup_blas_backend():
+    global _blas_backend
+    if _blas_backend:
+        release_blas_backend(_blas_backend)
+        _blas_backend = None
+
+atexit.register(_cleanup_blas_backend)
 
 
 class c_double_complex(ctypes.Structure):
@@ -598,8 +608,8 @@ def tau_sampling_new_with_matrix(basis, statistics, sampling_points, matrix):
     sampling = _lib.spir_tau_sampling_new_with_matrix(
         SPIR_ORDER_ROW_MAJOR,
         _statistics_to_c(statistics),
-        basis.size,
-        sampling_points.size,
+        basis_get_size(basis),
+        len(sampling_points),
         sampling_points.ctypes.data_as(POINTER(c_double)),
         matrix.ctypes.data_as(POINTER(c_double)),
         byref(status)

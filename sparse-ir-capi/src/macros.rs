@@ -99,24 +99,19 @@ macro_rules! impl_opaque_type_common {
                 result.unwrap_or(std::ptr::null_mut())
             }
 
-            /// Check if the object pointer is valid (non-null and dereferenceable)
+            /// Check if the object pointer is non-null.
+            ///
+            /// Note: This only performs a null check. It cannot detect dangling
+            /// pointers; dereferencing an arbitrary non-null pointer would be
+            /// undefined behaviour that `catch_unwind` cannot reliably catch.
             ///
             /// # Returns
-            /// 1 if the object is valid, 0 otherwise
+            /// 1 if the pointer is non-null, 0 otherwise
             #[unsafe(no_mangle)]
             pub extern "C" fn [<spir_ $type_name _is_assigned>](
                 obj: *const [<spir_ $type_name>]
             ) -> i32 {
-                if obj.is_null() {
-                    return 0;
-                }
-
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-                    let _ = &*obj;
-                    1
-                }));
-
-                result.unwrap_or(0)
+                if obj.is_null() { 0 } else { 1 }
             }
 
             /// Get the raw pointer for debugging purposes (internal use only)

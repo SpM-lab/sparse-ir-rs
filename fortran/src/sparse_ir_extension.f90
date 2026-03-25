@@ -268,9 +268,9 @@ CONTAINS
       INTEGER(KIND=c_int), TARGET :: nfreq_c
       INTEGER(KIND=c_int), TARGET :: status_c
       INTEGER(KIND=c_int64_t), ALLOCATABLE, TARGET :: matsus_c(:)
-      INTEGER(KIND=c_int) :: positive_only_c
+      LOGICAL(KIND=c_bool) :: positive_only_c
       !
-      positive_only_c = MERGE(1, 0, positive_only)
+      positive_only_c = LOGICAL(positive_only, c_bool)
       !
       status_c = c_spir_basis_get_n_default_matsus(basis_ptr, positive_only_c, c_loc(nfreq_c))
       IF (status_c /= 0) THEN
@@ -402,7 +402,10 @@ CONTAINS
       !
       obj%size = get_basis_size(basis_f_ptr)
       !
-      ! Create tau sampling objects for both fermionic and bosonic
+      ! Create tau sampling objects for both fermionic and bosonic.
+      ! Note: The second call overwrites obj%tau, but this is intentional and harmless
+      ! because fermionic and bosonic tau sampling points are identical for the
+      ! centrosymmetric (logistic) kernel used here.
       CALL create_tau_smpl(basis_f_ptr, obj%tau, obj%tau_f_smpl_ptr)
       CALL create_tau_smpl(basis_b_ptr, obj%tau, obj%tau_b_smpl_ptr)
       !
@@ -456,33 +459,43 @@ CONTAINS
       !
       IF (c_associated(obj%basis_f_ptr)) THEN
          CALL c_spir_basis_release(obj%basis_f_ptr)
+         obj%basis_f_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%basis_b_ptr)) THEN
-         call c_spir_basis_release(obj%basis_b_ptr)
+         CALL c_spir_basis_release(obj%basis_b_ptr)
+         obj%basis_b_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%sve_ptr)) THEN
          CALL c_spir_sve_result_release(obj%sve_ptr)
+         obj%sve_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%k_ptr)) THEN
          CALL c_spir_kernel_release(obj%k_ptr)
+         obj%k_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%tau_f_smpl_ptr)) THEN
          CALL c_spir_sampling_release(obj%tau_f_smpl_ptr)
+         obj%tau_f_smpl_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%tau_b_smpl_ptr)) THEN
          CALL c_spir_sampling_release(obj%tau_b_smpl_ptr)
+         obj%tau_b_smpl_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%matsu_f_smpl_ptr)) THEN
          CALL c_spir_sampling_release(obj%matsu_f_smpl_ptr)
+         obj%matsu_f_smpl_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%matsu_b_smpl_ptr)) THEN
          CALL c_spir_sampling_release(obj%matsu_b_smpl_ptr)
+         obj%matsu_b_smpl_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%dlr_f_ptr)) THEN
          CALL c_spir_basis_release(obj%dlr_f_ptr)
+         obj%dlr_f_ptr = c_null_ptr
       END IF
       IF (c_associated(obj%dlr_b_ptr)) THEN
          CALL c_spir_basis_release(obj%dlr_b_ptr)
+         obj%dlr_b_ptr = c_null_ptr
       END IF
       ! Note: backend_ptr is shared (default_backend_ptr), so we don't release it here
       ! It will be released when the module is unloaded or explicitly released
@@ -573,7 +586,10 @@ CONTAINS
          CALL c_spir_sampling_release(obj%matsu_b_smpl_ptr)
       END IF
       !
-      ! Create tau sampling objects for both fermionic and bosonic
+      ! Create tau sampling objects for both fermionic and bosonic.
+      ! Note: The second call overwrites obj%tau, but this is intentional and harmless
+      ! because fermionic and bosonic tau sampling points are identical for the
+      ! centrosymmetric (logistic) kernel used here.
       CALL create_tau_smpl(basis_f_ptr, obj%tau, obj%tau_f_smpl_ptr)
       CALL create_tau_smpl(basis_b_ptr, obj%tau, obj%tau_b_smpl_ptr)
       !
@@ -640,6 +656,14 @@ CONTAINS
          CALL c_spir_basis_release(obj%dlr_b_ptr)
          obj%dlr_b_ptr = c_null_ptr
       END IF
+      IF (c_associated(obj%tau_f_smpl_ptr)) THEN
+         CALL c_spir_sampling_release(obj%tau_f_smpl_ptr)
+         obj%tau_f_smpl_ptr = c_null_ptr
+      END IF
+      IF (c_associated(obj%tau_b_smpl_ptr)) THEN
+         CALL c_spir_sampling_release(obj%tau_b_smpl_ptr)
+         obj%tau_b_smpl_ptr = c_null_ptr
+      END IF
       IF (c_associated(obj%matsu_f_smpl_ptr)) THEN
          CALL c_spir_sampling_release(obj%matsu_f_smpl_ptr)
          obj%matsu_f_smpl_ptr = c_null_ptr
@@ -647,6 +671,14 @@ CONTAINS
       IF (c_associated(obj%matsu_b_smpl_ptr)) THEN
          CALL c_spir_sampling_release(obj%matsu_b_smpl_ptr)
          obj%matsu_b_smpl_ptr = c_null_ptr
+      END IF
+      IF (c_associated(obj%sve_ptr)) THEN
+         CALL c_spir_sve_result_release(obj%sve_ptr)
+         obj%sve_ptr = c_null_ptr
+      END IF
+      IF (c_associated(obj%k_ptr)) THEN
+         CALL c_spir_kernel_release(obj%k_ptr)
+         obj%k_ptr = c_null_ptr
       END IF
    END SUBROUTINE deallocate_ir
    !
