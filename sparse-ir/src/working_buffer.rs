@@ -150,9 +150,10 @@ impl Drop for WorkingBuffer {
     }
 }
 
-// WorkingBuffer is Send + Sync because it owns its memory
+// WorkingBuffer owns its memory so it is safe to send across threads.
+// Note: Sync is intentionally NOT implemented because as_ptr(&self)
+// returns a raw *mut pointer, which could enable data races if shared.
 unsafe impl Send for WorkingBuffer {}
-unsafe impl Sync for WorkingBuffer {}
 
 #[cfg(test)]
 mod tests {

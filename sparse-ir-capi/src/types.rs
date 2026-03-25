@@ -32,10 +32,11 @@ pub(crate) fn statistics_to_c(stats: Statistics) -> i32 {
 /// Convert C-API integer to Statistics enum
 #[inline]
 #[allow(dead_code)]
-pub(crate) fn statistics_from_c(value: i32) -> Statistics {
+pub(crate) fn statistics_from_c(value: i32) -> Result<Statistics, i32> {
     match value {
-        SPIR_STATISTICS_FERMIONIC => Statistics::Fermionic,
-        _ => Statistics::Bosonic, // Default to Bosonic for invalid values
+        SPIR_STATISTICS_FERMIONIC => Ok(Statistics::Fermionic),
+        SPIR_STATISTICS_BOSONIC => Ok(Statistics::Bosonic),
+        _ => Err(value),
     }
 }
 

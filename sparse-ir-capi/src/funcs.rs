@@ -68,7 +68,9 @@ pub extern "C" fn spir_funcs_deriv(
     n: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
-    use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
+    use crate::{
+        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
+    };
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -123,10 +125,12 @@ pub extern "C" fn spir_funcs_deriv(
             }
             crate::types::FuncsType::FTVector(_) => {
                 // FT vectors don't support derivatives in the current implementation
+                *status = SPIR_NOT_SUPPORTED;
                 std::ptr::null_mut()
             }
             _ => {
                 // Other types don't support derivatives
+                *status = SPIR_NOT_SUPPORTED;
                 std::ptr::null_mut()
             }
         }
@@ -139,7 +143,11 @@ pub extern "C" fn spir_funcs_deriv(
             }
             ptr
         }
-        _ => {
+        Ok(_) => {
+            // Null pointer returned - status was already set above (e.g. SPIR_NOT_SUPPORTED)
+            std::ptr::null_mut()
+        }
+        Err(_) => {
             unsafe {
                 *status = SPIR_INTERNAL_ERROR;
             }
