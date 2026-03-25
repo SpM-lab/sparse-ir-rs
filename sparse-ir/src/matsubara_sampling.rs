@@ -109,7 +109,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// # Panics
     /// Panics if `sampling_points` is empty or if matrix dimensions don't match
     pub fn from_matrix(
-        mut sampling_points: Vec<MatsubaraFreq<S>>,
+        sampling_points: Vec<MatsubaraFreq<S>>,
         matrix: DTensor<Complex<f64>, 2>,
     ) -> Self {
         assert!(!sampling_points.is_empty(), "No sampling points given");
@@ -120,9 +120,10 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             matrix.shape().0,
             sampling_points.len()
         );
-
-        // Sort sampling points
-        sampling_points.sort();
+        debug_assert!(
+            sampling_points.windows(2).all(|w| w[0] <= w[1]),
+            "Sampling points must be sorted in ascending order"
+        );
 
         let fitter = ComplexMatrixFitter::new(matrix);
 
@@ -762,7 +763,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// # Panics
     /// Panics if `sampling_points` is empty or if matrix dimensions don't match
     pub fn from_matrix(
-        mut sampling_points: Vec<MatsubaraFreq<S>>,
+        sampling_points: Vec<MatsubaraFreq<S>>,
         matrix: DTensor<Complex<f64>, 2>,
     ) -> Self {
         assert!(!sampling_points.is_empty(), "No sampling points given");
@@ -773,9 +774,10 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             matrix.shape().0,
             sampling_points.len()
         );
-
-        // Sort sampling points
-        sampling_points.sort();
+        debug_assert!(
+            sampling_points.windows(2).all(|w| w[0] <= w[1]),
+            "Sampling points must be sorted in ascending order"
+        );
 
         let fitter = ComplexToRealFitter::new(&matrix);
 
