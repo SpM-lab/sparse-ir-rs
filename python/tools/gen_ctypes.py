@@ -75,6 +75,7 @@ CTYPE_MAP = {
     'int': 'c_int',
     'double': 'c_double',
     'bool': 'c_bool',
+    '_Bool': 'c_bool',
     'int64_t': 'c_int64',
     'long long': 'c_int64',  # int64_t is often typedef'd to long long on Linux
     'long long int': 'c_int64',
