@@ -399,7 +399,7 @@ class TestBasisFunctionEvaluation:
 
         # Test row-major order for v basis
         batch_status = _lib.spir_funcs_batch_eval(
-            v, SPIR＿ORDER_ROW_MAJOR, num_points,
+            v, SPIR_ORDER_ROW_MAJOR, num_points,
             xs.ctypes.data_as(POINTER(c_double)),
             batch_out.ctypes.data_as(POINTER(c_double))
         )
@@ -422,7 +422,7 @@ class TestBasisFunctionEvaluation:
 
         # Test batch evaluation error cases
         batch_status = _lib.spir_funcs_batch_eval(
-            None, SPIR＿ORDER_ROW_MAJOR, num_points,
+            None, SPIR_ORDER_ROW_MAJOR, num_points,
             xs.ctypes.data_as(POINTER(c_double)),
             batch_out.ctypes.data_as(POINTER(c_double))
         )

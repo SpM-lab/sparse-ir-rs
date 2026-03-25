@@ -338,11 +338,6 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
                 _ => panic!("Cannot detect parity for symm = {}", parity),
             };
 
-            // Debug: print values for constant polynomial
-            if n == 0 || n == 1 || n == 2 {
-                println!("n={}, value={}, result={}", n, value, result);
-            }
-
             result
         }
     }
