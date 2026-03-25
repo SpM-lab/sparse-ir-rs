@@ -144,20 +144,37 @@ impl<S: StatisticsType> From<MatsubaraFreq<S>> for i64 {
 }
 
 // Operator overloading: Addition
+// Note: For fermionic frequencies, adding two odd numbers gives an even number,
+// which is NOT a valid fermionic frequency. Use with care.
 impl<S: StatisticsType> Add for MatsubaraFreq<S> {
     type Output = Self;
 
     fn add(self, other: Self) -> Self {
-        unsafe { Self::new_unchecked(self.n + other.n) }
+        let result = self.n + other.n;
+        debug_assert!(
+            Self::new(result).is_ok(),
+            "MatsubaraFreq::Add produced invalid frequency n={} for {:?} statistics",
+            result,
+            S::STATISTICS,
+        );
+        unsafe { Self::new_unchecked(result) }
     }
 }
 
 // Operator overloading: Subtraction
+// Note: Same caveat as Add regarding parity.
 impl<S: StatisticsType> Sub for MatsubaraFreq<S> {
     type Output = Self;
 
     fn sub(self, other: Self) -> Self {
-        unsafe { Self::new_unchecked(self.n - other.n) }
+        let result = self.n - other.n;
+        debug_assert!(
+            Self::new(result).is_ok(),
+            "MatsubaraFreq::Sub produced invalid frequency n={} for {:?} statistics",
+            result,
+            S::STATISTICS,
+        );
+        unsafe { Self::new_unchecked(result) }
     }
 }
 
@@ -166,6 +183,7 @@ impl<S: StatisticsType> Neg for MatsubaraFreq<S> {
     type Output = Self;
 
     fn neg(self) -> Self {
+        // Negation preserves parity, so this is always valid
         unsafe { Self::new_unchecked(-self.n) }
     }
 }
@@ -334,20 +352,23 @@ mod tests {
 
     #[test]
     fn test_operator_overloading() {
-        let freq1 = FermionicFreq::new(1).unwrap();
-        let freq3 = FermionicFreq::new(3).unwrap();
+        // Bosonic: even + even = even (valid)
+        let bfreq2 = BosonicFreq::new(2).unwrap();
+        let bfreq4 = BosonicFreq::new(4).unwrap();
 
-        // Addition
-        let sum = freq1 + freq3;
-        assert_eq!(sum.get_n(), 4);
+        let sum = bfreq2 + bfreq4;
+        assert_eq!(sum.get_n(), 6);
 
-        // Subtraction
-        let diff = freq3 - freq1;
+        let diff = bfreq4 - bfreq2;
         assert_eq!(diff.get_n(), 2);
 
-        // Negation
+        // Negation preserves parity (valid for both statistics)
+        let freq1 = FermionicFreq::new(1).unwrap();
         let neg = -freq1;
         assert_eq!(neg.get_n(), -1);
+
+        let neg_b = -bfreq2;
+        assert_eq!(neg_b.get_n(), -2);
     }
 
     #[test]
