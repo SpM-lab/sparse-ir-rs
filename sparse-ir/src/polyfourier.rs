@@ -277,7 +277,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
         let mut matsubara_indices: Vec<i64> = x0.into_iter().map(|x| 2 * x + self.zeta()).collect();
 
         if !positive_only {
-            Self::symmetrize_matsubara_inplace(&mut matsubara_indices);
+            symmetrize_matsubara_inplace(&mut matsubara_indices);
         }
 
         matsubara_indices
@@ -301,7 +301,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
         let mut matsubara_indices: Vec<i64> = x0.into_iter().map(|x| 2 * x + self.zeta()).collect();
 
         if !positive_only {
-            Self::symmetrize_matsubara_inplace(&mut matsubara_indices);
+            symmetrize_matsubara_inplace(&mut matsubara_indices);
         }
 
         matsubara_indices
@@ -460,21 +460,6 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
         }
 
         extrema
-    }
-
-    /// Symmetrize Matsubara indices (remove zero if present and add negatives)
-    fn symmetrize_matsubara_inplace(xs: &mut Vec<i64>) {
-        // Remove zero if present
-        xs.retain(|&x| x != 0);
-
-        // Sort in ascending order
-        xs.sort();
-
-        // Create negative counterparts
-        let negatives: Vec<i64> = xs.iter().rev().map(|&x| -x).collect();
-
-        // Combine negatives with originals
-        xs.splice(0..0, negatives);
     }
 
     /// Get T_nl coefficient (special function)
