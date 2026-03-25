@@ -101,7 +101,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// # Returns
     /// The complex Fourier transform value
     pub fn evaluate(&self, omega: &MatsubaraFreq<S>) -> Complex64 {
-        let n = omega.get_n() as i32;
+        let n = omega.get_n();
         if (n as f64).abs() < self.n_asymp {
             self.compute_unl_inner(&self.poly, n)
         } else {
@@ -146,7 +146,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 
     /// Compute the inner Fourier transform (for small frequencies)
-    fn compute_unl_inner(&self, poly: &PiecewiseLegendrePoly, wn: i32) -> Complex64 {
+    fn compute_unl_inner(&self, poly: &PiecewiseLegendrePoly, wn: i64) -> Complex64 {
         let wred = PI / 4.0 * wn as f64;
         let phase_wi = Self::phase_stable(poly, wn);
         let mut res = Complex64::new(0.0, 0.0);
@@ -166,7 +166,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 
     /// Compute asymptotic behavior (for large frequencies)
-    fn giw(&self, wn: i32) -> Complex64 {
+    fn giw(&self, wn: i64) -> Complex64 {
         let iw = Complex64::new(0.0, PI / 2.0 * wn as f64);
         if wn == 0 {
             return Complex64::new(0.0, 0.0);
@@ -241,7 +241,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     ///
     /// Computes: im^mod(wn * (extra_shift + 1), 4) * cispi(wn * xmid_diff / 2)
     /// where cispi(x) = exp(i*π*x)
-    fn phase_stable(poly: &PiecewiseLegendrePoly, wn: i32) -> Vec<Complex64> {
+    fn phase_stable(poly: &PiecewiseLegendrePoly, wn: i64) -> Vec<Complex64> {
         let (xmid_diff, extra_shift) = Self::shift_xmid(&poly.knots, &poly.delta_x);
         let mut phase_wi = Vec::with_capacity(xmid_diff.len());
 
@@ -249,8 +249,8 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 
         for j in 0..xmid_diff.len() {
             // Compute im^mod(wn * (extra_shift[j] + 1), 4)
-            let power = ((wn * (extra_shift[j] + 1)) % 4 + 4) % 4; // Ensure positive mod
-            let im_power = im_unit.powi(power);
+            let power = ((wn * (extra_shift[j] as i64 + 1)) % 4 + 4) % 4; // Ensure positive mod
+            let im_power = im_unit.powi(power as i32);
 
             // Compute cispi(wn * xmid_diff[j] / 2) = exp(i*π*wn*xmid_diff/2)
             let arg = PI * wn as f64 * xmid_diff[j] / 2.0;
@@ -311,18 +311,24 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 
     /// Create function for extracting real or imaginary part based on parity
+    ///
+    /// Takes a grid index and converts to the corresponding Matsubara frequency
+    /// index (2*n + zeta) before evaluating.
     fn func_for_part(&self) -> impl Fn(i64) -> f64 + '_ {
         let parity = self.poly.symm;
         let poly_ft = self.clone();
+        let zeta = self.zeta();
 
         move |n| {
-            let omega = match MatsubaraFreq::<S>::new(n) {
+            // Convert grid index to Matsubara frequency index
+            let matsubara_n = 2 * n + zeta;
+            let omega = match MatsubaraFreq::<S>::new(matsubara_n) {
                 Ok(omega) => omega,
                 Err(_) => return 0.0,
             };
             let value = poly_ft.evaluate(&omega);
 
-            let result = match parity {
+            match parity {
                 1 => match S::STATISTICS {
                     Statistics::Fermionic => value.im,
                     Statistics::Bosonic => value.re,
@@ -336,9 +342,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
                     value.re
                 }
                 _ => panic!("Cannot detect parity for symm = {}", parity),
-            };
-
-            result
+            }
         }
     }
 
