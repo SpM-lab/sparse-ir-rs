@@ -117,7 +117,7 @@ contains
       real(c_double), parameter :: omega_max = 10.0_c_double
       real(c_double), parameter :: epsilon = 1.0e-15_c_double
       real(c_double), parameter :: lambda = beta*omega_max
-      integer(c_int), parameter :: positive_only = 0
+      logical(c_bool), parameter :: positive_only = .false.
       integer(c_int), target :: max_size
 
       print *, "Testing Matsubara sampling basics..."
@@ -417,9 +417,9 @@ contains
       real(c_double), parameter :: epsilon = 1.0e-15_c_double
       real(c_double), parameter :: lambda = beta*omega_max
       integer(c_int), target :: max_size
-      integer(c_int) :: positive_only_c
+      logical(c_bool) :: positive_only_c
       !
-      positive_only_c = MERGE(1_c_int, 0_c_int, positive_only)
+      positive_only_c = LOGICAL(positive_only, c_bool)
 
       print *, "Testing Matsubara sampling with ", case_name, "..."
 
@@ -949,7 +949,7 @@ contains
       real(c_double), parameter :: epsilon = 1.0e-10_c_double
       real(c_double), parameter :: lambda = beta*omega_max
       real(c_double), parameter :: tol = 1.0e-12_c_double
-      integer(c_int), parameter :: positive_only = 0
+      logical(c_bool), parameter :: positive_only = .false.
       integer(c_int), target :: max_size
       integer :: i
       integer :: seed_size
@@ -1045,7 +1045,7 @@ contains
       real(c_double), parameter :: epsilon = 1.0e-10_c_double
       real(c_double), parameter :: lambda = beta*omega_max
       real(c_double), parameter :: tol = 1.0e-12_c_double
-      integer(c_int), parameter :: positive_only = 0
+      logical(c_bool), parameter :: positive_only = .false.
       integer(c_int), parameter :: extra_size = 2
       integer(c_int), target :: max_size
       integer :: i, j

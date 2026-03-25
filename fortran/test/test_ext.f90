@@ -117,7 +117,7 @@ contains
          g_dlr_d = coeffs
 
          ! Convert DLR coefficients to IR coefficients (real -> real)
-         call dlr2ir(obj, target_dim, g_dlr_d, g_ir_d)
+         call dlr2ir(obj, statistics, target_dim, g_dlr_d, g_ir_d)
 
          ! Evaluate Green's function at Matsubara frequencies from IR (real -> complex)
          call evaluate_matsubara(obj, statistics, target_dim, g_ir_d, giw)
@@ -181,7 +181,7 @@ contains
          end do
 
          ! Convert DLR coefficients to IR coefficients
-         call dlr2ir(obj, target_dim, g_dlr_z, g_ir_z)
+         call dlr2ir(obj, statistics, target_dim, g_dlr_z, g_ir_z)
 
          ! Evaluate Green's function at Matsubara frequencies from IR
          call evaluate_matsubara(obj, statistics, target_dim, g_ir_z, giw)
@@ -291,7 +291,7 @@ contains
          g_dlr_d = coeffs
 
          ! Convert DLR coefficients to IR coefficients (real -> real)
-         call dlr2ir(obj, target_dim, g_dlr_d, g_ir_d)
+         call dlr2ir(obj, statistics, target_dim, g_dlr_d, g_ir_d)
 
          ! Evaluate Green's function at Matsubara frequencies from IR (real -> complex)
          call evaluate_matsubara(obj, statistics, target_dim, g_ir_d, giw)
@@ -337,7 +337,7 @@ contains
          end do
 
          ! Convert DLR coefficients to IR coefficients
-         call dlr2ir(obj, target_dim, g_dlr_z, g_ir_z)
+         call dlr2ir(obj, statistics, target_dim, g_dlr_z, g_ir_z)
 
          ! Evaluate Green's function at Matsubara frequencies from IR
          call evaluate_matsubara(obj, statistics, target_dim, g_ir_z, giw)

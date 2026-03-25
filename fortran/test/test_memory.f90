@@ -25,7 +25,7 @@ contains
       type(c_ptr) :: tau_sampling_ptr, matsu_sampling_ptr
       type(c_ptr) :: u_ptr, v_ptr, uhat_ptr
       integer(c_int), target :: status, ntau, nmatsu
-      integer(c_int), parameter :: positive_only = 0_c_int
+      logical(c_bool), parameter :: positive_only = .false.
       real(c_double), allocatable, target :: taus(:)
       integer(c_int64_t), allocatable, target :: matsus(:)
       real(c_double), parameter :: beta = 10.0_c_double

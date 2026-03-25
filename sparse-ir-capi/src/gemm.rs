@@ -110,16 +110,21 @@ pub extern "C" fn spir_gemm_backend_new_from_fblas_lp64(
         return std::ptr::null_mut();
     }
 
-    // Cast to Fortran BLAS function pointer types
-    let dgemm_fn: DgemmFnPtr = unsafe { std::mem::transmute(dgemm) };
-    let zgemm_fn: ZgemmFnPtr = unsafe { std::mem::transmute(zgemm) };
+    // Catch panics (e.g. OOM from Box::new) to prevent unwinding across FFI boundary
+    let result = std::panic::catch_unwind(|| {
+        // Cast to Fortran BLAS function pointer types
+        let dgemm_fn: DgemmFnPtr = unsafe { std::mem::transmute(dgemm) };
+        let zgemm_fn: ZgemmFnPtr = unsafe { std::mem::transmute(zgemm) };
 
-    // Create backend
-    let backend = ExternalBlasBackend::new(dgemm_fn, zgemm_fn);
+        // Create backend
+        let backend = ExternalBlasBackend::new(dgemm_fn, zgemm_fn);
 
-    // Wrap in handle
-    let handle = GemmBackendHandle::new(Box::new(backend));
-    Box::into_raw(Box::new(spir_gemm_backend::new(handle)))
+        // Wrap in handle
+        let handle = GemmBackendHandle::new(Box::new(backend));
+        Box::into_raw(Box::new(spir_gemm_backend::new(handle)))
+    });
+
+    result.unwrap_or(std::ptr::null_mut())
 }
 
 /// Create GEMM backend from Fortran BLAS function pointers (ILP64)
@@ -152,16 +157,21 @@ pub extern "C" fn spir_gemm_backend_new_from_fblas_ilp64(
         return std::ptr::null_mut();
     }
 
-    // Cast to Fortran BLAS function pointer types
-    let dgemm64_fn: Dgemm64FnPtr = unsafe { std::mem::transmute(dgemm64) };
-    let zgemm64_fn: Zgemm64FnPtr = unsafe { std::mem::transmute(zgemm64) };
+    // Catch panics (e.g. OOM from Box::new) to prevent unwinding across FFI boundary
+    let result = std::panic::catch_unwind(|| {
+        // Cast to Fortran BLAS function pointer types
+        let dgemm64_fn: Dgemm64FnPtr = unsafe { std::mem::transmute(dgemm64) };
+        let zgemm64_fn: Zgemm64FnPtr = unsafe { std::mem::transmute(zgemm64) };
 
-    // Create backend
-    let backend = ExternalBlas64Backend::new(dgemm64_fn, zgemm64_fn);
+        // Create backend
+        let backend = ExternalBlas64Backend::new(dgemm64_fn, zgemm64_fn);
 
-    // Wrap in handle
-    let handle = GemmBackendHandle::new(Box::new(backend));
-    Box::into_raw(Box::new(spir_gemm_backend::new(handle)))
+        // Wrap in handle
+        let handle = GemmBackendHandle::new(Box::new(backend));
+        Box::into_raw(Box::new(spir_gemm_backend::new(handle)))
+    });
+
+    result.unwrap_or(std::ptr::null_mut())
 }
 
 /// Release GEMM backend handle

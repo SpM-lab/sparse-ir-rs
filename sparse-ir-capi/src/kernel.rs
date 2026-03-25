@@ -208,19 +208,17 @@ pub extern "C" fn spir_kernel_clone(src: *const spir_kernel) -> *mut spir_kernel
     result.unwrap_or(std::ptr::null_mut())
 }
 
-/// Manual is_assigned function (replaces macro-generated one)
+/// Check if the kernel pointer is non-null.
+///
+/// Note: This only performs a null check. It cannot detect dangling
+/// pointers; dereferencing an arbitrary non-null pointer would be
+/// undefined behaviour that `catch_unwind` cannot reliably catch.
+///
+/// # Returns
+/// 1 if the pointer is non-null, 0 otherwise
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_kernel_is_assigned(obj: *const spir_kernel) -> i32 {
-    if obj.is_null() {
-        return 0;
-    }
-
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
-        let _ = &*obj;
-        1
-    }));
-
-    result.unwrap_or(0)
+    if obj.is_null() { 0 } else { 1 }
 }
 
 /// Get kernel domain boundaries
@@ -264,14 +262,16 @@ pub extern "C" fn spir_kernel_get_domain(
 /// Get x-segments for SVE discretization hints from a kernel
 ///
 /// This function should be called twice:
-/// 1. First call with segments=NULL: set n_segments to the required array size
-/// 2. Second call with segments allocated: fill segments[0..n_segments-1] with values
+/// 1. First call with segments=NULL: sets `*n_segments` to the number of segment intervals.
+/// 2. Second call with segments allocated: fills `segments[0..n_segments]` with boundary
+///    points (`n_segments + 1` values total). The caller must allocate at least
+///    `n_segments + 1` elements.
 ///
 /// # Arguments
 /// * `k` - Kernel object
 /// * `epsilon` - Accuracy target for the basis
 /// * `segments` - Pointer to store segments array (NULL for first call)
-/// * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segments
+/// * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segment intervals
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` on success
@@ -310,12 +310,17 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_x(
         };
 
         if segments.is_null() {
-            // First call: return the number of segments
+            // First call: return the number of segment intervals.
+            // The caller must later allocate n_segments + 1 elements for boundary points.
             *n_segments = (segs.len() - 1) as libc::c_int;
             return SPIR_COMPUTATION_SUCCESS;
         }
 
-        // Second call: copy segments to output array
+        // Second call: copy boundary points to output array.
+        // We need segs.len() = n_segments + 1 elements in the buffer.
+        // The caller passes the interval count in *n_segments, so we
+        // verify it is at least segs.len() - 1 (i.e., the buffer holds
+        // *n_segments + 1 >= segs.len() boundary points).
         if *n_segments < (segs.len() - 1) as libc::c_int {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -333,14 +338,16 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_x(
 /// Get y-segments for SVE discretization hints from a kernel
 ///
 /// This function should be called twice:
-/// 1. First call with segments=NULL: set n_segments to the required array size
-/// 2. Second call with segments allocated: fill segments[0..n_segments-1] with values
+/// 1. First call with segments=NULL: sets `*n_segments` to the number of segment intervals.
+/// 2. Second call with segments allocated: fills `segments[0..n_segments]` with boundary
+///    points (`n_segments + 1` values total). The caller must allocate at least
+///    `n_segments + 1` elements.
 ///
 /// # Arguments
 /// * `k` - Kernel object
 /// * `epsilon` - Accuracy target for the basis
 /// * `segments` - Pointer to store segments array (NULL for first call)
-/// * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segments
+/// * `n_segments` - [IN/OUT] Input: ignored when segments is NULL. Output: number of segment intervals
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` on success
@@ -379,12 +386,17 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_y(
         };
 
         if segments.is_null() {
-            // First call: return the number of segments
+            // First call: return the number of segment intervals.
+            // The caller must later allocate n_segments + 1 elements for boundary points.
             *n_segments = (segs.len() - 1) as libc::c_int;
             return SPIR_COMPUTATION_SUCCESS;
         }
 
-        // Second call: copy segments to output array
+        // Second call: copy boundary points to output array.
+        // We need segs.len() = n_segments + 1 elements in the buffer.
+        // The caller passes the interval count in *n_segments, so we
+        // verify it is at least segs.len() - 1 (i.e., the buffer holds
+        // *n_segments + 1 >= segs.len() boundary points).
         if *n_segments < (segs.len() - 1) as libc::c_int {
             return SPIR_INVALID_ARGUMENT;
         }

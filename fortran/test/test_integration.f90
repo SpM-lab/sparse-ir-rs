@@ -14,7 +14,7 @@ program test_integration
    real(c_double), parameter :: epsilon = 1.0e-10_c_double
    real(c_double), parameter :: lambda = beta*omega_max
 
-   integer(c_int), parameter :: positive_only = 0
+   logical(c_bool), parameter :: positive_only = .false.
    integer(c_int), parameter :: order = SPIR_ORDER_COLUMN_MAJOR
 
    ! Initialize random seed with a fixed value
@@ -416,9 +416,9 @@ contains
       integer(c_int64_t), allocatable, target :: matsus(:)
       real(c_double), allocatable, target :: poles(:)
       real(c_double), allocatable, target :: svals(:)
-      integer(c_int) :: positive_only_c
+      logical(c_bool) :: positive_only_c
       !
-      positive_only_c = MERGE(1_c_int, 0_c_int, positive_only)
+      positive_only_c = LOGICAL(positive_only, c_bool)
 
       print *, "Testing ", case_name, " case"
 

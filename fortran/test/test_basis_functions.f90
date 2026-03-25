@@ -81,7 +81,7 @@ contains
       integer :: i, j, n_points
       real(c_double) :: tau_point, omega_point
       integer(c_int), target :: nmatsu
-      integer(c_int), parameter :: positive_only = 0_c_int
+      logical(c_bool), parameter :: positive_only = .false.
 
       print *, "Testing basis functions batch evaluation..."
 
@@ -196,7 +196,7 @@ contains
       type(c_ptr) :: k_ptr, sve_ptr, basis_ptr
       integer(c_int), target :: status, basis_size, nmatsu
       integer(c_int), target :: max_size
-      integer(c_int) :: positive_only_c
+      logical(c_bool) :: positive_only_c
       real(c_double), parameter :: beta = 5.0_c_double
       real(c_double), parameter :: omega_max = 2.0_c_double
       real(c_double), parameter :: epsilon = 1.0e-10_c_double
@@ -227,8 +227,8 @@ contains
 
       status = c_spir_basis_get_size(basis_ptr, c_loc(basis_size))
 
-      ! Convert logical to integer(c_int) explicitly, following create_matsu_smpl pattern
-      positive_only_c = MERGE(1, 0, positive_only_val)
+      ! Convert logical to logical(c_bool) for C interop
+      positive_only_c = LOGICAL(positive_only_val, c_bool)
 
       ! Verify that we can get the number of Matsubara frequencies
       ! This is a basic test to verify the basis setup works correctly
