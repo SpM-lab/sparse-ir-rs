@@ -377,12 +377,62 @@ impl PiecewiseLegendrePoly {
 
     /// Find roots of the polynomial using C++ compatible algorithm
     pub fn roots(&self) -> Vec<f64> {
-        // Refine the grid by factor of 4 for better root finding
-        // (C++ uses 2, but RegularizedBoseKernel needs finer resolution)
-        let refined_grid = self.refine_grid(&self.knots, 4);
+        let xmid = (self.xmax + self.xmin) / 2.0;
 
-        // Find all roots using the refined grid
-        self.find_all_roots(&refined_grid)
+        // Exploit symmetry: only search the right half, then mirror.
+        // This matches the Python 1.x / Julia v1 algorithm and guarantees
+        // exactly symmetric root positions.
+        let grid = if self.symm != 0 {
+            let nsegments = self.knots.len() - 1;
+            let mid_idx = nsegments / 2;
+            if (self.knots[mid_idx] - xmid).abs() < 1e-15 {
+                self.knots[mid_idx..].to_vec()
+            } else {
+                let mut g = vec![xmid];
+                g.extend(self.knots.iter().filter(|&&x| x > xmid));
+                g
+            }
+        } else {
+            self.knots.clone()
+        };
+
+        let refined_grid = self.refine_grid(&grid, 4);
+        let roots_half = self.find_all_roots(&refined_grid);
+
+        if self.symm == 1 {
+            // Even symmetry: roots on right half, mirror to left
+            let mut all_roots: Vec<f64> = roots_half
+                .iter()
+                .rev()
+                .map(|&r| (self.xmax + self.xmin) - r)
+                .collect();
+            all_roots.extend_from_slice(&roots_half);
+            all_roots
+        } else if self.symm == -1 {
+            // Odd symmetry: there must be a zero at xmid
+            let mut right = roots_half;
+            if !right.is_empty() {
+                // Remove the root at xmid if found (may be slightly off),
+                // or if f(xmid) and f'(xmid) have opposite signs (spurious zero)
+                let f_mid = self.evaluate(xmid);
+                let f_deriv_mid = self.deriv(1).evaluate(xmid);
+                if (right[0] - xmid).abs() < 1e-13 || f_mid * f_deriv_mid < 0.0 {
+                    right.remove(0);
+                }
+            }
+            let mut all_roots: Vec<f64> = right
+                .iter()
+                .rev()
+                .map(|&r| (self.xmax + self.xmin) - r)
+                .collect();
+            all_roots.push(xmid);
+            all_roots.extend_from_slice(&right);
+            all_roots
+        } else {
+            // No symmetry: search the full domain
+            let full_grid = self.refine_grid(&self.knots, 4);
+            self.find_all_roots(&full_grid)
+        }
     }
 
     /// Refine grid by factor alpha (C++ compatible)

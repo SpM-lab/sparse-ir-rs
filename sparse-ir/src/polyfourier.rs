@@ -431,35 +431,12 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
         }
     }
 
-    /// Find discrete extrema
+    /// Find discrete extrema (matches Julia v1 / Python 1.x algorithm)
     fn discrete_extrema<F>(f: &F, xgrid: &[i64]) -> Vec<i64>
     where
         F: Fn(i64) -> f64,
     {
-        if xgrid.len() < 3 {
-            return Vec::new();
-        }
-
-        let fx: Vec<f64> = xgrid.iter().map(|&x| f(x)).collect();
-        let mut extrema = Vec::new();
-
-        // Check for extrema (local maxima or minima)
-        for i in 1..fx.len() - 1 {
-            let prev = fx[i - 1];
-            let curr = fx[i];
-            let next = fx[i + 1];
-
-            // Local maximum
-            if curr > prev && curr > next {
-                extrema.push(xgrid[i]);
-            }
-            // Local minimum
-            else if curr < prev && curr < next {
-                extrema.push(xgrid[i]);
-            }
-        }
-
-        extrema
+        discrete_extrema(f, xgrid)
     }
 
     /// Get T_nl coefficient (special function)
@@ -828,35 +805,43 @@ fn find_all(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
 
 /// Find discrete extrema of a function on a grid, using bisection to locate
 /// the precise integer position within each grid interval.
-/// Also checks boundary extrema. Matches Julia's `discrete_extrema` with
-/// `bisect_discr_extremum`.
+/// Also checks boundary extrema. Matches Julia v1 / Python 1.x `discrete_extrema`.
 fn discrete_extrema(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
     if xgrid.len() < 3 {
         return Vec::new();
     }
 
-    let mut results = Vec::new();
     let fx: Vec<f64> = xgrid.iter().map(|&x| f(x)).collect();
+    let absfx: Vec<f64> = fx.iter().map(|v| v.abs()).collect();
 
-    // Check boundary: first point is extremum if |f(first)| > |f(second)|
-    if fx[0].abs() > fx[1].abs() {
-        results.push(xgrid[0]);
-    }
+    // Forward differences: gx[i] = fx[i+1] - fx[i]
+    // signdfdx[i] = signbit(gx[i])
+    // A derivative sign change at index i means the extremum is strictly
+    // between xgrid[i] and xgrid[i+2].
+    let signdfdx: Vec<bool> = fx
+        .windows(2)
+        .map(|w| (w[1] - w[0]).is_sign_negative())
+        .collect();
 
-    // Interior extrema
-    for i in 1..fx.len() - 1 {
-        let is_extremum =
-            (fx[i] > fx[i - 1] && fx[i] > fx[i + 1]) || (fx[i] < fx[i - 1] && fx[i] < fx[i + 1]);
-        if is_extremum {
-            // Bisect within [xgrid[i-1], xgrid[i+1]] to find precise location
-            let refined = bisect_discr_extremum(f, xgrid[i - 1], xgrid[i + 1]);
+    let mut results = Vec::new();
+
+    for i in 0..signdfdx.len() - 1 {
+        if signdfdx[i] != signdfdx[i + 1] {
+            // Extremum between xgrid[i] and xgrid[i+2]
+            let refined = bisect_discr_extremum(f, xgrid[i], xgrid[i + 2]);
             results.push(refined);
         }
     }
 
-    // Check boundary: last point is extremum if |f(last)| > |f(second-to-last)|
+    // Boundary: first point is extremum if |f| decreases or sign changes inwards
+    let sfx: Vec<bool> = fx.iter().map(|v| v.is_sign_negative()).collect();
+    if absfx[0] > absfx[1] || sfx[0] != sfx[1] {
+        results.insert(0, xgrid[0]);
+    }
+
+    // Boundary: last point is extremum if |f| decreases or sign changes inwards
     let n = fx.len();
-    if fx[n - 1].abs() > fx[n - 2].abs() {
+    if absfx[n - 1] > absfx[n - 2] || sfx[n - 1] != sfx[n - 2] {
         results.push(xgrid[n - 1]);
     }
 
