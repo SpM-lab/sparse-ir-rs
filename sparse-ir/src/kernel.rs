@@ -725,7 +725,7 @@ where
 
     fn segments_y(&self) -> Vec<T> {
         // Returns segments for y >= 0 domain only
-        // C++/Julia: nzeros = max(round(20 * log10(lambda)), 20)
+        // Python: nzeros = max(round(20 * log10(lambda)), 20)
         let nzeros = ((20.0 * self.kernel.lambda.log10()).round() as usize).max(20);
 
         // diffs[j] = 0.12 / exp(0.0337 * j * log(j + 1))
@@ -743,24 +743,24 @@ where
             zeros[i] = zeros[i - 1] + diffs[i];
         }
 
-        // Normalize by last value, then remove it
+        // Normalize by last value, then remove last
         let last_zero = zeros[nzeros - 1];
         for i in 0..nzeros {
             zeros[i] /= last_zero;
         }
-        zeros.pop();
+        zeros.pop(); // now 0 < zeros[i] < 1
 
-        // After normalization and pop, zeros are in [0, 1) range
-        // Create segments: [0, zeros[0], zeros[1], ..., 1]
+        // Python: zeros -= 1  →  zeros in (-1, 0)
+        // Then positive half = -zeros[::-1]  →  reversed and negated → dense near 0
+        // This concentrates segments near y=0, where RegBose has singularity.
         let mut segments = Vec::with_capacity(zeros.len() + 2);
         segments.push(T::from_f64_unchecked(0.0));
-        for z in zeros {
-            segments.push(T::from_f64_unchecked(z));
+        for &z in zeros.iter().rev() {
+            // -zeros[::-1]: iterate in reverse, negate the shifted value
+            // z is in (0, 1), (z - 1) is in (-1, 0), -(z - 1) = 1 - z is in (0, 1)
+            segments.push(T::from_f64_unchecked(1.0 - z));
         }
         segments.push(T::from_f64_unchecked(1.0));
-
-        // Ensure sorted (should already be sorted, but verify)
-        segments.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
         segments
     }

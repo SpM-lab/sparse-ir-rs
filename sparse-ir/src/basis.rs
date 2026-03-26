@@ -324,20 +324,11 @@ where
 
     /// Get default tau sampling points
     ///
-    /// C++ implementation: libsparseir/include/sparseir/basis.hpp:229-270
-    ///
     /// Returns sampling points in imaginary time τ ∈ [-β/2, β/2].
     ///
-    /// # Panics
-    /// Panics if the kernel is not centrosymmetric. This method relies on
-    /// centrosymmetry to generate symmetric sampling points.
+    /// Roots are found with symmetry exploitation (matching Python 1.x / Julia v1),
+    /// then mapped to [-β/2, β/2] by folding τ_physical ∈ [0, β] around β/2.
     pub fn default_tau_sampling_points(&self) -> Vec<f64> {
-        if !self.kernel().is_centrosymmetric() {
-            panic!(
-                "default_tau_sampling_points is not supported for non-centrosymmetric kernels. \
-                 The current implementation relies on centrosymmetry to generate symmetric sampling points."
-            );
-        }
         let points = self.default_tau_sampling_points_size_requested(self.size());
         let basis_size = self.size();
         if points.len() < basis_size {
@@ -356,69 +347,23 @@ where
 
     /// Get default tau sampling points with a requested size
     ///
-    /// # Panics
-    /// Panics if the kernel is not centrosymmetric. This method relies on
-    /// centrosymmetry to generate symmetric sampling points.
+    /// Returns sampling points in τ ∈ [-β/2, β/2].
     pub fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
-        if !self.kernel().is_centrosymmetric() {
-            panic!(
-                "default_tau_sampling_points_size_requested is not supported for non-centrosymmetric kernels. \
-                 The current implementation relies on centrosymmetry to generate symmetric sampling points."
-            );
-        }
-        // C++: Eigen::VectorXd x = default_sampling_points(*(this->sve_result->u), sz);
         let x = default_sampling_points(&self.sve_result.u, size_requested);
-        // C++: Extract unique half of sampling points
-        let mut unique_x = Vec::new();
-        if x.len() % 2 == 0 {
-            // C++: for (auto i = 0; i < x.size() / 2; ++i)
-            for i in 0..(x.len() / 2) {
-                unique_x.push(x[i]);
-            }
-        } else {
-            // C++: for (auto i = 0; i < x.size() / 2; ++i)
-            for i in 0..(x.len() / 2) {
-                unique_x.push(x[i]);
-            }
-            // C++: auto x_new = 0.5 * (unique_x.back() + 0.5);
-            let x_new = 0.5 * (unique_x.last().unwrap() + 0.5);
-            unique_x.push(x_new);
-        }
-
-        // C++: Generate symmetric points
-        //      Eigen::VectorXd smpl_taus(2 * unique_x.size());
-        //      for (auto i = 0; i < unique_x.size(); ++i) {
-        //          smpl_taus(i) = (this->beta / 2.0) * (unique_x[i] + 1.0);
-        //          smpl_taus(unique_x.size() + i) = -smpl_taus(i);
-        //      }
-        let mut smpl_taus = Vec::with_capacity(2 * unique_x.len());
-        for &ux in &unique_x {
-            smpl_taus.push((self.beta / 2.0) * (ux + 1.0));
-        }
-        for i in 0..unique_x.len() {
-            smpl_taus.push(-smpl_taus[i]);
-        }
-
-        // C++: std::sort(smpl_taus.data(), smpl_taus.data() + smpl_taus.size());
+        let half_beta = self.beta / 2.0;
+        // Map roots to physical tau ∈ [0, β], then fold to [-β/2, β/2]
+        let mut smpl_taus: Vec<f64> = x
+            .iter()
+            .map(|&xi| {
+                let tau = half_beta * (xi + 1.0);
+                if tau <= half_beta {
+                    tau
+                } else {
+                    tau - self.beta
+                }
+            })
+            .collect();
         smpl_taus.sort_by(|a, b| a.partial_cmp(b).unwrap());
-
-        // C++: Check if the number of sampling points is even
-        if smpl_taus.len() % 2 != 0 {
-            panic!("The number of tau sampling points is odd!");
-        }
-
-        // C++: Check if tau = 0 is not in the sampling points
-        for &tau in &smpl_taus {
-            if tau.abs() < 1e-10 {
-                eprintln!(
-                    "Warning: tau = 0 is in the sampling points (absolute error: {})",
-                    tau.abs()
-                );
-            }
-        }
-
-        // C++ implementation returns tau in [-beta/2, beta/2] (does NOT convert to [0, beta])
-        // This matches the natural range for centrosymmetric kernels
         smpl_taus
     }
 
