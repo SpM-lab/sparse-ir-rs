@@ -5,6 +5,8 @@ on:
 jobs:
   publish-libsparseir-to-yggdrasil:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
     steps:
       - name: Generate GitHub App token
         id: app-token
@@ -24,10 +26,14 @@ jobs:
         with:
           repository: SpM-lab/sparse-ir-rs
           fetch-depth: 0
+          path: sparse-ir-rs
       - name: Update julia/build_tarballs.jl
+        id: latest-tag
+        working-directory: sparse-ir-rs
         run: |
           # Fetch the latest tag starting with "v" and use it as the argument
           LATEST_TAG=$(git tag --list "v*" --sort=-v:refname | head -n 1)
+          echo "tag=$LATEST_TAG" >> "$GITHUB_OUTPUT"
           echo "Latest tag: $LATEST_TAG"
           julia julia/update_build_tarballs.jl "$LATEST_TAG"
       - name: Clone SpM-lab/Yggdrasil
@@ -35,16 +41,27 @@ jobs:
         with:
           repository: SpM-lab/Yggdrasil
           fetch-depth: 0
+          path: Yggdrasil
       - name: Update SpM-lab/Yggdrasil master branch
+        working-directory: Yggdrasil
         run: |
           git checkout master
           git pull origin master
       - name: Copy julia/build_tarballs.jl to SpM-lab/Yggdrasil
         run: |
-          cp julia/build_tarballs.jl Yggdrasil/L/libsparseir/build_tarballs.jl
+          cp sparse-ir-rs/julia/build_tarballs.jl Yggdrasil/L/libsparseir/build_tarballs.jl
       - name: Commit and push changes
+        working-directory: Yggdrasil
         run: |
-          git checkout -b "libsparseir-$LATEST_TAG"
-          git add Yggdrasil/L/libsparseir/build_tarballs.jl
-          git commit -m "[libsparseir] Update libsparseir to $LATEST_TAG"
-          git push origin "libsparseir-$LATEST_TAG"
+          TAG="${{ steps.latest-tag.outputs.tag }}"
+          BRANCH="libsparseir-${TAG}-${GITHUB_RUN_ID}"
+          git config user.name "libsparseir-bot[bot]"
+          git config user.email "libsparseir-bot[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add L/libsparseir/build_tarballs.jl
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "[libsparseir] Update libsparseir to ${TAG}"
+          git push origin "$BRANCH"
