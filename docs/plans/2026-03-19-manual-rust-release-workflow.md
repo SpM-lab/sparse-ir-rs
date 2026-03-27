@@ -13,7 +13,7 @@
 ### Task 1: Add the manual release workflow
 
 **Files:**
-- Create: `.github/workflows/manual-rust-release.yml`
+- Create: `.github/workflows/manual-release.yml`
 
 **Step 1: Define manual inputs and permissions**
 
@@ -84,7 +84,7 @@
 ### Task 4: Verify before completion
 
 **Files:**
-- Verify: `.github/workflows/manual-rust-release.yml`
+- Verify: `.github/workflows/manual-release.yml`
 - Verify: `AGENTS.md`
 - Verify: `CLAUDE.md`
 - Verify: `agent-skills/semantic-version-suggestion/SKILL.md`
@@ -93,7 +93,7 @@
 
 **Step 1: Validate YAML structure**
 
-Run: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/manual-rust-release.yml"); puts "ok"'`
+Run: `ruby -e 'require "yaml"; YAML.load_file(".github/workflows/manual-release.yml"); puts "ok"'`
 Expected: `ok`
 
 **Step 2: Exercise the preflight logic locally**

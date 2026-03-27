@@ -1,0 +1,106 @@
+name: Publish to PyPI Reusable
+
+on:
+  workflow_call:
+    inputs:
+      release_ref:
+        description: Git ref to build and publish from
+        required: true
+        type: string
+
+jobs:
+  build-wheels:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp310"
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp311"
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp312"
+          - os: ubuntu-latest
+            cibw_archs: "auto"
+            deployment_target: ""
+            openblas_path: ""
+            py_tag: "cp313"
+          - os: macos-latest
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp310"
+          - os: macos-latest
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp311"
+          - os: macos-latest
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp312"
+          - os: macos-latest
+            cibw_archs: "arm64"
+            deployment_target: "15.0"
+            openblas_path: "/opt/homebrew/opt/openblas"
+            py_tag: "cp313"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.release_ref }}
+      - name: remove python/.gitignore and pylibsparseir/.gitignore
+        shell: bash
+        run: |
+          rm -f python/.gitignore
+          rm -f python/pylibsparseir/.gitignore
+      - uses: pypa/cibuildwheel@v3.4.0
+        env:
+          CIBW_DEPENDENCY_VERSIONS: "latest"
+          CIBW_BUILD_VERBOSITY: 1
+          CIBW_MANYLINUX_X86_64_IMAGE: "manylinux_2_28"
+          CIBW_BUILD: "${{ matrix.py_tag }}-*"
+          CIBW_ENVIRONMENT_MACOS: "MACOSX_DEPLOYMENT_TARGET=${{ matrix.deployment_target || '11.0' }} PATH=$HOME/.cargo/bin:$PATH"
+          CIBW_ENVIRONMENT_LINUX: "PATH=$HOME/.cargo/bin:$PATH"
+          CIBW_ARCHS: ${{ matrix.cibw_archs }}
+          CIBW_SKIP: "*-manylinux_i686 *-musllinux*"
+          CIBW_BEFORE_ALL_LINUX: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+          CIBW_BEFORE_ALL_MACOS: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable"
+        with:
+          package-dir: ./python
+          output-dir: dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: wheels-${{ matrix.os }}-${{ matrix.cibw_archs }}-${{ matrix.py_tag }}
+          path: dist/*
+
+  publish-pypi:
+    needs: build-wheels
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish to PyPI (Trusted)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: https://upload.pypi.org/legacy/
+          verbose: true
+          skip-existing: true
+          attestations: false

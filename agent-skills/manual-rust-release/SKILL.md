@@ -20,7 +20,7 @@ This repository uses a manual GitHub Actions workflow for the Rust release gate.
 ## Start The Workflow
 
 ```bash
-gh workflow run manual-rust-release.yml \
+gh workflow run manual-release.yml \
   -f release_ref=main \
   -f expected_version=0.8.1 \
   -f confirm_publish=true
@@ -31,7 +31,7 @@ Use a different `release_ref` only when releasing from a specific branch or comm
 ## Watch The Run
 
 ```bash
-RUN_ID=$(gh run list --workflow manual-rust-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+RUN_ID=$(gh run list --workflow manual-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
 gh run watch "$RUN_ID"
 ```
 

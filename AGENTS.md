@@ -17,4 +17,4 @@ Release invariants for this repository:
 - Run `python3 check_version.py` before any release or release PR.
 - Update Julia version metadata only after the crates are published to crates.io.
 - Push `vX.Y.Z` tags only after successful crates.io publication.
-- The manual Rust release workflow file is `.github/workflows/manual-rust-release.yml`.
+- The manual Rust release workflow file is `.github/workflows/manual-release.yml`.

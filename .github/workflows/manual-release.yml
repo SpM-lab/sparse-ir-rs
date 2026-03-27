@@ -18,16 +18,19 @@ on:
         default: false
         type: boolean
 
-permissions:
-  contents: write
-
 concurrency:
   group: manual-rust-release-${{ inputs.release_ref }}
   cancel-in-progress: false
 
 jobs:
   publish-and-tag:
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.preflight.outputs.version }}
+      tag: ${{ steps.preflight.outputs.tag }}
+      sha: ${{ steps.preflight.outputs.sha }}
     env:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CRATES_IO_TOKEN }}
       CRATES_IO_USER_AGENT: sparse-ir-rs-manual-release (GitHub Actions)
@@ -114,9 +117,11 @@ jobs:
             fi
           done
 
-          echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
-          echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+            echo "sha=$(git rev-parse HEAD)"
+          } >> "${GITHUB_OUTPUT}"
 
       - name: Publish sparse-ir
         shell: bash
@@ -173,3 +178,12 @@ jobs:
             echo "- Commit: ${RELEASE_SHA}"
             echo "- crates.io publish: completed before tag push"
           } >> "${GITHUB_STEP_SUMMARY}"
+
+  publish-python:
+    needs: publish-and-tag
+    permissions:
+      id-token: write
+      contents: read
+    uses: ./.github/workflows/publish-pypi-reusable.yml
+    with:
+      release_ref: ${{ needs.publish-and-tag.outputs.tag }}

@@ -13,7 +13,7 @@ This note covers the downstream version bumps most likely to matter after a new 
 2. Bump the Python wrapper version in `python/pyproject.toml`.
 3. Run `python3 check_version.py`.
 4. Merge the release PR.
-5. Run `.github/workflows/manual-rust-release.yml` to publish `sparse-ir` and `sparse-ir-capi`.
+5. Run `.github/workflows/manual-release.yml` to publish `sparse-ir` and `sparse-ir-capi`.
 6. Let the release workflow push tag `vX.Y.Z`.
 7. Let `.github/workflows/PublishPyPI.yml` publish `pylibsparseir` from that tag.
 8. Confirm that `pylibsparseir X.Y.Z` is actually available on PyPI before bumping downstream Python consumers that resolve from package indexes.
@@ -74,7 +74,7 @@ Normal release flow is:
 
 1. bump `python/pyproject.toml` in the release PR
 2. merge the PR
-3. run `.github/workflows/manual-rust-release.yml`
+3. run `.github/workflows/manual-release.yml`
 4. let the pushed `vX.Y.Z` tag trigger `.github/workflows/PublishPyPI.yml`
 
 If downstream projects resolve `pylibsparseir` from PyPI, wait until the package is visible there before updating those repositories.
