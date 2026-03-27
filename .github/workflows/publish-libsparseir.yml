@@ -59,7 +59,7 @@ jobs:
         working-directory: Yggdrasil
         run: |
           TAG="${{ steps.latest-tag.outputs.tag }}"
-          BRANCH="libsparseir-${TAG}-${GITHUB_RUN_ID}"
+          BRANCH="libsparseir-${TAG}"
           git config user.name "libsparseir-bot[bot]"
           git config user.email "libsparseir-bot[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
