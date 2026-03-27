@@ -187,3 +187,10 @@ jobs:
     uses: ./.github/workflows/publish-pypi-reusable.yml
     with:
       release_ref: ${{ needs.publish-and-tag.outputs.tag }}
+
+  publish-libsparseir:
+    needs: publish-and-tag
+    uses: ./.github/workflows/publish-libsparseir-reusable.yml
+    with:
+      release_tag: ${{ needs.publish-and-tag.outputs.tag }}
+    secrets: inherit

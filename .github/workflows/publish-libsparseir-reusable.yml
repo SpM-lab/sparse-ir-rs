@@ -1,0 +1,93 @@
+name: Publish libsparseir to Yggdrasil Reusable
+
+on:
+  workflow_call:
+    inputs:
+      release_tag:
+        description: Release tag to publish to Yggdrasil; if empty, use the latest v* tag
+        required: false
+        type: string
+
+jobs:
+  publish-libsparseir-to-yggdrasil:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.LIBSPARSEIR_BOT_ID }}
+          private-key: ${{ secrets.LIBSPARSEIR_BOT_PRIVATE_KEY }}
+          owner: SpM-lab
+          repositories: |
+            sparse-ir-rs
+            Yggdrasil
+
+      - name: Check authentication
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: gh auth status
+
+      - uses: actions/checkout@v6
+        with:
+          repository: SpM-lab/sparse-ir-rs
+          fetch-depth: 0
+          path: sparse-ir-rs
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Update julia/build_tarballs.jl
+        id: release-tag
+        working-directory: sparse-ir-rs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tag="${INPUT_RELEASE_TAG:-}"
+          if [[ -z "${tag}" ]]; then
+            tag="$(git tag --list "v*" --sort=-v:refname | head -n 1)"
+          fi
+
+          if [[ -z "${tag}" ]]; then
+            echo "::error::No release tag found"
+            exit 1
+          fi
+
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "Using tag: ${tag}"
+          julia julia/update_build_tarballs.jl "${tag}"
+
+      - name: Clone SpM-lab/Yggdrasil
+        uses: actions/checkout@v6
+        with:
+          repository: SpM-lab/Yggdrasil
+          fetch-depth: 0
+          path: Yggdrasil
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Update SpM-lab/Yggdrasil master branch
+        working-directory: Yggdrasil
+        run: |
+          git checkout master
+          git pull origin master
+
+      - name: Copy julia/build_tarballs.jl to SpM-lab/Yggdrasil
+        run: cp sparse-ir-rs/julia/build_tarballs.jl Yggdrasil/L/libsparseir/build_tarballs.jl
+
+      - name: Commit and push changes
+        working-directory: Yggdrasil
+        run: |
+          TAG="${{ steps.release-tag.outputs.tag }}"
+          BRANCH="libsparseir-${TAG}"
+          git config user.name "libsparseir-bot[bot]"
+          git config user.email "libsparseir-bot[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add L/libsparseir/build_tarballs.jl
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "[libsparseir] Update libsparseir to ${TAG}"
+          git push origin "$BRANCH"
