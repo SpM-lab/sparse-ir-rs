@@ -4,7 +4,7 @@
 
 **Goal:** Make the manual Rust release workflow publish `pylibsparseir` in the same GitHub Actions run after crates.io publication and tag creation, while preserving a standalone PyPI publish entrypoint for retries.
 
-**Architecture:** Move the wheel build and PyPI publish jobs into a reusable workflow that accepts a `release_ref`. Keep `PublishPyPI.yml` as a thin wrapper for `push` on release tags and `workflow_dispatch`, and call the reusable workflow from `manual-rust-release.yml` with the freshly created tag.
+**Architecture:** Move the wheel build and PyPI publish jobs into a reusable workflow that accepts a `release_ref`. Keep `PublishPyPI.yml` as a thin wrapper for `push` on release tags and `workflow_dispatch`, and call the reusable workflow from `manual-release.yml` with the freshly created tag.
 
 **Tech Stack:** GitHub Actions, reusable workflows, cibuildwheel, Trusted Publishing, Markdown
 
@@ -45,7 +45,7 @@
 ### Task 3: Chain Python publication from manual Rust release
 
 **Files:**
-- Modify: `.github/workflows/manual-rust-release.yml`
+- Modify: `.github/workflows/manual-release.yml`
 
 **Step 1: Export the release tag as a job output**
 
@@ -74,12 +74,12 @@
 **Files:**
 - Verify: `.github/workflows/publish-pypi-reusable.yml`
 - Verify: `.github/workflows/PublishPyPI.yml`
-- Verify: `.github/workflows/manual-rust-release.yml`
+- Verify: `.github/workflows/manual-release.yml`
 - Verify: `README.md`
 
 **Step 1: Parse the workflow YAML files**
 
-Run: `ruby -e 'require "yaml"; %w[.github/workflows/publish-pypi-reusable.yml .github/workflows/PublishPyPI.yml .github/workflows/manual-rust-release.yml].each { |f| YAML.load_file(f); puts "#{f}: ok" }'`
+Run: `ruby -e 'require "yaml"; %w[.github/workflows/publish-pypi-reusable.yml .github/workflows/PublishPyPI.yml .github/workflows/manual-release.yml].each { |f| YAML.load_file(f); puts "#{f}: ok" }'`
 Expected: each file prints `ok`
 
 **Step 2: Inspect the diff**

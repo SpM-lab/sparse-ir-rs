@@ -234,7 +234,7 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 5. After the PR is merged, start the manual Rust release workflow:
    ```bash
-   gh workflow run manual-rust-release.yml \
+   gh workflow run manual-release.yml \
      -f release_ref=main \
      -f expected_version=0.8.3 \
      -f confirm_publish=true
@@ -242,7 +242,7 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 6. Watch the workflow:
    ```bash
-   RUN_ID=$(gh run list --workflow manual-rust-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   RUN_ID=$(gh run list --workflow manual-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
    gh run watch "$RUN_ID"
    ```
 
@@ -250,7 +250,7 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 7. The same manual Rust release workflow now publishes `pylibsparseir` from the new tag in a downstream job. Watch that same run until both the Rust and Python legs succeed, then confirm the package is visible:
    ```bash
-   RUN_ID=$(gh run list --workflow manual-rust-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   RUN_ID=$(gh run list --workflow manual-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
    gh run watch "$RUN_ID"
    curl -fsSL "https://pypi.org/pypi/pylibsparseir/0.8.3/json" >/dev/null
    ```
@@ -262,7 +262,7 @@ The release process is done in **two stages** because Julia bindings depend on t
 
    Requirements:
    - GitHub Actions secret `CRATES_IO_TOKEN` must be configured.
-   - The workflow file is `.github/workflows/manual-rust-release.yml`.
+   - The workflow file is `.github/workflows/manual-release.yml`.
    - Julia and BinaryBuilder follow-up work still happen after crates.io publication.
 
 **Stage 2: Julia version bump (after crates.io publication)**
