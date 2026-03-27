@@ -15,6 +15,9 @@ jobs:
           app-id: ${{ secrets.LIBSPARSEIR_BOT_ID }}
           private-key: ${{ secrets.LIBSPARSEIR_BOT_PRIVATE_KEY }}
           owner: SpM-lab
+          repositories: |
+            sparse-ir-rs
+            Yggdrasil
 
       - name: Check authentication
         env:
@@ -27,6 +30,7 @@ jobs:
           repository: SpM-lab/sparse-ir-rs
           fetch-depth: 0
           path: sparse-ir-rs
+          token: ${{ steps.app-token.outputs.token }}
       - name: Update julia/build_tarballs.jl
         id: latest-tag
         working-directory: sparse-ir-rs
@@ -42,6 +46,7 @@ jobs:
           repository: SpM-lab/Yggdrasil
           fetch-depth: 0
           path: Yggdrasil
+          token: ${{ steps.app-token.outputs.token }}
       - name: Update SpM-lab/Yggdrasil master branch
         working-directory: Yggdrasil
         run: |
