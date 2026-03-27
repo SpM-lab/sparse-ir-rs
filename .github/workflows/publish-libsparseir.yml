@@ -3,7 +3,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  sparse-ir-rs-agentic-tests:
+  publish-libsparseir-to-yggdrasil:
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App token
