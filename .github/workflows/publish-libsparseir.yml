@@ -1,0 +1,50 @@
+name: Publish libsparseir to Yggdrasil
+on:
+  workflow_dispatch:
+
+jobs:
+  sparse-ir-rs-agentic-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.LIBSPARSEIR_BOT_ID }}
+          private-key: ${{ secrets.LIBSPARSEIR_BOT_PRIVATE_KEY }}
+          owner: SpM-lab
+
+      - name: Check authentication
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          gh auth status
+
+      - uses: actions/checkout@v6
+        with:
+          repository: SpM-lab/sparse-ir-rs
+          fetch-depth: 0
+      - name: Update julia/build_tarballs.jl
+        run: |
+          # Fetch the latest tag starting with "v" and use it as the argument
+          LATEST_TAG=$(git tag --list "v*" --sort=-v:refname | head -n 1)
+          echo "Latest tag: $LATEST_TAG"
+          julia julia/update_build_tarballs.jl "$LATEST_TAG"
+      - name: Clone SpM-lab/Yggdrasil
+        uses: actions/checkout@v6
+        with:
+          repository: SpM-lab/Yggdrasil
+          fetch-depth: 0
+      - name: Update SpM-lab/Yggdrasil master branch
+        run: |
+          git checkout master
+          git pull origin master
+      - name: Copy julia/build_tarballs.jl to SpM-lab/Yggdrasil
+        run: |
+          cp julia/build_tarballs.jl Yggdrasil/L/libsparseir/build_tarballs.jl
+      - name: Commit and push changes
+        run: |
+          git checkout -b "libsparseir-$LATEST_TAG"
+          git add Yggdrasil/L/libsparseir/build_tarballs.jl
+          git commit -m "[libsparseir] Update libsparseir to $LATEST_TAG"
+          git push origin "libsparseir-$LATEST_TAG"
