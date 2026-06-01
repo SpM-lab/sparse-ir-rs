@@ -22,10 +22,10 @@ echo "Cleanup completed."
 
 echo ""
 echo "======================================"
-echo "Running uv sync (with rebuild)..."
+echo "Running uv sync --locked (with rebuild)..."
 echo "======================================"
-# Remove any cached build artifacts and force rebuild
-uv sync --refresh
+# Remove any cached build artifacts and force rebuild without rewriting uv.lock.
+uv sync --locked --refresh
 
 echo ""
 echo "======================================"
@@ -37,4 +37,3 @@ echo ""
 echo "======================================"
 echo "All tests completed successfully!"
 echo "======================================"
-

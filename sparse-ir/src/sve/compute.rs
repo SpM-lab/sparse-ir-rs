@@ -302,8 +302,8 @@ pub fn truncate<T: CustomNumeric>(
 
     // Validate
     if let Some(max) = max_num_svals {
-        if (max as isize) < 0 {
-            panic!("max_num_svals must be non-negative");
+        if max == 0 {
+            panic!("max_num_svals must be positive");
         }
     }
     if rtol < zero || rtol > T::from_f64_unchecked(1.0) {
@@ -358,19 +358,18 @@ pub fn truncate<T: CustomNumeric>(
             }
         }
 
-        if n_keep > 0 {
-            // Slice U: keep first n_keep columns
-            let u_shape = *u.shape();
-            let u_sliced = DTensor::<T, 2>::from_fn([u_shape.0, n_keep], |idx| u[[idx[0], idx[1]]]);
-            u_trunc.push(u_sliced);
+        // Slice U: keep first n_keep columns. Preserve one output block per
+        // input block even when all singular values in that block are removed.
+        let u_shape = *u.shape();
+        let u_sliced = DTensor::<T, 2>::from_fn([u_shape.0, n_keep], |idx| u[[idx[0], idx[1]]]);
+        u_trunc.push(u_sliced);
 
-            s_trunc.push(s[..n_keep].to_vec());
+        s_trunc.push(s[..n_keep].to_vec());
 
-            // Slice V: keep first n_keep columns
-            let v_shape = *v.shape();
-            let v_sliced = DTensor::<T, 2>::from_fn([v_shape.0, n_keep], |idx| v[[idx[0], idx[1]]]);
-            v_trunc.push(v_sliced);
-        }
+        // Slice V: keep first n_keep columns
+        let v_shape = *v.shape();
+        let v_sliced = DTensor::<T, 2>::from_fn([v_shape.0, n_keep], |idx| v[[idx[0], idx[1]]]);
+        v_trunc.push(v_sliced);
     }
 
     (u_trunc, s_trunc, v_trunc)
@@ -405,6 +404,37 @@ mod tests {
         let (_, s_trunc, _) = truncate(u, s, v, 0.0, Some(2));
 
         assert_eq!(s_trunc[0].len(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "max_num_svals must be positive")]
+    fn test_truncate_rejects_zero_max_size() {
+        let u = vec![DTensor::<f64, 2>::from_elem([1, 1], 1.0)];
+        let s = vec![vec![1.0]];
+        let v = vec![DTensor::<f64, 2>::from_elem([1, 1], 1.0)];
+
+        truncate(u, s, v, 0.0, Some(0));
+    }
+
+    #[test]
+    fn test_truncate_preserves_empty_blocks() {
+        let u = vec![
+            DTensor::<f64, 2>::from_elem([2, 1], 1.0),
+            DTensor::<f64, 2>::from_elem([2, 1], 2.0),
+        ];
+        let s = vec![vec![10.0], vec![1.0]];
+        let v = vec![
+            DTensor::<f64, 2>::from_elem([2, 1], 1.0),
+            DTensor::<f64, 2>::from_elem([2, 1], 2.0),
+        ];
+
+        let (u_trunc, s_trunc, v_trunc) = truncate(u, s, v, 0.5, None);
+
+        assert_eq!(s_trunc.len(), 2);
+        assert_eq!(s_trunc[0], vec![10.0]);
+        assert!(s_trunc[1].is_empty());
+        assert_eq!(*u_trunc[1].shape(), (2, 0));
+        assert_eq!(*v_trunc[1].shape(), (2, 0));
     }
 
     #[test]

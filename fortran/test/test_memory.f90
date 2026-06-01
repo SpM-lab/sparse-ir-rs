@@ -11,6 +11,7 @@ program test_memory
 
    call test_object_release_order()
    call test_multiple_allocations()
+   call test_finalize_uninitialized_ir()
    call test_set_beta_and_deallocate()
 
    print *, "======================================"
@@ -125,6 +126,16 @@ contains
       print *, "  Multiple allocations: PASSED (no memory conflicts)"
    end subroutine test_multiple_allocations
 
+   subroutine test_finalize_uninitialized_ir()
+      type(IR) :: irobj
+
+      print *, "Testing finalize_ir on uninitialized IR..."
+
+      call finalize_ir(irobj)
+
+      print *, "  finalize_ir on uninitialized IR: PASSED"
+   end subroutine test_finalize_uninitialized_ir
+
    subroutine test_set_beta_and_deallocate()
       integer, parameter :: dp = KIND(1.0D0)
       type(IR) :: irobj
@@ -152,12 +163,10 @@ contains
       ! Test deallocate_ir (should deallocate beta-dependent arrays)
       call deallocate_ir(irobj)
 
-      ! Note: After deallocate_ir, we should not call finalize_ir
-      ! because arrays are already deallocated. finalize_ir expects
-      ! arrays to be allocated. For normal cleanup, use finalize_ir only.
+      ! finalize_ir should now tolerate already-deallocated arrays.
+      call finalize_ir(irobj)
 
       print *, "  set_beta and deallocate_ir: PASSED"
    end subroutine test_set_beta_and_deallocate
 
 end program test_memory
-

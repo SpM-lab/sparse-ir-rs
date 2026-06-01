@@ -35,7 +35,7 @@ For development:
 
 ```bash
 # Install in development mode (will auto-prepare if needed)
-uv sync
+uv sync --locked
 ```
 
 **Note for CI/CD**: The Rust library is built automatically during the Python package build. No separate build step is needed:
@@ -78,7 +78,7 @@ The build process works as follows:
    - Generates C header file (`sparseir.h`) using cbindgen (via build.rs)
    - Copies the library and header to the `pylibsparseir` directory
 
-3. **Python Package Building**: `uv build` or `uv sync`:
+3. **Python Package Building**: `uv build` or `uv sync --locked`:
    - Packages everything into distributable wheels and source distributions
 
 4. **Installation**: The built package includes the compiled shared library and Python bindings

@@ -11,4 +11,4 @@ build:
 	uv build
 
 sync:
-	uv sync
+	uv sync --locked
