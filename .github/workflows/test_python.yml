@@ -50,11 +50,11 @@ jobs:
 
       - name: Install dependencies and build package
         working-directory: python
-        # uv sync installs dependencies and builds the package in editable mode.
+        # uv sync --locked installs dependencies and builds the package in editable mode.
         # The hatchling build hook (hatch_build.py) automatically runs:
         #   cargo build --release -p sparse-ir-capi
         # and copies the shared library to pylibsparseir/
-        run: uv sync
+        run: uv sync --locked
 
       - name: Run tests
         working-directory: python

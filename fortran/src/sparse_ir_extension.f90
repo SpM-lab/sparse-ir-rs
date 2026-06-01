@@ -59,27 +59,27 @@ MODULE sparse_ir_extension
     !! if true, take the Matsubara frequencies
     !! only from the positive region
       !
-      TYPE(c_ptr) :: basis_f_ptr
+      TYPE(c_ptr) :: basis_f_ptr = c_null_ptr
     !! pointer to the fermionic basis
-      TYPE(c_ptr) :: basis_b_ptr
+      TYPE(c_ptr) :: basis_b_ptr = c_null_ptr
     !! pointer to the bosonic basis
-      type(c_ptr) :: sve_ptr
+      type(c_ptr) :: sve_ptr = c_null_ptr
     !! pointer to the SVE result
-      TYPE(c_ptr) :: k_ptr
+      TYPE(c_ptr) :: k_ptr = c_null_ptr
     !! pointer to the kernel
-      TYPE(c_ptr) :: tau_f_smpl_ptr
+      TYPE(c_ptr) :: tau_f_smpl_ptr = c_null_ptr
     !! pointer to the tau sampling points (Fermionic)
-      TYPE(c_ptr) :: tau_b_smpl_ptr
+      TYPE(c_ptr) :: tau_b_smpl_ptr = c_null_ptr
     !! pointer to the tau sampling points (Bosonic)
-      TYPE(c_ptr) :: matsu_f_smpl_ptr
+      TYPE(c_ptr) :: matsu_f_smpl_ptr = c_null_ptr
     !! pointer to the fermionic frequency sampling points
-      TYPE(c_ptr) :: matsu_b_smpl_ptr
+      TYPE(c_ptr) :: matsu_b_smpl_ptr = c_null_ptr
     !! pointer to the bosonic frequency sampling points
-      TYPE(c_ptr) :: dlr_f_ptr
+      TYPE(c_ptr) :: dlr_f_ptr = c_null_ptr
     !! pointer to the fermionic DLR
-      TYPE(c_ptr) :: dlr_b_ptr
+      TYPE(c_ptr) :: dlr_b_ptr = c_null_ptr
     !! pointer to the bosonic DLR
-      TYPE(c_ptr) :: backend_ptr
+      TYPE(c_ptr) :: backend_ptr = c_null_ptr
     !! pointer to the GEMM backend
       !-----------------------------------------------------------------------
    END TYPE IR
@@ -445,16 +445,26 @@ CONTAINS
     !! Error status
       !
       ! Deallocate all member variables
-      DEALLOCATE (obj%s, STAT=ierr)
-      IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%s', 1)
-      DEALLOCATE (obj%tau, STAT=ierr)
-      IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%tau', 1)
-      DEALLOCATE (obj%omega, STAT=ierr)
-      IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%omega', 1)
-      DEALLOCATE (obj%freq_f, STAT=ierr)
-      IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%freq_f', 1)
-      DEALLOCATE (obj%freq_b, STAT=ierr)
-      IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%freq_b', 1)
+      IF (ALLOCATED(obj%s)) THEN
+         DEALLOCATE (obj%s, STAT=ierr)
+         IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%s', 1)
+      END IF
+      IF (ALLOCATED(obj%tau)) THEN
+         DEALLOCATE (obj%tau, STAT=ierr)
+         IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%tau', 1)
+      END IF
+      IF (ALLOCATED(obj%omega)) THEN
+         DEALLOCATE (obj%omega, STAT=ierr)
+         IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%omega', 1)
+      END IF
+      IF (ALLOCATED(obj%freq_f)) THEN
+         DEALLOCATE (obj%freq_f, STAT=ierr)
+         IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%freq_f', 1)
+      END IF
+      IF (ALLOCATED(obj%freq_b)) THEN
+         DEALLOCATE (obj%freq_b, STAT=ierr)
+         IF (ierr /= 0) CALL errore('finalize_ir', 'Error deallocating IR%freq_b', 1)
+      END IF
       !-----------------------------------------------------------------------
       !
       IF (c_associated(obj%basis_f_ptr)) THEN

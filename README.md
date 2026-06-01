@@ -165,7 +165,7 @@ cd fortran && ./test_with_rust_capi.sh
 #### Python tests
 
 ```bash
-cd python && uv sync && uv run pytest tests/ -v
+cd python && uv sync --locked && uv run pytest tests/ -v
 ```
 
 See [`.github/workflows/`](.github/workflows/) for CI configurations.
