@@ -31,7 +31,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: gh auth status
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: SpM-lab/sparse-ir-rs
           fetch-depth: 0
@@ -60,7 +60,7 @@ jobs:
           julia julia/update_build_tarballs.jl "${tag}"
 
       - name: Clone SpM-lab/Yggdrasil
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: SpM-lab/Yggdrasil
           fetch-depth: 0
