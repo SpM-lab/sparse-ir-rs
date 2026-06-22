@@ -36,7 +36,7 @@ jobs:
       CRATES_IO_USER_AGENT: sparse-ir-rs-manual-release (GitHub Actions)
     steps:
       - name: Check out release ref
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ inputs.release_ref }}
           fetch-depth: 0

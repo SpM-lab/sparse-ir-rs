@@ -22,7 +22,7 @@ jobs:
     name: Fortran with GCC/gfortran
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -52,7 +52,7 @@ jobs:
     name: Fortran with Intel compilers
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}

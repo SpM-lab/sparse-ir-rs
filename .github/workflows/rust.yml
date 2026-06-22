@@ -21,7 +21,7 @@ jobs:
     name: Rust (default backend)
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -45,7 +45,7 @@ jobs:
     name: Rust (system BLAS backend)
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           submodules: false
           token: ${{ secrets.GITHUB_TOKEN }}
