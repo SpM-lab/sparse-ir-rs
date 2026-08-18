@@ -248,14 +248,17 @@ The release process is done in **two stages** because Julia bindings depend on t
 
    The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `v0.8.3`.
 
-7. The same manual Rust release workflow now publishes `pylibsparseir` from the new tag in a downstream job, and also updates the `libsparseir` Yggdrasil branch from that release tag. Watch that same run until the downstream jobs succeed, then confirm the Python package is visible:
+7. The manual Rust release workflow updates the `libsparseir` Yggdrasil branch from the new release tag. After that workflow succeeds, dispatch the standalone PyPI workflow from the release tag. The upload job is defined directly in this workflow because PyPI Trusted Publishing does not support reusable workflow jobs:
    ```bash
    RUN_ID=$(gh run list --workflow manual-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
    gh run watch "$RUN_ID"
+   gh workflow run PublishPyPI.yml --ref v0.8.3
+   PYPI_RUN_ID=$(gh run list --workflow PublishPyPI.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run watch "$PYPI_RUN_ID"
    curl -fsSL "https://pypi.org/pypi/pylibsparseir/0.8.3/json" >/dev/null
    ```
 
-   If the Python publish leg needs to be retried independently after the tag already exists, rerun `.github/workflows/PublishPyPI.yml` manually from the release tag:
+   If the Python publish needs to be retried after the tag already exists, rerun the same workflow from the release tag:
    ```bash
    gh workflow run PublishPyPI.yml --ref v0.8.3
    ```
