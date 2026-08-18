@@ -55,4 +55,7 @@ jobs:
           ANACONDA_API_TOKEN: ${{ secrets.ANACONDA_TOKEN }}
         run: |
           conda config --set anaconda_upload yes
-          conda-build conda-recipe --user SpM-lab --output-folder conda-bld
+          conda-build conda-recipe \
+            --channel defaults \
+            --user SpM-lab \
+            --output-folder conda-bld
