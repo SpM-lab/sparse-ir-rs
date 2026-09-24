@@ -62,6 +62,8 @@ dashu-float.workspace = true
 dashu-base.workspace = true
 # System BLAS for tests only (not used in library code)
 blas-sys.workspace = true
+# tenferro-einsum engine for examples/bench_batch.rs
+tenferro-einsum.workspace = true
 # Git hooks management via cargo-husky
 # Use user-hooks feature to define custom hooks in .cargo-husky/hooks/
 [dev-dependencies.cargo-husky]

@@ -284,3 +284,44 @@ tensor construction overhead (feedback item 12).
     basis (5272 + 1.2 ms).
 - Not merged to main. Julia and Python compatibility is kept because the
   C ABI changes are additive only.
+
+## Batched fit/evaluate: Rust port of `test_timing` and a tenferro-einsum engine (2026-09-25)
+
+`sparse-ir/examples/bench_batch.rs` is a port of `fortran/test/test_timing.f90`.
+
+- Setup: Λ=1e6, ε=1e-8, β=100, L=96, ntau=96.
+- Each run is `fit_matsubara → evaluate_tau → fit_tau → evaluate_matsubara` over `[lsize, npts]`, with pre=lsize.
+- The calls go through `InplaceFitter::*_to`, as the C API does.
+- Engines:
+  - `--blas` injects `dgemm_`/`zgemm_` as the Fortran wrapper does.
+  - `--engine=einsum|plan|plan1s` runs the same pinv two-step contractions as tenferro-einsum calls.
+- With `--blas` the numbers match the Fortran benchmark on the branch (see below).
+- Every timed loop has one untimed warm-up call, so the lazy pinv SVD is not measured.
+
+Per-vector seconds, `RAYON_NUM_THREADS=1`, num=185640, Apple M-series.
+
+"pos/real" is the positive-only pattern with real IR coefficients (zd/dd/dd/dz). "full/cplx" is full Matsubara with all four transforms zz. Both are fermionic; the bosonic numbers are the same.
+
+| engine | pos/real l=1 | l=10 | l=120 | full/cplx l=1 | l=10 | l=120 |
+|---|---|---|---|---|---|---|
+| inhouse, faer (default) | 6.18e-6 | 2.81e-6 | 2.05e-6 | 1.83e-5 | 8.58e-6 | 6.42e-6 |
+| inhouse, injected Accelerate BLAS | 3.44e-6 | 1.07e-6 | 3.82e-7 | 5.17e-5 | 6.69e-6 | 1.82e-6 |
+| einsum string, faer | 5.10e-5 | 7.07e-6 | 2.77e-6 | 5.29e-5 | 1.19e-5 | 7.37e-6 |
+| einsum prepared plan, faer | 3.34e-5 | 5.24e-6 | 2.57e-6 | 3.50e-5 | 1.01e-5 | 7.21e-6 |
+| plan, one session per loop, faer | 3.30e-5 | 5.21e-6 | 2.59e-6 | 3.47e-5 | 1.02e-5 | 7.27e-6 |
+| einsum string, Accelerate | 5.63e-5 | 6.68e-6 | 1.23e-6 | 1.00e-4 | 1.30e-5 | 2.81e-6 |
+| plan, Accelerate | 3.59e-5 | 4.48e-6 | 1.02e-6 | 7.98e-5 | 1.09e-5 | 2.63e-6 |
+
+The Accelerate build of tenferro needs `--features tenferro-linalg/blas-accelerate`. `tenferro-cpu/blas-accelerate` alone breaks the SVD at run time (tenferro-rs#1905).
+
+Findings:
+
+- **Einsum is not ready to replace the in-house fitters.**
+  - Each prepared contraction costs about 4 µs fixed; string parsing adds ~3 µs (tenferro-rs#1906).
+  - At lsize=1 a cycle is 6 contractions, so it is 5–10× slower than in-house.
+  - With faer, even lsize=120 is 10–25% slower than in-house faer.
+  - With Accelerate, lsize=120 is still 2.6× (real) and 1.4× (complex) slower than the injected-BLAS in-house path.
+- Session entry with `with_threads(1)` costs nothing: plan and plan1s give the same numbers.
+- Staying in-house means the default faer backend is about 5× slower than Accelerate for batched real transforms.
+  - Accelerate zgemm is slower than faer at lsize=1, for the full complex pattern.
+  - A possible follow-up: route small calls to faer even when a BLAS backend is injected.
