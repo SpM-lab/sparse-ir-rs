@@ -53,45 +53,67 @@ Full output: see the commit message of the benchmark commit / rerun the example.
 
 ## Feedback for tenferro (collected during migration)
 
-1. Session entry on a multi-threaded `CpuBackend` costs ~29 µs (~0.35 µs single-threaded).
-   Libraries whose calls are small and frequent (sparse-ir fit on a single vector,
-   called from C/Python/Julia) cannot hold a closure-scoped session across FFI calls.
-   Wish: a cheap caller-thread/inline session, or a storable session handle.
-2. Per-op overhead inside a session is 1–2.5 µs above direct faer for tiny GEMM (95x95·95x1).
-3. External scalars are in main (#1800, 2026-09-18: `define_scalar_set!`, `HostTensor<T>`,
-   `Tensor::external`, extension ops), and `ext/df64-proof` shows a Df64 set with an
-   extension QR. But `ext/df64-proof` is a `publish = false` proof crate (version 0.0.0),
-   and there is no Df64 SVD. sparse-ir needs Df64 SVD/QR for the SVE at ε < 1e-8, so both
-   stay in-house. Wish: a published extended-precision scalar crate (or an
-   `xprec::Df64` adapter).
-4. Single-threaded thin SVD is 4–14% slower than calling faer 0.23 directly for 52x52–400x200.
-5. `TypedTensor<T, Rank<2>>` is a natural matrix type, but element access is fallible and verbose:
-   no `Index<[usize; 2]>`, `get2(i, j)` returns `Result<&T>`, and `host_col_major_view()`
-   also returns `Result`. Numerical code with dense index loops gets `?`/`unwrap` noise.
-   Wish: an infallible `Index`/`IndexMut` on host-owned compact tensors (and on `ColMajorView`).
-6. Owned `TypedTensor<T>` requires `T: TensorScalar` (sealed). External scalars go
-   through a different container (`HostTensor<T>` / `ErasedHostTensor`), not `TypedTensor`.
-   Generic numerical code over f64 and Df64 therefore cannot share one tensor type, so
-   sparse-ir keeps a small in-house column-major matrix for generic `T`. Wish:
-   `TypedTensor`-level ergonomics (static rank, views) for external-set scalars.
-7. `TypedTensor` is not `Clone`; every copy is an explicit `duplicate()` (fallible for views).
-   Structs holding a tensor cannot `#[derive(Clone)]`, which pushes the tensor behind `Arc`
-   or forces hand-written `Clone` impls.
-8. `TypedTensorView::duplicate()` and `as_slice()` reject non-contiguous (strided) views.
-   There is no "gather a strided host view into a compact column-major buffer" primitive,
-   so sparse-ir carries its own strided gather (`fitters::common::gather_col_major`).
-   Wish: `view.to_col_major()` (or `duplicate()` that compacts).
-9. `TypedTensor::get` / `get_mut` require `T: One + Zero` in addition to `TensorScalar`,
-   which leaks into every generic helper that only wants to read an element.
-10. tenferro-linalg entry points are `DynRank`-only; a `TypedTensor<T, Rank<2>>` matrix has
-    to be converted before calling SVD/QR, and results come back as `DynRank`.
-11. MSRV 1.96 and a pinned faer 0.24 in tenferro-cpu force the same toolchain/faer on
-    downstream crates (sparse-ir previously used faer 0.23 directly).
-12. Construction/view overhead is large for small tensors: `from_vec_col_major` costs
-    ~210 ns and `zeros` ~210 ns (vs ~30 ns for the raw allocations), and `as_view`
-    65–85 ns. For a 52-element tau evaluation this is the dominant cost
-    (0.3 µs → 0.5 µs end to end). A cheap constructor for already-validated compact
-    column-major buffers would remove most of it.
+Premise: sparse-ir owns its extended-precision linear algebra (Df64 SVD/QR stay
+in-house). tenferro only has to provide the tensor type. The main request is
+therefore to fold `HostTensor<T>` into `TypedTensor`, not to add Df64 kernels.
+
+### A. Unify `HostTensor<T>` into `TypedTensor<T, R>` (main request)
+
+Today (origin/main, after #1800) there are two parallel host containers:
+
+- `TypedTensor<T, R>`: static rank, views, integrated with tenferro-cpu and
+  tenferro-linalg, but `T: TensorScalar` is sealed to the preset set.
+- `HostTensor<T>` (tenferro-tensor-core): unconstrained `T`, `Clone`, used by
+  external scalar sets (`ext/df64-proof`), but dynamic rank only, no mutable
+  views, and view ops limited to reshape/transpose/slice.
+
+Generic numerical code over `f64` and `Df64` cannot share one tensor type, so
+sparse-ir keeps an in-house column-major matrix for generic `T`. Wish: one
+`TypedTensor<T, R>` whose host storage accepts any `T: Copy` (for example
+`T: Copy + 'static`). Backend kernels, dtype dispatch and linalg stay gated by
+`TensorScalar`, so the preset path is unchanged. The concrete requirements for
+the unified type:
+
+1. Static rank (`Rank<N>`) and `DynRank`, with the same view API (strided,
+   mutable, reshape/transpose/slice) for every `T`.
+2. `get`/`get_mut` without `One + Zero`. Reading an element should need no
+   arithmetic bounds.
+3. Infallible `Index<[usize; N]>` / `IndexMut` on host-owned compact tensors
+   and on column-major views. Today `get2` and `host_col_major_view()` return
+   `Result`, which fills dense index loops with `?`/`unwrap` noise.
+4. `Clone`. `HostTensor` already derives it, `TypedTensor` does not. Structs
+   holding a tensor cannot `#[derive(Clone)]`, which forces `Arc` or a
+   hand-written impl.
+5. A compaction primitive, `view.to_col_major()` (or a `duplicate()` that
+   compacts). `duplicate()`/`as_slice()` currently reject strided views, so
+   sparse-ir carries its own gather (`fitters::common::gather_col_major`).
+
+### B. Small-call overhead (independent of A)
+
+6. Session entry on a multi-threaded `CpuBackend` costs ~29 µs (~0.35 µs
+   single-threaded). Libraries called frequently through FFI (C/Python/Julia)
+   cannot hold a closure-scoped session across calls. Wish: a cheap
+   caller-thread/inline session, or a storable session handle.
+7. Per-op overhead inside a session is 1–2.5 µs above direct faer for a tiny
+   GEMM (95x95·95x1).
+8. Construction/view overhead is large for small tensors. `from_vec_col_major`
+   and `zeros` each take ~210 ns (vs ~30 ns for the raw allocation), and
+   `as_view` takes 65–85 ns. For a 52-element tau evaluation this dominates
+   (0.3 µs → 0.5 µs end to end). Wish: a cheap constructor for
+   already-validated compact column-major buffers.
+9. Single-threaded f64 thin SVD is 4–14% slower than faer 0.23 directly
+   (52x52–400x200). Minor.
+
+### C. Minor
+
+10. tenferro-linalg entry points are `DynRank`-only, so `Rank<2>` matrices are
+    converted in and out. Minor, because sparse-ir only uses linalg for f64
+    SVD/eig.
+11. MSRV 1.96 and a pinned faer 0.24 in tenferro-cpu force the same toolchain
+    and faer on downstream crates.
+
+Dropped: a published Df64 scalar crate and Df64 SVD/QR in tenferro. They are
+not needed, because sparse-ir keeps its own.
 
 ## Status (2026-09-24)
 
