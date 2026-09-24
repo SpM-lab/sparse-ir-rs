@@ -1,5 +1,7 @@
 use crate::freq::MatsubaraFreq;
 use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
+#[allow(unused_imports)]
+use crate::test_utils::At;
 use crate::test_utils::{ErrorNorm, generate_test_data_tau_and_matsubara};
 use crate::traits::{Bosonic, Fermionic, StatisticsType};
 use crate::{FiniteTempBasis, LogisticKernel, RegularizedBoseKernel};
@@ -41,10 +43,10 @@ fn test_matsubara_sampling_roundtrip_generic<S: StatisticsType + 'static>() {
         );
 
     // Fit to get coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -99,10 +101,10 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
         );
 
     // Fit to get real coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -183,16 +185,18 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
 
         // Check roundtrip
         let max_error = coeffs_0
+            .host_data()
+            .unwrap()
             .iter()
-            .zip(coeffs_fitted_0.iter())
+            .zip(coeffs_fitted_0.host_data().unwrap().iter())
             .map(|(a, b)| (*a - *b).norm())
             .fold(0.0, f64::max);
 
@@ -256,16 +260,18 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
 
         // Check roundtrip
         let max_error = coeffs_0
+            .host_data()
+            .unwrap()
             .iter()
-            .zip(coeffs_fitted_0.iter())
+            .zip(coeffs_fitted_0.host_data().unwrap().iter())
             .map(|(a, b)| (*a - *b).abs())
             .fold(0.0, f64::max);
 
@@ -329,10 +335,10 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
         );
 
     // Fit to get coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -386,10 +392,10 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic() {
         );
 
     // Fit to get coefficients (should be real)
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -425,8 +431,6 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip() {
 // In-place method tests
 // ============================================================================
 
-use mdarray::{Shape, Tensor};
-
 /// Test MatsubaraSampling::evaluate_nd_to matches evaluate_nd
 #[test]
 fn test_matsubara_sampling_evaluate_nd_to_matches() {
@@ -445,7 +449,7 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
 
     // Create test coefficients (complex)
     let coeffs =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[basis_size, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.3,
@@ -453,24 +457,26 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[n_points, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[n_points, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
-    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+    sampling
+        .evaluate_nd_to(None, &coeffs.as_view(), 0, &mut actual.as_view_mut())
+        .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..n_points {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).norm();
                 assert!(
                     diff < 1e-14,
@@ -504,7 +510,7 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
 
     // Create test values (complex)
     let values =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[n_points, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.2,
@@ -512,24 +518,26 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[basis_size, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[basis_size, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
-    sampling.fit_nd_to(None, &values, 0, &mut actual);
+    sampling
+        .fit_nd_to(None, &values.as_view(), 0, &mut actual.as_view_mut())
+        .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..basis_size {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).norm();
                 assert!(
                     diff < 1e-14,
@@ -562,29 +570,31 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
     let n_omega = 4;
 
     // Create test coefficients (real)
-    let coeffs = Tensor::<f64, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+    let coeffs = crate::test_utils::tensor_from_fn::<f64>(&[basis_size, n_k, n_omega], |idx| {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
     // Test for dim = 0
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[n_points, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[n_points, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
-    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+    sampling
+        .evaluate_nd_to(None, &coeffs.as_view(), 0, &mut actual.as_view_mut())
+        .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..n_points {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).norm();
                 assert!(
                     diff < 1e-14,
@@ -618,7 +628,7 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
 
     // Create test values (complex)
     let values =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[n_points, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.2,
@@ -626,21 +636,23 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
-    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
-    sampling.fit_nd_to(None, &values, 0, &mut actual);
+    let mut actual = crate::test_utils::tensor_filled::<f64>(&[basis_size, n_k, n_omega], 0.0);
+    sampling
+        .fit_nd_to(None, &values.as_view(), 0, &mut actual.as_view_mut())
+        .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..basis_size {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).abs();
                 assert!(
                     diff < 1e-14,
@@ -718,12 +730,12 @@ fn test_matsubara_sampling_debug_parameters() {
     // Verify matrix dimensions
     let matrix = matsf.matrix();
     assert_eq!(
-        matrix.shape().0,
+        matrix.shape()[0],
         matsf.n_sampling_points(),
         "Matrix rows should match number of sampling points"
     );
     assert_eq!(
-        matrix.shape().1,
+        matrix.shape()[1],
         basisf.size(),
         "Matrix columns should match basis size"
     );

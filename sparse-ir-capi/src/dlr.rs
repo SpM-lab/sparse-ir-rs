@@ -15,7 +15,10 @@ use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, spir_basis};
-use crate::utils::{MemoryOrder, copy_tensor_to_c_array, read_tensor_nd};
+use crate::utils::{
+    MemoryOrder, convert_dims_for_col_major, copy_tensor_to_c_array, read_tensor_col_major,
+    status_from_error,
+};
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
 use sparse_ir::dlr::{DiscreteLehmannRepresentation, DlrError};
 
@@ -356,28 +359,37 @@ pub extern "C" fn spir_ir2dlr_dd(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Read input tensor using the unified helper function
-        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        // Row-major data is handled as column-major with reversed dims, so the
+        // input and output buffers are flat copies.
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
+        let input_tensor = match unsafe { read_tensor_col_major(input, &col_major_dims) } {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert IR to DLR based on DLR type
-        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.from_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.from_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        let result_tensor = match result_tensor {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
+        // The result is column-major in the converted dims, which is the
+        // caller's requested memory order in the original dims.
+        if let Err(e) = unsafe { copy_tensor_to_c_array(&result_tensor, out) } {
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -431,28 +443,37 @@ pub extern "C" fn spir_ir2dlr_zz(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Read input tensor using the unified helper function
-        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        // Row-major data is handled as column-major with reversed dims, so the
+        // input and output buffers are flat copies.
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
+        let input_tensor = match unsafe { read_tensor_col_major(input, &col_major_dims) } {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert IR to DLR based on DLR type
-        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.from_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.from_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        let result_tensor = match result_tensor {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
+        // The result is column-major in the converted dims, which is the
+        // caller's requested memory order in the original dims.
+        if let Err(e) = unsafe { copy_tensor_to_c_array(&result_tensor, out) } {
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -506,28 +527,37 @@ pub extern "C" fn spir_dlr2ir_dd(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Read input tensor using the unified helper function
-        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        // Row-major data is handled as column-major with reversed dims, so the
+        // input and output buffers are flat copies.
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
+        let input_tensor = match unsafe { read_tensor_col_major(input, &col_major_dims) } {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert DLR to IR based on DLR type
-        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.to_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.to_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        let result_tensor = match result_tensor {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
+        // The result is column-major in the converted dims, which is the
+        // caller's requested memory order in the original dims.
+        if let Err(e) = unsafe { copy_tensor_to_c_array(&result_tensor, out) } {
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -581,28 +611,37 @@ pub extern "C" fn spir_dlr2ir_zz(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Read input tensor using the unified helper function
-        // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        // Row-major data is handled as column-major with reversed dims, so the
+        // input and output buffers are flat copies.
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
+        let input_tensor = match unsafe { read_tensor_col_major(input, &col_major_dims) } {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Convert DLR to IR based on DLR type
-        // target_dim is already correct since read_tensor_nd preserves orig_dims shape
         let result_tensor = match dlr_ref.inner() {
             BasisType::DLRFermionic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.to_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             BasisType::DLRBosonic(dlr) => {
-                dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
+                dlr.to_ir_nd(backend_handle, &input_tensor, col_major_target_dim)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
 
-        // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        let result_tensor = match result_tensor {
+            Ok(t) => t,
+            Err(e) => return status_from_error(&e),
+        };
+        // The result is column-major in the converted dims, which is the
+        // caller's requested memory order in the original dims.
+        if let Err(e) = unsafe { copy_tensor_to_c_array(&result_tensor, out) } {
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS

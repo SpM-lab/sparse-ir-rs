@@ -360,8 +360,14 @@ mod tests {
     mod system_blas_tests {
         use super::*;
         use blas_sys::{dgemm_, zgemm_};
-        use mdarray::tensor;
-        use sparse_ir::gemm::matmul_par;
+        use sparse_ir::Matrix;
+        use sparse_ir::gemm::matmul;
+        use sparse_ir::matrix::Mat;
+
+        /// Build a matrix from row literals.
+        fn tensor<T: Copy + sparse_ir::TensorScalar, const N: usize>(rows: &[[T; N]]) -> Matrix<T> {
+            Mat::from_rows(rows.iter().map(|r| r.to_vec()).collect()).into_typed()
+        }
 
         // Helper to create backend from blas-sys functions
         unsafe fn create_blas_backend() -> *mut spir_gemm_backend {
@@ -403,10 +409,10 @@ mod tests {
                 // A = [[1.0, 2.0], [3.0, 4.0]]
                 // B = [[5.0, 6.0], [7.0, 8.0]]
                 // Expected: C = [[19.0, 22.0], [43.0, 50.0]]
-                let a: mdarray::DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0]];
-                let b: mdarray::DTensor<f64, 2> = tensor![[5.0, 6.0], [7.0, 8.0]];
+                let a: Matrix<f64> = tensor(&[[1.0, 2.0], [3.0, 4.0]]);
+                let b: Matrix<f64> = tensor(&[[5.0, 6.0], [7.0, 8.0]]);
                 let backend_handle = get_backend_handle(backend);
-                let c = matmul_par(&a, &b, backend_handle);
+                let c = Mat::from_typed(&matmul(backend_handle, &a, &b).unwrap()).unwrap();
 
                 // Verify results
                 assert!(
@@ -431,10 +437,10 @@ mod tests {
                 // A = [[1.0, 2.0], [3.0, 4.0]]
                 // B = [[5.0, 6.0], [7.0, 8.0]]
                 // Expected: C = [[19.0, 22.0], [43.0, 50.0]]
-                let a: mdarray::DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0]];
-                let b: mdarray::DTensor<f64, 2> = tensor![[5.0, 6.0], [7.0, 8.0]];
+                let a: Matrix<f64> = tensor(&[[1.0, 2.0], [3.0, 4.0]]);
+                let b: Matrix<f64> = tensor(&[[5.0, 6.0], [7.0, 8.0]]);
                 let backend_handle = get_backend_handle(backend);
-                let c = matmul_par(&a, &b, backend_handle);
+                let c = Mat::from_typed(&matmul(backend_handle, &a, &b).unwrap()).unwrap();
 
                 // Verify results
                 assert!(
@@ -458,28 +464,28 @@ mod tests {
                 let backend = std::ptr::null();
 
                 // Test complex matrix multiplication
-                let a: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
+                let a: Matrix<num_complex::Complex<f64>> = tensor(&[
                     [
                         num_complex::Complex::new(1.0, 0.0),
-                        num_complex::Complex::new(2.0, 0.0)
+                        num_complex::Complex::new(2.0, 0.0),
                     ],
                     [
                         num_complex::Complex::new(3.0, 0.0),
-                        num_complex::Complex::new(4.0, 0.0)
-                    ]
-                ];
-                let b: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
+                        num_complex::Complex::new(4.0, 0.0),
+                    ],
+                ]);
+                let b: Matrix<num_complex::Complex<f64>> = tensor(&[
                     [
                         num_complex::Complex::new(5.0, 0.0),
-                        num_complex::Complex::new(6.0, 0.0)
+                        num_complex::Complex::new(6.0, 0.0),
                     ],
                     [
                         num_complex::Complex::new(7.0, 0.0),
-                        num_complex::Complex::new(8.0, 0.0)
-                    ]
-                ];
+                        num_complex::Complex::new(8.0, 0.0),
+                    ],
+                ]);
                 let backend_handle = get_backend_handle(backend);
-                let c = matmul_par(&a, &b, backend_handle);
+                let c = Mat::from_typed(&matmul(backend_handle, &a, &b).unwrap()).unwrap();
 
                 // Verify results (same as real case)
                 assert!((c[[0, 0]].re - 19.0).abs() < 1e-10);
@@ -498,28 +504,28 @@ mod tests {
                 assert!(!backend.is_null());
 
                 // Test complex matrix multiplication
-                let a: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
+                let a: Matrix<num_complex::Complex<f64>> = tensor(&[
                     [
                         num_complex::Complex::new(1.0, 0.0),
-                        num_complex::Complex::new(2.0, 0.0)
+                        num_complex::Complex::new(2.0, 0.0),
                     ],
                     [
                         num_complex::Complex::new(3.0, 0.0),
-                        num_complex::Complex::new(4.0, 0.0)
-                    ]
-                ];
-                let b: mdarray::DTensor<num_complex::Complex<f64>, 2> = tensor![
+                        num_complex::Complex::new(4.0, 0.0),
+                    ],
+                ]);
+                let b: Matrix<num_complex::Complex<f64>> = tensor(&[
                     [
                         num_complex::Complex::new(5.0, 0.0),
-                        num_complex::Complex::new(6.0, 0.0)
+                        num_complex::Complex::new(6.0, 0.0),
                     ],
                     [
                         num_complex::Complex::new(7.0, 0.0),
-                        num_complex::Complex::new(8.0, 0.0)
-                    ]
-                ];
+                        num_complex::Complex::new(8.0, 0.0),
+                    ],
+                ]);
                 let backend_handle = get_backend_handle(backend);
-                let c = matmul_par(&a, &b, backend_handle);
+                let c = Mat::from_typed(&matmul(backend_handle, &a, &b).unwrap()).unwrap();
 
                 // Verify results (same as real case)
                 assert!((c[[0, 0]].re - 19.0).abs() < 1e-10);
@@ -540,11 +546,10 @@ mod tests {
                 let backend = std::ptr::null();
 
                 // Test with larger matrices (3x2 * 2x4 = 3x4)
-                let a: mdarray::DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
-                let b: mdarray::DTensor<f64, 2> =
-                    tensor![[7.0, 8.0, 9.0, 10.0], [11.0, 12.0, 13.0, 14.0]];
+                let a: Matrix<f64> = tensor(&[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+                let b: Matrix<f64> = tensor(&[[7.0, 8.0, 9.0, 10.0], [11.0, 12.0, 13.0, 14.0]]);
                 let backend_handle = get_backend_handle(backend);
-                let c = matmul_par(&a, &b, backend_handle);
+                let c = Mat::from_typed(&matmul(backend_handle, &a, &b).unwrap()).unwrap();
 
                 // Verify some results
                 // First row: [1*7+2*11, 1*8+2*12, 1*9+2*13, 1*10+2*14] = [29, 32, 35, 38]
@@ -563,11 +568,10 @@ mod tests {
                 assert!(!backend.is_null());
 
                 // Test with larger matrices (3x2 * 2x4 = 3x4)
-                let a: mdarray::DTensor<f64, 2> = tensor![[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]];
-                let b: mdarray::DTensor<f64, 2> =
-                    tensor![[7.0, 8.0, 9.0, 10.0], [11.0, 12.0, 13.0, 14.0]];
+                let a: Matrix<f64> = tensor(&[[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]);
+                let b: Matrix<f64> = tensor(&[[7.0, 8.0, 9.0, 10.0], [11.0, 12.0, 13.0, 14.0]]);
                 let backend_handle = get_backend_handle(backend);
-                let c = matmul_par(&a, &b, backend_handle);
+                let c = Mat::from_typed(&matmul(backend_handle, &a, &b).unwrap()).unwrap();
 
                 // Verify some results
                 // First row: [1*7+2*11, 1*8+2*12, 1*9+2*13, 1*10+2*14] = [29, 32, 35, 38]

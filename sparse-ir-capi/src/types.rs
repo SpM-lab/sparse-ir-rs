@@ -4,7 +4,6 @@
 //! details from C code.
 
 use crate::{SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
-use mdarray::{DynRank, Slice, ViewMut};
 use num_complex::Complex;
 use sparse_ir::basis::FiniteTempBasis;
 use sparse_ir::fitters::InplaceFitter;
@@ -17,6 +16,7 @@ use sparse_ir::sve::SVEResult;
 use sparse_ir::taufuncs::normalize_tau;
 use sparse_ir::traits::Statistics;
 use sparse_ir::{Bosonic, Fermionic};
+use sparse_ir::{TypedTensorView, TypedTensorViewMut};
 use std::sync::Arc;
 
 /// Convert Statistics enum to C-API integer
@@ -1369,10 +1369,10 @@ impl InplaceFitter for SamplingType {
     fn evaluate_nd_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<f64, DynRank>,
+        coeffs: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+        out: &mut TypedTensorViewMut<'_, f64>,
+    ) -> sparse_ir::Result<()> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::evaluate_nd_dd_to(s.as_ref(), backend, coeffs, dim, out)
@@ -1381,17 +1381,17 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::evaluate_nd_dd_to(s.as_ref(), backend, coeffs, dim, out)
             }
             // Matsubara doesn't support dd (real → real)
-            _ => false,
+            _ => Err(sparse_ir::Error::Unsupported("evaluate_nd_dd_to")),
         }
     }
 
     fn evaluate_nd_dz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<f64, DynRank>,
+        coeffs: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
+    ) -> sparse_ir::Result<()> {
         match self {
             SamplingType::MatsubaraFermionic(s) => {
                 InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
@@ -1406,17 +1406,17 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
             }
             // Tau doesn't support dz (real → complex)
-            _ => false,
+            _ => Err(sparse_ir::Error::Unsupported("evaluate_nd_dz_to")),
         }
     }
 
     fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<Complex<f64>, DynRank>,
+        coeffs: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
+    ) -> sparse_ir::Result<()> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
@@ -1442,10 +1442,10 @@ impl InplaceFitter for SamplingType {
     fn fit_nd_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<f64, DynRank>,
+        values: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+        out: &mut TypedTensorViewMut<'_, f64>,
+    ) -> sparse_ir::Result<()> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::fit_nd_dd_to(s.as_ref(), backend, values, dim, out)
@@ -1454,17 +1454,17 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::fit_nd_dd_to(s.as_ref(), backend, values, dim, out)
             }
             // Matsubara doesn't support dd (real → real)
-            _ => false,
+            _ => Err(sparse_ir::Error::Unsupported("fit_nd_dd_to")),
         }
     }
 
     fn fit_nd_zd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<Complex<f64>, DynRank>,
+        values: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+        out: &mut TypedTensorViewMut<'_, f64>,
+    ) -> sparse_ir::Result<()> {
         match self {
             SamplingType::MatsubaraFermionic(s) => {
                 InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
@@ -1479,17 +1479,17 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
             }
             // Tau doesn't support zd (complex → real)
-            _ => false,
+            _ => Err(sparse_ir::Error::Unsupported("fit_nd_zd_to")),
         }
     }
 
     fn fit_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<Complex<f64>, DynRank>,
+        values: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
+    ) -> sparse_ir::Result<()> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::fit_nd_zz_to(s.as_ref(), backend, values, dim, out)

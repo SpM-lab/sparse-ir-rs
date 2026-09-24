@@ -2,8 +2,8 @@ use crate::gauss::{legendre_generic, legendre_vandermonde};
 use crate::interpolation1d::{
     evaluate_interpolated_polynomial, interpolate_1d_legendre, legendre_collocation_matrix,
 };
+use crate::matrix::Mat;
 use crate::{CustomNumeric, Df64, Interpolate1D};
-use mdarray::DTensor;
 
 /// Test that the collocation matrix is approximately the inverse of the Vandermonde matrix
 #[test]
@@ -19,7 +19,7 @@ fn test_legendre_collocation_matrix_inverse() {
         let collocation = legendre_collocation_matrix(&gauss_rule);
 
         // Compute V * C and check if it's approximately the identity matrix
-        let mut product = DTensor::<f64, 2>::from_elem([n, n], 0.0);
+        let mut product = Mat::<f64>::from_elem([n, n], 0.0);
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {

@@ -3,9 +3,9 @@
 use crate::gauss::{Rule, legendre_generic};
 use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
 use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use crate::poly::PiecewiseLegendrePolyVector;
-use mdarray::DTensor;
 
 use super::result::SVEResult;
 use super::utils::{extend_to_full_domain, merge_results, remove_weights, svd_to_polynomials};
@@ -13,14 +13,14 @@ use super::utils::{extend_to_full_domain, merge_results, remove_weights, svd_to_
 /// Trait for SVE computation strategies
 pub trait SVEStrategy<T: CustomNumeric> {
     /// Compute the discretized matrices for SVD
-    fn matrices(&self) -> Vec<DTensor<T, 2>>;
+    fn matrices(&self) -> Vec<Mat<T>>;
 
     /// Post-process SVD results to create SVEResult
     fn postprocess(
         &self,
-        u_list: Vec<DTensor<T, 2>>,
+        u_list: Vec<Mat<T>>,
         s_list: Vec<Vec<T>>,
-        v_list: Vec<DTensor<T, 2>>,
+        v_list: Vec<Mat<T>>,
     ) -> SVEResult;
 }
 
@@ -79,9 +79,9 @@ where
     /// on the domain specified by segments (e.g., [0, xmax] for reduced kernels).
     pub fn postprocess_single(
         &self,
-        u: &DTensor<T, 2>,
+        u: &Mat<T>,
         s: &[T],
-        v: &DTensor<T, 2>,
+        v: &Mat<T>,
     ) -> (
         PiecewiseLegendrePolyVector,
         Vec<f64>,
@@ -187,7 +187,7 @@ where
     }
 
     /// Compute reduced kernel matrix for given symmetry
-    fn compute_reduced_matrix(&self, symmetry: SymmetryType) -> DTensor<T, 2> {
+    fn compute_reduced_matrix(&self, symmetry: SymmetryType) -> Mat<T> {
         // Compute K_red(x, y) = K(x, y) + sign * K(x, -y)
         // where x, y are in [0, xmax] and [0, ymax]
         let discretized = matrix_from_gauss_with_segments(
@@ -237,7 +237,7 @@ where
     K: CentrosymmKernel + KernelProperties + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    fn matrices(&self) -> Vec<DTensor<T, 2>> {
+    fn matrices(&self) -> Vec<Mat<T>> {
         // Compute reduced kernels for even and odd symmetries
         let even_matrix = self.compute_reduced_matrix(SymmetryType::Even);
         let odd_matrix = self.compute_reduced_matrix(SymmetryType::Odd);
@@ -247,9 +247,9 @@ where
 
     fn postprocess(
         &self,
-        u_list: Vec<DTensor<T, 2>>,
+        u_list: Vec<Mat<T>>,
         s_list: Vec<Vec<T>>,
-        v_list: Vec<DTensor<T, 2>>,
+        v_list: Vec<Mat<T>>,
     ) -> SVEResult {
         // Process even and odd results using SamplingSVE (which doesn't know about symmetry)
         let result_even = self
@@ -338,7 +338,7 @@ where
     }
 
     /// Compute kernel matrix for non-centrosymmetric kernel
-    fn compute_matrix(&self) -> DTensor<T, 2> {
+    fn compute_matrix(&self) -> Mat<T> {
         // Compute K(x, y) directly over full domain
         let discretized = matrix_from_gauss_noncentrosymmetric(
             &self.kernel,
@@ -358,16 +358,16 @@ where
     K: AbstractKernel + KernelProperties + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    fn matrices(&self) -> Vec<DTensor<T, 2>> {
+    fn matrices(&self) -> Vec<Mat<T>> {
         // Single matrix for non-centrosymmetric kernel
         vec![self.compute_matrix()]
     }
 
     fn postprocess(
         &self,
-        u_list: Vec<DTensor<T, 2>>,
+        u_list: Vec<Mat<T>>,
         s_list: Vec<Vec<T>>,
-        v_list: Vec<DTensor<T, 2>>,
+        v_list: Vec<Mat<T>>,
     ) -> SVEResult {
         // Process single result using SamplingSVE
         let (u_polys, s, v_polys) = self

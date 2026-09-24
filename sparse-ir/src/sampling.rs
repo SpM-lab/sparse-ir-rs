@@ -3,97 +3,42 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
-use crate::fitters::InplaceFitter;
+use crate::Matrix;
+use crate::error::{Error, Result};
+use crate::fitters::{InplaceFitter, RealMatrixFitter};
 use crate::gemm::GemmBackendHandle;
+use crate::matrix::Mat;
 use crate::traits::StatisticsType;
-use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
+use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
 
-/// Build output shape by replacing dimension `dim` with `new_size`
-fn build_output_shape<S: Shape>(input_shape: &S, dim: usize, new_size: usize) -> Vec<usize> {
-    let mut out_shape: Vec<usize> = Vec::with_capacity(input_shape.rank());
-    input_shape.with_dims(|dims| {
-        for (i, d) in dims.iter().enumerate() {
-            if i == dim {
-                out_shape.push(new_size);
-            } else {
-                out_shape.push(*d);
-            }
-        }
-    });
-    out_shape
-}
-
-/// Move axis from position `src` to position `dst`
+/// Copy a public matrix into the internal container.
 ///
-/// This is equivalent to numpy.moveaxis or libsparseir's movedim.
-/// It creates a permutation array that moves the specified axis.
-///
-/// # Arguments
-/// * `arr` - Input array slice (Tensor or View)
-/// * `src` - Source axis position
-/// * `dst` - Destination axis position
-///
-/// # Returns
-/// Tensor with axes permuted
-///
-/// # Example
-/// ```ignore
-/// // For a 4D tensor with shape (2, 3, 4, 5)
-/// // movedim(arr, 0, 2) moves axis 0 to position 2
-/// // Result shape: (3, 4, 2, 5) with axes permuted as [1, 2, 0, 3]
-/// ```
-pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
-    if src == dst {
-        return arr.to_tensor();
-    }
-
-    let rank = arr.rank();
-    assert!(
-        src < rank,
-        "src axis {} out of bounds for rank {}",
-        src,
-        rank
-    );
-    assert!(
-        dst < rank,
-        "dst axis {} out of bounds for rank {}",
-        dst,
-        rank
-    );
-
-    // Generate permutation: move src to dst position
-    let mut perm = Vec::with_capacity(rank);
-    let mut pos = 0;
-    for i in 0..rank {
-        if i == dst {
-            perm.push(src);
-        } else {
-            // Skip src position
-            if pos == src {
-                pos += 1;
-            }
-            perm.push(pos);
-            pos += 1;
-        }
-    }
-
-    arr.permute(&perm[..]).to_tensor()
+/// Matrices produced by this crate and by `TypedTensor::from_vec_col_major`
+/// are host-resident column-major, so this only fails for foreign storage.
+pub(crate) fn mat_from_matrix<T: tenferro_tensor::TensorScalar + Copy>(
+    m: &Matrix<T>,
+) -> Result<Mat<T>> {
+    Ok(Mat::from_typed(m)?)
 }
 
 /// Sparse sampling in imaginary time
 ///
 /// Allows transformation between the IR basis and a set of sampling points
 /// in imaginary time (τ).
+///
+/// Vector methods take and return slices; N-dimensional methods act on axis
+/// `dim` of a column-major [`TypedTensor`]. All transforms return
+/// [`Result`]: shape mismatches and layout errors are reported, not panics.
 pub struct TauSampling<S>
 where
     S: StatisticsType,
 {
-    /// Sampling points in imaginary time τ ∈ [-β/2, β/2]
+    /// Sampling points in imaginary time τ ∈ [-β, β]
     sampling_points: Vec<f64>,
 
     /// Real matrix fitter for least-squares fitting
-    fitter: crate::fitters::RealMatrixFitter,
+    fitter: RealMatrixFitter,
 
     /// Marker for statistics type
     _phantom: std::marker::PhantomData<S>,
@@ -108,12 +53,6 @@ where
     /// The default sampling points are chosen as the extrema of the highest-order
     /// basis function, which gives near-optimal conditioning.
     /// SVD is computed lazily on first call to `fit` or `fit_nd`.
-    ///
-    /// # Arguments
-    /// * `basis` - Any basis implementing the `Basis` trait
-    ///
-    /// # Returns
-    /// A new TauSampling object
     pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Self
     where
         S: 'static,
@@ -125,13 +64,6 @@ where
     /// Create a new TauSampling with custom sampling points
     ///
     /// SVD is computed lazily on first call to `fit` or `fit_nd`.
-    ///
-    /// # Arguments
-    /// * `basis` - Any basis implementing the `Basis` trait
-    /// * `sampling_points` - Custom sampling points in τ ∈ [-β, β]
-    ///
-    /// # Returns
-    /// A new TauSampling object
     ///
     /// # Panics
     /// Panics if `sampling_points` is empty or if any point is outside [-β, β]
@@ -153,54 +85,41 @@ where
             );
         }
 
-        // Compute sampling matrix: A[i, l] = u_l(τ_i)
-        // Use Basis trait's evaluate_tau method
         let matrix = basis.evaluate_tau(&sampling_points);
-
-        // Create fitter
-        let fitter = crate::fitters::RealMatrixFitter::new(matrix);
-
+        let matrix = mat_from_matrix(&matrix).expect("Basis::evaluate_tau returns a host matrix");
         Self {
             sampling_points,
-            fitter,
+            fitter: RealMatrixFitter::new(matrix),
             _phantom: std::marker::PhantomData,
         }
     }
 
     /// Create a new TauSampling with custom sampling points and pre-computed matrix
     ///
-    /// This constructor is useful when the sampling matrix is already computed
-    /// (e.g., from external sources or for testing).
-    ///
-    /// # Arguments
-    /// * `sampling_points` - Sampling points in τ ∈ [-β, β]
-    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size)
-    ///
-    /// # Returns
-    /// A new TauSampling object
-    ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty or if matrix dimensions don't match
-    pub fn from_matrix(sampling_points: Vec<f64>, matrix: DTensor<f64, 2>) -> Self {
-        assert!(!sampling_points.is_empty(), "No sampling points given");
-        assert_eq!(
-            matrix.shape().0,
-            sampling_points.len(),
-            "Matrix rows ({}) must match number of sampling points ({})",
-            matrix.shape().0,
-            sampling_points.len()
-        );
-
-        let fitter = crate::fitters::RealMatrixFitter::new(matrix);
-
-        Self {
-            sampling_points,
-            fitter,
-            _phantom: std::marker::PhantomData,
+    /// # Errors
+    /// Returns an error if `sampling_points` is empty, if the matrix row
+    /// count does not match the number of points, or if the matrix is not
+    /// host-resident.
+    pub fn from_matrix(sampling_points: Vec<f64>, matrix: &Matrix<f64>) -> Result<Self> {
+        if sampling_points.is_empty() {
+            return Err(Error::InvalidArgument("no sampling points given".into()));
         }
+        let matrix = mat_from_matrix(matrix)?;
+        if matrix.nrows() != sampling_points.len() {
+            return Err(Error::ShapeMismatch(format!(
+                "matrix rows ({}) must match number of sampling points ({})",
+                matrix.nrows(),
+                sampling_points.len()
+            )));
+        }
+        Ok(Self {
+            sampling_points,
+            fitter: RealMatrixFitter::new(matrix),
+            _phantom: std::marker::PhantomData,
+        })
     }
 
-    /// Get the sampling points
+    /// Get sampling points
     pub fn sampling_points(&self) -> &[f64] {
         &self.sampling_points
     }
@@ -215,199 +134,136 @@ where
         self.fitter.basis_size()
     }
 
-    /// Get the sampling matrix
-    pub fn matrix(&self) -> &DTensor<f64, 2> {
-        &self.fitter.matrix
+    /// Get the sampling matrix (`n_sampling_points x basis_size`)
+    pub fn matrix(&self) -> &Matrix<f64> {
+        self.fitter.matrix()
     }
 
-    // ========================================================================
-    // 1D functions (real and complex)
-    // ========================================================================
-
     /// Evaluate basis coefficients at sampling points
-    ///
-    /// Computes g(τ_i) = Σ_l a_l * u_l(τ_i) for all sampling points
-    ///
-    /// # Arguments
-    /// * `coeffs` - Basis coefficients (length = basis_size)
-    ///
-    /// # Returns
-    /// Values at sampling points (length = n_sampling_points)
-    pub fn evaluate(&self, coeffs: &[f64]) -> Vec<f64> {
+    pub fn evaluate(&self, coeffs: &[f64]) -> Result<Vec<f64>> {
         self.fitter.evaluate(None, coeffs)
     }
 
-    /// Evaluate basis coefficients at sampling points, writing to output slice
-    pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) {
+    /// Evaluate basis coefficients at sampling points, writing to `out`
+    pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) -> Result<()> {
         self.fitter.evaluate_to(None, coeffs, out)
     }
 
     /// Fit values at sampling points to basis coefficients
-    pub fn fit(&self, values: &[f64]) -> Vec<f64> {
+    pub fn fit(&self, values: &[f64]) -> Result<Vec<f64>> {
         self.fitter.fit(None, values)
     }
 
-    /// Fit values at sampling points to basis coefficients, writing to output slice
-    pub fn fit_to(&self, values: &[f64], out: &mut [f64]) {
+    /// Fit values at sampling points to basis coefficients, writing to `out`
+    pub fn fit_to(&self, values: &[f64], out: &mut [f64]) -> Result<()> {
         self.fitter.fit_to(None, values, out)
     }
 
     /// Evaluate complex basis coefficients at sampling points
-    pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        self.fitter.evaluate_zz(None, coeffs)
+    pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Result<Vec<Complex<f64>>> {
+        self.fitter.evaluate(None, coeffs)
     }
 
-    /// Evaluate complex basis coefficients, writing to output slice
-    pub fn evaluate_zz_to(&self, coeffs: &[Complex<f64>], out: &mut [Complex<f64>]) {
-        self.fitter.evaluate_zz_to(None, coeffs, out)
+    /// Evaluate complex basis coefficients at sampling points, writing to `out`
+    pub fn evaluate_zz_to(&self, coeffs: &[Complex<f64>], out: &mut [Complex<f64>]) -> Result<()> {
+        self.fitter.evaluate_to(None, coeffs, out)
     }
 
-    /// Fit complex values at sampling points to basis coefficients
-    pub fn fit_zz(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
-        self.fitter.fit_zz(None, values)
+    /// Fit complex values at sampling points to complex basis coefficients
+    pub fn fit_zz(&self, values: &[Complex<f64>]) -> Result<Vec<Complex<f64>>> {
+        self.fitter.fit(None, values)
     }
 
-    /// Fit complex values, writing to output slice
-    pub fn fit_zz_to(&self, values: &[Complex<f64>], out: &mut [Complex<f64>]) {
-        self.fitter.fit_zz_to(None, values, out)
+    /// Fit complex values to complex basis coefficients, writing to `out`
+    pub fn fit_zz_to(&self, values: &[Complex<f64>], out: &mut [Complex<f64>]) -> Result<()> {
+        self.fitter.fit_to(None, values, out)
     }
 
-    // ========================================================================
-    // N-D functions (real)
-    // ========================================================================
-
-    /// Evaluate N-D real coefficients at sampling points
-    ///
-    /// # Arguments
-    /// * `coeffs` - N-dimensional array with `coeffs.shape().dim(dim) == basis_size`
-    /// * `dim` - Dimension along which to evaluate (0-indexed)
-    ///
-    /// # Returns
-    /// N-dimensional array with `result.shape().dim(dim) == n_sampling_points`
+    /// Evaluate along axis `dim` of an N-dimensional coefficient tensor
     pub fn evaluate_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<f64, DynRank>,
+        coeffs: &TypedTensor<f64>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
-        let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
-        let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
-        self.evaluate_nd_to(backend, coeffs, dim, &mut out.expr_mut());
-        out
+    ) -> Result<TypedTensor<f64>> {
+        self.fitter.evaluate_nd(backend, coeffs, dim)
     }
 
-    /// Evaluate N-D real coefficients, writing to a mutable view
+    /// Evaluate along axis `dim`, writing to a column-major output view
     pub fn evaluate_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<f64, DynRank>,
+        coeffs: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
+        out: &mut TypedTensorViewMut<'_, f64>,
+    ) -> Result<()> {
+        self.fitter.evaluate_nd_to(backend, coeffs, dim, out)
     }
 
-    /// Fit N-D real values at sampling points to basis coefficients
-    ///
-    /// # Arguments
-    /// * `values` - N-dimensional array with `values.shape().dim(dim) == n_sampling_points`
-    /// * `dim` - Dimension along which to fit (0-indexed)
-    ///
-    /// # Returns
-    /// N-dimensional array with `result.shape().dim(dim) == basis_size`
+    /// Fit along axis `dim` of an N-dimensional value tensor
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<f64, DynRank>,
+        values: &TypedTensor<f64>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
-        let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
-        let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
-        self.fit_nd_to(backend, values, dim, &mut out.expr_mut());
-        out
+    ) -> Result<TypedTensor<f64>> {
+        self.fitter.fit_nd(backend, values, dim)
     }
 
-    /// Fit N-D real values, writing to a mutable view
+    /// Fit along axis `dim`, writing to a column-major output view
     pub fn fit_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<f64, DynRank>,
+        values: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out);
+        out: &mut TypedTensorViewMut<'_, f64>,
+    ) -> Result<()> {
+        self.fitter.fit_nd_to(backend, values, dim, out)
     }
 
-    // ========================================================================
-    // N-D functions (complex)
-    // ========================================================================
-
-    /// Evaluate N-D complex coefficients at sampling points
-    ///
-    /// # Arguments
-    /// * `coeffs` - N-dimensional complex array with `coeffs.shape().dim(dim) == basis_size`
-    /// * `dim` - Dimension along which to evaluate (0-indexed)
-    ///
-    /// # Returns
-    /// N-dimensional complex array with `result.shape().dim(dim) == n_sampling_points`
+    /// Evaluate complex coefficients along axis `dim`
     pub fn evaluate_nd_zz(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<Complex<f64>, DynRank>,
+        coeffs: &TypedTensor<Complex<f64>>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
-        let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
-        let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
-        self.evaluate_nd_zz_to(backend, coeffs, dim, &mut out.expr_mut());
-        out
+    ) -> Result<TypedTensor<Complex<f64>>> {
+        self.fitter.evaluate_nd(backend, coeffs, dim)
     }
 
-    /// Evaluate N-D complex coefficients, writing to a mutable view
+    /// Evaluate complex coefficients along axis `dim` into an output view
     pub fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<Complex<f64>, DynRank>,
+        coeffs: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
+    ) -> Result<()> {
+        self.fitter.evaluate_nd_to(backend, coeffs, dim, out)
     }
 
-    /// Fit N-D complex values at sampling points to basis coefficients
-    ///
-    /// # Arguments
-    /// * `values` - N-dimensional complex array with `values.shape().dim(dim) == n_sampling_points`
-    /// * `dim` - Dimension along which to fit (0-indexed)
-    ///
-    /// # Returns
-    /// N-dimensional complex array with `result.shape().dim(dim) == basis_size`
+    /// Fit complex values along axis `dim`
     pub fn fit_nd_zz(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<Complex<f64>, DynRank>,
+        values: &TypedTensor<Complex<f64>>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
-        let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
-        let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
-        self.fit_nd_zz_to(backend, values, dim, &mut out.expr_mut());
-        out
+    ) -> Result<TypedTensor<Complex<f64>>> {
+        self.fitter.fit_nd(backend, values, dim)
     }
 
-    /// Fit N-D complex values, writing to a mutable view
+    /// Fit complex values along axis `dim` into an output view
     pub fn fit_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<Complex<f64>, DynRank>,
+        values: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out);
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
+    ) -> Result<()> {
+        self.fitter.fit_nd_to(backend, values, dim, out)
     }
 }
 
-/// InplaceFitter implementation for TauSampling
-///
-/// Delegates to RealMatrixFitter which supports dd and zz operations.
 impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
     fn n_points(&self) -> usize {
         self.n_sampling_points()
@@ -420,41 +276,41 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
     fn evaluate_nd_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<f64, DynRank>,
+        coeffs: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
-        self.fitter.evaluate_nd_dd_to(backend, coeffs, dim, out)
+        out: &mut TypedTensorViewMut<'_, f64>,
+    ) -> Result<()> {
+        self.fitter.evaluate_nd_to(backend, coeffs, dim, out)
     }
 
     fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<Complex<f64>, DynRank>,
+        coeffs: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
-        self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
+    ) -> Result<()> {
+        self.fitter.evaluate_nd_to(backend, coeffs, dim, out)
     }
 
     fn fit_nd_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<f64, DynRank>,
+        values: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
-        self.fitter.fit_nd_dd_to(backend, values, dim, out)
+        out: &mut TypedTensorViewMut<'_, f64>,
+    ) -> Result<()> {
+        self.fitter.fit_nd_to(backend, values, dim, out)
     }
 
     fn fit_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<Complex<f64>, DynRank>,
+        values: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
-        self.fitter.fit_nd_zz_to(backend, values, dim, out)
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
+    ) -> Result<()> {
+        self.fitter.fit_nd_to(backend, values, dim, out)
     }
 }
 

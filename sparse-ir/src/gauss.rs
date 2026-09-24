@@ -9,6 +9,7 @@
 //! where we generally have superexponential convergence for smooth f(x)
 //! with the number of quadrature points.
 
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use simba::scalar::ComplexField;
 use std::fmt::Debug;
@@ -841,11 +842,9 @@ pub fn legendre_twofloat(n: usize) -> Rule<crate::Df64> {
 ///
 /// # Returns
 /// Matrix V where V[i,j] = P_j(x_i), with P_j being the j-th Legendre polynomial
-pub fn legendre_vandermonde<T: CustomNumeric>(x: &[T], degree: usize) -> mdarray::DTensor<T, 2> {
-    use mdarray::DTensor;
-
+pub fn legendre_vandermonde<T: CustomNumeric>(x: &[T], degree: usize) -> Mat<T> {
     let n = x.len();
-    let mut v = DTensor::<T, 2>::from_elem([n, degree + 1], T::zero());
+    let mut v = Mat::<T>::from_elem([n, degree + 1], T::zero());
 
     // First column is all ones (P_0(x) = 1)
     for i in 0..n {

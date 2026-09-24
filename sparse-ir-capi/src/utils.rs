@@ -1,15 +1,16 @@
 //! Utility functions for C API
 //!
-//! This module provides helper functions for order conversion and dimension handling.
+//! This module provides helpers for memory-order handling, zero-copy tensor
+//! views over caller buffers, and mapping library errors to status codes.
 
 #[allow(unused_imports)] // Used in test code
 use crate::{
-    SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
-    SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2,
+    SPIR_COMPUTATION_SUCCESS, SPIR_INPUT_DIMENSION_MISMATCH, SPIR_INTERNAL_ERROR,
+    SPIR_INVALID_ARGUMENT, SPIR_INVALID_DIMENSION, SPIR_NOT_SUPPORTED, SPIR_ORDER_COLUMN_MAJOR,
+    SPIR_ORDER_ROW_MAJOR, SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2, StatusCode,
 };
-#[allow(unused_imports)]
-use mdarray::Shape;
-use sparse_ir::numeric::CustomNumeric; // Used in test code for with_dims
+use sparse_ir::numeric::CustomNumeric; // Used in test code
+use sparse_ir::{Matrix, TensorScalar, TypedTensor, TypedTensorView, TypedTensorViewMut};
 
 /// Check if SPARSEIR_DEBUG environment variable is set
 ///
@@ -36,189 +37,126 @@ impl MemoryOrder {
     }
 }
 
-/// Convert dimensions and target_dim for row-major mdarray
+/// Map a library error to a C API status code.
+pub(crate) fn status_from_error(err: &sparse_ir::Error) -> StatusCode {
+    use sparse_ir::Error;
+    match err {
+        Error::Unsupported(_) => SPIR_NOT_SUPPORTED,
+        Error::ShapeMismatch(_) => SPIR_INPUT_DIMENSION_MISMATCH,
+        Error::AxisOutOfRange { .. } => SPIR_INVALID_DIMENSION,
+        Error::InvalidArgument(_) | Error::Layout(_) => SPIR_INVALID_ARGUMENT,
+        _ => SPIR_INTERNAL_ERROR,
+    }
+}
+
+/// Convert dimensions and target_dim to the column-major convention used by
+/// sparse-ir tensors.
 ///
-/// mdarray uses row-major (C order) by default. When the C-API caller
-/// specifies column-major (Fortran/Julia order), we need to reverse
-/// dimensions and adjust target_dim to match mdarray's row-major layout.
-///
-/// This follows libsparseir's pattern for order handling.
-///
-/// # Arguments
-/// * `dims` - Original dimensions from C-API
-/// * `target_dim` - Original target dimension from C-API
-/// * `order` - Memory order specified by caller
-///
-/// # Returns
-/// (mdarray_dims, mdarray_target_dim) - Dimensions and target_dim for row-major mdarray
+/// A row-major buffer with dims `[d0, ..., dn]` is the same memory as a
+/// column-major buffer with dims `[dn, ..., d0]`, so row-major input is
+/// handled by reversing the dimensions and mirroring `target_dim`; no data is
+/// moved.
 ///
 /// # Example
 /// ```text
-/// // Julia: dims=[5, 3], target_dim=0, order=COLUMN_MAJOR
-/// convert_dims_for_row_major(&[5, 3], 0, MemoryOrder::ColumnMajor)
-/// → ([3, 5], 1)  // For row-major mdarray
+/// // Python: dims=[5, 3], target_dim=0, order=ROW_MAJOR
+/// convert_dims_for_col_major(&[5, 3], 0, MemoryOrder::RowMajor)
+/// // Returns: ([3, 5], 1)
 /// ```
-pub fn convert_dims_for_row_major(
+pub fn convert_dims_for_col_major(
     dims: &[usize],
     target_dim: usize,
     order: MemoryOrder,
 ) -> (Vec<usize>, usize) {
     match order {
+        MemoryOrder::ColumnMajor => (dims.to_vec(), target_dim),
         MemoryOrder::RowMajor => {
-            // Already row-major, use as-is
-            (dims.to_vec(), target_dim)
-        }
-        MemoryOrder::ColumnMajor => {
-            // Convert column-major to row-major:
-            // Reverse dims and flip target_dim
             let mut rev_dims = dims.to_vec();
             rev_dims.reverse();
-            let rev_target_dim = dims.len() - 1 - target_dim;
-            (rev_dims, rev_target_dim)
+            (rev_dims, dims.len() - 1 - target_dim)
         }
     }
 }
 
-/// Read N-dimensional tensor from raw pointer (row-major layout)
-///
-/// Reads a tensor from a raw pointer assuming row-major (C order) memory layout.
-/// The buffer is interpreted as a flat array and reshaped according to `dims`.
-///
-/// # Arguments
-/// * `ptr` - Raw pointer to the data buffer
-/// * `dims` - Dimensions of the tensor (e.g., `[num_points, basis_size]`)
-///
-/// # Returns
-/// A `Tensor<T, DynRank>` with the specified dimensions
-///
-/// # Safety
-/// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
-pub(crate) unsafe fn _read_tensor_nd_row_major<T: Copy>(
-    ptr: *const T,
-    dims: &[usize],
-) -> sparse_ir::Tensor<T, sparse_ir::DynRank> {
-    assert!(!dims.is_empty(), "dims must not be empty");
-    let total: usize = dims.iter().product();
-
-    // Read buffer as slice
-    let slice = unsafe { std::slice::from_raw_parts(ptr, total) };
-    let data: Vec<T> = slice.to_vec();
-
-    // Create 1D tensor and reshape to specified dimensions
-    let flat = sparse_ir::Tensor::<T, (usize,)>::from(data);
-    flat.into_dyn().reshape(dims).to_tensor()
-}
-
-/// Read N-dimensional tensor from raw pointer (column-major layout)
-///
-/// Reads a tensor from a raw pointer assuming column-major (Fortran/Julia order) memory layout.
-/// The buffer is interpreted as a flat array with reversed dimensions, then permuted
-/// to restore the original axis order.
-///
-/// # Arguments
-/// * `ptr` - Raw pointer to the data buffer
-/// * `dims` - Dimensions of the tensor (e.g., `[num_points, basis_size]`)
-///
-/// # Returns
-/// A `Tensor<T, DynRank>` with the specified dimensions and correct axis order
-///
-/// # Safety
-/// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
-pub(crate) unsafe fn _read_tensor_nd_column_major<T: Copy>(
-    ptr: *const T,
-    dims: &[usize],
-) -> sparse_ir::Tensor<T, sparse_ir::DynRank> {
-    assert!(!dims.is_empty(), "dims must not be empty");
-
-    // 1. Reverse dimensions to read as row-major
-    let mut rev_dims = dims.to_vec();
-    rev_dims.reverse();
-    let tmp = unsafe { _read_tensor_nd_row_major(ptr, &rev_dims) };
-
-    // 2. Permute axes to restore original order
-    // For example: if dims=[5, 3], we read as [3, 5] (row-major),
-    // then permute [0, 1] -> [1, 0] to get back [5, 3]
-    let rank = dims.len();
-    let perm: Vec<usize> = (0..rank).rev().collect();
-
-    // Tensor implements Borrow<Slice>, so &tmp can be used as &Slice
-    use mdarray::Slice;
-    (&tmp as &Slice<T, sparse_ir::DynRank>)
-        .permute(&perm[..])
-        .to_tensor()
-}
-
-/// Read N-dimensional tensor from raw pointer
-///
-/// Reads a tensor from a raw pointer, handling both row-major and column-major memory layouts.
-/// This is a convenience wrapper that dispatches to the appropriate internal function
-/// based on the memory order.
-///
-/// # Arguments
-/// * `ptr` - Raw pointer to the data buffer
-/// * `dims` - Dimensions of the tensor (e.g., `[num_points, basis_size]`)
-/// * `order` - Memory layout order (RowMajor or ColumnMajor)
-///
-/// # Returns
-/// A `Tensor<T, DynRank>` with the specified dimensions
-///
-/// # Safety
-/// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
-pub(crate) unsafe fn read_tensor_nd<T: Copy>(
-    ptr: *const T,
-    dims: &[usize],
-    order: MemoryOrder,
-) -> sparse_ir::Tensor<T, sparse_ir::DynRank> {
-    match order {
-        MemoryOrder::RowMajor => unsafe { _read_tensor_nd_row_major(ptr, dims) },
-        MemoryOrder::ColumnMajor => unsafe { _read_tensor_nd_column_major(ptr, dims) },
+/// Compact column-major strides for `dims`, or `None` on overflow.
+fn col_major_strides(dims: &[usize]) -> Option<Vec<isize>> {
+    let mut strides = Vec::with_capacity(dims.len());
+    let mut acc: usize = 1;
+    for &d in dims {
+        strides.push(isize::try_from(acc).ok()?);
+        acc = acc.checked_mul(d)?;
     }
+    isize::try_from(acc).ok()?;
+    Some(strides)
 }
 
-/// Copy N-dimensional tensor to C array
-///
-/// Flattens the tensor and copies all elements to the output pointer.
-/// For column-major order, the tensor dimensions are permuted before flattening
-/// to match the expected memory layout.
-///
-/// # Arguments
-/// * `tensor` - Source tensor (any rank)
-/// * `out` - Destination C array pointer
-/// * `order` - Memory layout order for output (RowMajor or ColumnMajor)
+/// Number of elements of `dims`, or an error on overflow.
+fn checked_len(dims: &[usize]) -> sparse_ir::Result<usize> {
+    dims.iter()
+        .try_fold(1usize, |acc, &d| acc.checked_mul(d))
+        .ok_or_else(|| sparse_ir::Error::InvalidArgument(format!("dims {dims:?} overflow")))
+}
+
+/// Read a matrix from a raw pointer into a column-major [`Matrix`].
 ///
 /// # Safety
-/// Caller must ensure `out` has space for `tensor.len()` elements
-pub(crate) unsafe fn copy_tensor_to_c_array<T: Copy>(
-    tensor: sparse_ir::Tensor<T, sparse_ir::DynRank>,
-    out: *mut T,
+/// `ptr` must be valid for reads of `nrows * ncols` elements.
+pub(crate) unsafe fn read_matrix<T: TensorScalar + Copy>(
+    ptr: *const T,
+    nrows: usize,
+    ncols: usize,
     order: MemoryOrder,
-) {
-    let total = tensor.len();
-
-    // For column-major, permute dimensions to reverse order before flattening
-    let flat = match order {
+) -> sparse_ir::Result<Matrix<T>> {
+    let len = checked_len(&[nrows, ncols])?;
+    // SAFETY: the caller guarantees `ptr` is valid for `len` reads.
+    let src = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let data = match order {
+        MemoryOrder::ColumnMajor => src.to_vec(),
         MemoryOrder::RowMajor => {
-            // Row-major: flatten directly
-            tensor.into_dyn().reshape(&[total]).to_tensor()
-        }
-        MemoryOrder::ColumnMajor => {
-            // Column-major: permute dimensions to reverse order, then flatten
-            // This is the inverse of read_tensor_nd_column_major
-            use mdarray::Slice;
-            let rank = tensor.rank();
-            let perm: Vec<usize> = (0..rank).rev().collect();
-            let permuted = (&tensor as &Slice<T, sparse_ir::DynRank>)
-                .permute(&perm[..])
-                .to_tensor();
-            permuted.into_dyn().reshape(&[total]).to_tensor()
+            let mut data = Vec::with_capacity(len);
+            for j in 0..ncols {
+                data.extend((0..nrows).map(|i| src[i * ncols + j]));
+            }
+            data
         }
     };
+    Ok(TypedTensor::from_vec_col_major([nrows, ncols], data)?)
+}
 
-    for i in 0..total {
-        unsafe {
-            *out.add(i) = flat[i];
-        }
-    }
+/// Copy a column-major tensor's storage into a new column-major tensor with
+/// the given dimensions.
+///
+/// Used together with [`convert_dims_for_col_major`]: the dims passed here are
+/// already in column-major convention, so this is a flat copy.
+///
+/// # Safety
+/// `ptr` must be valid for reads of `product(dims)` elements.
+pub(crate) unsafe fn read_tensor_col_major<T: TensorScalar + Copy>(
+    ptr: *const T,
+    dims: &[usize],
+) -> sparse_ir::Result<TypedTensor<T>> {
+    let len = checked_len(dims)?;
+    // SAFETY: the caller guarantees `ptr` is valid for `len` reads.
+    let src = unsafe { std::slice::from_raw_parts(ptr, len) };
+    Ok(TypedTensor::from_vec_col_major(
+        dims.to_vec(),
+        src.to_vec(),
+    )?)
+}
+
+/// Copy a tensor's column-major storage to a C array.
+///
+/// # Safety
+/// `out` must be valid for writes of `tensor.n_elements()` elements.
+pub(crate) unsafe fn copy_tensor_to_c_array<T: TensorScalar + Copy>(
+    tensor: &TypedTensor<T>,
+    out: *mut T,
+) -> sparse_ir::Result<()> {
+    let data = tensor.host_data()?;
+    // SAFETY: the caller guarantees `out` is valid for `data.len()` writes,
+    // and `out` cannot alias the freshly computed tensor.
+    unsafe { std::ptr::copy_nonoverlapping(data.as_ptr(), out, data.len()) };
+    Ok(())
 }
 
 /// Build output dimensions by replacing target_dim with new_size
@@ -232,41 +170,46 @@ pub(crate) fn build_output_dims(
     out_dims
 }
 
-/// Create a DView (immutable) from raw pointer with DynRank dimensions
+/// Create an immutable compact column-major view over a raw buffer.
 ///
-/// Zero-copy: directly interprets the buffer as a tensor with the given dimensions.
-/// For column-major data, pass reversed dimensions (via convert_dims_for_row_major).
+/// Zero-copy. For row-major data, pass dims converted by
+/// [`convert_dims_for_col_major`].
 ///
 /// # Safety
-/// - `ptr` must be valid and point to at least `product(dims)` elements
-/// - The memory must remain valid for the lifetime of the returned view
-pub(crate) unsafe fn create_dview_from_ptr<'a, T>(
+/// - `ptr` must be valid for reads of `product(dims)` elements
+/// - The memory must remain valid and unmodified for `'a`
+pub(crate) unsafe fn create_view_from_ptr<'a, T: 'static>(
     ptr: *const T,
     dims: &[usize],
-) -> mdarray::View<'a, T, sparse_ir::DynRank, mdarray::Dense> {
-    use mdarray::Shape;
-    let shape = sparse_ir::DynRank::from_dims(dims);
-    let mapping = mdarray::DenseMapping::new(shape);
-    unsafe { mdarray::View::new_unchecked(ptr, mapping) }
+) -> sparse_ir::Result<TypedTensorView<'a, T>> {
+    let len = checked_len(dims)?;
+    let strides = col_major_strides(dims)
+        .ok_or_else(|| sparse_ir::Error::InvalidArgument(format!("dims {dims:?} overflow")))?;
+    // SAFETY: the caller guarantees `ptr` is valid for `len` reads for `'a`.
+    let data = unsafe { std::slice::from_raw_parts(ptr, len) };
+    Ok(TypedTensorView::from_slice(dims, strides, 0, data)?)
 }
 
-/// Create a DViewMut (mutable) from raw pointer with DynRank dimensions
+/// Create a mutable compact column-major view over a raw buffer.
 ///
-/// Zero-copy: directly interprets the buffer as a mutable tensor with the given dimensions.
-/// For column-major data, pass reversed dimensions (via convert_dims_for_row_major).
+/// Zero-copy. For row-major data, pass dims converted by
+/// [`convert_dims_for_col_major`].
 ///
 /// # Safety
-/// - `ptr` must be valid and point to at least `product(dims)` elements
-/// - The memory must remain valid for the lifetime of the returned view
-/// - The caller must ensure no aliasing occurs
-pub(crate) unsafe fn create_dviewmut_from_ptr<'a, T>(
+/// - `ptr` must be valid for writes of `product(dims)` elements
+/// - The memory must remain valid for `'a` and must not alias any other
+///   live reference
+pub(crate) unsafe fn create_view_mut_from_ptr<'a, T: 'static>(
     ptr: *mut T,
     dims: &[usize],
-) -> mdarray::ViewMut<'a, T, sparse_ir::DynRank> {
-    use mdarray::Shape;
-    let shape = sparse_ir::DynRank::from_dims(dims);
-    let mapping = mdarray::DenseMapping::new(shape);
-    unsafe { mdarray::ViewMut::new_unchecked(ptr, mapping) }
+) -> sparse_ir::Result<TypedTensorViewMut<'a, T>> {
+    let len = checked_len(dims)?;
+    let strides = col_major_strides(dims)
+        .ok_or_else(|| sparse_ir::Error::InvalidArgument(format!("dims {dims:?} overflow")))?;
+    // SAFETY: the caller guarantees `ptr` is valid, unaliased, and writable
+    // for `len` elements for `'a`.
+    let data = unsafe { std::slice::from_raw_parts_mut(ptr, len) };
+    Ok(TypedTensorViewMut::from_slice(dims, strides, 0, data)?)
 }
 
 /// Choose the working type (Twork) based on epsilon value
@@ -690,161 +633,49 @@ mod tests {
     }
 
     #[test]
-    fn test_read_tensor_nd_row_major() {
-        use num_complex::Complex64;
-
-        // Test 2D tensor: 3x4 matrix
-        {
-            // Create test data: row-major order
-            // [[1, 2, 3, 4],
-            //  [5, 6, 7, 8],
-            //  [9, 10, 11, 12]]
-            let data = vec![
-                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
-            ];
-            let tensor = unsafe { _read_tensor_nd_row_major(data.as_ptr(), &[3, 4]) };
-
-            let shape_dims = tensor.shape().with_dims(|dims| dims.to_vec());
-            assert_eq!(shape_dims, &[3, 4]);
-            assert_eq!(tensor[[0, 0]], 1.0);
-            assert_eq!(tensor[[0, 3]], 4.0);
-            assert_eq!(tensor[[1, 0]], 5.0);
-            assert_eq!(tensor[[2, 3]], 12.0);
-        }
-
-        // Test 3D tensor: 2x3x4
-        {
-            let data: Vec<f64> = (1..=24).map(|x| x as f64).collect();
-            let tensor = unsafe { _read_tensor_nd_row_major(data.as_ptr(), &[2, 3, 4]) };
-
-            let shape_dims = tensor.shape().with_dims(|dims| dims.to_vec());
-            assert_eq!(shape_dims, &[2, 3, 4]);
-            assert_eq!(tensor[[0, 0, 0]], 1.0);
-            assert_eq!(tensor[[0, 0, 3]], 4.0);
-            assert_eq!(tensor[[0, 1, 0]], 5.0);
-            assert_eq!(tensor[[1, 2, 3]], 24.0);
-        }
-
-        // Test complex numbers
-        {
-            let data = vec![
-                Complex64::new(1.0, 2.0),
-                Complex64::new(3.0, 4.0),
-                Complex64::new(5.0, 6.0),
-                Complex64::new(7.0, 8.0),
-            ];
-            let tensor = unsafe { _read_tensor_nd_row_major(data.as_ptr(), &[2, 2]) };
-
-            let shape_dims = tensor.shape().with_dims(|dims| dims.to_vec());
-            assert_eq!(shape_dims, &[2, 2]);
-            assert_eq!(tensor[[0, 0]], Complex64::new(1.0, 2.0));
-            assert_eq!(tensor[[1, 1]], Complex64::new(7.0, 8.0));
-        }
+    fn test_convert_dims_for_col_major() {
+        assert_eq!(
+            convert_dims_for_col_major(&[5, 3, 2], 0, MemoryOrder::ColumnMajor),
+            (vec![5, 3, 2], 0)
+        );
+        assert_eq!(
+            convert_dims_for_col_major(&[5, 3, 2], 0, MemoryOrder::RowMajor),
+            (vec![2, 3, 5], 2)
+        );
     }
 
     #[test]
-    fn test_read_tensor_nd_column_major() {
-        use num_complex::Complex64;
-
-        // Test 2D tensor: 3x4 matrix
-        // Column-major order means:
-        // [[1, 4, 7, 10],
-        //  [2, 5, 8, 11],
-        //  [3, 6, 9, 12]]
-        // But we want to read it as [3, 4] shape
-        {
-            // Create test data: column-major order
-            // First column: [1, 2, 3]
-            // Second column: [4, 5, 6]
-            // Third column: [7, 8, 9]
-            // Fourth column: [10, 11, 12]
-            let data = vec![
-                1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
-            ];
-            let tensor = unsafe { _read_tensor_nd_column_major(data.as_ptr(), &[3, 4]) };
-
-            let shape_dims = tensor.shape().with_dims(|dims| dims.to_vec());
-            assert_eq!(shape_dims, &[3, 4]);
-            // After reading as [4, 3] (reversed) and permuting back, we should get:
-            // [[1, 4, 7, 10],
-            //  [2, 5, 8, 11],
-            //  [3, 6, 9, 12]]
-            assert_eq!(tensor[[0, 0]], 1.0);
-            assert_eq!(tensor[[0, 1]], 4.0);
-            assert_eq!(tensor[[0, 3]], 10.0);
-            assert_eq!(tensor[[1, 0]], 2.0);
-            assert_eq!(tensor[[2, 3]], 12.0);
-        }
-
-        // Test 3D tensor: 2x3x4
-        // Column-major: first all elements with index [0,0,0], [1,0,0], then [0,1,0], [1,1,0], etc.
-        {
-            // For 2x3x4, column-major order:
-            // [0,0,0]=1, [1,0,0]=2, [0,1,0]=3, [1,1,0]=4, [0,2,0]=5, [1,2,0]=6,
-            // [0,0,1]=7, [1,0,1]=8, ...
-            let data: Vec<f64> = (1..=24).map(|x| x as f64).collect();
-            let tensor = unsafe { _read_tensor_nd_column_major(data.as_ptr(), &[2, 3, 4]) };
-
-            let shape_dims = tensor.shape().with_dims(|dims| dims.to_vec());
-            assert_eq!(shape_dims, &[2, 3, 4]);
-            // Verify first few elements
-            assert_eq!(tensor[[0, 0, 0]], 1.0);
-            assert_eq!(tensor[[1, 0, 0]], 2.0);
-            assert_eq!(tensor[[0, 1, 0]], 3.0);
-        }
-
-        // Test complex numbers
-        {
-            // Column-major: [1+2i, 3+4i] in first column, [5+6i, 7+8i] in second column
-            let data = vec![
-                Complex64::new(1.0, 2.0),
-                Complex64::new(3.0, 4.0),
-                Complex64::new(5.0, 6.0),
-                Complex64::new(7.0, 8.0),
-            ];
-            let tensor = unsafe { _read_tensor_nd_column_major(data.as_ptr(), &[2, 2]) };
-
-            let shape_dims = tensor.shape().with_dims(|dims| dims.to_vec());
-            assert_eq!(shape_dims, &[2, 2]);
-            // After permute: [[1+2i, 5+6i], [3+4i, 7+8i]]
-            assert_eq!(tensor[[0, 0]], Complex64::new(1.0, 2.0));
-            assert_eq!(tensor[[1, 0]], Complex64::new(3.0, 4.0));
-            assert_eq!(tensor[[0, 1]], Complex64::new(5.0, 6.0));
-            assert_eq!(tensor[[1, 1]], Complex64::new(7.0, 8.0));
-        }
+    fn test_read_matrix_both_orders() {
+        // [[1, 2, 3],
+        //  [4, 5, 6]]
+        let row = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
+        let col = [1.0, 4.0, 2.0, 5.0, 3.0, 6.0];
+        let a = unsafe { read_matrix(row.as_ptr(), 2, 3, MemoryOrder::RowMajor) }.unwrap();
+        let b = unsafe { read_matrix(col.as_ptr(), 2, 3, MemoryOrder::ColumnMajor) }.unwrap();
+        assert_eq!(a.shape(), &[2, 3]);
+        assert_eq!(a.host_data().unwrap(), &col);
+        assert_eq!(b.host_data().unwrap(), &col);
     }
 
     #[test]
-    fn test_read_tensor_nd_roundtrip() {
-        // Test that row-major and column-major produce consistent results
-        // when the data is transposed appropriately
+    fn test_views_from_ptr() {
+        use num_complex::Complex64;
+        let data: Vec<Complex64> = (0..24).map(|i| Complex64::new(i as f64, -1.0)).collect();
+        let view = unsafe { create_view_from_ptr(data.as_ptr(), &[2, 3, 4]) }.unwrap();
+        assert_eq!(view.shape(), &[2, 3, 4]);
+        assert!(view.is_col_major_contiguous().unwrap());
+        assert_eq!(view.get(&[1, 2, 3]), Some(&data[1 + 2 * 2 + 3 * 6]));
 
-        // Create a 3x4 matrix in row-major
-        let row_major_data = vec![
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
-        ];
-        let row_tensor = unsafe { _read_tensor_nd_row_major(row_major_data.as_ptr(), &[3, 4]) };
-
-        // Create the same matrix in column-major (transposed storage)
-        // [[1, 4, 7, 10], [2, 5, 8, 11], [3, 6, 9, 12]] stored as:
-        // [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12] (column-major)
-        let col_major_data = vec![
-            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0,
-        ];
-        let col_tensor = unsafe { _read_tensor_nd_column_major(col_major_data.as_ptr(), &[3, 4]) };
-
-        // They should have the same shape
-        let row_shape = row_tensor.shape().with_dims(|dims| dims.to_vec());
-        let col_shape = col_tensor.shape().with_dims(|dims| dims.to_vec());
-        assert_eq!(row_shape, col_shape);
-
-        // But different values (because storage order is different)
-        // row_tensor: [[1,2,3,4], [5,6,7,8], [9,10,11,12]]
-        // col_tensor: [[1,4,7,10], [2,5,8,11], [3,6,9,12]]
-        assert_eq!(row_tensor[[0, 0]], 1.0);
-        assert_eq!(col_tensor[[0, 0]], 1.0);
-        assert_eq!(row_tensor[[0, 1]], 2.0);
-        assert_eq!(col_tensor[[0, 1]], 4.0); // Different!
+        let mut out = vec![0.0f64; 6];
+        {
+            let mut v = unsafe { create_view_mut_from_ptr(out.as_mut_ptr(), &[3, 2]) }.unwrap();
+            assert_eq!(v.shape(), &[3, 2]);
+            assert!(v.is_col_major_contiguous().unwrap());
+        }
+        let t = unsafe { read_tensor_col_major(data.as_ptr(), &[4, 6]) }.unwrap();
+        let mut copy = vec![Complex64::new(0.0, 0.0); 24];
+        unsafe { copy_tensor_to_c_array(&t, copy.as_mut_ptr()) }.unwrap();
+        assert_eq!(copy, data);
     }
 
     #[test]

@@ -227,10 +227,10 @@ fn test_sve_singular_functions_lambda_5() {
     let x_test = [-0.9, -0.5, 0.0, 0.5, 0.9];
 
     // Load reference u and v values
-    let u_ref = mdarray::DTensor::<f64, 2>::from_fn([5, 8], |idx| REFERENCE_U[idx[0]][idx[1]]);
-    let v_ref = mdarray::DTensor::<f64, 2>::from_fn([5, 8], |idx| REFERENCE_V[idx[0]][idx[1]]);
+    let u_ref = REFERENCE_U;
+    let v_ref = REFERENCE_V;
 
-    let n_funcs = u_ref.shape().1;
+    let n_funcs = u_ref[0].len();
     println!("Comparing first {} singular functions", n_funcs);
 
     // Compare u functions
@@ -240,7 +240,7 @@ fn test_sve_singular_functions_lambda_5() {
 
         for (j, &x) in x_test.iter().enumerate() {
             let u_rust = result.u.get_polys()[i].evaluate(x);
-            let u_julia = u_ref[[j, i]];
+            let u_julia = u_ref[j][i];
             let abs_error = (u_rust - u_julia).abs();
             max_error = max_error.max(abs_error);
         }
@@ -266,7 +266,7 @@ fn test_sve_singular_functions_lambda_5() {
 
         for (j, &x) in x_test.iter().enumerate() {
             let v_rust = result.v.get_polys()[i].evaluate(x);
-            let v_julia = v_ref[[j, i]];
+            let v_julia = v_ref[j][i];
             let abs_error = (v_rust - v_julia).abs();
             max_error = max_error.max(abs_error);
         }

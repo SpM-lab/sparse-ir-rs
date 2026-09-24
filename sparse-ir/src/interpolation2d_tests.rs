@@ -1,7 +1,7 @@
 use crate::gauss::legendre_generic;
 use crate::interpolation2d::{evaluate_2d_legendre_polynomial, interpolate_2d_legendre};
+use crate::matrix::Mat;
 use crate::{CustomNumeric, Df64, Interpolate2D};
-use mdarray::DTensor;
 use simba::scalar::ComplexField;
 
 #[test]
@@ -11,7 +11,7 @@ fn test_interpolate_2d_legendre_basic() {
     let gauss_y = legendre_generic::<f64>(2).reseat(-1.0, 1.0);
 
     // Create test values
-    let mut values = DTensor::<f64, 2>::from_elem([2, 2], 0.0);
+    let mut values = Mat::<f64>::from_elem([2, 2], 0.0);
     for i in 0..2 {
         for j in 0..2 {
             values[[i, j]] = gauss_x.x[i] + gauss_y.x[j];
@@ -48,7 +48,7 @@ fn test_interpolate_2d_object() {
     let gauss_x = legendre_generic::<f64>(2).reseat(0.0, 1.0);
     let gauss_y = legendre_generic::<f64>(2).reseat(0.0, 2.0);
 
-    let values = DTensor::<f64, 2>::from_elem([2, 2], 1.0);
+    let values = Mat::<f64>::from_elem([2, 2], 1.0);
     let interp = Interpolate2D::new(&values, &gauss_x, &gauss_y);
 
     // Test interpolation at center of cell
@@ -70,7 +70,7 @@ fn test_interpolate_2d_quadratic_polynomial() {
     );
 
     // Create test values for f(x,y) = x^2 + y^2 + x*y
-    let mut values = DTensor::<Df64, 2>::from_elem([4, 4], num_traits::Zero::zero());
+    let mut values = Mat::<Df64>::from_elem([4, 4], num_traits::Zero::zero());
     for i in 0..4 {
         for j in 0..4 {
             let x = gauss_x.x[i];
@@ -150,7 +150,7 @@ fn test_interpolate2d_struct_generic<T: CustomNumeric + 'static>() {
         legendre_generic::<T>(n).reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
 
     // Create test function values: f(x,y) = x^2 + y^2
-    let mut values = DTensor::<T, 2>::from_elem([n, n], T::zero());
+    let mut values = Mat::<T>::from_elem([n, n], T::zero());
     for i in 0..n {
         for j in 0..n {
             let x = gauss_x.x[i];

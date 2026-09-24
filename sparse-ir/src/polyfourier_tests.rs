@@ -1,6 +1,7 @@
 //! Tests for piecewise Legendre polynomial Fourier transform implementations
 
 use crate::freq::{BosonicFreq, FermionicFreq};
+use crate::matrix::mat;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::polyfourier::{
     BosonicPiecewiseLegendreFT, FermionicPiecewiseLegendreFT, FermionicPiecewiseLegendreFTVector,
@@ -8,11 +9,10 @@ use crate::polyfourier::{
 };
 use crate::special_functions::spherical_bessel_j;
 use crate::traits::{Bosonic, Fermionic, Statistics};
-use mdarray::tensor;
 
 #[test]
 fn test_fermionic_ft_creation() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -25,7 +25,7 @@ fn test_fermionic_ft_creation() {
 
 #[test]
 fn test_bosonic_ft_creation() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -38,7 +38,7 @@ fn test_bosonic_ft_creation() {
 
 #[test]
 fn test_ft_evaluation_fermionic() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -55,7 +55,7 @@ fn test_ft_evaluation_fermionic() {
 
 #[test]
 fn test_ft_evaluation_bosonic() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -72,8 +72,8 @@ fn test_ft_evaluation_bosonic() {
 
 #[test]
 fn test_ft_vector_creation() {
-    let data1 = tensor![[1.0], [0.0]];
-    let data2 = tensor![[0.0], [1.0]];
+    let data1 = mat![[1.0], [0.0]];
+    let data2 = mat![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -89,8 +89,8 @@ fn test_ft_vector_creation() {
 
 #[test]
 fn test_ft_vector_from_poly_vector() {
-    let data1 = tensor![[1.0], [0.0]];
-    let data2 = tensor![[0.0], [1.0]];
+    let data1 = mat![[1.0], [0.0]];
+    let data2 = mat![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -105,7 +105,7 @@ fn test_ft_vector_from_poly_vector() {
 
 #[test]
 fn test_ft_vector_evaluation() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -121,7 +121,7 @@ fn test_ft_vector_evaluation() {
 
 #[test]
 fn test_power_model_creation() {
-    let data = tensor![[1.0, 0.0], [0.0, 1.0]];
+    let data = mat![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
 
@@ -134,7 +134,7 @@ fn test_power_model_creation() {
 
 #[test]
 fn test_invalid_domain_panic() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![0.0, 2.0]; // Invalid domain for Fourier transform
 
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
@@ -151,7 +151,7 @@ fn test_invalid_domain_panic() {
 #[test]
 fn test_get_tnl_basic_values() {
     // Create a simple polynomial for testing
-    let data = tensor![[1.0, 0.0], [0.0, 1.0]];
+    let data = mat![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
 
@@ -204,7 +204,7 @@ fn test_get_tnl_basic_values() {
 /// Test spherical Bessel function implementation
 #[test]
 fn test_spherical_bessel_basic() {
-    let data = tensor![[1.0]];
+    let data = mat![[1.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
     let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
@@ -236,7 +236,7 @@ fn test_spherical_bessel_basic() {
 #[test]
 fn test_constant_polynomial_fourier_transform() {
     // Create constant polynomial f(x) = 1
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 

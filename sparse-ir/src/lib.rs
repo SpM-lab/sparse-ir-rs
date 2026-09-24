@@ -22,6 +22,7 @@ pub mod basis;
 pub mod basis_trait; // Common trait for basis representations
 pub mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
 pub mod dlr; // Discrete Lehmann Representation utilities
+pub mod error; // Crate-level error type
 pub mod fitters; // Least-squares fitters (real/complex matrices)
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod freq;
@@ -31,6 +32,7 @@ pub mod interpolation1d;
 pub mod interpolation2d;
 pub mod kernel;
 pub mod kernelmatrix;
+pub mod matrix; // Column-major dense containers for internal numerics
 pub mod matsubara_sampling; // Sparse sampling in Matsubara frequencies
 pub mod numeric;
 pub mod poly;
@@ -50,6 +52,7 @@ pub use dlr::{
     DiscreteLehmannRepresentation, DlrError, bosonic_single_pole, fermionic_single_pole,
     giwn_single_pole, gtau_single_pole,
 };
+pub use error::{Error, Result};
 pub use fitters::InplaceFitter;
 pub use freq::{BosonicFreq, FermionicFreq, MatsubaraFreq};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
@@ -82,7 +85,12 @@ pub use tsvd::{
 };
 
 // Re-export external dependencies for convenience
-pub use mdarray::{DTensor, DynRank, Tensor};
+pub use tenferro_tensor::{
+    DynRank, Rank, TensorScalar, TypedTensor, TypedTensorView, TypedTensorViewMut,
+};
+
+/// Dense column-major host matrix used by the public API.
+pub type Matrix<T> = tenferro_tensor::TypedTensor<T, tenferro_tensor::Rank<2>>;
 pub use xprec::Df64;
 
 // Test utilities (only available in test mode)

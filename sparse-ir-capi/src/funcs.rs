@@ -228,7 +228,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         // Each column represents one segment's coefficients
         let n_segments_usize = n_segments as usize;
         let nfuncs_usize = nfuncs as usize;
-        let mut data = mdarray::DTensor::<f64, 2>::zeros([nfuncs_usize, n_segments_usize]);
+        let mut data = sparse_ir::matrix::Mat::<f64>::zeros([nfuncs_usize, n_segments_usize]);
 
         // Copy coefficients from C array
         // Layout: coeffs[seg * nfuncs + deg]

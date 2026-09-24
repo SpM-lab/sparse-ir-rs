@@ -18,14 +18,15 @@ name = "sparse_ir"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Core linear algebra - mdarray with Faer backend
-mdarray.workspace = true
-mdarray-linalg.workspace = true
-mdarray-linalg-faer.workspace = true
-
+# Core linear algebra - Faer backend
 # Faer - Pure Rust high-performance linear algebra
 faer.workspace = true
 faer-traits.workspace = true
+
+# Dense tensors (TypedTensor layer only; no AD)
+tenferro-tensor.workspace = true
+tenferro-linalg.workspace = true
+tenferro-cpu.workspace = true
 
 # Extended precision
 xprec = "0.2.2"

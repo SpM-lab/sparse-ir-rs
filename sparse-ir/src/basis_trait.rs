@@ -128,7 +128,7 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Returns
     /// Matrix of shape [tau.len(), self.size()] where result[i, l] = u_l(τ_i)
-    fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2>;
+    fn evaluate_tau(&self, tau: &[f64]) -> crate::Matrix<f64>;
 
     /// Evaluate basis functions at Matsubara frequencies
     ///
@@ -144,7 +144,7 @@ pub trait Basis<S: StatisticsType> {
     fn evaluate_matsubara(
         &self,
         freqs: &[MatsubaraFreq<S>],
-    ) -> mdarray::DTensor<num_complex::Complex<f64>, 2>
+    ) -> crate::Matrix<num_complex::Complex<f64>>
     where
         S: 'static;
 
@@ -159,7 +159,7 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Returns
     /// Matrix of shape [omega.len(), self.size()] where result[i, l] = V_l(ω_i)
-    fn evaluate_omega(&self, omega: &[f64]) -> mdarray::DTensor<f64, 2>;
+    fn evaluate_omega(&self, omega: &[f64]) -> crate::Matrix<f64>;
 
     /// Get default omega (real frequency) sampling points
     ///

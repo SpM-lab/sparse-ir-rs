@@ -2,6 +2,8 @@ use crate::basis::FiniteTempBasis;
 use crate::kernel::{CentrosymmKernel, KernelProperties};
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};
 use crate::sampling::TauSampling;
+#[allow(unused_imports)]
+use crate::test_utils::At;
 use crate::traits::{Bosonic, Fermionic, StatisticsType};
 use num_complex::Complex;
 
@@ -39,10 +41,10 @@ where
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
 
         // Evaluate along target dimension
-        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim);
+        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
 
         // Fit back along target dimension
-        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim);
+        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
@@ -53,8 +55,8 @@ where
         for k in 0..n_k {
             for omega in 0..n_omega {
                 for l in 0..basis_size {
-                    let orig = coeffs_0[&[l, k, omega][..]];
-                    let fitted = fitted_coeffs_0[&[l, k, omega][..]];
+                    let orig = coeffs_0.at(&[l, k, omega]);
+                    let fitted = fitted_coeffs_0.at(&[l, k, omega]);
                     let abs_error = (orig - fitted).abs();
 
                     assert!(
@@ -110,8 +112,8 @@ where
             );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim).unwrap();
+        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim).unwrap();
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -119,8 +121,8 @@ where
         for k in 0..n_k {
             for omega in 0..n_omega {
                 for l in 0..basis_size {
-                    let orig = coeffs_0[&[l, k, omega][..]];
-                    let fitted = fitted_coeffs_0[&[l, k, omega][..]];
+                    let orig = coeffs_0.at(&[l, k, omega]);
+                    let fitted = fitted_coeffs_0.at(&[l, k, omega]);
                     let abs_error = (orig - fitted).error_norm();
 
                     assert!(
@@ -175,8 +177,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_real() {
         );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim).unwrap();
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -184,8 +186,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_real() {
         for k in 0..n_k {
             for omega in 0..n_omega {
                 for l in 0..basis_size {
-                    let orig = coeffs_0[&[l, k, omega][..]];
-                    let fitted = fitted_coeffs_0[&[l, k, omega][..]];
+                    let orig = coeffs_0.at(&[l, k, omega]);
+                    let fitted = fitted_coeffs_0.at(&[l, k, omega]);
                     let abs_error = (orig - fitted).abs();
                     if abs_error > max_error {
                         max_error = abs_error;
@@ -227,8 +229,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
             );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim).unwrap();
+        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim).unwrap();
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -236,8 +238,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
         for k in 0..n_k {
             for omega in 0..n_omega {
                 for l in 0..basis_size {
-                    let orig = coeffs_0[&[l, k, omega][..]];
-                    let fitted = fitted_coeffs_0[&[l, k, omega][..]];
+                    let orig = coeffs_0.at(&[l, k, omega]);
+                    let fitted = fitted_coeffs_0.at(&[l, k, omega]);
                     let abs_error = (orig - fitted).error_norm();
                     if abs_error > max_error {
                         max_error = abs_error;
@@ -268,8 +270,6 @@ fn test_regularized_bose_evaluate_nd_complex() {
 /// Test that evaluate_nd_to produces identical results to evaluate_nd
 #[test]
 fn test_evaluate_nd_to_matches_fermionic_real() {
-    use mdarray::{Shape, Tensor};
-
     let beta = 1.0;
     let wmax = 10.0;
     let epsilon = Some(1e-6);
@@ -283,27 +283,29 @@ fn test_evaluate_nd_to_matches_fermionic_real() {
     let n_k = 3;
     let n_omega = 4;
 
-    let coeffs = Tensor::<f64, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+    let coeffs = crate::test_utils::tensor_from_fn::<f64>(&[basis_size, n_k, n_omega], |idx| {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
-    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], 0.0);
+    let mut actual = crate::test_utils::tensor_filled::<f64>(&[n_points, n_k, n_omega], 0.0);
     {
-        let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual_view);
+        let mut actual_view = actual.as_view_mut();
+        sampling
+            .evaluate_nd_to(None, &coeffs.as_view(), 0, &mut actual_view)
+            .unwrap();
     }
 
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..n_points {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).abs();
                 assert!(
                     diff < 1e-14,
@@ -321,8 +323,6 @@ fn test_evaluate_nd_to_matches_fermionic_real() {
 
 #[test]
 fn test_evaluate_nd_to_matches_fermionic_complex() {
-    use mdarray::{Shape, Tensor};
-
     let beta = 1.0;
     let wmax = 10.0;
     let epsilon = Some(1e-6);
@@ -337,33 +337,35 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
     let n_omega = 4;
 
     let coeffs =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[basis_size, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 idx[2] as f64 * 0.3,
             )
         });
 
-    let expected = sampling.evaluate_nd_zz(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd_zz(None, &coeffs, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[n_points, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[n_points, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
     {
-        let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_zz_to(None, &coeffs, 0, &mut actual_view);
+        let mut actual_view = actual.as_view_mut();
+        sampling
+            .evaluate_nd_zz_to(None, &coeffs.as_view(), 0, &mut actual_view)
+            .unwrap();
     }
 
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..n_points {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).error_norm();
                 assert!(
                     diff < 1e-14,
@@ -382,8 +384,6 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
 /// Test that fit_nd_to produces identical results to fit_nd
 #[test]
 fn test_fit_nd_to_matches_fermionic_real() {
-    use mdarray::{Shape, Tensor};
-
     let beta = 1.0;
     let wmax = 10.0;
     let epsilon = Some(1e-6);
@@ -397,27 +397,29 @@ fn test_fit_nd_to_matches_fermionic_real() {
     let n_k = 3;
     let n_omega = 4;
 
-    let values = Tensor::<f64, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+    let values = crate::test_utils::tensor_from_fn::<f64>(&[n_points, n_k, n_omega], |idx| {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
-    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
+    let mut actual = crate::test_utils::tensor_filled::<f64>(&[basis_size, n_k, n_omega], 0.0);
     {
-        let mut actual_view = actual.expr_mut();
-        sampling.fit_nd_to(None, &values, 0, &mut actual_view);
+        let mut actual_view = actual.as_view_mut();
+        sampling
+            .fit_nd_to(None, &values.as_view(), 0, &mut actual_view)
+            .unwrap();
     }
 
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..basis_size {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).abs();
                 assert!(
                     diff < 1e-14,
@@ -435,8 +437,6 @@ fn test_fit_nd_to_matches_fermionic_real() {
 
 #[test]
 fn test_fit_nd_to_matches_fermionic_complex() {
-    use mdarray::{Shape, Tensor};
-
     let beta = 1.0;
     let wmax = 10.0;
     let epsilon = Some(1e-6);
@@ -451,33 +451,35 @@ fn test_fit_nd_to_matches_fermionic_complex() {
     let n_omega = 4;
 
     let values =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[n_points, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 idx[2] as f64 * 0.3,
             )
         });
 
-    let expected = sampling.fit_nd_zz(None, &values, 0);
+    let expected = sampling.fit_nd_zz(None, &values, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[basis_size, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[basis_size, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
     {
-        let mut actual_view = actual.expr_mut();
-        sampling.fit_nd_zz_to(None, &values, 0, &mut actual_view);
+        let mut actual_view = actual.as_view_mut();
+        sampling
+            .fit_nd_zz_to(None, &values.as_view(), 0, &mut actual_view)
+            .unwrap();
     }
 
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..basis_size {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).error_norm();
                 assert!(
                     diff < 1e-14,
@@ -499,8 +501,6 @@ fn test_fit_nd_to_matches_fermionic_complex() {
 
 #[test]
 fn test_evaluate_nd_to_dim0() {
-    use mdarray::Tensor;
-
     let beta = 1.0;
     let wmax = 10.0;
     let epsilon = Some(1e-6);
@@ -514,23 +514,25 @@ fn test_evaluate_nd_to_dim0() {
     let n_k = 3;
     let n_omega = 4;
 
-    let coeffs = Tensor::<f64, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+    let coeffs = crate::test_utils::tensor_from_fn::<f64>(&[basis_size, n_k, n_omega], |idx| {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
-    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], 0.0);
+    let mut actual = crate::test_utils::tensor_filled::<f64>(&[n_points, n_k, n_omega], 0.0);
     {
-        let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual_view);
+        let mut actual_view = actual.as_view_mut();
+        sampling
+            .evaluate_nd_to(None, &coeffs.as_view(), 0, &mut actual_view)
+            .unwrap();
     }
 
     for i in 0..n_points {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).abs();
                 assert!(
                     diff < 1e-14,
@@ -548,8 +550,6 @@ fn test_evaluate_nd_to_dim0() {
 
 #[test]
 fn test_evaluate_nd_to_dim1() {
-    use mdarray::Tensor;
-
     let beta = 1.0;
     let wmax = 10.0;
     let epsilon = Some(1e-6);
@@ -564,26 +564,28 @@ fn test_evaluate_nd_to_dim1() {
     let n_omega = 4;
 
     // Create test coefficients with basis_size in middle dimension
-    let coeffs = Tensor::<f64, crate::DynRank>::from_fn(&[n_k, basis_size, n_omega][..], |idx| {
+    let coeffs = crate::test_utils::tensor_from_fn::<f64>(&[n_k, basis_size, n_omega], |idx| {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
     // Expected result
-    let expected = sampling.evaluate_nd(None, &coeffs, 1);
+    let expected = sampling.evaluate_nd(None, &coeffs, 1).unwrap();
 
     // Actual result using to_viewmut
-    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_k, n_points, n_omega][..], 0.0);
+    let mut actual = crate::test_utils::tensor_filled::<f64>(&[n_k, n_points, n_omega], 0.0);
     {
-        let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 1, &mut actual_view);
+        let mut actual_view = actual.as_view_mut();
+        sampling
+            .evaluate_nd_to(None, &coeffs.as_view(), 1, &mut actual_view)
+            .unwrap();
     }
 
     // Compare
     for i in 0..n_k {
         for j in 0..n_points {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).abs();
                 assert!(
                     diff < 1e-14,
@@ -602,7 +604,6 @@ fn test_evaluate_nd_to_dim1() {
 #[test]
 fn test_evaluate_nd_to_dim_last() {
     // Test dim == N-1 (last dimension) fast path
-    use mdarray::Tensor;
 
     let beta = 1.0;
     let wmax = 10.0;
@@ -618,26 +619,28 @@ fn test_evaluate_nd_to_dim_last() {
     let n_omega = 4;
 
     // Create test coefficients with basis_size in LAST dimension (dim=2)
-    let coeffs = Tensor::<f64, crate::DynRank>::from_fn(&[n_k, n_omega, basis_size][..], |idx| {
+    let coeffs = crate::test_utils::tensor_from_fn::<f64>(&[n_k, n_omega, basis_size], |idx| {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
     // Expected result (dim=2, which is rank-1)
-    let expected = sampling.evaluate_nd(None, &coeffs, 2);
+    let expected = sampling.evaluate_nd(None, &coeffs, 2).unwrap();
 
     // Actual result using to_viewmut (should use fast path for dim == N-1)
-    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_k, n_omega, n_points][..], 0.0);
+    let mut actual = crate::test_utils::tensor_filled::<f64>(&[n_k, n_omega, n_points], 0.0);
     {
-        let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 2, &mut actual_view);
+        let mut actual_view = actual.as_view_mut();
+        sampling
+            .evaluate_nd_to(None, &coeffs.as_view(), 2, &mut actual_view)
+            .unwrap();
     }
 
     // Compare
     for i in 0..n_k {
         for j in 0..n_omega {
             for k in 0..n_points {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).abs();
                 assert!(
                     diff < 1e-12,

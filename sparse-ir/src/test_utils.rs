@@ -1,13 +1,74 @@
 //! Common test utilities
 
-use mdarray::{DynRank, Tensor};
 use num_complex::Complex;
+use num_traits::{One, Zero};
+use tenferro_tensor::{TensorRank, TensorScalar, TypedTensor};
+
+/// Column-major multi-index of linear offset `lin`.
+fn unravel(mut lin: usize, shape: &[usize], idx: &mut [usize]) {
+    for (i, &n) in idx.iter_mut().zip(shape) {
+        *i = lin % n;
+        lin /= n;
+    }
+}
+
+/// Column-major linear offset of multi-index `idx`.
+fn ravel(idx: &[usize], shape: &[usize]) -> usize {
+    idx.iter()
+        .zip(shape)
+        .rev()
+        .fold(0, |acc, (&i, &n)| acc * n + i)
+}
+
+/// Build a column-major tensor from an index function.
+pub fn tensor_from_fn<T: TensorScalar>(
+    shape: &[usize],
+    mut f: impl FnMut(&[usize]) -> T,
+) -> TypedTensor<T> {
+    let len = shape.iter().product();
+    let mut idx = vec![0; shape.len()];
+    let data = (0..len)
+        .map(|lin| {
+            unravel(lin, shape, &mut idx);
+            f(&idx)
+        })
+        .collect();
+    TypedTensor::from_vec_col_major(shape.to_vec(), data).unwrap()
+}
+
+/// Column-major tensor filled with `value`.
+pub fn tensor_filled<T: TensorScalar + Copy>(shape: &[usize], value: T) -> TypedTensor<T> {
+    tensor_from_fn(shape, |_| value)
+}
+
+/// Element access by multi-index for test assertions.
+pub trait At<T> {
+    /// Element at multi-index `idx` (panics when out of range).
+    fn at(&self, idx: &[usize]) -> T;
+}
+
+impl<T: TensorScalar + Copy + One + Zero, R: TensorRank> At<T> for TypedTensor<T, R> {
+    fn at(&self, idx: &[usize]) -> T {
+        *self.get(idx).unwrap()
+    }
+}
+
+impl<T: Copy> At<T> for crate::matrix::Mat<T> {
+    fn at(&self, idx: &[usize]) -> T {
+        self[idx]
+    }
+}
 
 /// Move axis from position src to position dst
 ///
 /// Equivalent to numpy.moveaxis or libsparseir's movedim.
-pub fn movedim<T: Clone>(arr: &Tensor<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
-    let rank = arr.rank();
+pub fn movedim<T: TensorScalar + Copy>(
+    arr: &TypedTensor<T>,
+    src: usize,
+    dst: usize,
+) -> TypedTensor<T> {
+    let shape = arr.shape().to_vec();
+    let rank = shape.len();
     assert!(
         src < rank && dst < rank,
         "src={}, dst={} must be < rank={}",
@@ -16,16 +77,19 @@ pub fn movedim<T: Clone>(arr: &Tensor<T, DynRank>, src: usize, dst: usize) -> Te
         rank
     );
 
-    if src == dst {
-        return arr.clone();
-    }
-
-    // Create permutation: move src to dst
+    // Output axis k reads input axis perm[k].
     let mut perm: Vec<usize> = (0..rank).collect();
     perm.remove(src);
     perm.insert(dst, src);
-
-    arr.permute(&perm[..]).to_tensor()
+    let out_shape: Vec<usize> = perm.iter().map(|&p| shape[p]).collect();
+    let data = arr.host_data().unwrap();
+    let mut src_idx = vec![0; rank];
+    tensor_from_fn(&out_shape, |idx| {
+        for (k, &p) in perm.iter().enumerate() {
+            src_idx[p] = idx[k];
+        }
+        data[ravel(&src_idx, &shape)]
+    })
 }
 
 /// Simple deterministic pseudo-random number generator (LCG)
@@ -199,16 +263,18 @@ pub fn generate_nd_test_data<T, S, K>(
     seed: u64,
     extra_dims: &[usize],
 ) -> (
-    Tensor<T, DynRank>,
-    Tensor<T, DynRank>,
-    Tensor<num_complex::Complex<f64>, DynRank>,
+    TypedTensor<T>,
+    TypedTensor<T>,
+    TypedTensor<num_complex::Complex<f64>>,
 )
 where
     T: RandomGenerate
         + ConvertFromReal
-        + Clone
+        + TensorScalar
+        + Copy
+        + One
+        + Zero
         + std::ops::Mul<f64, Output = T>
-        + Default
         + From<f64>
         + std::ops::Sub<Output = T>
         + std::ops::Mul<Output = T>,
@@ -229,15 +295,15 @@ where
     // Create tensors
     let mut coeffs_shape = vec![basis_size];
     coeffs_shape.extend_from_slice(extra_dims);
-    let mut coeffs: Tensor<T, DynRank> = Tensor::zeros(&coeffs_shape[..]);
+    let mut coeffs = tensor_filled(&coeffs_shape, T::zero());
 
     let mut gtau_shape = vec![tau_points.len()];
     gtau_shape.extend_from_slice(extra_dims);
-    let mut gtau_values: Tensor<T, DynRank> = Tensor::zeros(&gtau_shape[..]);
+    let mut gtau_values = tensor_filled(&gtau_shape, T::zero());
 
     let mut giwn_shape = vec![matsubara_freqs.len()];
     giwn_shape.extend_from_slice(extra_dims);
-    let mut giwn_values: Tensor<Complex<f64>, DynRank> = Tensor::zeros(&giwn_shape[..]);
+    let mut giwn_values = tensor_filled(&giwn_shape, Complex::new(0.0, 0.0));
 
     // Generate data for each extra index
     for flat_idx in 0..total_extra {
@@ -258,7 +324,7 @@ where
 
             let mut full_idx = vec![l];
             full_idx.extend_from_slice(&extra_idx);
-            coeffs[&full_idx[..]] = scaled_coeff;
+            *coeffs.get_mut(&full_idx).unwrap() = scaled_coeff;
         }
 
         // Random pole position for this slice
@@ -269,7 +335,7 @@ where
             let g = gtau_single_pole::<S>(tau, omega, beta);
             let mut full_idx = vec![i];
             full_idx.extend_from_slice(&extra_idx);
-            gtau_values[&full_idx[..]] = T::from_real(g);
+            *gtau_values.get_mut(&full_idx).unwrap() = T::from_real(g);
         }
 
         // Compute G(iωn) values
@@ -277,7 +343,7 @@ where
             let g = giwn_single_pole::<S>(freq, omega, beta);
             let mut full_idx = vec![i];
             full_idx.extend_from_slice(&extra_idx);
-            giwn_values[&full_idx[..]] = g;
+            *giwn_values.get_mut(&full_idx).unwrap() = g;
         }
     }
 

@@ -10,7 +10,6 @@
 //! - Fitting: fit_dd, fit_zz, fit_zd (sampling points → coefficients)
 //! - Memory: release, clone, is_assigned (via macro)
 
-use mdarray::Shape;
 use num_complex::Complex64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -18,8 +17,8 @@ use std::sync::Arc;
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
 use crate::utils::{
-    MemoryOrder, build_output_dims, convert_dims_for_row_major, create_dview_from_ptr,
-    create_dviewmut_from_ptr, read_tensor_nd,
+    MemoryOrder, build_output_dims, convert_dims_for_col_major, create_view_from_ptr,
+    create_view_mut_from_ptr, read_matrix, status_from_error,
 };
 use crate::{
     SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC,
@@ -366,38 +365,33 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
 
         // Convert matrix to Tensor using the new helper function
         let orig_dims = [num_points as usize, basis_size as usize];
-        let dyn_tensor = unsafe { read_tensor_nd(matrix, &orig_dims, mem_order) };
-
-        // Convert DynRank to fixed 2D shape using from_fn (safe conversion)
-        let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
-        assert_eq!(
-            shape_dims.len(),
-            2,
-            "Expected 2D tensor, got {}D",
-            shape_dims.len()
-        );
-        let num_points_actual = shape_dims[0];
-        let basis_size_actual = shape_dims[1];
         let matrix_tensor =
-            sparse_ir::DTensor::<f64, 2>::from_fn([num_points_actual, basis_size_actual], |idx| {
-                dyn_tensor[&[idx[0], idx[1]][..]]
-            });
+            match unsafe { read_matrix(matrix, orig_dims[0], orig_dims[1], mem_order) } {
+                Ok(m) => m,
+                Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+            };
         // Create sampling based on statistics
         let sampling_type = match statistics {
             SPIR_STATISTICS_FERMIONIC => {
                 // SPIR_STATISTICS_FERMIONIC
-                let tau_sampling = sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
                     tau_points,
-                    matrix_tensor,
-                );
+                    &matrix_tensor,
+                ) {
+                    Ok(s) => s,
+                    Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+                };
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
             SPIR_STATISTICS_BOSONIC => {
                 // SPIR_STATISTICS_BOSONIC
-                let tau_sampling = sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(
                     tau_points,
-                    matrix_tensor,
-                );
+                    &matrix_tensor,
+                ) {
+                    Ok(s) => s,
+                    Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+                };
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
             _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
@@ -524,34 +518,11 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
 
         debug_println!("spir_matsu_sampling_new_with_matrix: reading tensor from buffer...");
         std::io::stderr().flush().ok();
-        let dyn_tensor = unsafe { read_tensor_nd(matrix, &orig_dims, mem_order) };
-        let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
-        debug_println!(
-            "spir_matsu_sampling_new_with_matrix: dyn_tensor created, shape = {:?}",
-            shape_dims
-        );
-        std::io::stderr().flush().ok();
-
-        // Convert DynRank to fixed 2D shape using from_fn (safe conversion)
-        debug_println!("spir_matsu_sampling_new_with_matrix: converting to fixed 2D tensor...");
-        std::io::stderr().flush().ok();
-        assert_eq!(
-            shape_dims.len(),
-            2,
-            "Expected 2D tensor, got {}D",
-            shape_dims.len()
-        );
-        let num_points_actual = shape_dims[0];
-        let basis_size_actual = shape_dims[1];
-        debug_println!(
-            "spir_matsu_sampling_new_with_matrix: converting from shape {:?} to DTensor<Complex64, 2>",
-            shape_dims
-        );
-        std::io::stderr().flush().ok();
-        let matrix_tensor = sparse_ir::DTensor::<Complex64, 2>::from_fn(
-            [num_points_actual, basis_size_actual],
-            |idx| dyn_tensor[&[idx[0], idx[1]][..]],
-        );
+        let matrix_tensor =
+            match unsafe { read_matrix(matrix, orig_dims[0], orig_dims[1], mem_order) } {
+                Ok(m) => m,
+                Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+            };
         debug_println!(
             "spir_matsu_sampling_new_with_matrix: matrix_tensor created, shape = {:?}",
             matrix_tensor.shape()
@@ -582,10 +553,13 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 debug_println!("spir_matsu_sampling_new_with_matrix: calling from_matrix...");
                 std::io::stderr().flush().ok();
                 let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
+                    match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
-                        matrix_tensor.clone(),
-                    );
+                        &matrix_tensor,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+                    };
                 debug_println!("spir_matsu_sampling_new_with_matrix: from_matrix returned");
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
@@ -605,10 +579,14 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 std::io::stderr().flush().ok();
                 debug_println!("spir_matsu_sampling_new_with_matrix: calling from_matrix...");
                 std::io::stderr().flush().ok();
-                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                    matsu_freqs,
-                    matrix_tensor.clone(),
-                );
+                let matsu_sampling =
+                    match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                        matsu_freqs,
+                        &matrix_tensor,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+                    };
                 debug_println!("spir_matsu_sampling_new_with_matrix: from_matrix returned");
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
@@ -620,10 +598,13 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                     .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
                     .collect();
                 let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
+                    match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
-                        matrix_tensor.clone(),
-                    );
+                        &matrix_tensor,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+                    };
                 SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
             }
             (SPIR_STATISTICS_BOSONIC, false) => {
@@ -632,10 +613,14 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                     .iter()
                     .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
                     .collect();
-                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                    matsu_freqs,
-                    matrix_tensor.clone(),
-                );
+                let matsu_sampling =
+                    match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                        matsu_freqs,
+                        &matrix_tensor,
+                    ) {
+                        Ok(s) => s,
+                        Err(e) => return (std::ptr::null_mut(), status_from_error(&e)),
+                    };
                 SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
             }
             _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
@@ -870,31 +855,31 @@ pub extern "C" fn spir_sampling_get_cond_num(
             SamplingType::TauFermionic(tau) => {
                 // For tau sampling, matrix is real
                 let matrix = tau.matrix();
-                compute_condition_number_real(matrix)
+                compute_condition_number(matrix)
             }
             SamplingType::TauBosonic(tau) => {
                 // For tau sampling, matrix is real
                 let matrix = tau.matrix();
-                compute_condition_number_real(matrix)
+                compute_condition_number(matrix)
             }
             SamplingType::MatsubaraFermionic(matsu) => {
                 // For Matsubara sampling, matrix is complex
                 let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
+                compute_condition_number(matrix)
             }
             SamplingType::MatsubaraBosonic(matsu) => {
                 let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
+                compute_condition_number(matrix)
             }
             SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
                 // For positive-only Matsubara, use the complex matrix
                 // The fitter uses ComplexToRealFitter internally, but we can use the complex matrix
                 let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
+                compute_condition_number(matrix)
             }
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
                 let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
+                compute_condition_number(matrix)
             }
         };
 
@@ -907,54 +892,23 @@ pub extern "C" fn spir_sampling_get_cond_num(
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
 }
 
-/// Compute condition number from real matrix using SVD
-fn compute_condition_number_real(matrix: &mdarray::DTensor<f64, 2>) -> f64 {
-    use mdarray_linalg::prelude::SVD;
-    use mdarray_linalg::svd::SVDDecomp;
-    use mdarray_linalg_faer::Faer;
-
-    let mut matrix_copy = matrix.clone();
-    let SVDDecomp { s, .. } = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
-
-    let min_dim = s.shape().0.min(s.shape().1);
-    if min_dim == 0 {
+/// Compute the 2-norm condition number of a sampling matrix.
+fn compute_condition_number<T: sparse_ir::fitters::SvdScalar>(
+    matrix: &sparse_ir::Matrix<T>,
+) -> f64 {
+    let (n, m) = (matrix.shape()[0], matrix.shape()[1]);
+    let data = matrix
+        .host_data()
+        .expect("sampling matrices are host-resident");
+    // Singular values are sorted in descending order.
+    let s = sparse_ir::fitters::singular_values(data, n, m).expect("SVD computation failed");
+    let (Some(&max_sv), Some(&min_sv)) = (s.first(), s.last()) else {
         return 1.0;
-    }
-
-    let max_sv = s[[0, 0]];
-    let min_sv = s[[0, min_dim - 1]];
-
+    };
     if min_sv.abs() < 1e-15 {
         // Matrix is singular or nearly singular
         return f64::INFINITY;
     }
-
-    max_sv / min_sv
-}
-
-/// Compute condition number from complex matrix using SVD
-fn compute_condition_number_complex(matrix: &mdarray::DTensor<num_complex::Complex64, 2>) -> f64 {
-    use mdarray_linalg::prelude::SVD;
-    use mdarray_linalg::svd::SVDDecomp;
-    use mdarray_linalg_faer::Faer;
-
-    let mut matrix_copy = matrix.clone();
-    let SVDDecomp { s, .. } = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
-
-    let min_dim = s.shape().0.min(s.shape().1);
-    if min_dim == 0 {
-        return 1.0;
-    }
-
-    // Singular values are real (stored as Complex, but imaginary part is 0)
-    let max_sv = s[[0, 0]].re;
-    let min_sv = s[[0, min_dim - 1]].re;
-
-    if min_sv.abs() < 1e-15 {
-        // Matrix is singular or nearly singular
-        return f64::INFINITY;
-    }
-
     max_sv / min_sv
 }
 
@@ -1028,40 +982,46 @@ pub extern "C" fn spir_sampling_eval_dd(
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
-        // Convert dimensions for row-major processing
-        // For column-major, this reverses dims and adjusts target_dim
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
+        // Convert dimensions to the column-major convention
+        // For row-major, this reverses dims and mirrors target_dim
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
 
         // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
+        let input_view = match unsafe { create_view_from_ptr(input, &col_major_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Validate that input dimension matches basis size
         let sampling_inner = sampling_ref.inner();
         let expected_basis_size = sampling_inner.basis_size();
-        if row_major_dims[row_major_target_dim] != expected_basis_size {
+        if col_major_dims[col_major_target_dim] != expected_basis_size {
             return crate::SPIR_INPUT_DIMENSION_MISMATCH;
         }
 
         // Build output dimensions
         let n_points = sampling_inner.n_points();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, n_points);
+        let out_dims = build_output_dims(&col_major_dims, col_major_target_dim, n_points);
 
         // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &out_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (zero-copy: writes directly to output buffer)
-        if !InplaceFitter::evaluate_nd_dd_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_dd_to(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            col_major_target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1105,38 +1065,44 @@ pub extern "C" fn spir_sampling_eval_dz(
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
         // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
 
         // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
+        let input_view = match unsafe { create_view_from_ptr(input, &col_major_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Validate that input dimension matches basis size
         let sampling_inner = sampling_ref.inner();
         let expected_basis_size = sampling_inner.basis_size();
-        if row_major_dims[row_major_target_dim] != expected_basis_size {
+        if col_major_dims[col_major_target_dim] != expected_basis_size {
             return crate::SPIR_INPUT_DIMENSION_MISMATCH;
         }
 
         // Build output dimensions
         let n_points = sampling_inner.n_points();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, n_points);
+        let out_dims = build_output_dims(&col_major_dims, col_major_target_dim, n_points);
 
         // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &out_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (dz: real → complex)
-        if !InplaceFitter::evaluate_nd_dz_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_dz_to(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            col_major_target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1179,38 +1145,44 @@ pub extern "C" fn spir_sampling_eval_zz(
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
         // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
 
         // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
+        let input_view = match unsafe { create_view_from_ptr(input, &col_major_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Validate that input dimension matches basis size
         let sampling_inner = sampling_ref.inner();
         let expected_basis_size = sampling_inner.basis_size();
-        if row_major_dims[row_major_target_dim] != expected_basis_size {
+        if col_major_dims[col_major_target_dim] != expected_basis_size {
             return crate::SPIR_INPUT_DIMENSION_MISMATCH;
         }
 
         // Build output dimensions
         let n_points = sampling_inner.n_points();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, n_points);
+        let out_dims = build_output_dims(&col_major_dims, col_major_target_dim, n_points);
 
         // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &out_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (zz: complex → complex)
-        if !InplaceFitter::evaluate_nd_zz_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_zz_to(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            col_major_target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1288,38 +1260,44 @@ pub extern "C" fn spir_sampling_fit_dd(
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
         // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
 
         // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
+        let input_view = match unsafe { create_view_from_ptr(input, &col_major_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Validate that input dimension matches n_points
         let sampling_inner = sampling_ref.inner();
         let expected_n_points = sampling_inner.n_points();
-        if row_major_dims[row_major_target_dim] != expected_n_points {
+        if col_major_dims[col_major_target_dim] != expected_n_points {
             return crate::SPIR_INPUT_DIMENSION_MISMATCH;
         }
 
         // Build output dimensions (replace n_points with basis_size)
         let basis_size = sampling_inner.basis_size();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, basis_size);
+        let out_dims = build_output_dims(&col_major_dims, col_major_target_dim, basis_size);
 
         // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &out_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit using InplaceFitter (dd: real → real)
-        if !InplaceFitter::fit_nd_dd_to(
+        if let Err(e) = InplaceFitter::fit_nd_dd_to(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            col_major_target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1363,38 +1341,44 @@ pub extern "C" fn spir_sampling_fit_zz(
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
         // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
 
         // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
+        let input_view = match unsafe { create_view_from_ptr(input, &col_major_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Validate that input dimension matches n_points
         let sampling_inner = sampling_ref.inner();
         let expected_n_points = sampling_inner.n_points();
-        if row_major_dims[row_major_target_dim] != expected_n_points {
+        if col_major_dims[col_major_target_dim] != expected_n_points {
             return crate::SPIR_INPUT_DIMENSION_MISMATCH;
         }
 
         // Build output dimensions (replace n_points with basis_size)
         let basis_size = sampling_inner.basis_size();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, basis_size);
+        let out_dims = build_output_dims(&col_major_dims, col_major_target_dim, basis_size);
 
         // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &out_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit using InplaceFitter (zz: complex → complex)
-        if !InplaceFitter::fit_nd_zz_to(
+        if let Err(e) = InplaceFitter::fit_nd_zz_to(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            col_major_target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1473,25 +1457,31 @@ pub extern "C" fn spir_sampling_fit_zd(
         let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
 
         // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
+        let (col_major_dims, col_major_target_dim) =
+            convert_dims_for_col_major(&orig_dims, target_dim as usize, mem_order);
 
         // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
+        let input_view = match unsafe { create_view_from_ptr(input, &col_major_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Validate that input dimension matches n_points
         let sampling_inner = sampling_ref.inner();
         let expected_n_points = sampling_inner.n_points();
-        if row_major_dims[row_major_target_dim] != expected_n_points {
+        if col_major_dims[col_major_target_dim] != expected_n_points {
             return crate::SPIR_INPUT_DIMENSION_MISMATCH;
         }
 
         // Build output dimensions (replace n_points with basis_size)
         let basis_size = sampling_inner.basis_size();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, basis_size);
+        let out_dims = build_output_dims(&col_major_dims, col_major_target_dim, basis_size);
 
         // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &out_dims) } {
+            Ok(v) => v,
+            Err(e) => return status_from_error(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1500,14 +1490,14 @@ pub extern "C" fn spir_sampling_fit_zd(
         // Note: For full-range Matsubara, this takes the real part of the fitted
         // complex coefficients. This is physically correct for Green's functions
         // where IR coefficients are guaranteed to be real by symmetry.
-        if !InplaceFitter::fit_nd_zd_to(
+        if let Err(e) = InplaceFitter::fit_nd_zd_to(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            col_major_target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from_error(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS

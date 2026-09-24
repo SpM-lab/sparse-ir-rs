@@ -461,8 +461,10 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
             // Convert matrix from C array to DTensor
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix =
-                mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
+            let mut matrix = sparse_ir::matrix::Mat::<Df64>::from_elem(
+                [nx as usize, ny as usize],
+                Df64::new(0.0),
+            );
 
             let k_high_slice = unsafe { std::slice::from_raw_parts(K_high, (nx * ny) as usize) };
             let k_low_slice = unsafe { std::slice::from_raw_parts(K_low, (nx * ny) as usize) };
@@ -506,12 +508,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
             let v_unweighted = remove_weights(&v, gauss_y_dd.w.as_slice(), true);
 
             // Convert U and V to f64 for polynomial conversion
-            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| {
-                u_unweighted[idx].to_f64()
-            });
-            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| {
-                v_unweighted[idx].to_f64()
-            });
+            let u_f64 = u_unweighted.map(|v| v.to_f64());
+            let v_f64 = v_unweighted.map(|v| v.to_f64());
 
             let u_polys = sparse_ir::sve::utils::svd_to_polynomials(
                 &u_f64,
@@ -543,7 +541,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
             // Double precision path
             // Convert matrix from C array to DTensor
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix = mdarray::DTensor::<f64, 2>::zeros([nx as usize, ny as usize]);
+            let mut matrix = sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
 
             let k_high_slice = unsafe { std::slice::from_raw_parts(K_high, (nx * ny) as usize) };
 
@@ -754,15 +752,15 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         let compute_svd_for_symmetry = |k_high: *const f64,
                                         k_low: *const f64|
          -> Option<(
-            mdarray::DTensor<f64, 2>,
+            sparse_ir::matrix::Mat<f64>,
             Vec<f64>,
-            mdarray::DTensor<f64, 2>,
+            sparse_ir::matrix::Mat<f64>,
         )> {
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
             let matrix = if use_ddouble {
                 use sparse_ir::Df64;
                 use sparse_ir::numeric::CustomNumeric;
-                let mut matrix_dd = mdarray::DTensor::<Df64, 2>::from_elem(
+                let mut matrix_dd = sparse_ir::matrix::Mat::<Df64>::from_elem(
                     [nx as usize, ny as usize],
                     Df64::new(0.0),
                 );
@@ -790,11 +788,10 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                     }
                 }
                 // Convert to f64 for SVD
-                mdarray::DTensor::<f64, 2>::from_fn(*matrix_dd.shape(), |idx| {
-                    matrix_dd[idx].to_f64()
-                })
+                matrix_dd.map(|v| v.to_f64())
             } else {
-                let mut matrix_f64 = mdarray::DTensor::<f64, 2>::zeros([nx as usize, ny as usize]);
+                let mut matrix_f64 =
+                    sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
                 let k_high_slice =
                     unsafe { std::slice::from_raw_parts(k_high, (nx * ny) as usize) };
                 match memory_order {

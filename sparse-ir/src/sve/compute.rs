@@ -2,8 +2,8 @@
 
 use crate::fpu_check::FpuGuard;
 use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints};
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
-use mdarray::DTensor;
 
 use super::result::SVEResult;
 use super::strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
@@ -292,12 +292,12 @@ where
 ///
 /// Tuple of (truncated_u_list, truncated_s_list, truncated_v_list)
 pub fn truncate<T: CustomNumeric>(
-    u_list: Vec<DTensor<T, 2>>,
+    u_list: Vec<Mat<T>>,
     s_list: Vec<Vec<T>>,
-    v_list: Vec<DTensor<T, 2>>,
+    v_list: Vec<Mat<T>>,
     rtol: T,
     max_num_svals: Option<usize>,
-) -> (Vec<DTensor<T, 2>>, Vec<Vec<T>>, Vec<DTensor<T, 2>>) {
+) -> (Vec<Mat<T>>, Vec<Vec<T>>, Vec<Mat<T>>) {
     let zero = T::zero();
 
     // Validate
@@ -361,14 +361,14 @@ pub fn truncate<T: CustomNumeric>(
         // Slice U: keep first n_keep columns. Preserve one output block per
         // input block even when all singular values in that block are removed.
         let u_shape = *u.shape();
-        let u_sliced = DTensor::<T, 2>::from_fn([u_shape.0, n_keep], |idx| u[[idx[0], idx[1]]]);
+        let u_sliced = Mat::<T>::from_fn([u_shape.0, n_keep], |idx| u[[idx[0], idx[1]]]);
         u_trunc.push(u_sliced);
 
         s_trunc.push(s[..n_keep].to_vec());
 
         // Slice V: keep first n_keep columns
         let v_shape = *v.shape();
-        let v_sliced = DTensor::<T, 2>::from_fn([v_shape.0, n_keep], |idx| v[[idx[0], idx[1]]]);
+        let v_sliced = Mat::<T>::from_fn([v_shape.0, n_keep], |idx| v[[idx[0], idx[1]]]);
         v_trunc.push(v_sliced);
     }
 
@@ -381,9 +381,9 @@ mod tests {
 
     #[test]
     fn test_truncate_by_rtol() {
-        let u = vec![DTensor::<f64, 2>::from_elem([3, 3], 1.0)];
+        let u = vec![Mat::<f64>::from_elem([3, 3], 1.0)];
         let s = vec![vec![10.0, 5.0, 0.1]];
-        let v = vec![DTensor::<f64, 2>::from_elem([3, 3], 1.0)];
+        let v = vec![Mat::<f64>::from_elem([3, 3], 1.0)];
 
         // rtol = 0.1, max_sval = 10.0, cutoff = 1.0
         // Keep values >= 1.0: [10.0, 5.0]
@@ -396,9 +396,9 @@ mod tests {
 
     #[test]
     fn test_truncate_by_max_size() {
-        let u = vec![DTensor::<f64, 2>::from_elem([3, 3], 1.0)];
+        let u = vec![Mat::<f64>::from_elem([3, 3], 1.0)];
         let s = vec![vec![10.0, 5.0, 2.0]];
-        let v = vec![DTensor::<f64, 2>::from_elem([3, 3], 1.0)];
+        let v = vec![Mat::<f64>::from_elem([3, 3], 1.0)];
 
         // max_num_svals = 2
         let (_, s_trunc, _) = truncate(u, s, v, 0.0, Some(2));
@@ -409,9 +409,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "max_num_svals must be positive")]
     fn test_truncate_rejects_zero_max_size() {
-        let u = vec![DTensor::<f64, 2>::from_elem([1, 1], 1.0)];
+        let u = vec![Mat::<f64>::from_elem([1, 1], 1.0)];
         let s = vec![vec![1.0]];
-        let v = vec![DTensor::<f64, 2>::from_elem([1, 1], 1.0)];
+        let v = vec![Mat::<f64>::from_elem([1, 1], 1.0)];
 
         truncate(u, s, v, 0.0, Some(0));
     }
@@ -419,13 +419,13 @@ mod tests {
     #[test]
     fn test_truncate_preserves_empty_blocks() {
         let u = vec![
-            DTensor::<f64, 2>::from_elem([2, 1], 1.0),
-            DTensor::<f64, 2>::from_elem([2, 1], 2.0),
+            Mat::<f64>::from_elem([2, 1], 1.0),
+            Mat::<f64>::from_elem([2, 1], 2.0),
         ];
         let s = vec![vec![10.0], vec![1.0]];
         let v = vec![
-            DTensor::<f64, 2>::from_elem([2, 1], 1.0),
-            DTensor::<f64, 2>::from_elem([2, 1], 2.0),
+            Mat::<f64>::from_elem([2, 1], 1.0),
+            Mat::<f64>::from_elem([2, 1], 2.0),
         ];
 
         let (u_trunc, s_trunc, v_trunc) = truncate(u, s, v, 0.5, None);
@@ -440,9 +440,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "rtol must be in [0, 1]")]
     fn test_truncate_invalid_rtol() {
-        let u = vec![DTensor::<f64, 2>::from_elem([1, 1], 1.0)];
+        let u = vec![Mat::<f64>::from_elem([1, 1], 1.0)];
         let s = vec![vec![1.0]];
-        let v = vec![DTensor::<f64, 2>::from_elem([1, 1], 1.0)];
+        let v = vec![Mat::<f64>::from_elem([1, 1], 1.0)];
 
         truncate(u, s, v, 1.5, None);
     }

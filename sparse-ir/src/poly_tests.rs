@@ -1,12 +1,13 @@
 //! Tests for piecewise Legendre polynomial implementations
 
+use crate::matrix::mat;
+use crate::matrix::{Mat, Mat3};
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
-use mdarray::tensor;
 
 #[test]
 fn test_basic_polynomial_creation() {
     // Test data from C++ tests
-    let data = tensor![
+    let data = mat![
         [0.8177021060277301, 0.7085670484724618, 0.5033588232863977],
         [0.3804323567786363, 0.7911959541742282, 0.8268504271915096],
         [0.5425813266814807, 0.38397463704084633, 0.21626598379927042],
@@ -32,7 +33,7 @@ fn test_basic_polynomial_creation() {
 
 #[test]
 fn test_polynomial_evaluation() {
-    let data = tensor![[1.0, 2.0], [3.0, 4.0]];
+    let data = mat![[1.0, 2.0], [3.0, 4.0]];
     let knots = vec![0.0, 1.0, 2.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
 
@@ -50,7 +51,7 @@ fn test_polynomial_evaluation() {
 #[test]
 fn test_derivative_calculation() {
     // Create a simple polynomial: P(x) = 1 + 2x + 3x^2 on [0, 1]
-    let data = tensor![[1.0], [2.0], [3.0]];
+    let data = mat![[1.0], [2.0], [3.0]];
     let knots = vec![0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -70,7 +71,7 @@ fn test_derivative_calculation() {
 #[test]
 fn test_overlap_integral() {
     // Create a polynomial: P(x) = 1 on [0, 1]
-    let data = tensor![[1.0]];
+    let data = mat![[1.0]];
     let knots = vec![0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -87,7 +88,7 @@ fn test_overlap_integral() {
 #[test]
 fn test_high_precision_overlap_integral() {
     // Test with exact values from C++ poly.cxx
-    let data = tensor![
+    let data = mat![
         [0.8177021060277301, 0.7085670484724618, 0.5033588232863977],
         [0.3804323567786363, 0.7911959541742282, 0.8268504271915096],
         [0.5425813266814807, 0.38397463704084633, 0.21626598379927042],
@@ -123,7 +124,7 @@ fn test_root_finding() {
     // Create a polynomial that should have a root
     // P(x) = x - 0.5 on [0, 1] (root at x = 0.5)
     // But with Legendre normalization, this becomes P(x) = sqrt(2) * (x - 0.5)
-    let data = tensor![[-0.5], [1.0]];
+    let data = mat![[-0.5], [1.0]];
     let knots = vec![0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
 
@@ -186,7 +187,7 @@ fn test_high_precision_root_finding() {
     ];
 
     // Reshape into 16x2 matrix (column-major order like C++ Eigen)
-    let mut data = mdarray::DTensor::<f64, 2>::from_elem([16, 2], 0.0);
+    let mut data = Mat::<f64>::from_elem([16, 2], 0.0);
     for i in 0..16 {
         for j in 0..2 {
             data[[i, j]] = v[i + j * 16]; // Column-major indexing
@@ -235,7 +236,7 @@ fn test_high_precision_root_finding() {
 
 #[test]
 fn test_split_function() {
-    let data = tensor![[1.0, 2.0], [3.0, 4.0]];
+    let data = mat![[1.0, 2.0], [3.0, 4.0]];
     let knots = vec![0.0, 1.0, 2.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
 
@@ -258,7 +259,7 @@ fn test_split_function() {
 fn test_legendre_polynomial_evaluation() {
     // Test the Legendre polynomial evaluation directly
     let poly = PiecewiseLegendrePoly::new(
-        mdarray::DTensor::<f64, 2>::from_elem([3, 1], 0.0),
+        Mat::<f64>::from_elem([3, 1], 0.0),
         vec![0.0, 1.0],
         0,
         None,
@@ -284,12 +285,12 @@ fn test_legendre_polynomial_evaluation() {
 
 #[test]
 fn test_with_data_methods() {
-    let data = tensor![[1.0, 2.0], [3.0, 4.0]];
+    let data = mat![[1.0, 2.0], [3.0, 4.0]];
     let knots = vec![0.0, 1.0, 2.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
 
     // Test with_data
-    let new_data = tensor![[5.0, 6.0], [7.0, 8.0]];
+    let new_data = mat![[5.0, 6.0], [7.0, 8.0]];
     let new_poly = poly.with_data(new_data.clone());
     assert_eq!(new_poly.data, new_data);
     assert_eq!(new_poly.symm, poly.symm);
@@ -303,7 +304,7 @@ fn test_with_data_methods() {
 #[test]
 fn test_cpp_compatible_data() {
     // Test with the exact data from C++ tests
-    let data = tensor![
+    let data = mat![
         [0.8177021060277301, 0.7085670484724618, 0.5033588232863977],
         [0.3804323567786363, 0.7911959541742282, 0.8268504271915096],
         [0.5425813266814807, 0.38397463704084633, 0.21626598379927042],
@@ -337,7 +338,7 @@ fn test_cpp_compatible_data() {
 #[test]
 fn test_derivative_consistency() {
     // Test that derivatives are consistent with numerical differentiation
-    let data = tensor![[1.0, 2.0], [3.0, 4.0]];
+    let data = mat![[1.0, 2.0], [3.0, 4.0]];
     let knots = vec![0.0, 1.0, 2.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
 
@@ -363,7 +364,7 @@ fn test_derivative_consistency() {
 #[test]
 fn test_high_precision_derivative() {
     // Test with exact values from C++ poly.cxx
-    let data = tensor![
+    let data = mat![
         [0.8177021060277301, 0.7085670484724618, 0.5033588232863977],
         [0.3804323567786363, 0.7911959541742282, 0.8268504271915096],
         [0.5425813266814807, 0.38397463704084633, 0.21626598379927042],
@@ -425,7 +426,7 @@ fn test_high_precision_derivative() {
 fn test_legendre_polynomial_properties() {
     // Test that our Legendre polynomial evaluation matches known properties
     let poly = PiecewiseLegendrePoly::new(
-        mdarray::DTensor::<f64, 2>::from_elem([5, 1], 0.0),
+        Mat::<f64>::from_elem([5, 1], 0.0),
         vec![0.0, 1.0],
         0,
         None,
@@ -457,7 +458,7 @@ fn test_legendre_polynomial_properties() {
 
 #[test]
 fn test_accessor_methods() {
-    let data = tensor![[1.0, 2.0], [3.0, 4.0]];
+    let data = mat![[1.0, 2.0], [3.0, 4.0]];
     let knots = vec![0.0, 1.0, 2.0];
     let l = 5;
     let symm = 1;
@@ -487,8 +488,8 @@ fn test_accessor_methods() {
 
 #[test]
 fn test_polynomial_vector_creation() {
-    let data1 = tensor![[1.0, 2.0], [3.0, 4.0]];
-    let data2 = tensor![[5.0, 6.0], [7.0, 8.0]];
+    let data1 = mat![[1.0, 2.0], [3.0, 4.0]];
+    let data2 = mat![[5.0, 6.0], [7.0, 8.0]];
     let knots = vec![0.0, 1.0, 2.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -502,8 +503,8 @@ fn test_polynomial_vector_creation() {
 
 #[test]
 fn test_vector_evaluation() {
-    let data1 = tensor![[1.0, 2.0], [3.0, 4.0]];
-    let data2 = tensor![[5.0, 6.0], [7.0, 8.0]];
+    let data1 = mat![[1.0, 2.0], [3.0, 4.0]];
+    let data2 = mat![[5.0, 6.0], [7.0, 8.0]];
     let knots = vec![0.0, 1.0, 2.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -525,7 +526,7 @@ fn test_vector_evaluation() {
 #[test]
 fn test_vector_3d_construction() {
     // Create 3D data: 3 degrees, 2 segments, 2 polynomials
-    let mut data3d = mdarray::DTensor::<f64, 3>::from_elem([3, 2, 2], 0.0);
+    let mut data3d = Mat3::<f64>::from_elem([3, 2, 2], 0.0);
 
     // Polynomial 0: coefficients for 3 degrees, 2 segments
     data3d[[0, 0, 0]] = 1.0; // degree 0, segment 0, poly 0
@@ -556,9 +557,9 @@ fn test_vector_3d_construction() {
 
 #[test]
 fn test_vector_slicing() {
-    let data1 = tensor![[1.0, 2.0], [3.0, 4.0]];
-    let data2 = tensor![[5.0, 6.0], [7.0, 8.0]];
-    let data3 = tensor![[9.0, 10.0], [11.0, 12.0]];
+    let data1 = mat![[1.0, 2.0], [3.0, 4.0]];
+    let data2 = mat![[5.0, 6.0], [7.0, 8.0]];
+    let data3 = mat![[9.0, 10.0], [11.0, 12.0]];
     let knots = vec![0.0, 1.0, 2.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -584,8 +585,8 @@ fn test_vector_slicing() {
 
 #[test]
 fn test_vector_accessors() {
-    let data1 = tensor![[1.0, 2.0], [3.0, 4.0]];
-    let data2 = tensor![[5.0, 6.0], [7.0, 8.0]];
+    let data1 = mat![[1.0, 2.0], [3.0, 4.0]];
+    let data2 = mat![[5.0, 6.0], [7.0, 8.0]];
     let knots = vec![0.0, 1.0, 2.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -608,8 +609,8 @@ fn test_vector_accessors() {
 
 #[test]
 fn test_vector_roots() {
-    let data1 = tensor![[-0.5], [1.0]]; // Should have root at 0.5
-    let data2 = tensor![[-1.0], [2.0]]; // Should have root at 0.5
+    let data1 = mat![[-0.5], [1.0]]; // Should have root at 0.5
+    let data2 = mat![[-1.0], [2.0]]; // Should have root at 0.5
     let knots = vec![0.0, 1.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -631,7 +632,7 @@ fn test_julia_random_data() {
     // julia> rng = StableRNG(2024)
     // julia> data = rand(rng, 3, 3)
     // julia> knots = rand(rng, size(data, 2) + 1) |> sort
-    let data = tensor![
+    let data = mat![
         [0.8177021060277301, 0.7085670484724618, 0.5033588232863977],
         [0.3804323567786363, 0.7911959541742282, 0.8268504271915096],
         [0.5425813266814807, 0.38397463704084633, 0.21626598379927042],
@@ -728,7 +729,7 @@ fn test_high_order_polynomial_vector() {
         -7.379549188001237e-19,
     ];
 
-    let mut data1 = mdarray::DTensor::<f64, 2>::from_elem([16, 2], 0.0);
+    let mut data1 = Mat::<f64>::from_elem([16, 2], 0.0);
     for i in 0..16 {
         for j in 0..2 {
             data1[[i, j]] = data1_values[i * 2 + j];
@@ -771,7 +772,7 @@ fn test_high_order_polynomial_vector() {
         -3.2715804561902326e-17,
     ];
 
-    let mut data2 = mdarray::DTensor::<f64, 2>::from_elem([16, 2], 0.0);
+    let mut data2 = Mat::<f64>::from_elem([16, 2], 0.0);
     for i in 0..16 {
         for j in 0..2 {
             data2[[i, j]] = data2_values[i * 2 + j];
@@ -814,7 +815,7 @@ fn test_high_order_polynomial_vector() {
         -6.327687614609368e-17,
     ];
 
-    let mut data3 = mdarray::DTensor::<f64, 2>::from_elem([16, 2], 0.0);
+    let mut data3 = Mat::<f64>::from_elem([16, 2], 0.0);
     for i in 0..16 {
         for j in 0..2 {
             data3[[i, j]] = data3_values[i * 2 + j];
@@ -883,7 +884,7 @@ fn test_rescale_domain_single_poly() {
         0.5, 1.0, // linear term
         0.2, 0.3, // quadratic term
     ];
-    let data = mdarray::DTensor::<f64, 2>::from_fn([3, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
+    let data = Mat::<f64>::from_fn([3, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
 
     let knots = vec![-1.0, 0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
@@ -916,7 +917,7 @@ fn test_rescale_domain_single_poly() {
 fn test_scale_data_single_poly() {
     // Create a polynomial
     let data_vec = [1.0, 2.0, 0.5, 1.0];
-    let data = mdarray::DTensor::<f64, 2>::from_fn([2, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
+    let data = Mat::<f64>::from_fn([2, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
 
     let knots = vec![-1.0, 0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
@@ -943,10 +944,8 @@ fn test_scale_data_single_poly() {
 #[test]
 fn test_rescale_domain_vector() {
     // Create vector with 2 polynomials
-    let data1 =
-        mdarray::DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 0.5 });
-    let data2 =
-        mdarray::DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { 2.0 } else { 1.0 });
+    let data1 = Mat::<f64>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 0.5 });
+    let data2 = Mat::<f64>::from_fn([2, 1], |idx| if idx[0] == 0 { 2.0 } else { 1.0 });
 
     let knots = vec![-1.0, 1.0];
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 1); // symm=1
@@ -979,10 +978,8 @@ fn test_rescale_domain_vector() {
 #[test]
 fn test_scale_data_vector() {
     // Create vector with 2 polynomials
-    let data1 =
-        mdarray::DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 0.5 });
-    let data2 =
-        mdarray::DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { 2.0 } else { 1.0 });
+    let data1 = Mat::<f64>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 0.5 });
+    let data2 = Mat::<f64>::from_fn([2, 1], |idx| if idx[0] == 0 { 2.0 } else { 1.0 });
 
     let knots = vec![-1.0, 1.0];
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
@@ -1010,8 +1007,7 @@ fn test_scale_data_vector() {
 #[test]
 fn test_rescale_with_symmetry_change() {
     // Test rescaling with symmetry parameter change
-    let data =
-        mdarray::DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 0.5 });
+    let data = Mat::<f64>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 0.5 });
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots.clone(), 0, None, 1);
 
@@ -1036,7 +1032,7 @@ fn test_basis_transformation_example() {
 
     // Original polynomial on [-1, 1]
     let data_vec = [1.0, 1.5, 0.2, 0.3, 0.1, 0.1];
-    let data = mdarray::DTensor::<f64, 2>::from_fn([3, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
+    let data = Mat::<f64>::from_fn([3, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
     let sve_knots = vec![-1.0, 0.0, 1.0];
     let poly_sve = PiecewiseLegendrePoly::new(data, sve_knots, 0, None, 0);
 

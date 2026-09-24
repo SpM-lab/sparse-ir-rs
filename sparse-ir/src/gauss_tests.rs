@@ -3,8 +3,8 @@ use crate::Df64;
 use crate::interpolation1d::{
     evaluate_interpolated_polynomial, interpolate_1d_legendre, legendre_collocation_matrix,
 };
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
-use mdarray::DTensor;
 
 #[test]
 fn test_rule_constructor() {
@@ -540,7 +540,7 @@ fn _test_legendre_collocation_matrix_inverse() {
         let collocation = legendre_collocation_matrix(&gauss_rule);
 
         // Compute V * C and check if it's approximately the identity matrix
-        let mut product = DTensor::<f64, 2>::from_elem([n, n], 0.0);
+        let mut product = Mat::<f64>::from_elem([n, n], 0.0);
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {

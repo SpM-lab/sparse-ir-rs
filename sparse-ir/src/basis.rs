@@ -643,9 +643,9 @@ where
         self.default_matsubara_sampling_points(positive_only)
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_tau(&self, tau: &[f64]) -> crate::Matrix<f64> {
+        use crate::matrix::Mat;
         use crate::taufuncs::normalize_tau;
-        use mdarray::DTensor;
 
         let n_points = tau.len();
         let basis_size = self.size();
@@ -654,7 +654,7 @@ where
         // Result: matrix[i, l] = u_l(tau[i])
         // Note: tau can be in [-beta, beta] and will be normalized to [0, beta]
         // self.u polynomials are already scaled to tau ∈ [0, beta] domain
-        DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
+        Mat::<f64>::from_fn([n_points, basis_size], |idx| {
             let i = idx[0]; // tau index
             let l = idx[1]; // basis function index
 
@@ -664,13 +664,14 @@ where
             // Evaluate basis function directly (u polynomials are in tau domain)
             sign * self.u[l].evaluate(tau_norm)
         })
+        .into_typed()
     }
 
     fn evaluate_matsubara(
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
-    ) -> mdarray::DTensor<num_complex::Complex<f64>, 2> {
-        use mdarray::DTensor;
+    ) -> crate::Matrix<num_complex::Complex<f64>> {
+        use crate::matrix::Mat;
         use num_complex::Complex;
 
         let n_points = freqs.len();
@@ -678,26 +679,28 @@ where
 
         // Evaluate each basis function at all Matsubara frequencies
         // Result: matrix[i, l] = uhat_l(iωn[i])
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
+        Mat::<Complex<f64>>::from_fn([n_points, basis_size], |idx| {
             let i = idx[0]; // frequency index
             let l = idx[1]; // basis function index
             self.uhat[l].evaluate(&freqs[i])
         })
+        .into_typed()
     }
 
-    fn evaluate_omega(&self, omega: &[f64]) -> mdarray::DTensor<f64, 2> {
-        use mdarray::DTensor;
+    fn evaluate_omega(&self, omega: &[f64]) -> crate::Matrix<f64> {
+        use crate::matrix::Mat;
 
         let n_points = omega.len();
         let basis_size = self.size();
 
         // Evaluate each spectral basis function at all omega points
         // Result: matrix[i, l] = V_l(omega[i])
-        DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
+        Mat::<f64>::from_fn([n_points, basis_size], |idx| {
             let i = idx[0]; // omega index
             let l = idx[1]; // basis function index
             self.v[l].evaluate(omega[i])
         })
+        .into_typed()
     }
 
     fn default_omega_sampling_points(&self) -> Vec<f64> {
