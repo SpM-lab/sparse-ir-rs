@@ -24,6 +24,7 @@ pub mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
 pub mod dlr; // Discrete Lehmann Representation utilities
 mod dlr_id; // Interpolative-decomposition construction of the DLR
 pub mod error; // Crate-level error type
+pub mod esprit; // Exponential-sum estimation (ESPRIT)
 pub mod fitters; // Least-squares fitters (real/complex matrices)
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod freq;

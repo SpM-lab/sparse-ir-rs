@@ -146,3 +146,14 @@ tensor construction overhead (feedback item 12).
 - Bench (`RAYON_NUM_THREADS=1`, ε=1e-10), independent DLR including τ and
   Matsubara nodes: Λ=1e3 10.7 ms, Λ=1e5 65 ms. Building the IR basis at the
   same ε (Df64 SVE) takes 1065 ms and 5281 ms.
+
+## Milestone C: ESPRIT module (2026-09-25)
+
+- `sparse_ir::esprit`: block-Hankel ESPRIT with nodes shared across channels
+  (input `[N, ...]`, trailing axes flattened), `ModelOrder::Fixed(r)` or
+  `ModelOrder::Tolerance(rtol)` (σ_i > rtol·σ_0, optional `max_order`), default
+  pencil `L ≈ N d/(d+1)`. Diagnostics: all Hankel singular values, order,
+  pencil, σ_r/σ_0, max and relative residual. `EspritResult::evaluate`
+  handles non-integer positions.
+- Linear algebra: Hankel SVD and the r×r general eigenproblem go through
+  tenferro-linalg (`svd`, `eig`). Least squares reuse the crate pinv factors.
