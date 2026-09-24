@@ -58,16 +58,22 @@ Full output: see the commit message of the benchmark commit / rerun the example.
    called from C/Python/Julia) cannot hold a closure-scoped session across FFI calls.
    Wish: a cheap caller-thread/inline session, or a storable session handle.
 2. Per-op overhead inside a session is 1–2.5 µs above direct faer for tiny GEMM (95x95·95x1).
-3. No mainline extended-precision (double-double) scalar; `ext/df64-proof` is unpublished.
-   sparse-ir needs Df64 SVD/QR for the SVE at ε < 1e-8.
+3. External scalars are in main (#1800, 2026-09-18: `define_scalar_set!`, `HostTensor<T>`,
+   `Tensor::external`, extension ops), and `ext/df64-proof` shows a Df64 set with an
+   extension QR. But `ext/df64-proof` is a `publish = false` proof crate (version 0.0.0),
+   and there is no Df64 SVD. sparse-ir needs Df64 SVD/QR for the SVE at ε < 1e-8, so both
+   stay in-house. Wish: a published extended-precision scalar crate (or an
+   `xprec::Df64` adapter).
 4. Single-threaded thin SVD is 4–14% slower than calling faer 0.23 directly for 52x52–400x200.
 5. `TypedTensor<T, Rank<2>>` is a natural matrix type, but element access is fallible and verbose:
    no `Index<[usize; 2]>`, `get2(i, j)` returns `Result<&T>`, and `host_col_major_view()`
    also returns `Result`. Numerical code with dense index loops gets `?`/`unwrap` noise.
    Wish: an infallible `Index`/`IndexMut` on host-owned compact tensors (and on `ColMajorView`).
-6. Owned `TypedTensor<T>` requires `T: TensorScalar` (sealed). Extended-precision matrices
-   (Df64 in the SVE) cannot use the same container, so sparse-ir keeps a small in-house
-   column-major matrix for generic `T`. Wish: host-only storage for arbitrary `T: Copy`.
+6. Owned `TypedTensor<T>` requires `T: TensorScalar` (sealed). External scalars go
+   through a different container (`HostTensor<T>` / `ErasedHostTensor`), not `TypedTensor`.
+   Generic numerical code over f64 and Df64 therefore cannot share one tensor type, so
+   sparse-ir keeps a small in-house column-major matrix for generic `T`. Wish:
+   `TypedTensor`-level ergonomics (static rank, views) for external-set scalars.
 7. `TypedTensor` is not `Clone`; every copy is an explicit `duplicate()` (fallible for views).
    Structs holding a tensor cannot `#[derive(Clone)]`, which pushes the tensor behind `Arc`
    or forces hand-written `Clone` impls.
