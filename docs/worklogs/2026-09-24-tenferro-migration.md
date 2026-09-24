@@ -157,3 +157,30 @@ tensor construction overhead (feedback item 12).
   handles non-integer positions.
 - Linear algebra: Hankel SVD and the r×r general eigenproblem go through
   tenferro-linalg (`svd`, `eig`). Least squares reuse the crate pinv factors.
+
+## Milestones D/E: MiniPole (2026-09-25)
+
+- `sparse_ir::minipole::{minipole_from_dlr, minipole_from_matsubara}`, following
+  Zhang & Gull (PRB 110, 035154): the Joukowski map sends a segment
+  `[iν_a, iν_b]` of the imaginary axis onto the unit circle, the moments
+  `h_k = Σ_l Ã_l ξ̃_l^k` are exact residue sums over the DLR poles, and ESPRIT
+  (tolerance) gives the nodes. The DLR replaces the paper's first Prony step.
+- Rejected designs, for the record:
+  - Joukowski ellipse around `[-ωmax, ωmax]` (Laurent coefficients of `G`)
+    and Möbius half-plane moments. Both put the contour near the real axis.
+    There, a DLR fitted on Matsubara frequencies is not pinned. Example:
+    β=50, ε=1e-12. The error is 0.6 at ν=0, 9e-4 at 1+0.3i and 4e-5 at z=2.2,
+    but 1e-9 at ν=0.5 on the imaginary axis. The result was 15–18 spurious
+    poles for a 3-pole spectrum.
+- Segment defaults:
+  - `ν_a = max(2.5 ln(1/tol)/β, π/β)` and `ν_b = ν_a + 10 ωmax`.
+  - M is chosen from the slowest node modulus.
+  - A scan on noisy data (η=1e-7) showed that longer segments and larger ν_a
+    are both clearly better.
+- Matsubara input is fitted with a truncated-SVD DLR fit, cutoff
+  `max(dlr_accuracy, tol/100)`. An unregularized fit follows the noise, and
+  σ0 of the moments rose from 0.5 to 127.
+- Nodes whose pole is closer to the segment than to the real axis
+  (`|Im ξ| >= ν_a/2`) are dropped, and the amplitudes are refitted.
+- Accuracy: from an exact DLR, poles match to about 1e-7 (fermionic, bosonic,
+  2x2 matrix). From noisy Matsubara data (η=1e-7), poles match to 2e-3.

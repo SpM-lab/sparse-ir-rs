@@ -36,6 +36,7 @@ pub mod kernel;
 pub mod kernelmatrix;
 pub mod matrix; // Column-major dense containers for internal numerics
 pub mod matsubara_sampling; // Sparse sampling in Matsubara frequencies
+pub mod minipole; // Minimal pole representation via ESPRIT
 pub mod numeric;
 pub mod poly;
 pub mod polyfourier;

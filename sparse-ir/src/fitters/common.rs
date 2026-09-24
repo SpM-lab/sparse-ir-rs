@@ -498,6 +498,29 @@ impl SvdScalar for Complex<f64> {
 /// # Errors
 /// Propagates tenferro errors (for example a non-converging SVD).
 pub(crate) fn compute_pinv<T: SvdScalar>(a: &[T], n: usize, m: usize) -> Result<PinvFactors<T>> {
+    compute_pinv_impl(a, n, m, None)
+}
+
+/// Like [`compute_pinv`], but keeps only singular values `s_l > rtol * s_0`
+/// (truncated-SVD regularization).
+///
+/// # Errors
+/// Propagates tenferro errors.
+pub(crate) fn compute_pinv_truncated<T: SvdScalar>(
+    a: &[T],
+    n: usize,
+    m: usize,
+    rtol: f64,
+) -> Result<PinvFactors<T>> {
+    compute_pinv_impl(a, n, m, Some(rtol))
+}
+
+fn compute_pinv_impl<T: SvdScalar>(
+    a: &[T],
+    n: usize,
+    m: usize,
+    rtol: Option<f64>,
+) -> Result<PinvFactors<T>> {
     use tenferro_cpu::CpuBackend;
     use tenferro_linalg::TypedTensorLinalgExt;
     use tenferro_tensor::BackendSessionHost;
@@ -527,6 +550,15 @@ pub(crate) fn compute_pinv<T: SvdScalar>(a: &[T], n: usize, m: usize) -> Result<
         )));
     }
     let (ldu, ldvt) = (u_shape[0], vt_shape[0]);
+    let rank = match rtol {
+        Some(rtol) => {
+            let s0 = T::real_part(s[0]);
+            (0..rank)
+                .take_while(|&l| T::real_part(s[l]) > rtol * s0)
+                .count()
+        }
+        None => rank,
+    };
 
     // U^H: uh[l + r*i] = conj(U[i, l])
     let mut uh = vec![T::zero(); rank * n];
