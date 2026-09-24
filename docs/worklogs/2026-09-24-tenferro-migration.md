@@ -265,3 +265,26 @@ the old branch is re-applied in order.
   Fortran and Python) that asserted 0 default points for a DLR now assert one
   node per pole, and the C docs say so. The Fortran bindings keep main's
   argument names; main had already fixed the two binding bugs above.
+
+## Final audit (2026-09-25, branch `work/tenferro-migration`)
+
+- `cargo fmt --all --check`: clean.
+- `cargo test --workspace --release`: all green (sparse-ir: 276 passed,
+  5 ignored; sparse-ir-capi: 55 lib tests plus the integration tests).
+- Clippy: the remaining warnings all predate this branch, for example
+  `doc list item overindented` and `is_multiple_of` in `basis.rs`. The new
+  modules (`minipole`, `esprit`, independent DLR, the capi `minipole.rs`)
+  add no warnings.
+- Wrapper suites: Python 69 passed; C++ `ctest` 2/2; Fortran 12/12.
+- `bench_core` final run (`RAYON_NUM_THREADS=1`) matches the post-migration
+  table. Selected times:
+  - basis Λ=1e5 (incl. SVE): 5272 ms.
+  - MatsubaraSampling::new: 372 ms.
+  - tau fit extra=10000 dim=0 / dim=1: 6.53 / 6.42 ms.
+  - matsu fit extra=10000 dim=0: 29.0 ms.
+  - ir2dlr extra=10000 dim=1: 6.42 ms.
+  - New: `DiscreteLehmannRepresentation::new` (independent, incl. nodes)
+    at Λ=1e5: 65.5 ms. That is about 80x cheaper than going through the IR
+    basis (5272 + 1.2 ms).
+- Not merged to main. Julia and Python compatibility is kept because the
+  C ABI changes are additive only.
