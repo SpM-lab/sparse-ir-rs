@@ -59,6 +59,8 @@ therefore to fold `HostTensor<T>` into `TypedTensor`, not to add Df64 kernels.
 
 ### A. Unify `HostTensor<T>` into `TypedTensor<T, R>` (main request)
 
+Filed as tensor4all/tenferro-rs#1903 (2026-09-25), with a reproducer.
+
 Today (origin/main, after #1800) there are two parallel host containers:
 
 - `TypedTensor<T, R>`: static rank, views, integrated with tenferro-cpu and
@@ -89,6 +91,10 @@ the unified type:
    sparse-ir carries its own gather (`fitters::common::gather_col_major`).
 
 ### B. Small-call overhead (independent of A)
+
+Filed as tensor4all/tenferro-rs#1904 (2026-09-25), with a reproducer. The re-measurement
+against faer 0.24 shows that single-threaded thin SVD is *faster* in tenferro for 95x95 and
+larger (0.3–0.44x of faer's time), so item 9 was dropped from the issue.
 
 6. Session entry on a multi-threaded `CpuBackend` costs ~29 µs (~0.35 µs
    single-threaded). Libraries called frequently through FFI (C/Python/Julia)
