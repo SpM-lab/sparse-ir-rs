@@ -384,8 +384,9 @@ impl spir_basis {
             BasisType::LogisticBosonic(b) => b.default_tau_sampling_points(),
             BasisType::RegularizedBoseFermionic(b) => b.default_tau_sampling_points(),
             BasisType::RegularizedBoseBosonic(b) => b.default_tau_sampling_points(),
-            // DLR: no default tau sampling points
-            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+            // DLR: the interpolation nodes, one per pole
+            BasisType::DLRFermionic(dlr) => dlr.tau_nodes().to_vec(),
+            BasisType::DLRBosonic(dlr) => dlr.tau_nodes().to_vec(),
         }
     }
 
@@ -423,8 +424,9 @@ impl spir_basis {
             BasisType::RegularizedBoseBosonic(b) => {
                 b.default_matsubara_sampling_points_i64(positive_only)
             }
-            // DLR: no default Matsubara sampling points
-            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+            // DLR: the interpolation nodes, one per pole
+            BasisType::DLRFermionic(dlr) => dlr.matsubara_nodes(positive_only).to_vec(),
+            BasisType::DLRBosonic(dlr) => dlr.matsubara_nodes(positive_only).to_vec(),
         }
     }
 

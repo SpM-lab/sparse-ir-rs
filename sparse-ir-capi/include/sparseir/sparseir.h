@@ -107,6 +107,16 @@ typedef struct Complex64 {
 } Complex64;
 
 /**
+ * Opaque minimal pole representation for C API
+ *
+ * Holds complex poles `ξ_j` and residues `A_j` with
+ * `G(z) ≈ Σ_j A_j / (z - ξ_j)`.
+ */
+typedef struct spir_pole_repr {
+  const void *_private;
+} spir_pole_repr;
+
+/**
  * Sampling type for C API (unified type for all domains)
  *
  * This wraps different sampling implementations:
@@ -535,6 +545,31 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
                                              int n_points,
                                              int64_t *points,
                                              int *n_points_returned);
+
+/**
+ * Creates a new DLR directly from its physical parameters, without an IR basis
+ *
+ * This is the recommended DLR constructor. The poles are selected by an
+ * interpolative decomposition of the logistic kernel, so no SVE is computed.
+ * The resulting basis has default τ and Matsubara sampling points (the DLR
+ * interpolation nodes), one per pole.
+ *
+ * # Arguments
+ * * `statistics` - `SPIR_STATISTICS_FERMIONIC` or `SPIR_STATISTICS_BOSONIC`
+ * * `beta` - Inverse temperature (must be > 0)
+ * * `omega_max` - Frequency cutoff (must be > 0)
+ * * `epsilon` - Target relative accuracy of the representation (must be > 0)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created DLR basis object, or NULL if creation fails
+ */
+
+struct spir_basis *spir_dlr_new_independent(int statistics,
+                                            double beta,
+                                            double omega_max,
+                                            double epsilon,
+                                            StatusCode *status);
 
 /**
  * Creates a new DLR from an IR basis with default poles
@@ -1242,6 +1277,127 @@ StatusCode spir_kernel_get_sve_hints_nsvals(const struct spir_kernel *k,
 StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
                                             double epsilon,
                                             int *ngauss);
+
+/**
+ * Releases a pole representation
+ */
+ void spir_pole_repr_release(struct spir_pole_repr *rep);
+
+/**
+ * Clones a pole representation (shared data, reference counted)
+ *
+ * The returned pointer must be freed with `spir_pole_repr_release()`.
+ */
+ struct spir_pole_repr *spir_pole_repr_clone(const struct spir_pole_repr *src);
+
+/**
+ * Checks if the pointer is non-null (1) or null (0)
+ */
+ int32_t spir_pole_repr_is_assigned(const struct spir_pole_repr *obj);
+
+/**
+ * Compresses DLR coefficients into a minimal pole representation
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `order` - Memory layout order (`SPIR_ORDER_ROW_MAJOR` or `SPIR_ORDER_COLUMN_MAJOR`)
+ * * `ndim` - Number of dimensions of `coeffs`
+ * * `input_dims` - Dimensions of `coeffs`; `input_dims[target_dim]` must equal the number of DLR poles
+ * * `target_dim` - Dimension holding the DLR coefficients
+ * * `coeffs` - Complex DLR coefficients
+ * * `tolerance` - Accuracy target of the compression (must be >= 0)
+ * * `n_moments` - Number of moments, or <= 0 for the default
+ * * `freq_min`, `freq_max` - Imaginary-axis segment `[i freq_min, i freq_max]` of the
+ *   conformal map, or both <= 0 for the default
+ * * `max_poles` - Maximum number of poles, or <= 0 for no limit
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the pole representation, or NULL on failure. Residues share the
+ * layout of `coeffs` with `input_dims[target_dim]` replaced by the number of poles.
+ */
+
+struct spir_pole_repr *spir_minipole_from_dlr(const struct spir_basis *dlr,
+                                              int order,
+                                              int ndim,
+                                              const int *input_dims,
+                                              int target_dim,
+                                              const struct Complex64 *coeffs,
+                                              double tolerance,
+                                              int n_moments,
+                                              double freq_min,
+                                              double freq_max,
+                                              int max_poles,
+                                              StatusCode *status);
+
+/**
+ * Builds a minimal pole representation from Matsubara data
+ *
+ * A DLR with cutoff `omega_max` and accuracy `dlr_accuracy` is fitted to the
+ * data by regularized least squares and then compressed as in
+ * `spir_minipole_from_dlr`. Frequencies need not be sorted.
+ *
+ * # Arguments
+ * * `statistics` - `SPIR_STATISTICS_FERMIONIC` or `SPIR_STATISTICS_BOSONIC`
+ * * `beta` - Inverse temperature
+ * * `omega_max` - Frequency cutoff of the intermediate DLR
+ * * `dlr_accuracy` - Accuracy of the intermediate DLR
+ * * `n_freqs` - Number of Matsubara frequencies
+ * * `matsubara_indices` - Matsubara indices `n` (`ν = nπ/β`, odd for fermions, even for bosons)
+ * * `order`, `ndim`, `input_dims`, `target_dim` - Layout of `values`; `input_dims[target_dim]` must equal `n_freqs`
+ * * `values` - Complex values `G(iν_n)`
+ * * `tolerance`, `n_moments`, `freq_min`, `freq_max`, `max_poles` - As in `spir_minipole_from_dlr`
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the pole representation, or NULL on failure.
+ */
+
+struct spir_pole_repr *spir_minipole_from_matsubara(int statistics,
+                                                    double beta,
+                                                    double omega_max,
+                                                    double dlr_accuracy,
+                                                    int n_freqs,
+                                                    const int64_t *matsubara_indices,
+                                                    int order,
+                                                    int ndim,
+                                                    const int *input_dims,
+                                                    int target_dim,
+                                                    const struct Complex64 *values,
+                                                    double tolerance,
+                                                    int n_moments,
+                                                    double freq_min,
+                                                    double freq_max,
+                                                    int max_poles,
+                                                    StatusCode *status);
+
+/**
+ * Gets the number of poles
+ */
+ StatusCode spir_pole_repr_get_npoles(const struct spir_pole_repr *rep, int *num_poles);
+
+/**
+ * Gets the complex poles (array of length npoles)
+ */
+ StatusCode spir_pole_repr_get_poles(const struct spir_pole_repr *rep, struct Complex64 *poles);
+
+/**
+ * Gets the residues
+ *
+ * The output has the layout (order, dims) of the input passed at creation,
+ * with `input_dims[target_dim]` replaced by the number of poles.
+ */
+
+StatusCode spir_pole_repr_get_residues(const struct spir_pole_repr *rep,
+                                       struct Complex64 *residues);
+
+/**
+ * Gets the relative residual of the intermediate DLR fit
+ *
+ * Available only for representations built by `spir_minipole_from_matsubara`;
+ * otherwise returns `SPIR_NOT_SUPPORTED`.
+ */
+ StatusCode spir_pole_repr_get_dlr_fit_residual(const struct spir_pole_repr *rep, double *residual);
 
 /**
  * Manual release function (replaces macro-generated one)

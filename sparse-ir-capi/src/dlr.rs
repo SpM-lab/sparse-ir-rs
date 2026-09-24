@@ -5,7 +5,7 @@
 //! real-frequency axis.
 //!
 //! Functions:
-//! - Creation: spir_dlr_new, spir_dlr_new_with_poles
+//! - Creation: spir_dlr_new_independent, spir_dlr_new, spir_dlr_new_with_poles
 //! - Introspection: spir_dlr_get_npoles, spir_dlr_get_poles
 //! - Conversion: spir_ir2dlr_dd, spir_ir2dlr_zz, spir_dlr2ir_dd, spir_dlr2ir_zz
 
@@ -19,8 +19,12 @@ use crate::utils::{
     MemoryOrder, convert_dims_for_col_major, copy_tensor_to_c_array, read_tensor_col_major,
     status_from_error,
 };
-use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
+use crate::{
+    SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC,
+    SPIR_STATISTICS_FERMIONIC, StatusCode,
+};
 use sparse_ir::dlr::{DiscreteLehmannRepresentation, DlrError};
+use sparse_ir::{Bosonic, Fermionic};
 
 /// Map a core [`DlrError`] to a C ABI status code, preserving the error
 /// category instead of collapsing it to `SPIR_INTERNAL_ERROR`.
@@ -35,6 +39,60 @@ fn dlr_error_status(err: &DlrError) -> StatusCode {
 // ============================================================================
 // Creation Functions
 // ============================================================================
+
+/// Creates a new DLR directly from its physical parameters, without an IR basis
+///
+/// This is the recommended DLR constructor. The poles are selected by an
+/// interpolative decomposition of the logistic kernel, so no SVE is computed.
+/// The resulting basis has default τ and Matsubara sampling points (the DLR
+/// interpolation nodes), one per pole.
+///
+/// # Arguments
+/// * `statistics` - `SPIR_STATISTICS_FERMIONIC` or `SPIR_STATISTICS_BOSONIC`
+/// * `beta` - Inverse temperature (must be > 0)
+/// * `omega_max` - Frequency cutoff (must be > 0)
+/// * `epsilon` - Target relative accuracy of the representation (must be > 0)
+/// * `status` - Pointer to store the status code
+///
+/// # Returns
+/// Pointer to the newly created DLR basis object, or NULL if creation fails
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_dlr_new_independent(
+    statistics: libc::c_int,
+    beta: f64,
+    omega_max: f64,
+    epsilon: f64,
+    status: *mut StatusCode,
+) -> *mut spir_basis {
+    let result = catch_unwind(AssertUnwindSafe(
+        || -> Result<*mut spir_basis, StatusCode> {
+            let basis = match statistics {
+                SPIR_STATISTICS_FERMIONIC => spir_basis::new_dlr_fermionic(Arc::new(
+                    DiscreteLehmannRepresentation::<Fermionic>::new(beta, omega_max, epsilon)
+                        .map_err(|e| dlr_error_status(&e))?,
+                )),
+                SPIR_STATISTICS_BOSONIC => spir_basis::new_dlr_bosonic(Arc::new(
+                    DiscreteLehmannRepresentation::<Bosonic>::new(beta, omega_max, epsilon)
+                        .map_err(|e| dlr_error_status(&e))?,
+                )),
+                _ => return Err(SPIR_INVALID_ARGUMENT),
+            };
+            Ok(Box::into_raw(Box::new(basis)))
+        },
+    ));
+
+    let (ptr, code) = match result {
+        Ok(Ok(ptr)) => (ptr, SPIR_COMPUTATION_SUCCESS),
+        Ok(Err(code)) => (std::ptr::null_mut(), code),
+        Err(_) => (std::ptr::null_mut(), crate::SPIR_INTERNAL_ERROR),
+    };
+    if !status.is_null() {
+        unsafe {
+            *status = code;
+        }
+    }
+    ptr
+}
 
 /// Creates a new DLR from an IR basis with default poles
 ///

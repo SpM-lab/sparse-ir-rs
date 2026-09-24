@@ -184,3 +184,46 @@ tensor construction overhead (feedback item 12).
   (`|Im ξ| >= ν_a/2`) are dropped, and the amplitudes are refitted.
 - Accuracy: from an exact DLR, poles match to about 1e-7 (fermionic, bosonic,
   2x2 matrix). From noisy Matsubara data (η=1e-7), poles match to 2e-3.
+
+## Milestone F: additive C API and wrappers (2026-09-25)
+
+- New C entry points. All are additive, and no existing signature changed.
+  - `spir_dlr_new_independent(statistics, beta, omega_max, epsilon, status)`
+    builds the ID-based DLR without an IR basis. The IR route
+    (`spir_dlr_new`, `spir_dlr_new_with_poles`) is unchanged.
+  - `spir_pole_repr` opaque type: `_release`, `_clone` and `_is_assigned` are
+    written out by hand, because cbindgen does not expand
+    `impl_opaque_type_common!`.
+  - `spir_minipole_from_dlr` and `spir_minipole_from_matsubara` follow the
+    usual order/ndim/dims/target_dim convention. Pass `<= 0` for the
+    optional parameters to use their defaults.
+  - Getters: `spir_pole_repr_get_{npoles,poles,residues,dlr_fit_residual}`.
+    Residues keep the caller layout, with the pole axis at `target_dim`.
+- Behavior change: `spir_basis_get_{n_,}default_taus` and
+  `spir_basis_get_{n_,}default_matsus` on a DLR handle now return the
+  DLR's own nodes. The node count equals npoles. Before this change they
+  returned 0 points. The `_ext` variants (size_requested and mitigate) still
+  return 0 points for a DLR.
+- Wrappers and generated bindings:
+  - Python ctypes (`ctypes_autogen.py`), header and assets copy were
+    regenerated.
+  - Fortran `generate_c_binding.py` now resolves typedefs through their
+    canonical type, maps `int64_t` to `c_int64_t`, and passes the clang
+    resource dir and the macOS SDK to libclang. Without these, `bool` and
+    `StatusCode` were misparsed.
+  - Regenerating the Fortran bindings also fixed two existing binding bugs.
+    `c_spir_basis_get_n_default_matsus_ext` was missing its `mitigate`
+    argument, and the `n` argument of `spir_funcs_eval_matsu` was bound as
+    `c_int` instead of `c_int64_t`.
+- Tests:
+  - Rust capi unit tests.
+  - `python/tests/c_api/minipole_tests.py`: 5 tests; the full suite (69) passes.
+  - C++ `cinterface_core.cxx`: the test case for spir_dlr_new_independent
+    and MiniPole passes.
+  - Fortran `test/test_minipole.f90`: 12/12 pass.
+- Deferred (out of scope for this branch):
+  - A C API for ESPRIT.
+  - An evaluate function for `spir_pole_repr`.
+  - DLR support in the `_ext` default-point variants.
+  - High-level Julia and Python wrappers. Only the C API and ctypes are
+    in place.

@@ -21,6 +21,7 @@
   public :: c_spir_basis_get_default_taus_ext
   public :: c_spir_basis_get_n_default_matsus_ext
   public :: c_spir_basis_get_default_matsus_ext
+  public :: c_spir_dlr_new_independent
   public :: c_spir_dlr_new
   public :: c_spir_dlr_new_with_poles
   public :: c_spir_dlr_get_npoles
@@ -32,6 +33,7 @@
   public :: c_spir_funcs_release
   public :: c_spir_funcs_clone
   public :: c_spir_funcs_is_assigned
+  public :: c_spir_funcs_deriv
   public :: c_spir_funcs_from_piecewise_legendre
   public :: c_spir_funcs_get_slice
   public :: c_spir_funcs_get_size
@@ -57,6 +59,15 @@
   public :: c_spir_kernel_get_sve_hints_segments_y
   public :: c_spir_kernel_get_sve_hints_nsvals
   public :: c_spir_kernel_get_sve_hints_ngauss
+  public :: c_spir_pole_repr_release
+  public :: c_spir_pole_repr_clone
+  public :: c_spir_pole_repr_is_assigned
+  public :: c_spir_minipole_from_dlr
+  public :: c_spir_minipole_from_matsubara
+  public :: c_spir_pole_repr_get_npoles
+  public :: c_spir_pole_repr_get_poles
+  public :: c_spir_pole_repr_get_residues
+  public :: c_spir_pole_repr_get_dlr_fit_residual
   public :: c_spir_sampling_release
   public :: c_spir_sampling_clone
   public :: c_spir_sampling_is_assigned

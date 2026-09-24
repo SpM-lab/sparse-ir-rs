@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -814,4 +815,62 @@ TEST_CASE("Test spir_basis_get_default_matsus_ext with fence", "[cinterface]")
     spir_basis_release(basis);
     spir_sve_result_release(sve);
     spir_kernel_release(kernel);
+}
+
+TEST_CASE("Test spir_dlr_new_independent and MiniPole", "[cinterface]")
+{
+    const double beta = 40.0, wmax = 1.0;
+    const double xs[2] = {-0.5, 0.3};
+    const double amps[2] = {0.4, 0.6};
+
+    int status;
+    spir_basis* dlr = spir_dlr_new_independent(SPIR_STATISTICS_FERMIONIC, beta, wmax,
+                                               1e-12, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(dlr != nullptr);
+
+    int npoles = 0, ntaus = 0, nmatsus = 0;
+    REQUIRE(spir_dlr_get_npoles(dlr, &npoles) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(spir_basis_get_n_default_taus(dlr, &ntaus) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(spir_basis_get_n_default_matsus(dlr, false, &nmatsus) ==
+            SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(npoles > 0);
+    REQUIRE(ntaus == npoles);
+    REQUIRE(nmatsus == npoles);
+
+    std::vector<int64_t> ns;
+    for (int k = -60; k < 60; ++k) {
+        ns.push_back(2 * k + 1);
+    }
+    std::vector<Complex64> values(ns.size());
+    for (size_t i = 0; i < ns.size(); ++i) {
+        std::complex<double> z(0.0, M_PI * ns[i] / beta), g(0.0, 0.0);
+        for (int j = 0; j < 2; ++j) {
+            g += amps[j] / (z - xs[j]);
+        }
+        values[i].re = g.real();
+        values[i].im = g.imag();
+    }
+    int dims[1] = {static_cast<int>(ns.size())};
+    spir_pole_repr* rep = spir_minipole_from_matsubara(
+        SPIR_STATISTICS_FERMIONIC, beta, wmax, 1e-12, static_cast<int>(ns.size()),
+        ns.data(), SPIR_ORDER_COLUMN_MAJOR, 1, dims, 0, values.data(), 1e-8, 0, 0.0,
+        0.0, 0, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(rep != nullptr);
+
+    int n = 0;
+    REQUIRE(spir_pole_repr_get_npoles(rep, &n) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n == 2);
+    std::vector<Complex64> poles(n), residues(n);
+    REQUIRE(spir_pole_repr_get_poles(rep, poles.data()) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(spir_pole_repr_get_residues(rep, residues.data()) == SPIR_COMPUTATION_SUCCESS);
+    for (int j = 0; j < 2; ++j) {
+        REQUIRE(std::abs(poles[j].re - xs[j]) < 1e-6);
+        REQUIRE(std::abs(poles[j].im) < 1e-6);
+        REQUIRE(std::abs(residues[j].re - amps[j]) < 1e-6);
+    }
+
+    spir_pole_repr_release(rep);
+    spir_basis_release(dlr);
 }
