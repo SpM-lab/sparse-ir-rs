@@ -123,3 +123,26 @@ Basis generation (SVE) is at parity within run-to-run noise (±3%). Fits and
 evaluations with non-trivial batch sizes are equal or faster (up to 20–25% for
 `dim=1`). Single-vector calls are 0.2–0.5 µs slower in absolute terms because of
 tensor construction overhead (feedback item 12).
+
+## Milestone B: independent DLR (2026-09-25)
+
+- `dlr_id.rs`: Kaye–Chen–Parcollet construction (composite Chebyshev τ/ω
+  candidate grids, 24-point panels, dyadic refinement; column-pivoted
+  Gram–Schmidt with re-orthogonalization for poles; row selection for τ and
+  Matsubara nodes). Matsubara candidates: all `|n| <= 2·128+ζ`, then 32 per
+  octave up to `~8Λ`.
+- `DiscreteLehmannRepresentation::new(beta, wmax, eps)` / `DlrBuilder` is now
+  the default and needs no IR basis. The old constructors were renamed to
+  `from_ir` / `from_ir_with_poles` and still attach an `IrDlrTransform`.
+  `IrDlrTransform::new(basis, dlr)` connects any compatible pair. It rescales by
+  the ratio of pole weights, so a logistic DLR also works with a
+  `RegularizedBoseKernel` basis.
+- The DLR now implements `default_tau_sampling_points` and
+  `default_matsubara_sampling_points` (full and positive-only), so
+  `TauSampling::new(&dlr)` and `MatsubaraSampling::new(&dlr)` interpolate on
+  the ID nodes. The nodes are computed lazily and cached.
+- Ranks vs IR size, all within a few: Λ=1e3/ε=1e-10: 51 vs 52;
+  Λ=1e5/ε=1e-10: 92 vs 95.
+- Bench (`RAYON_NUM_THREADS=1`, ε=1e-10), independent DLR including τ and
+  Matsubara nodes: Λ=1e3 10.7 ms, Λ=1e5 65 ms. Building the IR basis at the
+  same ε (Df64 SVE) takes 1065 ms and 5281 ms.

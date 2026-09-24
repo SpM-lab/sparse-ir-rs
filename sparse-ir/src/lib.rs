@@ -22,6 +22,7 @@ pub mod basis;
 pub mod basis_trait; // Common trait for basis representations
 pub mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
 pub mod dlr; // Discrete Lehmann Representation utilities
+mod dlr_id; // Interpolative-decomposition construction of the DLR
 pub mod error; // Crate-level error type
 pub mod fitters; // Least-squares fitters (real/complex matrices)
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
@@ -49,8 +50,8 @@ pub mod working_buffer; // Reusable working buffer for in-place operations
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
 pub use basis_trait::Basis;
 pub use dlr::{
-    DiscreteLehmannRepresentation, DlrError, bosonic_single_pole, fermionic_single_pole,
-    giwn_single_pole, gtau_single_pole,
+    DiscreteLehmannRepresentation, DlrBuilder, DlrError, IrDlrTransform, bosonic_single_pole,
+    fermionic_single_pole, giwn_single_pole, gtau_single_pole,
 };
 pub use error::{Error, Result};
 pub use fitters::InplaceFitter;

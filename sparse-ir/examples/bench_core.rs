@@ -100,13 +100,22 @@ fn main() {
         report(
             &format!("dlr       new {tag}"),
             median_ms(nrun_light, || {
-                black_box(DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap());
+                black_box(DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis).unwrap());
+            }),
+        );
+        report(
+            &format!("dlr_id    new {tag} (independent, incl. nodes)"),
+            median_ms(nrun_heavy, || {
+                let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(beta, lambda / beta, eps)
+                    .unwrap();
+                black_box(dlr.tau_nodes());
+                black_box(dlr.matsubara_nodes(false));
             }),
         );
 
         let tau = TauSampling::<Fermionic>::new(&basis);
         let mats = MatsubaraSampling::<Fermionic>::new(&basis);
-        let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
+        let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis).unwrap();
 
         for &extra in &[1usize, 100, 10_000] {
             for &dim in &[0usize, 1] {

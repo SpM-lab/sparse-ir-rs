@@ -12,9 +12,11 @@ use crate::matrix::Mat;
 use crate::traits::{Statistics, StatisticsType};
 use num_complex::Complex;
 use std::marker::PhantomData;
+use std::sync::OnceLock;
 use tenferro_tensor::TypedTensor;
 
-/// Errors returned when constructing a [`DiscreteLehmannRepresentation`].
+/// Errors returned when constructing a [`DiscreteLehmannRepresentation`] or
+/// an [`IrDlrTransform`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DlrError {
     /// The number of default poles is less than the basis size. This can
@@ -29,7 +31,32 @@ pub enum DlrError {
     /// The kernel does not support the requested statistics (e.g.
     /// `RegularizedBoseKernel` with fermionic statistics).
     KernelStatisticsMismatch,
+    /// A construction parameter (β, ωmax, accuracy, poles) is invalid.
+    InvalidParameter(String),
+    /// The IR basis and the DLR do not describe the same domain.
+    IncompatibleIrBasis(String),
 }
+
+impl std::fmt::Display for DlrError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            DlrError::InsufficientDefaultPoles {
+                basis_size,
+                n_poles,
+            } => write!(
+                f,
+                "only {n_poles} default poles were found for an IR basis of size {basis_size}"
+            ),
+            DlrError::KernelStatisticsMismatch => {
+                write!(f, "the kernel does not support the requested statistics")
+            }
+            DlrError::InvalidParameter(msg) => write!(f, "invalid DLR parameter: {msg}"),
+            DlrError::IncompatibleIrBasis(msg) => write!(f, "incompatible IR basis: {msg}"),
+        }
+    }
+}
+
+impl std::error::Error for DlrError {}
 
 /// Generic single-pole Green's function at imaginary time τ
 ///
@@ -172,9 +199,8 @@ pub fn giwn_single_pole<S: StatisticsType>(
 
 /// Discrete Lehmann Representation (DLR)
 ///
-/// The DLR is a variant of the IR basis based on a "sketching" of the analytic
-/// continuation kernel K. Instead of using singular value expansion, it represents
-/// Green's functions as a linear combination of poles on the real-frequency axis:
+/// Represents Green's functions as a linear combination of poles on the
+/// real-frequency axis:
 ///
 /// ```text
 /// G(iν) = Σ_i a[i] * reg[i] / (iν - ω[i])
@@ -184,6 +210,24 @@ pub fn giwn_single_pole<S: StatisticsType>(
 /// - `ω[i]` are pole positions on the real axis
 /// - `a[i]` are expansion coefficients
 /// - `reg[i]` are kernel-dependent pole weights on the physical ω grid
+///
+/// Two constructions are available:
+/// - **independent (default)**: [`DiscreteLehmannRepresentation::new`] /
+///   [`DlrBuilder`] select the poles by an interpolative decomposition of the
+///   discretized logistic kernel (Kaye, Chen, Parcollet, PRB 105, 235115),
+///   without building an IR basis;
+/// - **IR-derived**: [`DiscreteLehmannRepresentation::from_ir`] uses the
+///   default real-frequency sampling points of an IR basis as poles.
+///
+/// Conversions to and from an IR basis are provided by [`IrDlrTransform`];
+/// an IR-derived DLR carries one for its source basis.
+///
+/// Imaginary-time and Matsubara nodes for square interpolation are selected
+/// by a row interpolative decomposition and are exposed through
+/// [`Basis::default_tau_sampling_points`](crate::basis_trait::Basis) and
+/// [`Basis::default_matsubara_sampling_points`](crate::basis_trait::Basis),
+/// so [`TauSampling::new`](crate::TauSampling) and
+/// [`MatsubaraSampling::new`](crate::MatsubaraSampling) work on a DLR.
 ///
 /// The public `regularizers` field stores the raw kernel regularizer
 /// `w(β, ω_i)`. Internally, DLR evaluations use `pole_weights`, which include
@@ -214,7 +258,6 @@ where
     pub accuracy: f64,
 
     /// Regularizers for each pole: regularizer[i] = w(β, ω_i)
-    /// These are computed from the source IR basis kernel.
     pub regularizers: Vec<f64>,
 
     /// Pole weights used in tau and Matsubara evaluations.
@@ -225,13 +268,103 @@ where
     /// factor `wmax^(-2 * ypower)`.
     pole_weights: Vec<f64>,
 
-    /// Fitter for the IR <-> DLR transformation on the fitting matrix
-    /// `fitmat = -s · V(poles)` (`basis_size x n_poles`); the SVD for
-    /// `from_ir` is computed lazily.
-    fitter: RealMatrixFitter,
+    /// IR <-> DLR transform for the source basis of an IR-derived DLR.
+    ir: Option<IrDlrTransform>,
+
+    /// Lazily selected interpolation nodes.
+    tau_nodes: OnceLock<Vec<f64>>,
+    matsubara_nodes: OnceLock<Vec<i64>>,
+    matsubara_nodes_positive: OnceLock<Vec<i64>>,
 
     /// Marker for statistics type
     _phantom: PhantomData<S>,
+}
+
+/// Builder for the independent (interpolative-decomposition) DLR.
+///
+/// ```
+/// use sparse_ir::{DlrBuilder, Fermionic};
+/// let dlr = DlrBuilder::<Fermionic>::new(10.0, 10.0)
+///     .accuracy(1e-10)
+///     .build()
+///     .unwrap();
+/// assert!(dlr.poles.len() > 0);
+/// ```
+#[derive(Debug, Clone)]
+pub struct DlrBuilder<S: StatisticsType> {
+    beta: f64,
+    wmax: f64,
+    accuracy: f64,
+    max_size: Option<usize>,
+    _phantom: PhantomData<S>,
+}
+
+impl<S: StatisticsType + 'static> DlrBuilder<S> {
+    /// Default target accuracy.
+    pub const DEFAULT_ACCURACY: f64 = 1e-15;
+
+    /// Start a DLR for inverse temperature `beta` and frequency cutoff `wmax`.
+    pub fn new(beta: f64, wmax: f64) -> Self {
+        Self {
+            beta,
+            wmax,
+            accuracy: Self::DEFAULT_ACCURACY,
+            max_size: None,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Target relative accuracy of the kernel interpolation.
+    pub fn accuracy(mut self, accuracy: f64) -> Self {
+        self.accuracy = accuracy;
+        self
+    }
+
+    /// Upper bound on the number of poles.
+    pub fn max_size(mut self, max_size: usize) -> Self {
+        self.max_size = Some(max_size);
+        self
+    }
+
+    /// Select the poles and build the representation.
+    ///
+    /// # Errors
+    /// Returns [`DlrError::InvalidParameter`] when β or ωmax is not positive
+    /// and finite, or the accuracy is not in `(0, 1)`.
+    pub fn build(self) -> Result<DiscreteLehmannRepresentation<S>, DlrError> {
+        let valid = |x: f64| x.is_finite() && x > 0.0;
+        if !valid(self.beta) || !valid(self.wmax) {
+            return Err(DlrError::InvalidParameter(format!(
+                "beta = {} and wmax = {} must be positive and finite",
+                self.beta, self.wmax
+            )));
+        }
+        if !(self.accuracy > 0.0 && self.accuracy < 1.0) {
+            return Err(DlrError::InvalidParameter(format!(
+                "accuracy = {} must lie in (0, 1)",
+                self.accuracy
+            )));
+        }
+        if self.max_size == Some(0) {
+            return Err(DlrError::InvalidParameter(
+                "max_size must be positive".into(),
+            ));
+        }
+        let lambda = self.beta * self.wmax;
+        let poles: Vec<f64> = crate::dlr_id::select_poles(lambda, self.accuracy, self.max_size)
+            .into_iter()
+            .map(|w| w / self.beta)
+            .collect();
+        let kernel = crate::kernel::LogisticKernel::new(lambda);
+        Ok(DiscreteLehmannRepresentation::from_parts(
+            self.beta,
+            self.wmax,
+            self.accuracy,
+            poles,
+            &kernel,
+            None,
+        ))
+    }
 }
 
 impl<S> DiscreteLehmannRepresentation<S>
@@ -246,20 +379,64 @@ where
         &self.pole_weights
     }
 
-    /// Create DLR from IR basis with custom poles
+    /// Build a DLR independently of any IR basis (default construction).
     ///
-    /// The tau-domain pole basis is built from the logistic representation, while
-    /// kernel-specific regularizers are preserved for compatible kernels.
+    /// Equivalent to `DlrBuilder::new(beta, wmax).accuracy(accuracy).build()`.
     ///
-    /// # Arguments
-    /// * `basis` - The IR basis to construct DLR from
-    /// * `poles` - Pole positions on the real-frequency axis
+    /// # Errors
+    /// See [`DlrBuilder::build`].
+    pub fn new(beta: f64, wmax: f64, accuracy: f64) -> Result<Self, DlrError>
+    where
+        S: 'static,
+    {
+        DlrBuilder::new(beta, wmax).accuracy(accuracy).build()
+    }
+
+    fn from_parts<K>(
+        beta: f64,
+        wmax: f64,
+        accuracy: f64,
+        poles: Vec<f64>,
+        kernel: &K,
+        ir: Option<IrDlrTransform>,
+    ) -> Self
+    where
+        S: 'static,
+        K: crate::kernel::KernelProperties,
+    {
+        let kernel_ypower = kernel.ypower();
+        let regularizers: Vec<f64> = poles
+            .iter()
+            .map(|&pole| kernel.regularizer::<S>(beta, pole))
+            .collect();
+        let pole_weights = pole_weights_for::<S, K>(kernel, beta, wmax, &poles);
+        Self {
+            poles,
+            beta,
+            wmax,
+            kernel: crate::kernel::LogisticKernel::new(beta * wmax),
+            kernel_ypower,
+            accuracy,
+            regularizers,
+            pole_weights,
+            ir,
+            tau_nodes: OnceLock::new(),
+            matsubara_nodes: OnceLock::new(),
+            matsubara_nodes_positive: OnceLock::new(),
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Create a DLR from an IR basis with custom poles.
+    ///
+    /// The pole weights follow the kernel of `basis`, and the returned DLR
+    /// carries an [`IrDlrTransform`] for `basis`.
     ///
     /// # Errors
     /// Returns [`DlrError::KernelStatisticsMismatch`] if the kernel does not
     /// support the requested statistics (e.g. `RegularizedBoseKernel` with
     /// fermionic statistics).
-    pub fn with_poles<K>(
+    pub fn from_ir_with_poles<K>(
         basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
         poles: Vec<f64>,
     ) -> Result<Self, DlrError>
@@ -267,64 +444,45 @@ where
         S: 'static,
         K: crate::kernel::KernelProperties + Clone,
     {
-        use crate::kernel::LogisticKernel;
-
-        // RegularizedBoseKernel (ypower == 1) is meaningful only for bosonic
-        // statistics; its regularizer panics for fermionic input. Reject the
-        // combination before computing anything.
-        if S::STATISTICS == Statistics::Fermionic && basis.kernel().ypower() == 1 {
-            return Err(DlrError::KernelStatisticsMismatch);
-        }
-
-        let beta = basis.beta();
-        let wmax = basis.wmax();
-        let accuracy = basis.accuracy();
-        let kernel_ypower = basis.kernel().ypower();
-
-        // Compute fitting matrix: fitmat = -s · V(poles)
-        // This transforms DLR coefficients to IR coefficients
-        let v_at_poles = crate::sampling::mat_from_matrix(&basis.evaluate_omega(&poles))
-            .expect("Basis::evaluate_omega returns a host matrix"); // shape: [n_poles, basis_size]
-        let s = basis.svals(); // Non-normalized singular values (same as C++)
-
-        let basis_size = basis.size();
-        let n_poles = poles.len();
-
-        // fitmat[l, i] = -s[l] * V_l(pole[i])
-        // C++: fitmat = (-A_array * s_array.replicate(1, A.cols())).matrix()
-        let fitmat = Mat::<f64>::from_fn([basis_size, n_poles], |idx| {
-            let l = idx[0];
-            let i = idx[1];
-            -s[l] * v_at_poles[[i, l]]
-        });
-
-        // Create fitter for from_IR (inverse operation)
-        let fitter = RealMatrixFitter::new(fitmat);
-
-        let lambda = beta * wmax;
-        let logistic_kernel = LogisticKernel::new(lambda);
-        let regularizers: Vec<f64> = poles
-            .iter()
-            .map(|&pole| basis.kernel().regularizer::<S>(beta, pole))
-            .collect();
-        let pole_weight_scale = wmax.powi(2 * kernel_ypower);
-        let pole_weights: Vec<f64> = regularizers
-            .iter()
-            .map(|&regularizer| regularizer / pole_weight_scale)
-            .collect();
-
-        Ok(Self {
-            poles,
+        check_kernel_statistics::<S, K>(basis.kernel())?;
+        let (beta, wmax) = (basis.beta(), basis.wmax());
+        let weights = pole_weights_for::<S, K>(basis.kernel(), beta, wmax, &poles);
+        let ir = IrDlrTransform::with_weights(basis, &poles, &weights)?;
+        Ok(Self::from_parts(
             beta,
             wmax,
-            kernel: logistic_kernel,
-            kernel_ypower,
-            accuracy,
-            regularizers,
-            pole_weights,
-            fitter,
-            _phantom: PhantomData,
-        })
+            basis.accuracy(),
+            poles,
+            basis.kernel(),
+            Some(ir),
+        ))
+    }
+
+    /// Create a DLR from an IR basis, using its default real-frequency
+    /// sampling points as poles.
+    ///
+    /// # Errors
+    /// Returns [`DlrError::InsufficientDefaultPoles`] if the number of default
+    /// poles is less than the basis size. This can happen with certain kernel
+    /// types (e.g., `RegularizedBoseKernel`) due to numerical precision
+    /// limitations in root finding.
+    pub fn from_ir<K>(
+        basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
+    ) -> Result<Self, DlrError>
+    where
+        S: 'static,
+        K: crate::kernel::KernelProperties + Clone,
+    {
+        check_kernel_statistics::<S, K>(basis.kernel())?;
+        let poles = basis.default_omega_sampling_points();
+        let basis_size = basis.size();
+        if basis_size > poles.len() {
+            return Err(DlrError::InsufficientDefaultPoles {
+                basis_size,
+                n_poles: poles.len(),
+            });
+        }
+        Self::from_ir_with_poles(basis, poles)
     }
 
     fn zero_pole_tau_limit(&self) -> f64 {
@@ -349,45 +507,267 @@ where
         }
     }
 
-    /// Create DLR from IR basis with default pole locations
-    ///
-    /// Uses the default omega sampling points from the basis.
-    ///
-    /// # Arguments
-    /// * `basis` - The IR basis to construct DLR from
-    ///
-    /// # Errors
-    /// Returns [`DlrError::InsufficientDefaultPoles`] if the number of default
-    /// poles is less than the basis size. This can happen with certain kernel
-    /// types (e.g., `RegularizedBoseKernel`) due to numerical precision
-    /// limitations in root finding.
-    pub fn new<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Result<Self, DlrError>
-    where
-        S: 'static,
-        K: crate::kernel::KernelProperties + Clone,
-    {
-        let poles = basis.default_omega_sampling_points();
-        let basis_size = basis.size();
-        if basis_size > poles.len() {
-            return Err(DlrError::InsufficientDefaultPoles {
-                basis_size,
-                n_poles: poles.len(),
-            });
-        }
-        Self::with_poles(basis, poles)
-    }
-
     // ========================================================================
     // Public API (generic, user-friendly)
     // ========================================================================
 
-    /// Convert IR coefficients to DLR along axis `dim` (least squares).
+    /// IR <-> DLR transform of the source basis (IR-derived DLR only).
+    pub fn ir_transform(&self) -> Option<&IrDlrTransform> {
+        self.ir.as_ref()
+    }
+
+    fn require_ir(&self) -> crate::Result<&IrDlrTransform> {
+        self.ir.as_ref().ok_or(crate::Error::Unsupported(
+            "this DLR was not built from an IR basis; use IrDlrTransform::new",
+        ))
+    }
+
+    /// Convert IR coefficients of the source basis to DLR along axis `dim`
+    /// (least squares).
     ///
     /// `T` is `f64` or `Complex<f64>`.
     ///
     /// # Errors
-    /// Returns an error if `gl.shape()[dim]` differs from the IR basis size.
+    /// Returns [`crate::Error::Unsupported`] for a DLR that was not built from
+    /// an IR basis, or an error if `gl.shape()[dim]` differs from the IR basis
+    /// size.
     pub fn from_ir_nd<T: FitScalar>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        gl: &TypedTensor<T>,
+        dim: usize,
+    ) -> crate::Result<TypedTensor<T>> {
+        self.require_ir()?.ir_to_dlr_nd(backend, gl, dim)
+    }
+
+    /// Convert DLR coefficients to IR coefficients of the source basis along
+    /// axis `dim`.
+    ///
+    /// `T` is `f64` or `Complex<f64>`.
+    ///
+    /// # Errors
+    /// Returns [`crate::Error::Unsupported`] for a DLR that was not built from
+    /// an IR basis, or an error if `g_dlr.shape()[dim]` differs from the
+    /// number of poles.
+    pub fn to_ir_nd<T: FitScalar>(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        g_dlr: &TypedTensor<T>,
+        dim: usize,
+    ) -> crate::Result<TypedTensor<T>> {
+        self.require_ir()?.dlr_to_ir_nd(backend, g_dlr, dim)
+    }
+
+    /// IR basis size of the source basis (IR-derived DLR only).
+    pub fn ir_basis_size(&self) -> Option<usize> {
+        self.ir.as_ref().map(IrDlrTransform::ir_size)
+    }
+}
+
+impl<S> DiscreteLehmannRepresentation<S>
+where
+    S: StatisticsType + 'static,
+{
+    /// Imaginary-time interpolation nodes (sorted), one per pole.
+    pub fn tau_nodes(&self) -> &[f64] {
+        use crate::basis_trait::Basis;
+        self.tau_nodes.get_or_init(|| {
+            let taus: Vec<f64> = crate::dlr_id::tau_candidates(self.beta * self.wmax)
+                .iter()
+                .map(|t| self.beta * t.value())
+                .collect();
+            let mat = self.evaluate_tau(&taus);
+            let rows = crate::dlr_id::select_rows(
+                mat.host_data().expect("host matrix"),
+                taus.len(),
+                self.poles.len(),
+                self.poles.len(),
+            );
+            rows.into_iter().map(|i| taus[i]).collect()
+        })
+    }
+
+    /// Matsubara interpolation nodes as indices `n` (`ν = nπ/β`, sorted).
+    ///
+    /// With `positive_only`, nodes are chosen among `n >= 0` so that the
+    /// stacked real and imaginary parts determine the coefficients of a
+    /// Green's function with `G(-iν) = conj(G(iν))`.
+    pub fn matsubara_nodes(&self, positive_only: bool) -> &[i64] {
+        let cell = if positive_only {
+            &self.matsubara_nodes_positive
+        } else {
+            &self.matsubara_nodes
+        };
+        cell.get_or_init(|| self.select_matsubara_nodes(positive_only))
+    }
+
+    fn select_matsubara_nodes(&self, positive_only: bool) -> Vec<i64> {
+        use crate::basis_trait::Basis;
+        let zeta = match S::STATISTICS {
+            Statistics::Fermionic => 1,
+            Statistics::Bosonic => 0,
+        };
+        let ns = crate::dlr_id::matsubara_candidates(self.beta * self.wmax, zeta, positive_only);
+        let freqs: Vec<MatsubaraFreq<S>> = ns
+            .iter()
+            .map(|&n| MatsubaraFreq::new(n).expect("candidate parity matches statistics"))
+            .collect();
+        let mat = self.evaluate_matsubara(&freqs);
+        let data = mat.host_data().expect("host matrix");
+        let (nf, r) = (freqs.len(), self.poles.len());
+        if !positive_only {
+            let rows = crate::dlr_id::select_rows(data, nf, r, r);
+            return rows.into_iter().map(|i| ns[i]).collect();
+        }
+        // Stack [Re; Im] so each frequency contributes two real rows.
+        let mut stacked = vec![0.0; 2 * nf * r];
+        for j in 0..r {
+            for i in 0..nf {
+                let z = data[i + nf * j];
+                stacked[i + 2 * nf * j] = z.re;
+                stacked[nf + i + 2 * nf * j] = z.im;
+            }
+        }
+        let mut out: Vec<i64> = crate::dlr_id::select_rows(&stacked, 2 * nf, r, r)
+            .into_iter()
+            .map(|i| ns[i % nf])
+            .collect();
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
+fn check_kernel_statistics<S, K>(kernel: &K) -> Result<(), DlrError>
+where
+    S: StatisticsType,
+    K: crate::kernel::KernelProperties,
+{
+    // RegularizedBoseKernel (ypower == 1) is meaningful only for bosonic
+    // statistics; its regularizer panics for fermionic input.
+    if S::STATISTICS == Statistics::Fermionic && kernel.ypower() == 1 {
+        return Err(DlrError::KernelStatisticsMismatch);
+    }
+    Ok(())
+}
+
+/// Pole weights `w(β, ω_i) / wmax^(2 ypower)` of `kernel`.
+fn pole_weights_for<S, K>(kernel: &K, beta: f64, wmax: f64, poles: &[f64]) -> Vec<f64>
+where
+    S: StatisticsType + 'static,
+    K: crate::kernel::KernelProperties,
+{
+    let scale = wmax.powi(2 * kernel.ypower());
+    poles
+        .iter()
+        .map(|&pole| kernel.regularizer::<S>(beta, pole) / scale)
+        .collect()
+}
+
+// ============================================================================
+// IR <-> DLR transform
+// ============================================================================
+
+/// Linear map between the coefficients of an IR basis and of a DLR on the
+/// same domain.
+///
+/// The DLR basis function of pole `ω_i` is expanded in the IR basis as
+/// `u_i = Σ_l T[l, i] U_l` with `T[l, i] = -s_l V_l(ω_i) (w_i / w^{IR}_i)`,
+/// where `w_i` and `w^{IR}_i` are the pole weights of the DLR and of the IR
+/// kernel. DLR -> IR applies `T`; IR -> DLR is its least-squares inverse.
+pub struct IrDlrTransform {
+    fitter: RealMatrixFitter,
+}
+
+impl IrDlrTransform {
+    /// Build the transform between `basis` and `dlr`.
+    ///
+    /// # Errors
+    /// Returns [`DlrError::IncompatibleIrBasis`] if β differs, a pole lies
+    /// outside `[-ωmax, ωmax]` of the basis, or the basis kernel weight
+    /// vanishes at a pole; [`DlrError::KernelStatisticsMismatch`] if the basis
+    /// kernel does not support the statistics.
+    pub fn new<S, K>(
+        basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
+        dlr: &DiscreteLehmannRepresentation<S>,
+    ) -> Result<Self, DlrError>
+    where
+        S: StatisticsType + 'static,
+        K: crate::kernel::KernelProperties + Clone,
+    {
+        check_kernel_statistics::<S, K>(basis.kernel())?;
+        let rel = |a: f64, b: f64| (a - b).abs() <= 1e-12 * a.abs().max(b.abs());
+        if !rel(basis.beta(), dlr.beta) {
+            return Err(DlrError::IncompatibleIrBasis(format!(
+                "beta differs: IR {} vs DLR {}",
+                basis.beta(),
+                dlr.beta
+            )));
+        }
+        Self::with_weights(basis, &dlr.poles, &dlr.pole_weights)
+    }
+
+    fn with_weights<S, K>(
+        basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
+        poles: &[f64],
+        weights: &[f64],
+    ) -> Result<Self, DlrError>
+    where
+        S: StatisticsType + 'static,
+        K: crate::kernel::KernelProperties + Clone,
+    {
+        let (beta, wmax) = (basis.beta(), basis.wmax());
+        if let Some(&p) = poles.iter().find(|p| p.abs() > wmax * (1.0 + 1e-12)) {
+            return Err(DlrError::IncompatibleIrBasis(format!(
+                "pole {p} lies outside [-{wmax}, {wmax}]"
+            )));
+        }
+        let ir_weights = pole_weights_for::<S, K>(basis.kernel(), beta, wmax, poles);
+        let mut ratio = Vec::with_capacity(poles.len());
+        for (i, (&w, &wir)) in weights.iter().zip(&ir_weights).enumerate() {
+            if w == wir {
+                ratio.push(1.0);
+            } else if wir == 0.0 {
+                return Err(DlrError::IncompatibleIrBasis(format!(
+                    "IR kernel weight vanishes at pole {}",
+                    poles[i]
+                )));
+            } else {
+                ratio.push(w / wir);
+            }
+        }
+        let v_at_poles = crate::sampling::mat_from_matrix(&basis.evaluate_omega(poles))
+            .expect("Basis::evaluate_omega returns a host matrix"); // [n_poles, basis_size]
+        let s = basis.svals();
+        let fitmat = Mat::<f64>::from_fn([basis.size(), poles.len()], |idx| {
+            let (l, i) = (idx[0], idx[1]);
+            -s[l] * v_at_poles[[i, l]] * ratio[i]
+        });
+        Ok(Self {
+            fitter: RealMatrixFitter::new(fitmat),
+        })
+    }
+
+    /// IR basis size.
+    pub fn ir_size(&self) -> usize {
+        self.fitter.n_points()
+    }
+
+    /// Number of DLR poles.
+    pub fn dlr_size(&self) -> usize {
+        self.fitter.basis_size()
+    }
+
+    /// The `ir_size x dlr_size` matrix `T` mapping DLR to IR coefficients.
+    pub fn matrix(&self) -> &crate::Matrix<f64> {
+        self.fitter.matrix()
+    }
+
+    /// IR -> DLR along axis `dim` (least squares).
+    ///
+    /// # Errors
+    /// Returns an error if `gl.shape()[dim]` differs from the IR basis size.
+    pub fn ir_to_dlr_nd<T: FitScalar>(
         &self,
         backend: Option<&GemmBackendHandle>,
         gl: &TypedTensor<T>,
@@ -396,25 +776,18 @@ where
         self.fitter.fit_nd(backend, gl, dim)
     }
 
-    /// Convert DLR coefficients to IR along axis `dim`.
-    ///
-    /// `T` is `f64` or `Complex<f64>`.
+    /// DLR -> IR along axis `dim`.
     ///
     /// # Errors
     /// Returns an error if `g_dlr.shape()[dim]` differs from the number of
     /// poles.
-    pub fn to_ir_nd<T: FitScalar>(
+    pub fn dlr_to_ir_nd<T: FitScalar>(
         &self,
         backend: Option<&GemmBackendHandle>,
         g_dlr: &TypedTensor<T>,
         dim: usize,
     ) -> crate::Result<TypedTensor<T>> {
         self.fitter.evaluate_nd(backend, g_dlr, dim)
-    }
-
-    /// IR basis size of the source basis.
-    pub fn ir_basis_size(&self) -> usize {
-        self.fitter.n_points()
     }
 }
 
@@ -464,27 +837,17 @@ where
     }
 
     fn default_tau_sampling_points(&self) -> Vec<f64> {
-        // DLR does not own the underlying IR basis, so it cannot delegate.
-        // Callers should obtain tau sampling points from the IR basis that
-        // was used to construct this DLR, e.g. `ir_basis.default_tau_sampling_points()`.
-        unimplemented!(
-            "DLR does not directly support default tau sampling points; \
-             use the underlying IR basis"
-        )
+        self.tau_nodes().to_vec()
     }
 
     fn default_matsubara_sampling_points(
         &self,
-        _positive_only: bool,
+        positive_only: bool,
     ) -> Vec<crate::freq::MatsubaraFreq<S>> {
-        // DLR does not own the underlying IR basis, so it cannot delegate.
-        // Callers should obtain Matsubara sampling points from the IR basis
-        // that was used to construct this DLR, e.g.
-        // `ir_basis.default_matsubara_sampling_points(positive_only)`.
-        unimplemented!(
-            "DLR does not directly support default Matsubara sampling points; \
-             use the underlying IR basis"
-        )
+        self.matsubara_nodes(positive_only)
+            .iter()
+            .map(|&n| crate::freq::MatsubaraFreq::new(n).expect("node parity matches statistics"))
+            .collect()
     }
 
     fn evaluate_tau(&self, tau: &[f64]) -> crate::Matrix<f64> {
@@ -653,3 +1016,7 @@ mod tests {
 #[cfg(test)]
 #[path = "dlr_tests.rs"]
 mod dlr_tests;
+
+#[cfg(test)]
+#[path = "dlr_independent_tests.rs"]
+mod dlr_independent_tests;

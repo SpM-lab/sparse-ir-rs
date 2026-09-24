@@ -67,7 +67,7 @@ fn test_dlr_construction_fermionic() {
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
     // Create DLR with default poles
-    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis).unwrap();
 
     assert_eq!(dlr.poles.len(), basis.size());
     assert_eq!(dlr.beta, beta);
@@ -96,7 +96,8 @@ fn test_dlr_with_custom_poles() {
     // Custom poles within [-wmax, wmax]
     let poles = vec![-8.0, -3.0, 0.0, 3.0, 8.0];
 
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, poles.clone()).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir_with_poles(&basis, poles.clone())
+        .unwrap();
 
     assert_eq!(dlr.poles, poles);
     assert_eq!(dlr.beta, beta);
@@ -151,7 +152,7 @@ where
     let kernel = LogisticKernel::new(beta * wmax);
     let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None);
 
-    let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<S>::from_ir(&basis).unwrap();
 
     let basis_size = basis.size();
 
@@ -245,7 +246,7 @@ fn test_dlr_basis_trait() {
     let kernel = LogisticKernel::new(beta * wmax);
     let basis_ir =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
-    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis_ir).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis_ir).unwrap();
 
     // Test Basis trait methods
     assert_eq!(dlr.beta(), beta);
@@ -288,7 +289,7 @@ fn test_dlr_with_tau_sampling() {
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
     // Create DLR
-    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis_ir).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis_ir).unwrap();
 
     // Create TauSampling from DLR (using Basis trait)
     let tau_points = basis_ir.default_tau_sampling_points();
@@ -322,7 +323,7 @@ fn test_dlr_regularized_bose_construction() {
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
     // Create DLR with default poles
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir(&basis).unwrap();
 
     // Note: With improved SVEHints (proper segments_x/y), DLR now has ~60% of expected poles
     // Previous: basis=11, poles=1 (9% coverage, error=3.66e0)
@@ -369,7 +370,8 @@ fn test_dlr_regularized_bose_with_custom_poles() {
     // Custom poles within [-wmax, wmax]
     let poles = vec![-8.0, -3.0, 0.0, 3.0, 8.0];
 
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, poles.clone()).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir_with_poles(&basis, poles.clone())
+        .unwrap();
 
     assert_eq!(dlr.poles, poles);
     assert_eq!(dlr.beta, beta);
@@ -437,7 +439,7 @@ where
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir(&basis).unwrap();
 
     let basis_size = basis.size();
 
@@ -512,7 +514,7 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
     let kernel = RegularizedBoseKernel::new(lambda);
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir(&basis).unwrap();
 
     let tau_points = basis.default_tau_sampling_points();
     let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&basis, tau_points.clone());
@@ -580,7 +582,7 @@ fn test_fermionic_dlr_tau_sampling_matrix_matches_stable_kernel() {
     let kernel = LogisticKernel::new(beta * wmax);
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
-    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis).unwrap();
     let tau_points = basis.default_tau_sampling_points();
     let tau_sampling = TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points.clone());
 
@@ -631,7 +633,7 @@ fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
 
     let kernel = LogisticKernel::new(beta * wmax);
     let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir(&basis).unwrap();
     let tau_points = basis.default_tau_sampling_points();
     let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&dlr, tau_points.clone());
 
