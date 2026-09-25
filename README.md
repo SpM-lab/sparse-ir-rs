@@ -129,6 +129,12 @@ cargo build            # build all crates in debug mode
 cargo build --release  # optimized build
 ```
 
+Builds are portable by default: they target the baseline CPU of each platform, so the published wheels and libraries run on any machine. For a build tuned to the local CPU, opt in through the environment (never in `.cargo/config.toml`, which also applies to release builds):
+
+```bash
+RUSTFLAGS="-C target-cpu=native" cargo build --release
+```
+
 The default build uses the pure-Rust `faer` backend for matrix–matrix products.  
 Faer is reasonably fast, but usually considerably slower than an optimized BLAS implementation.
 
