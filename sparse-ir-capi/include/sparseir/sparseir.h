@@ -168,13 +168,23 @@ extern "C" {
  * * `beta` - Inverse temperature (must be > 0)
  * * `omega_max` - Frequency cutoff (must be > 0)
  * * `epsilon` - Accuracy target (must be > 0)
- * * `k` - Kernel object (can be NULL if sve is provided)
- * * `sve` - Pre-computed SVE result (can be NULL, will compute if needed)
+ * * `k` - Kernel object (must not be NULL, even if `sve` is provided: it
+ *   selects the kernel type). Its lambda must equal `beta * omega_max`.
+ * * `sve` - Pre-computed SVE result of `k` (can be NULL, will compute if needed)
  * * `max_size` - Maximum basis size (-1 for no limit)
  * * `status` - Pointer to store status code
  *
  * # Returns
  * * Pointer to basis object, or NULL on failure
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
+ *     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
+ *     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+ *   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
+ *     `statistics` is fermionic: that kernel supports bosonic statistics
+ *     only
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
@@ -212,6 +222,16 @@ struct spir_basis *spir_basis_new(int statistics,
  *
  * # Returns
  * * Pointer to basis object, or NULL on failure
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
+ *     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
+ *     `lambda` is not positive and finite, or `lambda` differs from
+ *     `beta * omega_max` by more than 1e-10
+ *   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
+ *     and `statistics` is fermionic: that kernel supports bosonic statistics
+ *     only
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Note
  * The kernel type is determined by `ypower`: 0 selects `LogisticKernel`, 1 selects
