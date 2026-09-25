@@ -364,7 +364,10 @@ pub extern "C" fn spir_matsu_sampling_new(
 /// * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
 /// * `basis_size` - Basis size (the number of columns of `matrix`)
 /// * `num_points` - Number of sampling points (the number of rows of `matrix`)
-/// * `points` - Array of `num_points` sampling points in imaginary time (τ)
+/// * `points` - Array of `num_points` finite sampling points in imaginary time
+///   (τ), one per row of `matrix`. Without β the domain [-β, β] of
+///   `spir_tau_sampling_new` cannot be checked here: any finite value is
+///   accepted and reported back by `spir_sampling_get_taus`
 /// * `matrix` - Pre-computed `num_points × basis_size` sampling matrix in
 ///   `order`, with finite entries
 /// * `status` - Pointer to store the status code
@@ -375,7 +378,8 @@ pub extern "C" fn spir_matsu_sampling_new(
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
 ///   `basis_size` <= 0, `order` or `statistics` is not one of the constants
-///   above, or an entry of `matrix` is NaN or infinite
+///   above, a point is NaN or infinite, or an entry of `matrix` is NaN or
+///   infinite
 /// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
@@ -421,6 +425,10 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
         // SAFETY: `points` is non-null and `dims[0] == num_points > 0` (checked
         // above); the caller guarantees that `points` holds `num_points` elements.
         let points_slice = unsafe { std::slice::from_raw_parts(points, dims[0]) };
+        // Without β only finiteness can be checked, not τ ∈ [-β, β] (#266).
+        if !points_slice.iter().all(|tau| tau.is_finite()) {
+            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
+        }
         let tau_points: Vec<f64> = points_slice.to_vec();
 
         // SAFETY: `matrix` is non-null and `validate_dims` proved that `dims`

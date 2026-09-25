@@ -1493,7 +1493,10 @@ struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
  * * `basis_size` - Basis size (the number of columns of `matrix`)
  * * `num_points` - Number of sampling points (the number of rows of `matrix`)
- * * `points` - Array of `num_points` sampling points in imaginary time (τ)
+ * * `points` - Array of `num_points` finite sampling points in imaginary time
+ *   (τ), one per row of `matrix`. Without β the domain [-β, β] of
+ *   `spir_tau_sampling_new` cannot be checked here: any finite value is
+ *   accepted and reported back by `spir_sampling_get_taus`
  * * `matrix` - Pre-computed `num_points × basis_size` sampling matrix in
  *   `order`, with finite entries
  * * `status` - Pointer to store the status code
@@ -1504,7 +1507,8 @@ struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
  *   `basis_size` <= 0, `order` or `statistics` is not one of the constants
- *   above, or an entry of `matrix` is NaN or infinite
+ *   above, a point is NaN or infinite, or an entry of `matrix` is NaN or
+ *   infinite
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if an internal error occurs
  *

@@ -1281,3 +1281,64 @@ fn tau_sampling_new_with_matrix_accepts_a_valid_matrix() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// spir_tau_sampling_new_with_matrix: sampling points (#266)
+// ---------------------------------------------------------------------------
+
+/// A `n × l` stand-in for a real sampling matrix; the points are only labels.
+fn stand_in_real_matrix(n: usize, l: usize) -> Vec<f64> {
+    (0..n * l).map(|k| 1.0 + (k * k) as f64).collect()
+}
+
+/// Before the fix, a NaN or infinite point was accepted (0) and reported
+/// back by `spir_sampling_get_taus`.
+#[test]
+fn tau_sampling_new_with_matrix_rejects_non_finite_points() {
+    let (n, l) = (3usize, 2usize);
+    let matrix = stand_in_real_matrix(n, l);
+    for bad in NON_FINITE {
+        for k in 0..n {
+            let mut points = vec![0.25, 0.5, 0.75];
+            points[k] = bad;
+            for statistics in STATISTICS {
+                let (status, sampling) = tau_sampling_new_with_matrix_raw(
+                    SPIR_ORDER_ROW_MAJOR,
+                    statistics,
+                    l as i32,
+                    n as i32,
+                    &points,
+                    &matrix,
+                );
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "points {points:?}, statistics {statistics}"
+                );
+                assert!(sampling.is_null());
+            }
+        }
+    }
+}
+
+/// Without β the τ domain cannot be checked: any finite point is accepted,
+/// kept in the given order and reported back unchanged (documented).
+#[test]
+fn tau_sampling_new_with_matrix_does_not_check_the_tau_domain() {
+    let (n, l) = (4usize, 2usize);
+    let matrix = stand_in_real_matrix(n, l);
+    let points = vec![1e300, -7.5, -0.0, f64::MIN_POSITIVE];
+    let (status, sampling) = tau_sampling_new_with_matrix_raw(
+        SPIR_ORDER_ROW_MAJOR,
+        SPIR_STATISTICS_FERMIONIC,
+        l as i32,
+        n as i32,
+        &points,
+        &matrix,
+    );
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let got = Sampling(sampling).taus();
+    assert_eq!(got.len(), n);
+    for (g, p) in got.iter().zip(&points) {
+        assert_eq!(g.to_bits(), p.to_bits(), "{got:?} vs {points:?}");
+    }
+}
