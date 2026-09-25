@@ -16,7 +16,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
-use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
+use crate::types::{BasisType, SamplingType, is_in_domain, spir_basis, spir_sampling, tau_domain};
 use crate::utils::{
     MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd,
     validate_transform_dims,
@@ -26,7 +26,30 @@ use crate::{
     SPIR_STATISTICS_FERMIONIC, StatusCode,
 };
 use sparse_ir::fitters::InplaceFitter;
+use sparse_ir::freq::MatsubaraFreq;
+use sparse_ir::traits::StatisticsType;
 use sparse_ir::{Bosonic, Fermionic};
+
+/// Converts caller-supplied Matsubara indices, rejecting an invalid index
+/// before any sampling object is built.
+///
+/// Every index must have the parity of the statistics (odd for fermions, even
+/// for bosons). With `positive_only`, every index must also be non-negative
+/// (n = 0 is valid for bosons). Returns `SPIR_INVALID_ARGUMENT` otherwise.
+fn matsubara_freqs<S: StatisticsType>(
+    points: &[i64],
+    positive_only: bool,
+) -> Result<Vec<MatsubaraFreq<S>>, StatusCode> {
+    points
+        .iter()
+        .map(|&n| {
+            if positive_only && n < 0 {
+                return Err(SPIR_INVALID_ARGUMENT);
+            }
+            MatsubaraFreq::new(n).map_err(|_| SPIR_INVALID_ARGUMENT)
+        })
+        .collect()
+}
 
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
@@ -76,11 +99,18 @@ pub extern "C" fn spir_sampling_is_assigned(obj: *const spir_sampling) -> i32 {
 /// # Arguments
 /// * `b` - Pointer to a finite temperature basis object
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of sampling points in imaginary time (τ)
+/// * `points` - Array of `num_points` sampling points τ ∈ [-β, β], with β the
+///   inverse temperature of `b`; a negative τ is folded onto [0, β] as in
+///   `spir_funcs_eval`
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to the newly created sampling object, or NULL if creation fails
+/// Pointer to the newly created sampling object, or NULL if creation fails.
+/// If `status` is non-NULL, `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, or a
+///   point is NaN, infinite or outside [-β, β]
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
 /// # Safety
 /// Caller must ensure `b` is valid and `points` has `num_points` elements
@@ -102,6 +132,13 @@ pub extern "C" fn spir_tau_sampling_new(
 
         let basis_ref = unsafe { &*b };
         let points_slice = unsafe { std::slice::from_raw_parts(points, num_points as usize) };
+
+        // Check every point before building the sampling object: the core
+        // asserts τ ∈ [-β, β] (#266).
+        let domain = tau_domain(basis_ref.beta());
+        if !points_slice.iter().all(|&tau| is_in_domain(tau, domain)) {
+            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
+        }
 
         // Convert points to Vec
         let tau_points: Vec<f64> = points_slice.to_vec();
@@ -185,13 +222,21 @@ pub extern "C" fn spir_tau_sampling_new(
 ///
 /// # Arguments
 /// * `b` - Pointer to a finite temperature basis object
-/// * `positive_only` - If true, only positive frequencies are used
+/// * `positive_only` - If true, only non-negative frequencies are used
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of Matsubara frequency indices (n)
+/// * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for a
+///   fermionic basis, even for a bosonic basis, and non-negative when
+///   `positive_only` is true
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to the newly created sampling object, or NULL if creation fails
+/// Pointer to the newly created sampling object, or NULL if creation fails.
+/// If `status` is non-NULL, `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, an
+///   index has the wrong parity for the statistics of `b`, or `positive_only`
+///   is true and an index is negative
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_matsu_sampling_new(
     b: *const spir_basis,
@@ -215,57 +260,49 @@ pub extern "C" fn spir_matsu_sampling_new(
         // Convert points to Vec
         let matsu_points: Vec<i64> = points_slice.to_vec();
 
-        // Convert i64 indices to MatsubaraFreq
-        use sparse_ir::freq::MatsubaraFreq;
-
-        // Helper macro to reduce duplication
+        // Helper macro to reduce duplication. The indices are validated against
+        // the basis statistics before the sampling object is built (#247).
         macro_rules! create_matsu_sampling {
-            ($basis:expr, Fermionic) => {
+            ($basis:expr, Fermionic) => {{
+                let matsu_freqs =
+                    match matsubara_freqs::<Fermionic>(&matsu_points, positive_only) {
+                        Ok(freqs) => freqs,
+                        Err(code) => return (std::ptr::null_mut(), code),
+                    };
                 if positive_only {
-                    let matsu_freqs: Vec<MatsubaraFreq<Fermionic>> = matsu_points
-                        .iter()
-                        .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                        .collect();
                     let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
                         $basis,
                         matsu_freqs,
                     );
                     SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
                 } else {
-                    let matsu_freqs: Vec<MatsubaraFreq<Fermionic>> = matsu_points
-                        .iter()
-                        .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                        .collect();
                     let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
                         $basis,
                         matsu_freqs,
                     );
                     SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
                 }
-            };
-            ($basis:expr, Bosonic) => {
+            }};
+            ($basis:expr, Bosonic) => {{
+                let matsu_freqs =
+                    match matsubara_freqs::<Bosonic>(&matsu_points, positive_only) {
+                        Ok(freqs) => freqs,
+                        Err(code) => return (std::ptr::null_mut(), code),
+                    };
                 if positive_only {
-                    let matsu_freqs: Vec<MatsubaraFreq<Bosonic>> = matsu_points
-                        .iter()
-                        .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                        .collect();
                     let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
                         $basis,
                         matsu_freqs,
                     );
                     SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
                 } else {
-                    let matsu_freqs: Vec<MatsubaraFreq<Bosonic>> = matsu_points
-                        .iter()
-                        .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                        .collect();
                     let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
                         $basis,
                         matsu_freqs,
                     );
                     SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
                 }
-            };
+            }};
         }
 
         // Create sampling based on basis statistics and positive_only flag
@@ -437,14 +474,23 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
 /// * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
 /// * `basis_size` - Basis size
-/// * `positive_only` - If true, only positive frequencies are used
+/// * `positive_only` - If true, only non-negative frequencies are used
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of Matsubara frequency indices (n)
+/// * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for
+///   fermionic, even for bosonic `statistics`, and non-negative when
+///   `positive_only` is true
 /// * `matrix` - Pre-computed complex matrix (num_points x basis_size)
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to the newly created sampling object, or NULL if creation fails
+/// Pointer to the newly created sampling object, or NULL if creation fails.
+/// If `status` is non-NULL, `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
+///   `basis_size` <= 0, `order` or `statistics` is not one of the constants
+///   above, an index has the wrong parity for `statistics`, or `positive_only`
+///   is true and an index is negative
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
 /// # Safety
 /// Caller must ensure `points` and `matrix` have correct sizes
@@ -511,7 +557,25 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
         );
         std::io::stderr().flush().ok();
 
-        use sparse_ir::freq::MatsubaraFreq;
+        // Validate the statistics and every index before the matrix is read or
+        // anything is built (#247).
+        enum MatsuFreqs {
+            Fermionic(Vec<MatsubaraFreq<Fermionic>>),
+            Bosonic(Vec<MatsubaraFreq<Bosonic>>),
+        }
+        let matsu_freqs = match statistics {
+            SPIR_STATISTICS_FERMIONIC => {
+                matsubara_freqs(&matsu_points, positive_only).map(MatsuFreqs::Fermionic)
+            }
+            SPIR_STATISTICS_BOSONIC => {
+                matsubara_freqs(&matsu_points, positive_only).map(MatsuFreqs::Bosonic)
+            }
+            _ => Err(SPIR_INVALID_ARGUMENT),
+        };
+        let matsu_freqs = match matsu_freqs {
+            Ok(freqs) => freqs,
+            Err(code) => return (std::ptr::null_mut(), code),
+        };
 
         // Convert matrix to Tensor using the new helper function
         let orig_dims = [num_points as usize, basis_size as usize];
@@ -565,15 +629,11 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
             positive_only
         );
         std::io::stderr().flush().ok();
-        let sampling_type = match (statistics, positive_only) {
-            (SPIR_STATISTICS_FERMIONIC, true) => {
+        let sampling_type = match (matsu_freqs, positive_only) {
+            (MatsuFreqs::Fermionic(matsu_freqs), true) => {
                 debug_println!("spir_matsu_sampling_new_with_matrix: Fermionic, positive-only");
                 std::io::stderr().flush().ok();
                 // Fermionic, positive-only
-                let matsu_freqs: Vec<MatsubaraFreq<Fermionic>> = matsu_points
-                    .iter()
-                    .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                    .collect();
                 debug_println!(
                     "spir_matsu_sampling_new_with_matrix: matsu_freqs created, len = {}",
                     matsu_freqs.len()
@@ -590,14 +650,10 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
             }
-            (SPIR_STATISTICS_FERMIONIC, false) => {
+            (MatsuFreqs::Fermionic(matsu_freqs), false) => {
                 debug_println!("spir_matsu_sampling_new_with_matrix: Fermionic, full range");
                 std::io::stderr().flush().ok();
                 // Fermionic, full range
-                let matsu_freqs: Vec<MatsubaraFreq<Fermionic>> = matsu_points
-                    .iter()
-                    .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                    .collect();
                 debug_println!(
                     "spir_matsu_sampling_new_with_matrix: matsu_freqs created, len = {}",
                     matsu_freqs.len()
@@ -613,12 +669,8 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
             }
-            (SPIR_STATISTICS_BOSONIC, true) => {
+            (MatsuFreqs::Bosonic(matsu_freqs), true) => {
                 // Bosonic, positive-only
-                let matsu_freqs: Vec<MatsubaraFreq<Bosonic>> = matsu_points
-                    .iter()
-                    .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                    .collect();
                 let matsu_sampling =
                     sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
@@ -626,19 +678,14 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                     );
                 SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
             }
-            (SPIR_STATISTICS_BOSONIC, false) => {
+            (MatsuFreqs::Bosonic(matsu_freqs), false) => {
                 // Bosonic, full range
-                let matsu_freqs: Vec<MatsubaraFreq<Bosonic>> = matsu_points
-                    .iter()
-                    .map(|&n| MatsubaraFreq::new(n).expect("Invalid Matsubara frequency"))
-                    .collect();
                 let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
                     matsu_freqs,
                     matrix_tensor.clone(),
                 );
                 SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
             }
-            _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
         };
 
         let inner = sampling_type;
