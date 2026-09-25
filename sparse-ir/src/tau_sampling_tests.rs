@@ -684,3 +684,77 @@ fn test_tau_condition_number_fermionic() {
 fn test_tau_condition_number_bosonic() {
     check_tau_condition_number::<Bosonic>();
 }
+
+/// `out` of `TauSampling::*_nd_to` must match the input on every axis, not
+/// only in rank and target extent. Before the fix, `evaluate_nd_to` with
+/// coeffs of shape [L, 50] and an out view of shape [n_points, 1] wrote the
+/// 49 × n_points values that do not fit past the end of the view.
+#[test]
+fn test_nd_to_rejects_out_with_wrong_batch_extent() {
+    use mdarray::{DenseMapping, DynRank, Shape, Tensor, ViewMut};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    let sampling = TauSampling::new(&basis);
+    let (l, np, extra) = (sampling.basis_size(), sampling.n_sampling_points(), 50);
+    const CANARY: f64 = -12345.0;
+
+    // Each call gets a buffer large enough for the correct output, and a view
+    // that claims only its first `extra` = 1 column.
+    let run = |fit: bool, complex: bool| -> (bool, bool) {
+        let (n_in, n_out) = if fit { (np, l) } else { (l, np) };
+        let mut buffer = vec![CANARY; 2 * n_out * extra];
+        let shape = DynRank::from_dims(&[n_out, 1]);
+        let panicked = catch_unwind(AssertUnwindSafe(|| {
+            if complex {
+                let input = Tensor::<Complex<f64>, DynRank>::from_elem(
+                    &[n_in, extra][..],
+                    Complex::new(1.0, 0.5),
+                );
+                // SAFETY: the view covers the first `n_out` of `2 * n_out * extra` complex-sized slots.
+                let mut out = unsafe {
+                    ViewMut::<'_, Complex<f64>, DynRank>::new_unchecked(
+                        buffer.as_mut_ptr() as *mut Complex<f64>,
+                        DenseMapping::new(shape.clone()),
+                    )
+                };
+                if fit {
+                    sampling.fit_nd_zz_to(None, &input, 0, &mut out)
+                } else {
+                    sampling.evaluate_nd_zz_to(None, &input, 0, &mut out)
+                }
+            } else {
+                let input = Tensor::<f64, DynRank>::from_elem(&[n_in, extra][..], 1.0);
+                // SAFETY: the view covers the first `n_out` elements of `buffer`.
+                let mut out = unsafe {
+                    ViewMut::<'_, f64, DynRank>::new_unchecked(
+                        buffer.as_mut_ptr(),
+                        DenseMapping::new(shape.clone()),
+                    )
+                };
+                if fit {
+                    sampling.fit_nd_to(None, &input, 0, &mut out)
+                } else {
+                    sampling.evaluate_nd_to(None, &input, 0, &mut out)
+                }
+            }
+        }))
+        .is_err();
+        (panicked, buffer.iter().all(|&x| x == CANARY))
+    };
+
+    for fit in [false, true] {
+        for complex in [false, true] {
+            let (panicked, untouched) = run(fit, complex);
+            assert!(
+                panicked,
+                "fit={fit}, complex={complex}: mismatched out accepted"
+            );
+            assert!(
+                untouched,
+                "fit={fit}, complex={complex}: out buffer written"
+            );
+        }
+    }
+}

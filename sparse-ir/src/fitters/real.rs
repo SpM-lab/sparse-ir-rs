@@ -8,7 +8,9 @@ use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::sync::OnceLock;
 
-use super::common::{RealSVD, compute_real_svd, condition_number_from_singular_values};
+use super::common::{
+    RealSVD, assert_nd_shapes, compute_real_svd, condition_number_from_singular_values,
+};
 
 /// Fitter for real matrix: A ∈ R^{n×m}
 ///
@@ -437,11 +439,15 @@ impl RealMatrixFitter {
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(coeffs.shape().dim(dim), basis_size);
-        assert_eq!(out.shape().dim(dim), n_points);
+        // Validate the whole shape of `out`: the views below are sized from `coeffs`
+        assert_nd_shapes(
+            "coeffs",
+            coeffs.shape().dims(),
+            ("basis_size", basis_size),
+            dim,
+            out.shape().dims(),
+            ("n_points", n_points),
+        );
 
         let total = coeffs.len();
         let extra_size = total / basis_size;
@@ -746,11 +752,15 @@ impl RealMatrixFitter {
         let n_points = self.n_points();
         let basis_size = self.basis_size();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(values.shape().dim(dim), n_points);
-        assert_eq!(out.shape().dim(dim), basis_size);
+        // Validate the whole shape of `out`: the views below are sized from `values`
+        assert_nd_shapes(
+            "values",
+            values.shape().dims(),
+            ("n_points", n_points),
+            dim,
+            out.shape().dims(),
+            ("basis_size", basis_size),
+        );
 
         let total = values.len();
         let extra_size = total / n_points;
@@ -930,11 +940,15 @@ impl RealMatrixFitter {
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(values.shape().dim(dim), n_points);
-        assert_eq!(out.shape().dim(dim), basis_size);
+        // Validate the whole shape of `out`: the views below are sized from `values`
+        assert_nd_shapes(
+            "values",
+            values.shape().dims(),
+            ("n_points", n_points),
+            dim,
+            out.shape().dims(),
+            ("basis_size", basis_size),
+        );
 
         let total = values.len();
         let extra_size = total / n_points;
@@ -1202,11 +1216,15 @@ impl RealMatrixFitter {
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(coeffs.shape().dim(dim), basis_size);
-        assert_eq!(out.shape().dim(dim), n_points);
+        // Validate the whole shape of `out`: the views below are sized from `coeffs`
+        assert_nd_shapes(
+            "coeffs",
+            coeffs.shape().dims(),
+            ("basis_size", basis_size),
+            dim,
+            out.shape().dims(),
+            ("n_points", n_points),
+        );
 
         let total = coeffs.len();
         let extra_size = total / basis_size;

@@ -324,6 +324,14 @@ where
     }
 
     /// Evaluate N-D real coefficients, writing to a mutable view
+    ///
+    /// `out` must have the shape of `coeffs` with `n_sampling_points` along
+    /// `dim`.
+    ///
+    /// # Panics
+    /// Panics if `dim` is not an axis of `coeffs`, `coeffs` does not have
+    /// `basis_size` along `dim`, or `out` does not have that shape. Nothing is
+    /// written to `out` then.
     pub fn evaluate_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -355,6 +363,13 @@ where
     }
 
     /// Fit N-D real values, writing to a mutable view
+    ///
+    /// `out` must have the shape of `values` with `basis_size` along `dim`.
+    ///
+    /// # Panics
+    /// Panics if `dim` is not an axis of `values`, `values` does not have
+    /// `n_sampling_points` along `dim`, or `out` does not have that shape.
+    /// Nothing is written to `out` then.
     pub fn fit_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -390,6 +405,14 @@ where
     }
 
     /// Evaluate N-D complex coefficients, writing to a mutable view
+    ///
+    /// `out` must have the shape of `coeffs` with `n_sampling_points` along
+    /// `dim`.
+    ///
+    /// # Panics
+    /// Panics if `dim` is not an axis of `coeffs`, `coeffs` does not have
+    /// `basis_size` along `dim`, or `out` does not have that shape. Nothing is
+    /// written to `out` then.
     pub fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -421,6 +444,13 @@ where
     }
 
     /// Fit N-D complex values, writing to a mutable view
+    ///
+    /// `out` must have the shape of `values` with `basis_size` along `dim`.
+    ///
+    /// # Panics
+    /// Panics if `dim` is not an axis of `values`, `values` does not have
+    /// `n_sampling_points` along `dim`, or `out` does not have that shape.
+    /// Nothing is written to `out` then.
     pub fn fit_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,

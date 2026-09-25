@@ -9,7 +9,7 @@ use num_complex::Complex;
 use std::sync::OnceLock;
 
 use super::common::{
-    ComplexSVD, InplaceFitter, combine_complex, compute_complex_svd,
+    ComplexSVD, InplaceFitter, assert_nd_shapes, combine_complex, compute_complex_svd,
     condition_number_from_singular_values, copy_from_contiguous, extract_real_parts_coeffs,
     make_perm_to_front,
 };
@@ -678,11 +678,15 @@ impl ComplexMatrixFitter {
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(coeffs.shape().dim(dim), basis_size);
-        assert_eq!(out.shape().dim(dim), n_points);
+        // Validate the whole shape of `out`: the views below are sized from `coeffs`
+        assert_nd_shapes(
+            "coeffs",
+            coeffs.shape().dims(),
+            ("basis_size", basis_size),
+            dim,
+            out.shape().dims(),
+            ("n_points", n_points),
+        );
 
         let total = coeffs.len();
         let extra_size = total / basis_size;
@@ -788,11 +792,15 @@ impl ComplexMatrixFitter {
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(values.shape().dim(dim), n_points);
-        assert_eq!(out.shape().dim(dim), basis_size);
+        // Validate the whole shape of `out`: the views below are sized from `values`
+        assert_nd_shapes(
+            "values",
+            values.shape().dims(),
+            ("n_points", n_points),
+            dim,
+            out.shape().dims(),
+            ("basis_size", basis_size),
+        );
 
         let total = values.len();
         let extra_size = total / n_points;
@@ -902,11 +910,15 @@ impl ComplexMatrixFitter {
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(coeffs.shape().dim(dim), basis_size);
-        assert_eq!(out.shape().dim(dim), n_points);
+        // Validate the whole shape of `out`: the views below are sized from `coeffs`
+        assert_nd_shapes(
+            "coeffs",
+            coeffs.shape().dims(),
+            ("basis_size", basis_size),
+            dim,
+            out.shape().dims(),
+            ("n_points", n_points),
+        );
 
         let total = coeffs.len();
         let extra_size = total / basis_size;
@@ -1061,11 +1073,15 @@ impl ComplexMatrixFitter {
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
-        // Validate
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-        assert_eq!(out.rank(), rank);
-        assert_eq!(values.shape().dim(dim), n_points);
-        assert_eq!(out.shape().dim(dim), basis_size);
+        // Validate the whole shape of `out`: the views below are sized from `values`
+        assert_nd_shapes(
+            "values",
+            values.shape().dims(),
+            ("n_points", n_points),
+            dim,
+            out.shape().dims(),
+            ("basis_size", basis_size),
+        );
 
         // Build output shape for complex temp buffer
         let mut temp_shape: Vec<usize> = Vec::with_capacity(rank);

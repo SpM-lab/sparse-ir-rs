@@ -30,6 +30,12 @@ use num_complex::Complex;
 /// - `false` = operation not supported for this fitter
 ///
 /// Default implementations return `false` (not supported).
+///
+/// The input has `basis_size` (evaluate) or `n_points` (fit) along `dim`, and
+/// `out` must have the shape of the input with `n_points` (evaluate) or
+/// `basis_size` (fit) along `dim`. A supported operation panics if `dim` is
+/// not an axis of the input or a shape does not match, before writing to
+/// `out`.
 pub trait InplaceFitter {
     /// Number of sampling points
     fn n_points(&self) -> usize;
@@ -151,6 +157,58 @@ pub(crate) fn make_perm_to_front(rank: usize, dim: usize) -> Vec<usize> {
         }
     }
     perm
+}
+
+// ============================================================================
+// Shape validation
+// ============================================================================
+
+/// Check the shapes of an N-D evaluate or fit along axis `dim`
+///
+/// The N-D methods of the fitters address the input and `out` as contiguous
+/// matrices through unchecked views and pointer offsets computed from the
+/// shape of the input. So the input must have extent `n_in` along `dim`, and
+/// `out` must have the rank of the input, extent `n_out` along `dim` and the
+/// extent of the input along every other axis. Call this before any unchecked
+/// access or write.
+///
+/// `input` names the input (`coeffs` or `values`) and `n_in`/`n_out` name the
+/// expected extents in the panic messages.
+///
+/// # Panics
+/// Panics, naming the axis and both extents, if `dim` is not an axis of the
+/// input or a shape does not match.
+pub(crate) fn assert_nd_shapes(
+    input: &str,
+    input_dims: &[usize],
+    (n_in_name, n_in): (&str, usize),
+    dim: usize,
+    out_dims: &[usize],
+    (n_out_name, n_out): (&str, usize),
+) {
+    let rank = input_dims.len();
+    assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+    assert!(
+        out_dims.len() == rank,
+        "out.rank()={} must equal {input}.rank()={rank}",
+        out_dims.len()
+    );
+    assert!(
+        input_dims[dim] == n_in,
+        "{input}.shape().dim({dim})={} must equal {n_in_name}={n_in}",
+        input_dims[dim]
+    );
+    assert!(
+        out_dims[dim] == n_out,
+        "out.shape().dim({dim})={} must equal {n_out_name}={n_out}",
+        out_dims[dim]
+    );
+    for (axis, (&o, &i)) in out_dims.iter().zip(input_dims).enumerate() {
+        assert!(
+            axis == dim || o == i,
+            "out.shape().dim({axis})={o} must equal {input}.shape().dim({axis})={i}"
+        );
+    }
 }
 
 // ============================================================================
