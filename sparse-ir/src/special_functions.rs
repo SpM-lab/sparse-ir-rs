@@ -10,6 +10,21 @@ use std::f64::consts::PI;
 /// sqrt(π/2) - used frequently in spherical Bessel calculations
 const SQPIO2: f64 = 1.253_314_137_315_500_3;
 
+/// sqrt(2π) - prefactor of Stirling's series for the Gamma function
+const SQ2PI: f64 = 2.506_628_274_631_000_7;
+
+/// Above this argument the Gamma function uses Stirling's series
+const GAMMA_STIRLING_MIN: f64 = 11.5;
+
+/// Γ(x) exceeds `f64::MAX` for x > 171.624..., so every argument above this
+/// bound overflows (Stirling's series already rounds to +∞ just below it)
+const GAMMA_OVERFLOW_ARG: f64 = 172.0;
+
+/// |Γ(x)| is below the smallest subnormal for every non-integer x < -184.
+/// Beyond |x| = 200 the reflected Stirling series is not evaluated; its
+/// intermediates stay finite up to about |x| = 256.
+const GAMMA_UNDERFLOW_ARG: f64 = 200.0;
+
 /// Maximum number of iterations for continued fractions
 const MAX_ITER: usize = 5000;
 
@@ -22,52 +37,114 @@ fn evalpoly(x: f64, coeffs: &[f64]) -> f64 {
     result
 }
 
-/// Compute sin(π*x)
+/// Compute sin(π*x) with exact argument reduction
+///
+/// `x = n + r` with `n = x.round()` and `|r| <= 1/2` is exact in floating
+/// point, so `sin(πx) = (-1)^n sin(πr)` is accurate to a few ulp for every
+/// finite `x` and is exactly zero if and only if `x` is an integer. The
+/// unreduced `(PI * x).sin()` is neither: the rounding error of `PI * x` grows
+/// with `|x|`, and `(PI * -1.0).sin()` is -1.2e-16 rather than 0.
 fn sinpi(x: f64) -> f64 {
-    (PI * x).sin()
+    let n = x.round();
+    let s = (PI * (x - n)).sin();
+    if n.rem_euclid(2.0) == 0.0 { s } else { -s }
 }
 
-/// High-precision Gamma function approximation (for real x)
+/// Stirling's series for `x > GAMMA_STIRLING_MIN`
 ///
-/// This is a direct port of the C++ gamma_func implementation
+/// Returns `(v, t, w)` with `Γ(x) = SQ2PI * v * t * w`, where
+/// `v = x^(x/2 - 1/4)` and `t = v / e^x` split `x^(x - 1/2) e^(-x)` so that it
+/// does not overflow before Γ(x) itself, and `w` is the asymptotic series.
+fn gamma_stirling_factors(x: f64) -> (f64, f64, f64) {
+    let coefs = [
+        1.0,
+        8.333_333_333_333_331e-2,
+        3.472_222_222_230_075e-3,
+        -2.681_327_161_876_304_3e-3,
+        -2.294_719_747_873_185_4e-4,
+        7.840_334_842_744_753e-4,
+        6.989_332_260_623_193e-5,
+        -5.950_237_554_056_33e-4,
+        -2.363_848_809_501_759e-5,
+        7.147_391_378_143_611e-4,
+    ];
+    let w = evalpoly(1.0 / x, &coefs);
+    let v = x.powf(0.5 * x - 0.25);
+    (v, v / x.exp(), w)
+}
+
+/// Gamma function Γ(x) for real `x`
+///
+/// Adapted from the C++ libsparseir `gamma_func` (SpM-lab/libsparseir,
+/// `backend/cxx/src/specfuncs.cpp` at commit 4bc58ea), which follows
+/// `gamma(::Float64)` of Bessels.jl v0.2.8 (`src/gamma.jl`), itself adapted
+/// from the Cephes Mathematical Library by Stephen L. Moshier. For `x > 0` it
+/// uses Stirling's series above 11.5 and otherwise a rational approximation on
+/// `[2, 3)` reached with `Γ(x + 1) = xΓ(x)`. It deviates from the C++ source in
+/// three places: the Stirling prefactor is `sqrt(2π)` as in Bessels.jl (the
+/// C++ code uses `sqrt(π/2)`, which halves every result above 11.5); `sin(πx)`
+/// uses exact argument reduction, so that the poles are detected and accuracy
+/// holds next to them; and no input throws or panics.
+///
+/// A negative non-integer `x < -1` uses the reflection formula
+/// `Γ(x) = π / (sin(πx) Γ(1 - x))`, evaluated as `π / (sin(πx) |x| Γ(|x|))`
+/// so that `1 - x` is never rounded. For `-1 < x < 0` the recurrence
+/// `Γ(x) = Γ(1 + x) / x` is used instead, because `|x| sin(πx)` underflows
+/// for tiny `|x|`.
+///
+/// Wherever Γ(x) is a normal `f64`, the relative error is a few ulp.
+///
+/// Special values follow C99 `tgamma`:
+///
+/// - `x = ±0` (pole): `±∞`, the sign of zero selecting the side of the pole.
+/// - `x` a negative integer (a pole without a signed limit) or `x = -∞`: NaN.
+/// - `x = +∞`, and `x > 171.62...` where Γ(x) exceeds `f64::MAX`: `+∞`.
+/// - Non-integer `x < -184`, where |Γ(x)| is below the smallest subnormal:
+///   `±0` carrying the sign of Γ(x), which is the sign of `sin(πx)`.
+/// - `x = NaN`: NaN.
 pub fn gamma_func(x: f64) -> f64 {
-    let mut x = x;
-    let mut s = 0.0;
-
-    if x < 0.0 {
-        s = sinpi(x);
-        if s == 0.0 {
-            panic!("NaN result for non-NaN input.");
-        }
-        x = -x; // Use this rather than 1-x to avoid roundoff.
-        s *= x;
-    }
-
-    if !x.is_finite() {
+    if x.is_nan() {
         return x;
     }
+    if x <= 0.0 && x == x.floor() {
+        // Poles at zero and at the negative integers (x = -∞ also lands here).
+        // Only a zero tells the side of the pole, through its sign.
+        return if x == 0.0 { 1.0 / x } else { f64::NAN };
+    }
+    if x > 0.0 {
+        return gamma_positive(x);
+    }
+    if x > -1.0 {
+        // Γ(x) = Γ(1 + x) / x; the reflection below would underflow for tiny |x|.
+        return gamma_positive(1.0 + x) / x;
+    }
 
-    if x > 11.5 {
-        let mut w = 1.0 / x;
-        let coefs = [
-            1.0,
-            8.333_333_333_333_331e-2,
-            3.472_222_222_230_075e-3,
-            -2.681_327_161_876_304_3e-3,
-            -2.294_719_747_873_185_4e-4,
-            7.840_334_842_744_753e-4,
-            6.989_332_260_623_193e-5,
-            -5.950_237_554_056_33e-4,
-            -2.363_848_809_501_759e-5,
-            7.147_391_378_143_611e-4,
-        ];
-        w = evalpoly(w, &coefs);
+    // Reflection for non-integer x < -1: s = |x| sin(πx) is nonzero, and
+    // Γ(x) = π / (s Γ(|x|)) has the sign of s.
+    let ax = -x;
+    let s = ax * sinpi(x);
+    if ax <= GAMMA_STIRLING_MIN {
+        return PI / (s * gamma_positive(ax));
+    }
+    if ax > GAMMA_UNDERFLOW_ARG {
+        return 0.0_f64.copysign(s);
+    }
+    // Γ(|x|) = SQ2PI * v * t * w overflows f64 for |x| > 171.62 while Γ(x)
+    // next to a pole is still a normal number down to x ≈ -175. Dividing in
+    // stages keeps every intermediate finite.
+    let (v, t, w) = gamma_stirling_factors(ax);
+    PI / (s * SQ2PI * w * v) / t
+}
 
-        // v = x^(0.5*x - 0.25)
-        let v = x.powf(0.5 * x - 0.25);
-        let res = SQPIO2 * v * (v / x.exp()) * w;
-
-        return if x < 0.0 { PI / (res * s) } else { res };
+/// Γ(x) for `x > 0`, including `x = +∞`
+fn gamma_positive(x: f64) -> f64 {
+    if x > GAMMA_STIRLING_MIN {
+        if x > GAMMA_OVERFLOW_ARG {
+            // Also avoids ∞/∞ = NaN in `t` once e^x overflows (x > 709.78).
+            return f64::INFINITY;
+        }
+        let (v, t, w) = gamma_stirling_factors(x);
+        return SQ2PI * v * t * w;
     }
 
     let p = [
@@ -93,15 +170,12 @@ pub fn gamma_func(x: f64) -> f64 {
         -1.397_148_517_476_170_5e-5,
     ];
 
+    // Shift x into [2, 3) with Γ(x + 1) = xΓ(x).
+    let mut x = x;
     let mut z = 1.0;
     while x >= 3.0 {
         x -= 1.0;
         z *= x;
-    }
-
-    while x < 0.0 {
-        z /= x;
-        x += 1.0;
     }
 
     while x < 2.0 {
@@ -285,6 +359,235 @@ mod tests {
 
         // Test half-integer values
         assert!((gamma_func(0.5) - 1.7724538509055159).abs() < 1e-10); // sqrt(π)
+    }
+
+    // Reference values below are correctly rounded from MPFR, evaluated at the
+    // exact f64 arguments: Julia 1.12.5, SpecialFunctions.jl 2.8.3,
+    // `setprecision(BigFloat, 256)`, Γ values as
+    // `repr(Float64(gamma(BigFloat(x))))`.
+
+    /// Relative tolerance of `gamma_func` against correctly rounded references.
+    ///
+    /// Error model: the Cephes rational approximation and Stirling series
+    /// contribute a few ulp (Bessels.jl tests the same algorithm at 7 eps
+    /// against BigFloat), the reduced `sin(πx)` about one ulp, and the
+    /// reflection a handful of roundings, i.e. at most about 16 ulp (3.6e-15).
+    /// 1e-14 leaves a ~3x margin for platform `pow`/`exp`/`sin` differences
+    /// while staying far below the O(1) relative errors of the defects guarded
+    /// against here (wrong sign, Γ(|x|) instead of Γ(x), a factor of 2).
+    const GAMMA_RTOL: f64 = 1e-14;
+
+    /// Relative tolerance for the Bessel functions built on `gamma_func`. The
+    /// Γ error (at most about 16 ulp, see above) is a common factor of every
+    /// series term; `powf` and the per-term roundings add a few ulp, amplified
+    /// by at most the cancellation ratio sum|terms| / |sum| (about 3, for
+    /// J_{-1/2}(1)). Together at most about 30 ulp (6.7e-15), with the same
+    /// ~3x margin.
+    const BESSEL_RTOL: f64 = 2e-14;
+
+    fn rel_err(got: f64, want: f64) -> f64 {
+        ((got - want) / want).abs()
+    }
+
+    #[test]
+    fn test_gamma_negative_non_integer_reference_values() {
+        // The half-integer rows equal the closed forms -2√π, 4√π/3, -8√π/15
+        // and 16√π/105.
+        let cases = [
+            (-0.5, -3.544907701811032),
+            (-1.5, 2.363271801207355),
+            (-2.5, -0.9453087204829419),
+            (-3.5, 0.2700882058522691),
+            (-0.1, -10.686287021193193),
+            (-1.0e-200, -1.0e200),
+            (-0.999, -1000.4241966812758),
+            (-1.001, 999.5786270024664),
+            (-3.0 + 2f64.powi(-30), -1.789569708760196e8),
+            (-10.1, -2.2134165830856185e-6),
+            (-11.3, 4.656958619058061e-8),
+            (-11.7, 1.7234064143490278e-8),
+            (-12.5, -1.836606483859281e-9),
+            (-20.5, -2.834656574391335e-19),
+            (-30.7, -1.3275373492818893e-33),
+            (-100.25, -1.503087709322751e-158),
+            (-150.9, -1.9468126352925122e-264),
+            (-170.5, -3.3127395215386074e-308),
+            // Γ(175) overflows f64, but this Γ(x) is a normal number.
+            (-175.0 + 2f64.powi(-40), -9.778221578627872e-307),
+        ];
+        for (x, want) in cases {
+            let got = gamma_func(x);
+            let err = rel_err(got, want);
+            assert!(
+                err <= GAMMA_RTOL,
+                "gamma_func({x:e}) = {got:e}, expected {want:e} (relative error {err:e})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_gamma_positive_reference_values() {
+        // Rows above 11.5 use Stirling's series; 13, 20 and 25 are factorials.
+        let cases = [
+            (0.5, 1.772453850905516),
+            (2.5, 1.329340388179137),
+            (11.5, 1.1899423083962249e7),
+            (11.6, 1.5131318919703094e7),
+            (12.5, 1.3684336546556586e8),
+            (13.0, 4.790016e8),
+            (20.0, 1.21645100408832e17),
+            (25.0, 6.204484017332394e23),
+            (50.5, 4.29046291235196e63),
+            (100.0, 9.332621544394415e155),
+            (170.5, 5.56209241456e305),
+            (171.5, 9.4833675668248e307),
+        ];
+        for (x, want) in cases {
+            let got = gamma_func(x);
+            let err = rel_err(got, want);
+            assert!(
+                err <= GAMMA_RTOL,
+                "gamma_func({x:e}) = {got:e}, expected {want:e} (relative error {err:e})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_gamma_recurrence() {
+        // Γ(x + 1) = x Γ(x) for both signs of x, straddling the switch to
+        // Stirling's series at |x| = 11.5 and approaching the poles. Dyadic
+        // fractions keep x and x + 1 exact; |x| < 170 keeps every value a
+        // normal f64. Tolerance: two evaluations within 16 ulp each plus one
+        // product (about 33 ulp, 7.3e-15), with the same ~3x margin as
+        // GAMMA_RTOL.
+        const RECURRENCE_RTOL: f64 = 2e-14;
+        let fracs = [
+            2f64.powi(-20),
+            0.125,
+            0.25,
+            0.5,
+            0.75,
+            0.875,
+            1.0 - 2f64.powi(-20),
+        ];
+        for k in 0..170 {
+            for f in fracs {
+                for x in [-(k as f64 + f), k as f64 + f] {
+                    let lhs = gamma_func(x + 1.0);
+                    let rhs = x * gamma_func(x);
+                    let err = rel_err(rhs, lhs);
+                    assert!(
+                        err <= RECURRENCE_RTOL,
+                        "Γ({x:e} + 1) = {lhs:e} but x Γ(x) = {rhs:e} (relative error {err:e})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_gamma_poles_and_special_values() {
+        // Negative integers are poles without a signed limit: NaN, never a panic.
+        for x in [
+            -1.0,
+            -2.0,
+            -3.0,
+            -171.0,
+            -1e10,
+            -(2f64.powi(52)),
+            -1e300,
+            f64::MIN,
+        ] {
+            let got = gamma_func(x);
+            assert!(got.is_nan(), "gamma_func({x:e}) = {got:e}, expected NaN");
+        }
+        // The pole at zero is approached from the side given by the sign of zero.
+        assert_eq!(gamma_func(0.0), f64::INFINITY);
+        assert_eq!(gamma_func(-0.0), f64::NEG_INFINITY);
+        assert_eq!(gamma_func(f64::INFINITY), f64::INFINITY);
+        assert!(gamma_func(f64::NEG_INFINITY).is_nan());
+        assert!(gamma_func(f64::NAN).is_nan());
+
+        // Overflow: Γ(x) exceeds f64::MAX for x > 171.62...
+        for x in [171.7, 172.0, 709.0, 710.0, 1000.0, 1e300] {
+            let got = gamma_func(x);
+            assert_eq!(got, f64::INFINITY, "gamma_func({x:e}) = {got:e}");
+        }
+
+        // Γ(-171.5) is subnormal and must not be flushed to zero. Its final
+        // rounding onto the subnormal grid costs half a unit of the spacing;
+        // allow two on top of the relative bound.
+        let (got, want) = (gamma_func(-171.5), 1.9316265431712e-310);
+        assert!(
+            (got - want).abs() <= GAMMA_RTOL * want + 2.0 * f64::from_bits(1),
+            "gamma_func(-171.5) = {got:e}, expected {want:e}"
+        );
+
+        // Below x = -184, |Γ(x)| is under the smallest subnormal for every
+        // non-integer x: the result is a zero with the sign of Γ(x).
+        for (x, negative) in [
+            (-184.5, true),
+            (-200.5, true),
+            (-201.5, false),
+            (-1000.25, true),
+            (-(1e15 + 0.5), true),
+        ] {
+            let got = gamma_func(x);
+            assert!(
+                got == 0.0 && got.is_sign_negative() == negative,
+                "gamma_func({x:e}) = {got:e}, expected {}0",
+                if negative { "-" } else { "+" }
+            );
+        }
+    }
+
+    #[test]
+    fn test_cyl_bessel_j_orders_reaching_gamma_reflection_and_stirling() {
+        // cyl_bessel_j(nu, x) divides by gamma_func(nu + 1): nu < -1 reaches
+        // negative non-integer arguments, nu > 10.5 the Stirling branch.
+        // References: the power series
+        // sum((-1)^m (x/2)^(2m+nu) / (gamma(m+1) gamma(m+nu+1)) for m in 0:80)
+        // in 256-bit BigFloat (same Julia setup as above).
+        let cases = [
+            (-0.5, 1.0, 0.4310988680183761),
+            (-1.5, 1.0, -1.1024955751601793),
+            (-2.5, 2.0, 0.8282206324443038),
+            (-12.7, 1.0, 3.9444125287326807e11),
+            (11.5, 1.0, 2.4730845703448897e-12),
+            (12.0, 2.0, 1.9326951487239857e-9),
+        ];
+        for (nu, x, want) in cases {
+            let got = cyl_bessel_j(nu, x);
+            let err = rel_err(got, want);
+            assert!(
+                err <= BESSEL_RTOL,
+                "J_{nu}({x}) = {got:e}, expected {want:e} (relative error {err:e})"
+            );
+        }
+    }
+
+    #[test]
+    fn test_spherical_bessel_j_small_args_high_order() {
+        // Below the small-argument cutoff, j_n(x) uses gamma_func(n + 1.5),
+        // which lies in the Stirling branch for n >= 11. References:
+        // j_n(x) = sqrt(pi/(2x)) J_{n+1/2}(x) from the 256-bit series above.
+        let x = 1e-8;
+        let cases = [
+            (11, 3.162213889372793e-100),
+            (12, 1.2648855557491175e-109),
+            (13, 4.6847613175893235e-119),
+            (14, 1.6154349370997668e-128),
+            (15, 5.2110804422573123e-138),
+        ];
+        for (n, want) in cases {
+            assert!(spherical_bessel_j_small_args_cutoff(n as f64, x));
+            let got = spherical_bessel_j(n, x);
+            let err = rel_err(got, want);
+            assert!(
+                err <= BESSEL_RTOL,
+                "j_{n}({x:e}) = {got:e}, expected {want:e} (relative error {err:e})"
+            );
+        }
     }
 
     #[test]

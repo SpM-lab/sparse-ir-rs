@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, spir_basis};
-use crate::utils::{MemoryOrder, copy_tensor_to_c_array, read_tensor_nd};
+use crate::utils::{MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, validate_dims};
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
 use sparse_ir::dlr::{DiscreteLehmannRepresentation, DlrError};
 
@@ -317,13 +317,22 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 /// * `dlr` - Pointer to a DLR basis object
 /// * `order` - Memory layout order
 /// * `ndim` - Number of dimensions
-/// * `input_dims` - Array of input dimensions
+/// * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
 /// * `target_dim` - Dimension to transform
 /// * `input` - IR coefficients
 /// * `out` - Output DLR coefficients
 ///
 /// # Returns
-/// Status code
+/// * `SPIR_COMPUTATION_SUCCESS` on success
+/// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input array is too large to be addressed
+/// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+///   `input_dims[target_dim]` is not the IR basis size
+///
+/// `input_dims` is validated before `input` or `out` is accessed.
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -353,11 +362,19 @@ pub extern "C" fn spir_ir2dlr_dd(
         };
 
         let dlr_ref = unsafe { &*dlr };
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
+        // Validate every extent before `input` is read.
+        let orig_dims = match validate_dims::<f64>(dims_slice) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
+        // the caller guarantees that `input` holds that many elements.
         let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
@@ -392,13 +409,22 @@ pub extern "C" fn spir_ir2dlr_dd(
 /// * `dlr` - Pointer to a DLR basis object
 /// * `order` - Memory layout order
 /// * `ndim` - Number of dimensions
-/// * `input_dims` - Array of input dimensions
+/// * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
 /// * `target_dim` - Dimension to transform
 /// * `input` - Complex IR coefficients
 /// * `out` - Output complex DLR coefficients
 ///
 /// # Returns
-/// Status code
+/// * `SPIR_COMPUTATION_SUCCESS` on success
+/// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input array is too large to be addressed
+/// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+///   `input_dims[target_dim]` is not the IR basis size
+///
+/// `input_dims` is validated before `input` or `out` is accessed.
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -428,11 +454,19 @@ pub extern "C" fn spir_ir2dlr_zz(
         };
 
         let dlr_ref = unsafe { &*dlr };
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
+        // Validate every extent before `input` is read.
+        let orig_dims = match validate_dims::<Complex64>(dims_slice) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
+        // the caller guarantees that `input` holds that many elements.
         let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
@@ -467,13 +501,22 @@ pub extern "C" fn spir_ir2dlr_zz(
 /// * `dlr` - Pointer to a DLR basis object
 /// * `order` - Memory layout order
 /// * `ndim` - Number of dimensions
-/// * `input_dims` - Array of input dimensions
+/// * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
 /// * `target_dim` - Dimension to transform
 /// * `input` - DLR coefficients
 /// * `out` - Output IR coefficients
 ///
 /// # Returns
-/// Status code
+/// * `SPIR_COMPUTATION_SUCCESS` on success
+/// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input array is too large to be addressed
+/// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+///   `input_dims[target_dim]` is not the number of poles
+///
+/// `input_dims` is validated before `input` or `out` is accessed.
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -503,11 +546,19 @@ pub extern "C" fn spir_dlr2ir_dd(
         };
 
         let dlr_ref = unsafe { &*dlr };
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
+        // Validate every extent before `input` is read.
+        let orig_dims = match validate_dims::<f64>(dims_slice) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
+        // the caller guarantees that `input` holds that many elements.
         let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
@@ -542,13 +593,22 @@ pub extern "C" fn spir_dlr2ir_dd(
 /// * `dlr` - Pointer to a DLR basis object
 /// * `order` - Memory layout order
 /// * `ndim` - Number of dimensions
-/// * `input_dims` - Array of input dimensions
+/// * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
 /// * `target_dim` - Dimension to transform
 /// * `input` - Complex DLR coefficients
 /// * `out` - Output complex IR coefficients
 ///
 /// # Returns
-/// Status code
+/// * `SPIR_COMPUTATION_SUCCESS` on success
+/// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input array is too large to be addressed
+/// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+///   `input_dims[target_dim]` is not the number of poles
+///
+/// `input_dims` is validated before `input` or `out` is accessed.
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -578,11 +638,19 @@ pub extern "C" fn spir_dlr2ir_zz(
         };
 
         let dlr_ref = unsafe { &*dlr };
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
         let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
+        // Validate every extent before `input` is read.
+        let orig_dims = match validate_dims::<Complex64>(dims_slice) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
+        // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
+        // the caller guarantees that `input` holds that many elements.
         let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
 
         // Get backend handle (NULL means use default)
