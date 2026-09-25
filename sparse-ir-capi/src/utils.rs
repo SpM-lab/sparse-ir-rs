@@ -7,6 +7,9 @@ use crate::{
     SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
     SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2,
 };
+use crate::{
+    SPIR_INPUT_DIMENSION_MISMATCH, SPIR_INVALID_ARGUMENT, SPIR_INVALID_DIMENSION, StatusCode,
+};
 #[allow(unused_imports)]
 use mdarray::Shape;
 use sparse_ir::numeric::CustomNumeric; // Used in test code for with_dims
@@ -92,7 +95,9 @@ pub fn convert_dims_for_row_major(
 /// A `Tensor<T, DynRank>` with the specified dimensions
 ///
 /// # Safety
-/// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
+/// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements,
+/// and that `dims` passes [`checked_len`] for `T` (entry points taking `input_dims`
+/// establish this with [`validate_dims`]); otherwise the element count below can wrap.
 pub(crate) unsafe fn _read_tensor_nd_row_major<T: Copy>(
     ptr: *const T,
     dims: &[usize],
@@ -123,7 +128,7 @@ pub(crate) unsafe fn _read_tensor_nd_row_major<T: Copy>(
 /// A `Tensor<T, DynRank>` with the specified dimensions and correct axis order
 ///
 /// # Safety
-/// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
+/// Same requirements as [`_read_tensor_nd_row_major`].
 pub(crate) unsafe fn _read_tensor_nd_column_major<T: Copy>(
     ptr: *const T,
     dims: &[usize],
@@ -163,7 +168,7 @@ pub(crate) unsafe fn _read_tensor_nd_column_major<T: Copy>(
 /// A `Tensor<T, DynRank>` with the specified dimensions
 ///
 /// # Safety
-/// Caller must ensure `ptr` is valid and points to at least `product(dims)` elements.
+/// Same requirements as [`_read_tensor_nd_row_major`].
 pub(crate) unsafe fn read_tensor_nd<T: Copy>(
     ptr: *const T,
     dims: &[usize],
@@ -232,6 +237,80 @@ pub(crate) fn build_output_dims(
     out_dims
 }
 
+/// Number of elements of a dense array of `T` with extents `dims`.
+///
+/// Returns `None` if the element count overflows `usize` or the array would
+/// span more than `isize::MAX` bytes, the size limit of any Rust allocation,
+/// slice or mdarray view.
+pub(crate) fn checked_len<T>(dims: &[usize]) -> Option<usize> {
+    let len = dims.iter().try_fold(1usize, |len, &d| len.checked_mul(d))?;
+    let bytes = len.checked_mul(std::mem::size_of::<T>())?;
+    (bytes <= isize::MAX as usize).then_some(len)
+}
+
+/// Validate the extents of a C API array of `T` and convert them to `usize`.
+///
+/// Every extent must be positive and the whole array must pass
+/// [`checked_len`]. Run this before an extent reaches a slice, view or
+/// allocation: a negative `c_int` cast to `usize` wraps to a huge value.
+///
+/// # Errors
+/// `SPIR_INVALID_DIMENSION` if an extent is zero or negative, or if the
+/// element count or byte size of the array is not representable.
+pub(crate) fn validate_dims<T>(dims: &[libc::c_int]) -> Result<Vec<usize>, StatusCode> {
+    let dims = dims
+        .iter()
+        .map(|&d| usize::try_from(d).ok().filter(|&d| d > 0))
+        .collect::<Option<Vec<usize>>>()
+        .ok_or(SPIR_INVALID_DIMENSION)?;
+    checked_len::<T>(&dims).ok_or(SPIR_INVALID_DIMENSION)?;
+    Ok(dims)
+}
+
+/// Validated row-major shapes of a transform along one axis of an array.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct TransformDims {
+    /// Input extents in row-major (mdarray) order
+    pub input: Vec<usize>,
+    /// Output extents: `input` with the target extent replaced
+    pub output: Vec<usize>,
+    /// Target axis in row-major order
+    pub target_dim: usize,
+}
+
+/// Validate the shape of a transform that maps `n_in` elements of `Tin` along
+/// `target_dim` to `n_out` elements of `Tout`, and convert it to row-major
+/// order. `input_dims` and `target_dim` are given in the caller's `order`.
+///
+/// # Errors
+/// * `SPIR_INVALID_ARGUMENT` if `target_dim` is not an axis of `input_dims`
+/// * `SPIR_INVALID_DIMENSION` if [`validate_dims`] rejects `input_dims`, or if
+///   the output array does not pass [`checked_len`]
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim] != n_in`
+pub(crate) fn validate_transform_dims<Tin, Tout>(
+    input_dims: &[libc::c_int],
+    target_dim: usize,
+    order: MemoryOrder,
+    n_in: usize,
+    n_out: usize,
+) -> Result<TransformDims, StatusCode> {
+    if target_dim >= input_dims.len() {
+        return Err(SPIR_INVALID_ARGUMENT);
+    }
+    let dims = validate_dims::<Tin>(input_dims)?;
+    let (input, target_dim) = convert_dims_for_row_major(&dims, target_dim, order);
+    if input[target_dim] != n_in {
+        return Err(SPIR_INPUT_DIMENSION_MISMATCH);
+    }
+    let output = build_output_dims(&input, target_dim, n_out);
+    checked_len::<Tout>(&output).ok_or(SPIR_INVALID_DIMENSION)?;
+    Ok(TransformDims {
+        input,
+        output,
+        target_dim,
+    })
+}
+
 /// Create a DView (immutable) from raw pointer with DynRank dimensions
 ///
 /// Zero-copy: directly interprets the buffer as a tensor with the given dimensions.
@@ -239,6 +318,8 @@ pub(crate) fn build_output_dims(
 ///
 /// # Safety
 /// - `ptr` must be valid and point to at least `product(dims)` elements
+/// - `dims` must pass [`checked_len`] for `T` (C API entry points establish this
+///   with [`validate_transform_dims`])
 /// - The memory must remain valid for the lifetime of the returned view
 pub(crate) unsafe fn create_dview_from_ptr<'a, T>(
     ptr: *const T,
@@ -257,6 +338,8 @@ pub(crate) unsafe fn create_dview_from_ptr<'a, T>(
 ///
 /// # Safety
 /// - `ptr` must be valid and point to at least `product(dims)` elements
+/// - `dims` must pass [`checked_len`] for `T` (C API entry points establish this
+///   with [`validate_transform_dims`])
 /// - The memory must remain valid for the lifetime of the returned view
 /// - The caller must ensure no aliasing occurs
 pub(crate) unsafe fn create_dviewmut_from_ptr<'a, T>(
@@ -519,6 +602,123 @@ mod tests {
             Ok(MemoryOrder::ColumnMajor)
         );
         assert_eq!(MemoryOrder::from_c_int(99), Err(()));
+    }
+
+    #[test]
+    fn test_checked_len() {
+        assert_eq!(checked_len::<f64>(&[3, 4, 5]), Some(60));
+        assert_eq!(checked_len::<f64>(&[usize::MAX, 2]), None);
+        // The byte size, not just the element count, must be addressable.
+        assert_eq!(checked_len::<f64>(&[(1 << 60) - 1]), Some((1 << 60) - 1));
+        assert_eq!(checked_len::<f64>(&[1 << 60]), None);
+        assert_eq!(
+            checked_len::<u8>(&[isize::MAX as usize]),
+            Some(isize::MAX as usize)
+        );
+        assert_eq!(checked_len::<u8>(&[isize::MAX as usize + 1]), None);
+    }
+
+    #[test]
+    fn test_validate_dims() {
+        use num_complex::Complex64;
+
+        assert_eq!(validate_dims::<f64>(&[3, 4]), Ok(vec![3, 4]));
+        assert_eq!(validate_dims::<f64>(&[1]), Ok(vec![1]));
+
+        // Zero or negative extents on any axis
+        for dims in [
+            &[-1, 4][..],
+            &[3, -1],
+            &[3, i32::MIN],
+            &[0, 4],
+            &[3, 0],
+            &[0],
+        ] {
+            assert_eq!(
+                validate_dims::<f64>(dims),
+                Err(SPIR_INVALID_DIMENSION),
+                "dims = {dims:?}"
+            );
+        }
+
+        // The element count overflows usize
+        assert_eq!(
+            validate_dims::<f64>(&[i32::MAX, i32::MAX, i32::MAX]),
+            Err(SPIR_INVALID_DIMENSION)
+        );
+
+        // 2^59 elements: 2^62 bytes of f64 are addressable, 2^63 bytes of
+        // Complex64 are not.
+        let dims = [1 << 30, 1 << 29];
+        assert_eq!(validate_dims::<f64>(&dims), Ok(vec![1 << 30, 1 << 29]));
+        assert_eq!(
+            validate_dims::<Complex64>(&dims),
+            Err(SPIR_INVALID_DIMENSION)
+        );
+    }
+
+    #[test]
+    fn test_validate_transform_dims() {
+        use MemoryOrder::{ColumnMajor, RowMajor};
+        use num_complex::Complex64;
+
+        // Row-major shapes are kept; the output replaces the target extent.
+        assert_eq!(
+            validate_transform_dims::<f64, f64>(&[5, 3, 2], 1, RowMajor, 3, 7),
+            Ok(TransformDims {
+                input: vec![5, 3, 2],
+                output: vec![5, 7, 2],
+                target_dim: 1,
+            })
+        );
+        // Column-major shapes are reversed and the target axis is flipped.
+        assert_eq!(
+            validate_transform_dims::<f64, f64>(&[5, 3, 2], 0, ColumnMajor, 5, 7),
+            Ok(TransformDims {
+                input: vec![2, 3, 5],
+                output: vec![2, 3, 7],
+                target_dim: 2,
+            })
+        );
+
+        // Malformed extents are rejected before the target extent is compared.
+        for (dims, target_dim, order) in [
+            (&[-1, 2][..], 0, RowMajor),
+            (&[0, 2], 0, RowMajor),
+            (&[3, -2], 0, ColumnMajor),
+            (&[3, 0], 0, ColumnMajor),
+        ] {
+            assert_eq!(
+                validate_transform_dims::<f64, f64>(dims, target_dim, order, 3, 7),
+                Err(SPIR_INVALID_DIMENSION),
+                "dims = {dims:?}"
+            );
+        }
+
+        // A well-formed shape with the wrong target extent
+        assert_eq!(
+            validate_transform_dims::<f64, f64>(&[4, 2], 0, RowMajor, 3, 7),
+            Err(SPIR_INPUT_DIMENSION_MISMATCH)
+        );
+        // A target axis outside the shape
+        assert_eq!(
+            validate_transform_dims::<f64, f64>(&[3, 2], 2, RowMajor, 3, 7),
+            Err(SPIR_INVALID_ARGUMENT)
+        );
+
+        // The output can be unaddressable even when the input is not: 2^59 f64
+        // inputs (2^62 bytes) become 2^61 f64 outputs (2^64 bytes) for n_out = 4,
+        // and 2^59 Complex64 outputs (2^63 bytes) for n_out = 1.
+        let dims = [1, 1 << 29, 1 << 30];
+        assert!(validate_transform_dims::<f64, f64>(&dims, 0, RowMajor, 1, 1).is_ok());
+        assert_eq!(
+            validate_transform_dims::<f64, f64>(&dims, 0, RowMajor, 1, 4),
+            Err(SPIR_INVALID_DIMENSION)
+        );
+        assert_eq!(
+            validate_transform_dims::<f64, Complex64>(&dims, 0, RowMajor, 1, 1),
+            Err(SPIR_INVALID_DIMENSION)
+        );
     }
 
     #[test]
