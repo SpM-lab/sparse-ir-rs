@@ -3,25 +3,27 @@
 //! This module provides macros to generate common C API functions for opaque types,
 //! following libsparseir's DECLARE_OPAQUE_TYPE pattern.
 
-/// Debug print macro that only outputs if SPARSEIR_DEBUG is set
+/// Debug print macro that prints to stderr only if `SPARSEIR_DEBUG` enables
+/// debug output (see [`is_debug_enabled`](crate::is_debug_enabled))
 ///
 /// Usage: `debug_println!("format string", args...)`
 #[macro_export]
 macro_rules! debug_println {
     ($($arg:tt)*) => {
-        if std::env::var("SPARSEIR_DEBUG").is_ok() {
+        if $crate::is_debug_enabled() {
             eprintln!("[SPARSEIR DEBUG] {}", format!($($arg)*));
         }
     };
 }
 
-/// Debug print macro for errors that only outputs if SPARSEIR_DEBUG is set
+/// Debug print macro for errors that prints to stderr only if `SPARSEIR_DEBUG`
+/// enables debug output (see [`is_debug_enabled`](crate::is_debug_enabled))
 ///
 /// Usage: `debug_eprintln!("format string", args...)`
 #[macro_export]
 macro_rules! debug_eprintln {
     ($($arg:tt)*) => {
-        if std::env::var("SPARSEIR_DEBUG").is_ok() {
+        if $crate::is_debug_enabled() {
             eprintln!("[SPARSEIR DEBUG ERROR] {}", format!($($arg)*));
         }
     };
