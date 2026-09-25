@@ -175,6 +175,15 @@ extern "C" {
  *
  * # Returns
  * * Pointer to basis object, or NULL on failure
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
+ *     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
+ *     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+ *   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
+ *     `statistics` is fermionic: that kernel supports bosonic statistics
+ *     only
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
@@ -212,6 +221,16 @@ struct spir_basis *spir_basis_new(int statistics,
  *
  * # Returns
  * * Pointer to basis object, or NULL on failure
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
+ *     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
+ *     `lambda` is not positive and finite, or `lambda` differs from
+ *     `beta * omega_max` by more than 1e-10
+ *   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
+ *     and `statistics` is fermionic: that kernel supports bosonic statistics
+ *     only
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Note
  * The kernel type is determined by `ypower`: 0 selects `LogisticKernel`, 1 selects
@@ -557,12 +576,28 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
 /**
  * Creates a new DLR from an IR basis with default poles
  *
+ * The default poles are the default real-frequency sampling points of `b`
+ * (see `spir_basis_get_default_ws`).
+ *
  * # Arguments
- * * `b` - Pointer to a finite temperature basis object
- * * `status` - Pointer to store the status code
+ * * `b` - Pointer to a finite temperature (IR) basis object
+ * * `status` - Pointer to store the status code (may be NULL, in which case
+ *   no status is written)
  *
  * # Returns
- * Pointer to the newly created DLR basis object, or NULL if creation fails
+ * * Pointer to the newly created DLR basis object, or NULL on failure. The
+ *   caller owns it and must release it with `spir_basis_release`.
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `b` is NULL or already a DLR, or if
+ *     `b` has fewer default poles than basis functions
+ *     (`spir_basis_get_n_default_ws` < `spir_basis_get_size`). Root finding
+ *     can lose poles, e.g. for `RegularizedBoseKernel` at large lambda; pass
+ *     the poles explicitly with `spir_dlr_new_with_poles` instead.
+ *   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
+ *     statistics (`RegularizedBoseKernel` with fermionic statistics). The
+ *     basis constructors already reject this combination.
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Safety
  * Caller must ensure `b` is a valid IR basis pointer
@@ -573,13 +608,23 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  * Creates a new DLR with custom poles
  *
  * # Arguments
- * * `b` - Pointer to a finite temperature basis object
- * * `npoles` - Number of poles to use
- * * `poles` - Array of pole locations on the real-frequency axis
- * * `status` - Pointer to store the status code
+ * * `b` - Pointer to a finite temperature (IR) basis object
+ * * `npoles` - Number of poles to use (must be > 0)
+ * * `poles` - Array of `npoles` pole locations on the real-frequency axis
+ * * `status` - Pointer to store the status code (may be NULL, in which case
+ *   no status is written)
  *
  * # Returns
- * Pointer to the newly created DLR basis object, or NULL if creation fails
+ * * Pointer to the newly created DLR basis object, or NULL on failure. The
+ *   caller owns it and must release it with `spir_basis_release`.
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `b` or `poles` is NULL, `npoles <= 0`,
+ *     or `b` is already a DLR
+ *   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
+ *     statistics (`RegularizedBoseKernel` with fermionic statistics). The
+ *     basis constructors already reject this combination.
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Safety
  * Caller must ensure `b` is valid and `poles` has `npoles` elements

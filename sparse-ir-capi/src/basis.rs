@@ -65,6 +65,15 @@ pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
 ///
 /// # Returns
 /// * Pointer to basis object, or NULL on failure
+/// * Status code:
+///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
+///     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
+///     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+///   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
+///     `statistics` is fermionic: that kernel supports bosonic statistics
+///     only
+///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure `status` is a valid pointer.
@@ -240,6 +249,16 @@ pub extern "C" fn spir_basis_new(
 ///
 /// # Returns
 /// * Pointer to basis object, or NULL on failure
+/// * Status code:
+///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
+///     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
+///     `lambda` is not positive and finite, or `lambda` differs from
+///     `beta * omega_max` by more than 1e-10
+///   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
+///     and `statistics` is fermionic: that kernel supports bosonic statistics
+///     only
+///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Note
 /// The kernel type is determined by `ypower`: 0 selects `LogisticKernel`, 1 selects
@@ -1840,6 +1859,159 @@ mod tests {
         unsafe {
             spir_kernel_release(kernel);
         }
+    }
+
+    /// Each `SPIR_INVALID_ARGUMENT` condition documented for `spir_basis_new`
+    /// and `spir_basis_new_from_sve_and_regularizer`, one argument at a time.
+    #[test]
+    fn test_basis_new_rejects_invalid_arguments() {
+        use crate::spir_funcs_from_piecewise_legendre;
+
+        let beta = 10.0;
+        let omega_max = 1.0;
+        let epsilon = 1e-6;
+        let lambda = beta * omega_max;
+        let fermionic = SPIR_STATISTICS_FERMIONIC;
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(lambda, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, -1, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let segments = [-omega_max, omega_max];
+        let coeffs = [1.0];
+        let mut status = SPIR_INTERNAL_ERROR;
+        let regularizer = spir_funcs_from_piecewise_legendre(
+            segments.as_ptr(),
+            1,
+            coeffs.as_ptr(),
+            1,
+            0,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        // spir_basis_new(statistics, beta, omega_max, epsilon, k): each case
+        // changes one argument of a valid call.
+        type Args = (libc::c_int, f64, f64, f64, *const spir_kernel);
+        let new_basis = |(statistics, beta, omega_max, epsilon, k): Args| {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new(
+                statistics,
+                beta,
+                omega_max,
+                epsilon,
+                k,
+                ptr::null(),
+                -1,
+                &mut status,
+            );
+            (basis, status)
+        };
+        let valid: Args = (fermionic, beta, omega_max, epsilon, kernel);
+        let (basis, status) = new_basis(valid);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!basis.is_null());
+        spir_basis_release(basis);
+
+        let (s, b, w, e, k) = valid;
+        let inf = f64::INFINITY;
+        let cases: [(&str, Args); 11] = [
+            ("statistics = 2", (2, b, w, e, k)),
+            ("statistics = -1", (-1, b, w, e, k)),
+            ("beta = 0", (s, 0.0, w, e, k)),
+            ("beta < 0", (s, -b, w, e, k)),
+            ("beta = inf", (s, inf, w, e, k)),
+            ("omega_max = 0", (s, b, 0.0, e, k)),
+            ("omega_max = inf", (s, b, inf, e, k)),
+            ("epsilon = 0", (s, b, w, 0.0, k)),
+            ("epsilon = inf", (s, b, w, inf, k)),
+            ("NULL kernel", (s, b, w, e, ptr::null())),
+            ("kernel lambda != beta * omega_max", (s, b, 2.0 * w, e, k)),
+        ];
+        for (case, args) in cases {
+            let (basis, status) = new_basis(args);
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "spir_basis_new: {}", case);
+            assert!(basis.is_null(), "spir_basis_new: {}", case);
+        }
+
+        // spir_basis_new_from_sve_and_regularizer(statistics, beta, omega_max,
+        // epsilon, lambda, ypower, sve, regularizer_funcs), likewise.
+        type RegArgs = (
+            libc::c_int,
+            f64,
+            f64,
+            f64,
+            f64,
+            libc::c_int,
+            *const spir_sve_result,
+            *const spir_funcs,
+        );
+        let new_basis =
+            |(statistics, beta, omega_max, epsilon, lambda, ypower, sve, reg): RegArgs| {
+                let mut status = SPIR_INTERNAL_ERROR;
+                let basis = spir_basis_new_from_sve_and_regularizer(
+                    statistics,
+                    beta,
+                    omega_max,
+                    epsilon,
+                    lambda,
+                    ypower,
+                    1.0,
+                    sve,
+                    reg,
+                    -1,
+                    &mut status,
+                );
+                (basis, status)
+            };
+        let valid: RegArgs = (
+            fermionic,
+            beta,
+            omega_max,
+            epsilon,
+            lambda,
+            0,
+            sve,
+            regularizer,
+        );
+        let (basis, status) = new_basis(valid);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!basis.is_null());
+        spir_basis_release(basis);
+
+        let (s, b, w, e, l, y, v, r) = valid;
+        let cases: [(&str, RegArgs); 11] = [
+            ("statistics = 2", (2, b, w, e, l, y, v, r)),
+            ("beta = 0", (s, 0.0, w, e, l, y, v, r)),
+            ("omega_max < 0", (s, b, -w, e, l, y, v, r)),
+            ("epsilon = 0", (s, b, w, 0.0, l, y, v, r)),
+            ("lambda = 0", (s, b, w, e, 0.0, y, v, r)),
+            ("lambda = inf", (s, b, w, e, inf, y, v, r)),
+            ("lambda != beta * omega_max", (s, b, w, e, 2.0 * l, y, v, r)),
+            ("ypower = 2", (s, b, w, e, l, 2, v, r)),
+            ("ypower = -1", (s, b, w, e, l, -1, v, r)),
+            ("NULL sve", (s, b, w, e, l, y, ptr::null(), r)),
+            ("NULL regularizer_funcs", (s, b, w, e, l, y, v, ptr::null())),
+        ];
+        for (case, args) in cases {
+            let (basis, status) = new_basis(args);
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "spir_basis_new_from_sve_and_regularizer: {}",
+                case
+            );
+            assert!(
+                basis.is_null(),
+                "spir_basis_new_from_sve_and_regularizer: {}",
+                case
+            );
+        }
+
+        spir_funcs_release(regularizer);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
     }
 
     #[test]

@@ -60,6 +60,14 @@ All C-API functions use `catch_unwind()` to prevent panics from crossing the FFI
 - Process remains stable even on internal errors
 - Safe for production use
 
+### Debug Output
+
+The library prints diagnostics (`[SPARSEIR DEBUG]`, `[SPARSEIR DEBUG ERROR]`
+and `[SPARSEIR WARN]` lines) to stderr only when the `SPARSEIR_DEBUG`
+environment variable is set to `1`, `true`, `yes` or `on`, in any letter case.
+Any other value, including `0`, `false` or an empty string, disables them, as
+does leaving it unset. pylibsparseir uses the same rule.
+
 ## Building
 
 ```bash

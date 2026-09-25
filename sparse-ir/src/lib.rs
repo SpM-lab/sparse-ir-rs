@@ -5,14 +5,15 @@
 //! functionality for quantum many-body physics calculations.
 
 /// Print a warning to stderr only when the `SPARSEIR_DEBUG` environment
-/// variable is set.
+/// variable enables debug diagnostics (see [`is_debug_enabled`] for the
+/// accepted values).
 ///
 /// Library code must not write to stderr unconditionally; these are advisory
 /// diagnostics (e.g. ill-conditioned sampling) for debugging, not error reports.
 #[macro_export]
 macro_rules! debug_warn {
     ($($arg:tt)*) => {
-        if std::env::var("SPARSEIR_DEBUG").is_ok() {
+        if $crate::is_debug_enabled() {
             eprintln!("[SPARSEIR WARN] {}", format!($($arg)*));
         }
     };
@@ -21,6 +22,7 @@ macro_rules! debug_warn {
 pub mod basis;
 pub mod basis_trait; // Common trait for basis representations
 pub mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
+mod debug; // SPARSEIR_DEBUG switch for debug diagnostics
 pub mod dlr; // Discrete Lehmann Representation utilities
 pub mod fitters; // Least-squares fitters (real/complex matrices)
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
@@ -46,6 +48,7 @@ pub mod working_buffer; // Reusable working buffer for in-place operations
 // Re-export commonly used types and traits
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
 pub use basis_trait::Basis;
+pub use debug::is_debug_enabled;
 pub use dlr::{
     DiscreteLehmannRepresentation, DlrError, bosonic_single_pole, fermionic_single_pole,
     giwn_single_pole, gtau_single_pole,

@@ -13,11 +13,12 @@ use num_complex::Complex;
 use std::marker::PhantomData;
 
 /// Errors returned when constructing a [`DiscreteLehmannRepresentation`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DlrError {
     /// The number of default poles is less than the basis size. This can
     /// happen with certain kernel types (e.g., `RegularizedBoseKernel`) due
     /// to numerical precision limitations in root finding.
+    #[error("Number of default poles ({n_poles}) is less than the basis size ({basis_size})")]
     InsufficientDefaultPoles {
         /// Basis size.
         basis_size: usize,
@@ -26,6 +27,10 @@ pub enum DlrError {
     },
     /// The kernel does not support the requested statistics (e.g.
     /// `RegularizedBoseKernel` with fermionic statistics).
+    #[error(
+        "Kernel does not support the requested statistics: kernels with ypower = 1 \
+         (e.g. RegularizedBoseKernel) require bosonic statistics"
+    )]
     KernelStatisticsMismatch,
 }
 
