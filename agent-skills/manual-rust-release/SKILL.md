@@ -19,10 +19,12 @@ This repository uses a manual GitHub Actions workflow for the Rust release gate.
 
 ## Start The Workflow
 
+Replace `X.Y.Z` with the version being released.
+
 ```bash
 gh workflow run manual-release.yml \
   -f release_ref=main \
-  -f expected_version=0.8.1 \
+  -f expected_version=X.Y.Z \
   -f confirm_publish=true
 ```
 

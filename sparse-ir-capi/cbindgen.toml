@@ -9,8 +9,12 @@ cpp_compat = true
 header = "#pragma once\n"
 
 [export]
-# Include these types in the generated header
-# Note: c_complex is now added manually in build.rs for libsparseir compatibility
+# Types to emit even if no exported function uses them (none needed).
+# Complex arrays use `Complex64` ({double re; double im;}, defined in
+# src/lib.rs), which cbindgen emits because exported functions use it. The
+# header defines no `c_complex`: build.rs only runs cbindgen and does not
+# post-process its output. C++ code that expects libsparseir's `c_complex`
+# can alias it, as cxx_tests does (`using c_complex = Complex64;`).
 include = []
 
 # Exclude internal implementation details

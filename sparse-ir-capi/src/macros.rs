@@ -37,6 +37,8 @@ macro_rules! debug_eprintln {
 /// # Requirements
 /// - The type must implement `Clone`
 /// - The type name should follow the pattern `spir_*`
+/// - The invoking crate must depend on `paste`: the expansion calls
+///   `paste::paste!`
 ///
 /// # Generated functions
 /// - `spir_<TYPE>_release()` - Drops the object
@@ -45,16 +47,39 @@ macro_rules! debug_eprintln {
 /// - `_spir_<TYPE>_get_raw_ptr()` - Returns raw pointer for debugging
 ///
 /// # Example
-/// ```ignore
-/// // In types.rs
+/// ```
+/// use sparse_ir_capi::impl_opaque_type_common;
+///
+/// // Any `spir_` name that this library does not define already: the
+/// // generated functions are exported unmangled.
+/// #[allow(non_camel_case_types)]
 /// #[derive(Clone)]
 /// #[repr(C)]
-/// pub struct spir_kernel {
-///     inner: KernelType,
+/// pub struct spir_demo {
+///     value: f64,
 /// }
 ///
-/// // In kernel.rs
-/// impl_opaque_type_common!(kernel);
+/// // Defines spir_demo_release, spir_demo_clone, spir_demo_is_assigned and
+/// // _spir_demo_get_raw_ptr.
+/// impl_opaque_type_common!(demo);
+///
+/// let obj = Box::into_raw(Box::new(spir_demo { value: 1.5 }));
+/// assert_eq!(spir_demo_is_assigned(obj), 1);
+/// assert_eq!(_spir_demo_get_raw_ptr(obj), obj as *const std::ffi::c_void);
+///
+/// let copy = spir_demo_clone(obj);
+/// assert!(!copy.is_null() && copy != obj);
+/// // SAFETY: `copy` was just returned non-null by `spir_demo_clone`.
+/// assert_eq!(unsafe { (*copy).value }, 1.5);
+///
+/// spir_demo_release(copy);
+/// spir_demo_release(obj);
+///
+/// // NULL is accepted by every generated function.
+/// assert_eq!(spir_demo_is_assigned(std::ptr::null()), 0);
+/// assert!(spir_demo_clone(std::ptr::null()).is_null());
+/// assert!(_spir_demo_get_raw_ptr(std::ptr::null()).is_null());
+/// spir_demo_release(std::ptr::null_mut());
 /// ```
 #[macro_export]
 macro_rules! impl_opaque_type_common {
