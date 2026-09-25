@@ -634,7 +634,7 @@ where
             let pole = self.poles[idx[1]];
             let pole_weight = self.pole_weights[idx[1]];
 
-            // iν = i * π * (2n + ζ) / β
+            // iν = i * n * π / β, with n = freq.n() (odd for fermions, even for bosons)
             let iv = freq.value_imaginary(self.beta);
 
             // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight`

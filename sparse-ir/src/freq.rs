@@ -12,12 +12,40 @@ use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 
 /// Matsubara frequency for a specific statistics type
 ///
-/// This represents a Matsubara frequency ω_n = (2n + ζ)π/β where:
-/// - n is the Matsubara index (integer)
-/// - ζ is the statistics parameter (1 for fermionic, 0 for bosonic)
-/// - β is the inverse temperature
+/// This represents the Matsubara frequency ω = n π/β, where:
+/// - n is the stored integer (the *reduced* Matsubara frequency, returned by
+///   [`n`](Self::n)): odd for fermionic statistics (n = ±1, ±3, …) and even
+///   for bosonic statistics (n = 0, ±2, ±4, …)
+/// - β is the inverse temperature, passed to [`value`](Self::value) and
+///   [`value_imaginary`](Self::value_imaginary)
+///
+/// In terms of the conventional Matsubara index k of ω_k = (2k + ζ)π/β, with
+/// ζ = 1 for fermionic and ζ = 0 for bosonic statistics, the stored integer is
+/// n = 2k + ζ; it is *not* k itself. [`new`](Self::new) rejects an n whose
+/// parity does not match the statistics.
 ///
 /// The statistics type S is checked at compile time to ensure type safety.
+///
+/// # Examples
+/// ```
+/// use sparse_ir::{BosonicFreq, FermionicFreq};
+/// use std::f64::consts::PI;
+///
+/// let beta = 10.0;
+///
+/// // n = 1 is the lowest positive fermionic frequency, ω = π/β (k = 0).
+/// let w = FermionicFreq::new(1).unwrap();
+/// assert_eq!(w.n(), 1);
+/// assert!((w.value(beta) - PI / beta).abs() < 1e-15);
+///
+/// // n = 2 is the lowest positive bosonic frequency, ω = 2π/β (k = 1).
+/// let nu = BosonicFreq::new(2).unwrap();
+/// assert!((nu.value(beta) - 2.0 * PI / beta).abs() < 1e-15);
+///
+/// // The parity of n must match the statistics.
+/// assert!(FermionicFreq::new(2).is_err());
+/// assert!(BosonicFreq::new(1).is_err());
+/// ```
 #[derive(Debug, Clone, Copy)]
 pub struct MatsubaraFreq<S: StatisticsType> {
     n: i64,
@@ -29,7 +57,9 @@ pub type FermionicFreq = MatsubaraFreq<Fermionic>;
 pub type BosonicFreq = MatsubaraFreq<Bosonic>;
 
 impl<S: StatisticsType> MatsubaraFreq<S> {
-    /// Get the Matsubara index n
+    /// Get the reduced Matsubara frequency n, where ω = n π/β
+    ///
+    /// n is odd for fermionic and even for bosonic statistics.
     pub fn n(&self) -> i64 {
         self.n
     }
@@ -37,7 +67,8 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
     /// Create a new Matsubara frequency
     ///
     /// # Arguments
-    /// * `n` - The Matsubara index
+    /// * `n` - The reduced Matsubara frequency n of ω = n π/β: odd for
+    ///   fermionic statistics, even for bosonic statistics
     ///
     /// # Returns
     /// * `Ok(MatsubaraFreq)` if the frequency is valid for the statistics type
@@ -83,7 +114,7 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
         }
     }
 
-    /// Get the Matsubara index
+    /// Get the reduced Matsubara frequency n, where ω = n π/β (same as [`n`](Self::n))
     pub fn get_n(&self) -> i64 {
         self.n
     }
