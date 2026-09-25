@@ -324,7 +324,8 @@ fn run_integration_example_single<K, S>(
         sve.clone(),
         Some(epsilon),
         None,
-    );
+    )
+    .unwrap();
     let basis_size = basis.size();
     println!("  Basis size: {}", basis_size);
     println!();

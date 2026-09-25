@@ -5,6 +5,9 @@
 
 use std::sync::Arc;
 
+use crate::error::{
+    Error, require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
+};
 use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel};
 use crate::poly::{PiecewiseLegendrePolyVector, default_sampling_points};
 use crate::polyfourier::PiecewiseLegendreFTVector;
@@ -73,6 +76,29 @@ where
     uhat_full: Arc<PiecewiseLegendreFTVector<S>>,
 
     _phantom: std::marker::PhantomData<S>,
+}
+
+/// Check that `sve_result` is an SVE on [-1, 1] × [-1, 1], the domain of
+/// the kernels in the scaled variables x = 2τ/β - 1 and y = ω/ωmax
+///
+/// The tolerance is the one of the Fourier transform of the basis functions
+/// (`PiecewiseLegendreFT::new`), which requires the interval [-1, 1].
+fn check_unit_domain(sve_result: &SVEResult) -> Result<(), Error> {
+    let domain =
+        |funcs: &PiecewiseLegendrePolyVector| funcs.get_polys().first().map(|p| (p.xmin, p.xmax));
+    let (Some(u), Some(v)) = (domain(&sve_result.u), domain(&sve_result.v)) else {
+        return Err(Error::EmptyInput { name: "sve_result" });
+    };
+    let is_unit = |(lo, hi): (f64, f64)| (lo + 1.0).abs() <= 1e-12 && (hi - 1.0).abs() <= 1e-12;
+    if is_unit(u) && is_unit(v) {
+        Ok(())
+    } else {
+        Err(Error::InvalidParameter {
+            name: "sve_result",
+            value: format!("an SVE on [{:?}, {:?}] × [{:?}, {:?}]", u.0, u.1, v.0, v.1),
+            reason: "must be an SVE on [-1, 1] × [-1, 1]".to_string(),
+        })
+    }
 }
 
 impl<K, S> FiniteTempBasis<K, S>
@@ -186,7 +212,8 @@ where
     ///
     /// * `kernel` - Kernel implementing `KernelProperties + CentrosymmKernel`
     /// * `beta` - Inverse temperature (β > 0)
-    /// * `epsilon` - Accuracy parameter (optional, defaults to NaN for auto)
+    /// * `epsilon` - Accuracy of the basis, in (0, 1). `None` selects the best
+    ///   accuracy of the working precision (about 1.6e-16).
     /// * `max_size` - Maximum number of basis functions (optional). It limits
     ///   the basis, not the SVE: the SVE is computed and kept in full, as in
     ///   [`from_sve_result`](Self::from_sve_result) with an untruncated SVE.
@@ -197,17 +224,22 @@ where
     ///
     /// A new FiniteTempBasis
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `beta` is not positive or `max_size` is `Some(0)`.
-    pub fn new(kernel: K, beta: f64, epsilon: Option<f64>, max_size: Option<usize>) -> Self {
-        // Validate inputs
-        if beta <= 0.0 {
-            panic!("Inverse temperature beta must be positive, got {}", beta);
-        }
-        if max_size == Some(0) {
-            panic!("max_size must be positive, got 0");
-        }
+    /// * [`Error::InvalidParameter`] if `beta` is not positive and finite,
+    ///   `epsilon` is not in (0, 1), or `max_size` is `Some(0)`. These are
+    ///   checked before the SVE is computed.
+    /// * The errors of [`from_sve_result`](Self::from_sve_result)
+    pub fn new(
+        kernel: K,
+        beta: f64,
+        epsilon: Option<f64>,
+        max_size: Option<usize>,
+    ) -> Result<Self, Error> {
+        // Validate before the (expensive) SVE
+        require_positive_finite("beta", beta)?;
+        require_accuracy("epsilon", epsilon)?;
+        require_nonzero_size("max_size", max_size)?;
 
         // Compute the SVE without a size limit; `from_sve_result` truncates
         // only the basis to `max_size`. The default sampling points of a basis
@@ -243,13 +275,25 @@ where
     /// values only. `sve_result` is kept as given: the default sampling points
     /// and [`accuracy`](Self::accuracy) use its singular functions beyond the
     /// basis, so pass an untruncated SVE to get the points of SparseIR.jl.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::InvalidParameter`] if `beta` is not positive and finite,
+    ///   `epsilon` is not in [0, 1) (0 keeps every singular value), `max_size`
+    ///   is `Some(0)`, or `sve_result` is not an SVE on [-1, 1] × [-1, 1]
+    /// * [`Error::EmptyInput`] if `sve_result` has no singular functions
     pub fn from_sve_result(
         kernel: K,
         beta: f64,
         sve_result: SVEResult,
         epsilon: Option<f64>,
         max_size: Option<usize>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
+        require_positive_finite("beta", beta)?;
+        require_threshold("epsilon", epsilon)?;
+        require_nonzero_size("max_size", max_size)?;
+        check_unit_domain(&sve_result)?;
+
         // Get truncated u, s, v from SVE result
         let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size);
 
@@ -326,7 +370,7 @@ where
         let uhat_polyvec: Vec<_> = uhat_full.polyvec.iter().take(s.len()).cloned().collect();
         let uhat = PiecewiseLegendreFTVector::from_vector(uhat_polyvec);
 
-        Self {
+        Ok(Self {
             kernel,
             sve_result: Arc::new(sve_result),
             accuracy,
@@ -337,7 +381,7 @@ where
             uhat: Arc::new(uhat),
             uhat_full: Arc::new(uhat_full),
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the size of the basis (number of basis functions)

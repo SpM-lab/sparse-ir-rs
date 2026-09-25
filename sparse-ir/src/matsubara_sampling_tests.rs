@@ -25,7 +25,7 @@ fn test_matsubara_sampling_roundtrip_generic<S: StatisticsType + 'static>() {
 
     // Create basis
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Create symmetric Matsubara sampling points (positive and negative)
     let sampling_points = basis.default_matsubara_sampling_points(false);
@@ -81,7 +81,7 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
 
     // Create basis
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Use positive-only sampling points
     let sampling_points = basis.default_matsubara_sampling_points(true);
@@ -129,7 +129,7 @@ fn test_matsubara_sampling_dimensions() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let sampling_points = basis.default_matsubara_sampling_points(true);
 
@@ -161,7 +161,7 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let sampling_points = basis.default_matsubara_sampling_points(false); // Symmetric (positive and negative)
 
@@ -232,7 +232,7 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Use positive-only sampling points
     let sampling_points = basis.default_matsubara_sampling_points(true);
@@ -298,7 +298,7 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
 
     // Create basis
     let kernel = RegularizedBoseKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let basis_size = basis.size();
 
@@ -366,7 +366,7 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic() {
 
     // Create basis
     let kernel = RegularizedBoseKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let basis_size = basis.size();
 
@@ -442,7 +442,7 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
     let sampling = MatsubaraSampling::new(&basis);
 
     let basis_size = basis.size();
@@ -501,7 +501,7 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
     let sampling = MatsubaraSampling::new(&basis);
 
     let basis_size = basis.size();
@@ -560,7 +560,7 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
     let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
 
     let basis_size = basis.size();
@@ -615,7 +615,7 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
     let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
 
     let basis_size = basis.size();
@@ -685,7 +685,7 @@ fn test_matsubara_sampling_debug_parameters() {
     // FiniteTempBasis::new automatically computes SVE internally
     let eps = f64::EPSILON;
     let basisf: FiniteTempBasis<LogisticKernel, Fermionic> =
-        FiniteTempBasis::new(kernel, beta, Some(eps), None);
+        FiniteTempBasis::new(kernel, beta, Some(eps), None).unwrap();
 
     // Step 3: Create Matsubara sampling
     let matsf = MatsubaraSampling::new(&basisf);
@@ -762,7 +762,7 @@ fn check_positive_only_condition_number<S: StatisticsType + 'static>(
     use crate::test_utils::{assert_condition_number_close, oracle_condition_number, stack_re_im};
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
     let points = basis.default_matsubara_sampling_points(true);
     let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
 
@@ -781,7 +781,7 @@ fn check_full_condition_number<S: StatisticsType + 'static>(beta: f64, wmax: f64
     use crate::test_utils::{assert_condition_number_close, oracle_condition_number, realify};
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
     let points = basis.default_matsubara_sampling_points(false);
     let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
 
@@ -900,7 +900,7 @@ fn assert_rows_times<T>(
 /// unsorted points in debug builds only.
 fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None).unwrap();
     let l = basis.size();
     // The data are exact values of these coefficients, and the default
     // points give a condition number below 1e2, so a backward-stable fit
@@ -952,7 +952,7 @@ fn test_from_matrix_keeps_the_given_order_bosonic() {
 /// frequencies.
 fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>() {
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None).unwrap();
     let l = basis.size();
     let coeffs: Vec<f64> = (0..l).map(|j| 1.0 / (1.0 + j as f64)).collect();
     let coeffs_z: Vec<Complex<f64>> = coeffs.iter().map(|&c| Complex::new(c, 0.5 * c)).collect();
@@ -1015,7 +1015,8 @@ fn test_matsubara_nd_with_empty_batch() {
         1.0,
         Some(1e-6),
         None,
-    );
+    )
+    .unwrap();
     let sampling = MatsubaraSampling::new(&basis);
     let positive = MatsubaraSamplingPositiveOnly::new(&basis);
     let l = sampling.basis_size();
@@ -1084,7 +1085,8 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
         1.0,
         Some(1e-6),
         None,
-    );
+    )
+    .unwrap();
     let full = MatsubaraSampling::new(&basis);
     let positive = MatsubaraSamplingPositiveOnly::new(&basis);
 
@@ -1117,7 +1119,8 @@ fn test_matsubara_sampling_rejects_empty_sampling_points() {
         1.0,
         Some(1e-6),
         None,
-    );
+    )
+    .unwrap();
     MatsubaraSampling::with_sampling_points(&basis, vec![]);
 }
 
@@ -1129,7 +1132,8 @@ fn test_matsubara_sampling_positive_only_rejects_empty_sampling_points() {
         1.0,
         Some(1e-6),
         None,
-    );
+    )
+    .unwrap();
     MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, vec![]);
 }
 

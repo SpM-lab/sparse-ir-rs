@@ -66,7 +66,8 @@ fn test_dlr_construction_fermionic() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Create DLR with default poles
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
@@ -93,7 +94,8 @@ fn test_dlr_with_custom_poles() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let basis =
+        FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Custom poles within [-wmax, wmax]
     let poles = vec![-8.0, -3.0, 0.0, 3.0, 8.0];
@@ -152,7 +154,8 @@ where
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None);
+    let basis =
+        FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).unwrap();
 
@@ -247,7 +250,8 @@ fn test_dlr_basis_trait() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis_ir =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis_ir).unwrap();
 
     // Test Basis trait methods
@@ -288,7 +292,8 @@ fn test_dlr_with_tau_sampling() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis_ir =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Create DLR
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis_ir).unwrap();
@@ -322,7 +327,8 @@ fn test_dlr_regularized_bose_construction() {
 
     let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Create DLR with default poles
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
@@ -367,7 +373,8 @@ fn test_dlr_regularized_bose_with_custom_poles() {
 
     let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Custom poles within [-wmax, wmax]
     let poles = vec![-8.0, -3.0, 0.0, 3.0, 8.0];
@@ -424,7 +431,8 @@ fn test_dlr_regularized_bose_basis_functions_match_physical_kernel() {
     let wmax = 2.0;
     let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-10), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-10), None)
+            .unwrap();
     let poles = vec![-1.5, -0.4, 0.3, 1.8];
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, poles.clone()).unwrap();
 
@@ -484,7 +492,8 @@ where
 
     let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
 
@@ -560,7 +569,8 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
 
     let kernel = RegularizedBoseKernel::new(lambda).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
 
     let tau_points = basis.default_tau_sampling_points();
@@ -624,7 +634,8 @@ fn test_fermionic_dlr_tau_sampling_matrix_matches_stable_kernel() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
     let tau_points = basis.default_tau_sampling_points();
     let tau_sampling = TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points.clone());
@@ -675,7 +686,8 @@ fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
     let epsilon = 1e-12;
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let basis =
+        FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
     let tau_points = basis.default_tau_sampling_points();
     let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&dlr, tau_points.clone());
@@ -939,7 +951,8 @@ fn check_single_pole_matches_dlr_evaluate_tau<S: StatisticsType + 'static>() {
     let epsilon = 1e-10;
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None);
+    let basis =
+        FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None).unwrap();
     let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).unwrap();
     assert!(
         dlr.poles.iter().any(|&pole| pole > 0.0) && dlr.poles.iter().any(|&pole| pole < 0.0),
@@ -1107,7 +1120,7 @@ fn check_dlr_new_insufficient_default_poles<S: StatisticsType + 'static>() {
     let beta = 10.0;
     let wmax = 1.0;
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(1e-6), None);
+    let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(1e-6), None).unwrap();
     let basis_size = basis.size();
     assert_eq!(basis.default_omega_sampling_points().len(), basis_size);
 
@@ -1156,7 +1169,8 @@ fn test_dlr_regularized_bose_fermionic_is_kernel_statistics_mismatch() {
     let wmax = 10.0;
     let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Fermionic>::new(kernel, beta, Some(1e-6), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Fermionic>::new(kernel, beta, Some(1e-6), None)
+            .unwrap();
     // The default poles are sufficient, so `new` reaches the statistics check.
     assert!(basis.default_omega_sampling_points().len() >= basis.size());
 
@@ -1172,7 +1186,8 @@ fn test_dlr_regularized_bose_fermionic_is_kernel_statistics_mismatch() {
 
     // The same kernel with bosonic statistics is supported.
     let bosonic =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-6), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-6), None)
+            .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&bosonic, vec![-2.0, 0.5, 3.0])
         .unwrap();
     assert_eq!(dlr.poles, vec![-2.0, 0.5, 3.0]);
@@ -1216,7 +1231,8 @@ fn test_dlr_nd_with_empty_batch() {
         1.0,
         Some(1e-6),
         None,
-    );
+    )
+    .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
     let (l, n_poles) = (basis.size(), dlr.poles.len());
 
@@ -1255,7 +1271,8 @@ fn test_dlr_with_no_poles_is_an_error() {
         1.0,
         Some(1e-6),
         None,
-    );
+    )
+    .unwrap();
     let result = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&basis, vec![]);
     assert!(matches!(result, Err(Error::EmptyInput { name: "poles" })));
     assert_eq!(

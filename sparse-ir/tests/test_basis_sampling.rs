@@ -64,7 +64,8 @@ fn test_statistics<S: StatisticsType + 'static>(
             let kernel = LogisticKernel::new(lambda).unwrap();
             let basis = FiniteTempBasis::<LogisticKernel, S>::new(
                 kernel, beta, epsilon, None, // max_size: None means no limit
-            );
+            )
+            .unwrap();
 
             check_sampling_points::<S>(&basis, beta, wmax, epsilon);
         }
@@ -93,7 +94,8 @@ mod high_api_sampling_tests {
         // カーネルと基底の生成
         let lambda = beta * wmax;
         let kernel = LogisticKernel::new(lambda).unwrap();
-        let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(ir_tol), None);
+        let basis =
+            FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(ir_tol), None).unwrap();
 
         // Tau Sampling
         let tau_sampling_points = basis.default_tau_sampling_points();

@@ -181,12 +181,16 @@ extern "C" {
  * * Status code:
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
  *   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
- *     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
- *     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+ *     `beta`, `omega_max` or `epsilon` is not positive and finite,
+ *     `epsilon` is 1 or more, `max_size` is 0, the lambda of `k` differs
+ *     from `beta * omega_max` by more than 1e-10, or `sve` is not an SVE on
+ *     [-1, 1] × [-1, 1] (e.g. from `spir_sve_result_from_matrix` with other
+ *     segments)
  *   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
  *     `statistics` is fermionic: that kernel supports bosonic statistics
  *     only
- *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
+ *   - `SPIR_INTERNAL_ERROR` (-7) if the SVE cannot be computed (an SVD does
+ *     not converge) or an internal panic occurs
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
@@ -228,8 +232,9 @@ struct spir_basis *spir_basis_new(int statistics,
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
  *   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
  *     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
- *     `lambda` is not positive and finite, or `lambda` differs from
- *     `beta * omega_max` by more than 1e-10
+ *     `lambda` is not positive and finite, `epsilon` is 1 or more,
+ *     `max_size` is 0, `lambda` differs from `beta * omega_max` by more than
+ *     1e-10, or `sve` is not an SVE on [-1, 1] × [-1, 1]
  *   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
  *     and `statistics` is fermionic: that kernel supports bosonic statistics
  *     only

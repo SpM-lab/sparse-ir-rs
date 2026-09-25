@@ -443,7 +443,8 @@ fn test_uhat_asymptotic_branch_logistic_fermionic() {
             beta,
             Some(epsilon),
             None,
-        );
+        )
+        .unwrap();
         check_asymptotic_branch_matches_exact(&basis);
         check_uhat_high_frequency_tail(&basis);
     }
@@ -457,7 +458,8 @@ fn test_uhat_asymptotic_branch_logistic_bosonic() {
             beta,
             Some(epsilon),
             None,
-        );
+        )
+        .unwrap();
         check_asymptotic_branch_matches_exact(&basis);
         check_uhat_high_frequency_tail(&basis);
     }
@@ -470,7 +472,8 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
         10.0,
         Some(1e-10),
         None,
-    );
+    )
+    .unwrap();
     check_asymptotic_branch_matches_exact(&basis);
     check_uhat_high_frequency_tail(&basis);
 }
@@ -487,7 +490,8 @@ fn test_default_matsubara_points_need_functions_of_definite_parity() {
     let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
     assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
     let basis =
-        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None);
+        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
+            .unwrap();
     basis.default_matsubara_sampling_points(false);
 }
 

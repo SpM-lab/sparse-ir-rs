@@ -3,7 +3,9 @@
 #![allow(deprecated)]
 
 use crate::basis::{FermionicBasis, FiniteTempBasis};
+use crate::error::Error;
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};
+use crate::sve::{TworkType, compute_sve};
 use crate::traits::{Bosonic, Fermionic};
 
 #[test]
@@ -13,7 +15,7 @@ fn test_basis_construction() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(beta * omega_max).unwrap();
-    let basis = FermionicBasis::new(kernel, beta, Some(epsilon), None);
+    let basis = FermionicBasis::new(kernel, beta, Some(epsilon), None).unwrap();
 
     assert_eq!(basis.beta, beta);
     assert!((basis.omega_max() - omega_max).abs() < 1e-10);
@@ -22,20 +24,154 @@ fn test_basis_construction() {
     assert!(basis.accuracy < epsilon);
 }
 
-#[test]
-#[should_panic(expected = "beta must be positive")]
-fn test_negative_beta() {
-    let kernel = LogisticKernel::new(1.0).unwrap();
-    let _ = FermionicBasis::new(kernel, -1.0, None, None);
+fn invalid(name: &'static str, value: &str, reason: &str) -> Error {
+    Error::InvalidParameter {
+        name,
+        value: value.to_string(),
+        reason: reason.to_string(),
+    }
 }
 
+/// Invalid parameters are rejected before the SVE is computed. Before the
+/// change β ≤ 0 and max_size = 0 panicked, β = NaN gave a NaN basis, and
+/// ε ≥ 1 or ε = NaN panicked after the SVE (ε = 1 gave a basis of size 1).
 /// `max_size` limits the basis only (issue #285), so a zero `max_size` is
 /// rejected explicitly instead of by the SVE truncation.
 #[test]
-#[should_panic(expected = "max_size must be positive, got 0")]
-fn test_zero_max_size() {
+fn test_basis_new_rejects_invalid_parameters() {
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let _ = FermionicBasis::new(kernel, 10.0, Some(1e-10), Some(0));
+    let cases = [
+        (
+            -1.0,
+            None,
+            None,
+            invalid("beta", "-1.0", "must be positive and finite"),
+        ),
+        (
+            0.0,
+            None,
+            None,
+            invalid("beta", "0.0", "must be positive and finite"),
+        ),
+        (
+            f64::NAN,
+            None,
+            None,
+            invalid("beta", "NaN", "must be positive and finite"),
+        ),
+        (
+            f64::INFINITY,
+            None,
+            None,
+            invalid("beta", "inf", "must be positive and finite"),
+        ),
+        (
+            10.0,
+            Some(0.0),
+            None,
+            invalid("epsilon", "0.0", "must be in (0, 1)"),
+        ),
+        (
+            10.0,
+            Some(1.0),
+            None,
+            invalid("epsilon", "1.0", "must be in (0, 1)"),
+        ),
+        (
+            10.0,
+            Some(2.0),
+            None,
+            invalid("epsilon", "2.0", "must be in (0, 1)"),
+        ),
+        (
+            10.0,
+            Some(f64::NAN),
+            None,
+            invalid("epsilon", "NaN", "must be in (0, 1)"),
+        ),
+        (
+            10.0,
+            Some(1e-6),
+            Some(0),
+            invalid("max_size", "0", "must be positive"),
+        ),
+    ];
+    for (beta, epsilon, max_size, expected) in cases {
+        let start = std::time::Instant::now();
+        let err = FermionicBasis::new(kernel, beta, epsilon, max_size)
+            .err()
+            .expect("must be rejected");
+        assert_eq!(
+            err, expected,
+            "beta = {beta}, epsilon = {epsilon:?}, max_size = {max_size:?}"
+        );
+        // Rejected before the SVE, which takes far longer than this.
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(50),
+            "{expected}"
+        );
+    }
+}
+
+/// `from_sve_result` checks the same parameters, with `epsilon` as a
+/// truncation threshold: 0 keeps every singular value.
+#[test]
+fn test_basis_from_sve_result_checks_its_parameters() {
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve(kernel, 1e-6, None, None, TworkType::Auto);
+    let build = |beta, epsilon, max_size| {
+        FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
+            kernel,
+            beta,
+            sve.clone(),
+            epsilon,
+            max_size,
+        )
+    };
+    // FiniteTempBasis does not implement Debug, so take the error with err().
+    let rejected = |beta, epsilon, max_size| {
+        build(beta, epsilon, max_size)
+            .err()
+            .expect("must be rejected")
+    };
+    assert_eq!(
+        rejected(-1.0, None, None),
+        invalid("beta", "-1.0", "must be positive and finite")
+    );
+    assert_eq!(
+        rejected(10.0, Some(1.0), None),
+        invalid("epsilon", "1.0", "must be in [0, 1)")
+    );
+    assert_eq!(
+        rejected(10.0, Some(1e-6), Some(0)),
+        invalid("max_size", "0", "must be positive")
+    );
+    assert_eq!(build(10.0, Some(0.0), None).unwrap().size(), sve.s.len());
+}
+
+/// An SVE on another domain than [-1, 1] × [-1, 1] cannot define the basis:
+/// its Fourier transform panicked before the change.
+#[test]
+fn test_basis_from_sve_result_rejects_an_sve_on_another_domain() {
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let mut sve = compute_sve(kernel, 1e-6, None, None, TworkType::Auto);
+    let knots: Vec<f64> = sve.u.get_polys()[0].knots.iter().map(|x| 2.0 * x).collect();
+    sve.u = sve.u.rescale_domain(knots, None, None);
+    let err = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
+        kernel, 10.0, sve, None, None,
+    )
+    .err()
+    .expect("must be rejected");
+    assert!(
+        matches!(
+            err,
+            Error::InvalidParameter {
+                name: "sve_result",
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -46,7 +182,7 @@ fn test_default_tau_sampling_points_conditioning() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(lambda).unwrap();
-    let basis = FermionicBasis::new(kernel, beta, Some(epsilon), None);
+    let basis = FermionicBasis::new(kernel, beta, Some(epsilon), None).unwrap();
 
     println!("\n=== Default Tau Sampling Points Test ===");
     println!("Beta: {}, Lambda: {}, Epsilon: {}", beta, lambda, epsilon);
@@ -156,7 +292,8 @@ fn test_regularized_bose_basis_construction() {
 
     let kernel = RegularizedBoseKernel::new(beta * omega_max).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     assert_eq!(basis.beta, beta);
     assert!((basis.omega_max() - omega_max).abs() < 1e-10);
@@ -185,7 +322,8 @@ fn test_regularized_bose_basis_different_parameters() {
             beta,
             Some(epsilon),
             None,
-        );
+        )
+        .unwrap();
 
         assert_eq!(basis.beta, beta);
         assert!((basis.omega_max() - omega_max).abs() < 1e-10);
@@ -211,7 +349,8 @@ fn test_default_omega_sampling_points_fermionic() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     let omega_points = basis.default_omega_sampling_points();
 
@@ -241,7 +380,8 @@ fn test_default_omega_sampling_points_bosonic() {
     let epsilon = 1e-6;
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
-    let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let basis =
+        FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let omega_points = basis.default_omega_sampling_points();
 
@@ -272,7 +412,8 @@ fn test_omega_points_symmetry() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis_f =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
     let omega_points = basis_f.default_omega_sampling_points();
 
     // Check approximate symmetry: for each positive point, there should be a negative counterpart
@@ -318,7 +459,8 @@ fn test_regularized_bose_basis_represents_physical_kernel() {
     for &(beta, omega_max) in &[(10.0, 2.0), (4.0, 2.5), (20.0, 0.5)] {
         let kernel = RegularizedBoseKernel::new(beta * omega_max).unwrap();
         let basis =
-            FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None);
+            FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None)
+                .unwrap();
         let s = basis.s();
         for &tau in &[0.3, 0.37 * beta, 0.8 * beta] {
             let u = basis.u().evaluate_at(tau);
@@ -346,7 +488,8 @@ fn test_regularized_bose_basis_single_pole() {
     let (beta, omega_max, omega0) = (10.0, 2.0, 0.6);
     let kernel = RegularizedBoseKernel::new(beta * omega_max).unwrap();
     let basis =
-        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None);
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None)
+            .unwrap();
     let v = basis.v().evaluate_at(omega0);
     let gl: Vec<f64> = (0..basis.size())
         .map(|l| -basis.s()[l] * v[l] / omega0)

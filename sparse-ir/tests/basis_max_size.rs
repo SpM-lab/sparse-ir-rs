@@ -144,7 +144,8 @@ fn check_case<K, S>(
         group.beta,
         Some(group.eps),
         Some(case.max_size),
-    );
+    )
+    .unwrap();
     let label = format!(
         "{:?} Λ = {}, β = {}, ε = {:e}, {:?}, max_size = {}",
         group.kernel,

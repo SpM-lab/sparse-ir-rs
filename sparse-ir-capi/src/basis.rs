@@ -72,12 +72,16 @@ pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
 /// * Status code:
 ///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
 ///   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
-///     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
-///     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+///     `beta`, `omega_max` or `epsilon` is not positive and finite,
+///     `epsilon` is 1 or more, `max_size` is 0, the lambda of `k` differs
+///     from `beta * omega_max` by more than 1e-10, or `sve` is not an SVE on
+///     [-1, 1] × [-1, 1] (e.g. from `spir_sve_result_from_matrix` with other
+///     segments)
 ///   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
 ///     `statistics` is fermionic: that kernel supports bosonic statistics
 ///     only
-///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
+///   - `SPIR_INTERNAL_ERROR` (-7) if the SVE cannot be computed (an SVD does
+///     not converge) or an internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure `status` is a valid pointer.
@@ -158,7 +162,8 @@ pub extern "C" fn spir_basis_new(
                     )
                 } else {
                     FiniteTempBasis::new(**logistic, beta, Some(epsilon), max_size_opt)
-                };
+                }
+                .map_err(|e| status_from(&e))?;
                 Ok(Box::into_raw(Box::new(spir_basis::new_logistic_fermionic(
                     basis,
                 ))))
@@ -175,7 +180,8 @@ pub extern "C" fn spir_basis_new(
                     )
                 } else {
                     FiniteTempBasis::new(**logistic, beta, Some(epsilon), max_size_opt)
-                };
+                }
+                .map_err(|e| status_from(&e))?;
                 Ok(Box::into_raw(Box::new(spir_basis::new_logistic_bosonic(
                     basis,
                 ))))
@@ -199,7 +205,8 @@ pub extern "C" fn spir_basis_new(
                     )
                 } else {
                     FiniteTempBasis::new(**reg_bose, beta, Some(epsilon), max_size_opt)
-                };
+                }
+                .map_err(|e| status_from(&e))?;
                 Ok(Box::into_raw(Box::new(
                     spir_basis::new_regularized_bose_bosonic(basis),
                 )))
@@ -257,8 +264,9 @@ pub extern "C" fn spir_basis_new(
 ///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
 ///   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
 ///     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
-///     `lambda` is not positive and finite, or `lambda` differs from
-///     `beta * omega_max` by more than 1e-10
+///     `lambda` is not positive and finite, `epsilon` is 1 or more,
+///     `max_size` is 0, `lambda` differs from `beta * omega_max` by more than
+///     1e-10, or `sve` is not an SVE on [-1, 1] × [-1, 1]
 ///   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
 ///     and `statistics` is fermionic: that kernel supports bosonic statistics
 ///     only
@@ -375,7 +383,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                         sve_result,
                         Some(epsilon),
                         max_size_opt,
-                    );
+                    )
+                    .map_err(|e| status_from(&e))?;
                 Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
                     spir_basis::new_logistic_fermionic(basis),
                 )))
@@ -387,7 +396,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                         sve_result,
                         Some(epsilon),
                         max_size_opt,
-                    );
+                    )
+                    .map_err(|e| status_from(&e))?;
                 Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
                     spir_basis::new_logistic_bosonic(basis),
                 )))
@@ -411,7 +421,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                         sve_result,
                         Some(epsilon),
                         max_size_opt,
-                    );
+                    )
+                    .map_err(|e| status_from(&e))?;
                 Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
                     spir_basis::new_regularized_bose_bosonic(basis),
                 )))
@@ -1901,6 +1912,59 @@ mod tests {
             spir_sve_result_release(sve);
             spir_kernel_release(kernel);
         }
+    }
+
+    /// max_size = 0 and epsilon > 1 were core panics (SPIR_INTERNAL_ERROR, -7),
+    /// and epsilon = 1 gave a basis of size 1. All are invalid arguments now.
+    #[test]
+    fn test_basis_new_from_sve_and_regularizer_rejects_invalid_sizes() {
+        use crate::{
+            SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_TWORK_AUTO,
+            spir_funcs_from_piecewise_legendre, spir_funcs_release,
+        };
+        let (lambda, beta) = (10.0, 1.0);
+        let omega_max = lambda / beta;
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(lambda, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let sve = spir_sve_result_new(kernel, 1e-8, -1, -1, SPIR_TWORK_AUTO, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let (segments, coeffs) = ([-omega_max, omega_max], [1.0]);
+        let regularizer = spir_funcs_from_piecewise_legendre(
+            segments.as_ptr(),
+            1,
+            coeffs.as_ptr(),
+            1,
+            0,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        for (epsilon, max_size) in [(1e-8, 0), (1.0, -1), (2.0, -1)] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new_from_sve_and_regularizer(
+                1,
+                beta,
+                omega_max,
+                epsilon,
+                lambda,
+                0,
+                1.0,
+                sve,
+                regularizer,
+                max_size,
+                &mut status,
+            );
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "epsilon = {epsilon}, max_size = {max_size}"
+            );
+            assert!(basis.is_null());
+        }
+
+        spir_funcs_release(regularizer);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
     }
 
     #[test]

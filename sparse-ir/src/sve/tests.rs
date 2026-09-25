@@ -827,8 +827,8 @@ fn test_basis_with_max_size_one() {
 
     fn check<S: StatisticsType + 'static>() {
         let (beta, kernel) = (10.0, LogisticKernel::new(10.0).unwrap());
-        let full = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), None);
-        let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), Some(1));
+        let full = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), None).unwrap();
+        let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), Some(1)).unwrap();
         assert_eq!(basis.size(), 1);
         assert_eq!(basis.s(), &full.s()[..1]);
         for tau in [0.0, 0.3 * beta, beta] {

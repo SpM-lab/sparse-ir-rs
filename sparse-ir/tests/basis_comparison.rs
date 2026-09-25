@@ -353,8 +353,8 @@ fn test_basis_size_lambda_10_beta_1() {
     let ref_data = BasisReferenceData::load(10.0, 1.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
-    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
+    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     println!(
         "Fermionic basis size: {} (expected {})",
@@ -384,7 +384,7 @@ fn test_basis_singular_values_lambda_10_beta_1() {
     let ref_data = BasisReferenceData::load(10.0, 1.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     println!("\nSingular values comparison:");
     println!("  i    Rust              Julia             |diff|");
@@ -416,7 +416,7 @@ fn test_basis_u_tau_lambda_10_beta_1() {
     let ref_data = BasisReferenceData::load(10.0, 1.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     println!("\nu(tau) comparison (first 3 basis functions):");
 
@@ -450,7 +450,7 @@ fn test_basis_v_omega_lambda_10_beta_1() {
     let ref_data = BasisReferenceData::load(10.0, 1.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     println!("\nv(omega) comparison (first 3 basis functions):");
 
@@ -484,7 +484,7 @@ fn test_basis_uhat_wn_fermionic_lambda_10_beta_1() {
     let ref_data = BasisReferenceData::load(10.0, 1.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     println!("\nuhat(wn) comparison for Fermionic (first 3 basis functions):");
 
@@ -520,7 +520,7 @@ fn test_basis_uhat_wn_bosonic_lambda_10_beta_1() {
     let ref_data = BasisReferenceData::load(10.0, 1.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     println!("\nuhat(wn) comparison for Bosonic (first 3 basis functions):");
 
@@ -560,8 +560,8 @@ fn test_basis_size_lambda_1000_beta_100() {
     let ref_data = BasisReferenceData::load(1000.0, 100.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
-    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
+    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     println!("\nbeta=100, lambda=1000 (omega_max=10):");
     println!(
@@ -592,8 +592,8 @@ fn test_basis_uhat_wn_lambda_1000_beta_100() {
     let ref_data = BasisReferenceData::load(1000.0, 100.0).unwrap();
 
     let kernel = LogisticKernel::new(ref_data.lambda).unwrap();
-    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
-    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None);
+    let basis_f = FermionicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
+    let basis_b = BosonicBasis::new(kernel, ref_data.beta, Some(ref_data.epsilon), None).unwrap();
 
     let tol = 1e-10;
 

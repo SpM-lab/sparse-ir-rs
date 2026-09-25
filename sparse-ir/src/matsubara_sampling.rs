@@ -361,7 +361,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// let beta = 10.0;
     /// let wmax = 1.0;
-    /// let basis = FermionicBasis::new(LogisticKernel::new(beta * wmax).unwrap(), beta, Some(1e-6), None);
+    /// let basis = FermionicBasis::new(LogisticKernel::new(beta * wmax).unwrap(), beta, Some(1e-6), None).unwrap();
     /// let sampling = MatsubaraSampling::new(&basis);
     /// let (size, n_points) = (sampling.basis_size(), sampling.n_sampling_points());
     ///

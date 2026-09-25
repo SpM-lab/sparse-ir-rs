@@ -10,7 +10,8 @@ fn test_basis_trait_fermionic() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test Basis trait methods
     assert_eq!(basis.beta(), beta);
@@ -45,7 +46,8 @@ fn test_basis_trait_omega_sampling() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test omega sampling via Basis trait
     let omega_points = basis.default_omega_sampling_points();
@@ -73,12 +75,14 @@ fn test_basis_trait_generic() {
 
     let kernel_f = LogisticKernel::new(beta * wmax).unwrap();
     let basis_f =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel_f, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel_f, beta, Some(epsilon), None)
+            .unwrap();
     check_basis(&basis_f);
 
     let kernel_b = LogisticKernel::new(beta * wmax).unwrap();
     let basis_b =
-        FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel_b, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel_b, beta, Some(epsilon), None)
+            .unwrap();
     check_basis(&basis_b);
 }
 
@@ -90,7 +94,8 @@ fn test_basis_trait_evaluate_tau() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test evaluate_tau via Basis trait
     let tau_points = vec![0.0, beta / 4.0, beta / 2.0, 3.0 * beta / 4.0, beta];
@@ -123,7 +128,8 @@ fn test_basis_trait_evaluate_matsubara() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test evaluate_matsubara via Basis trait
     // For fermions, n must be odd
