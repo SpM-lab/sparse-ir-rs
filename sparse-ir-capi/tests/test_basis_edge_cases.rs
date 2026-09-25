@@ -422,3 +422,34 @@ fn sve_result_from_matrix_rejects_a_matrix_of_rank_zero() {
     assert_eq!(status, SPIR_INVALID_ARGUMENT);
     assert!(sve.is_null());
 }
+
+/// epsilon >= 1 is rejected before the matrix is decomposed. The matrix has
+/// one row more than its segments and Gauss points describe: if the SVD ran,
+/// removing the Gauss weights would index past them and panic
+/// (SPIR_INTERNAL_ERROR, -7), which is what happened before the check moved
+/// ahead of the SVD.
+#[test]
+fn sve_result_from_matrix_rejects_epsilon_of_one_or_more_before_the_svd() {
+    let m = logistic_full_domain_matrix();
+    let mut k_high = m.k_high.clone();
+    k_high.extend(std::iter::repeat_n(0.0, m.ny)); // one extra row
+    for epsilon in [1.0, 2.0] {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_from_matrix(
+            k_high.as_ptr(),
+            ptr::null(),
+            (m.nx + 1) as i32,
+            m.ny as i32,
+            SPIR_ORDER_ROW_MAJOR,
+            m.segs_x.as_ptr(),
+            (m.segs_x.len() - 1) as i32,
+            m.segs_y.as_ptr(),
+            (m.segs_y.len() - 1) as i32,
+            m.n_gauss as i32,
+            epsilon,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "epsilon = {epsilon}");
+        assert!(sve.is_null());
+    }
+}

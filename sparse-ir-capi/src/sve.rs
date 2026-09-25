@@ -512,7 +512,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
         return std::ptr::null_mut();
     }
 
-    if epsilon <= 0.0 || !epsilon.is_finite() {
+    // epsilon >= 1 is invalid for an SVE; reject it before the SVD
+    if epsilon <= 0.0 || epsilon >= 1.0 || !epsilon.is_finite() {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -835,7 +836,8 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         return std::ptr::null_mut();
     }
 
-    if epsilon <= 0.0 || !epsilon.is_finite() {
+    // epsilon >= 1 is invalid for an SVE; reject it before the SVD
+    if epsilon <= 0.0 || epsilon >= 1.0 || !epsilon.is_finite() {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -2115,5 +2117,40 @@ mod tests {
         let (status, sve) = sve_from_reduced_matrices(&m, &zeros, &zeros, None, &m.segs_x);
         assert_eq!(status, SPIR_INVALID_ARGUMENT);
         assert!(sve.is_null());
+    }
+
+    /// epsilon >= 1 is rejected before the matrices are decomposed: with one
+    /// row more than the segments describe, the SVD path would index past the
+    /// Gauss weights and panic (SPIR_INTERNAL_ERROR, -7).
+    #[test]
+    fn test_sve_result_from_matrix_centrosymmetric_rejects_epsilon_before_the_svd() {
+        let m = logistic_kernel_matrices();
+        let extend = |k: &[f64]| {
+            let mut k = k.to_vec();
+            k.extend(std::iter::repeat_n(0.0, m.ny)); // one extra row
+            k
+        };
+        let (k_even, k_odd) = (extend(&m.even), extend(&m.odd));
+        for epsilon in [1.0, 2.0] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix_centrosymmetric(
+                k_even.as_ptr(),
+                ptr::null(),
+                k_odd.as_ptr(),
+                ptr::null(),
+                (m.nx + 1) as libc::c_int,
+                m.ny as libc::c_int,
+                SPIR_ORDER_ROW_MAJOR,
+                m.segs_x.as_ptr(),
+                (m.segs_x.len() - 1) as libc::c_int,
+                m.segs_y.as_ptr(),
+                (m.segs_y.len() - 1) as libc::c_int,
+                m.n_gauss,
+                epsilon,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "epsilon = {epsilon}");
+            assert!(sve.is_null());
+        }
     }
 }
