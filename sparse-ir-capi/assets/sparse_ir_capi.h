@@ -1704,7 +1704,10 @@ StatusCode spir_sampling_fit_zd(const struct spir_sampling *s,
  * # Note
  * Parameters `lmax` and `n_gauss` are accepted for libsparseir compatibility but
  * currently ignored. The Rust implementation automatically determines optimal values.
- * The cutoff is automatically set to 2*sqrt(machine_epsilon) internally.
+ * The singular value truncation cutoff is automatically set to 2 * machine epsilon
+ * of the working precision (about 4.44e-16 for Float64 and 4.93e-32 for Float64x2),
+ * as in libsparseir: singular values smaller than this cutoff times the largest
+ * singular value are discarded.
  */
 
 struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,

@@ -564,3 +564,82 @@ fn test_compute_sve_general_non_centrosymmetric_kernel() {
         );
     }
 }
+
+/// Pin the default truncation cutoff of both SVE paths to `2 * u_work`
+/// (issue #249), `u_work` being the machine epsilon of the working precision,
+/// as in libsparseir
+///
+/// The cases are chosen so that the cutoff is observable: an odd-sector
+/// singular value lies at about 1.4 u_work s_0, between u_work s_0 and
+/// 2 u_work s_0 (found by scanning lambda; the geometric centre of that window
+/// is sqrt(2) u_work s_0), so `compute_sve` keeps one more singular value with
+/// cutoff `u_work` than with `2 * u_work`. That value is also about 14 u_work
+/// times the largest odd-sector singular value, well above the accuracy floor
+/// of its SVD block, so its position is stable across platforms.
+///
+/// `compute_sve_general` computes a single SVD block whose truncated SVD
+/// already drops singular values below `2 * u_work * s_0`, so a smaller default
+/// cutoff would not be observable there; the test still pins that its default
+/// equals an explicit `2 * u_work` and keeps as many values as `compute_sve`.
+fn assert_default_cutoff_is_two_machine_epsilon<K>(kernel: K, epsilon: f64, twork: TworkType)
+where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+{
+    let u_work = working_machine_epsilon(epsilon, twork);
+
+    let explicit_2u = compute_sve(kernel.clone(), epsilon, Some(2.0 * u_work), None, twork);
+    let explicit_u = compute_sve(kernel.clone(), epsilon, Some(u_work), None, twork);
+    assert_eq!(
+        explicit_u.s.len(),
+        explicit_2u.s.len() + 1,
+        "precondition: exactly one singular value must lie in [u, 2u) s_0 so that the \
+         cutoff is observable (eps={epsilon:e}, twork={twork:?}); choose another lambda"
+    );
+
+    let centro_default = compute_sve(kernel.clone(), epsilon, None, None, twork);
+    assert_eq!(
+        centro_default.s, explicit_2u.s,
+        "compute_sve default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
+    );
+
+    let general_2u = compute_sve_general(kernel.clone(), epsilon, Some(2.0 * u_work), None, twork);
+    let general_default = compute_sve_general(kernel, epsilon, None, None, twork);
+    assert_eq!(
+        general_default.s, general_2u.s,
+        "compute_sve_general default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
+    );
+    assert_eq!(
+        general_default.s.len(),
+        centro_default.s.len(),
+        "both paths must keep the same number of singular values by default \
+         (eps={epsilon:e}, twork={twork:?})"
+    );
+}
+
+#[test]
+fn test_default_cutoff_is_two_machine_epsilon_logistic() {
+    assert_default_cutoff_is_two_machine_epsilon(
+        LogisticKernel::new(1.48),
+        1e-6,
+        TworkType::Float64,
+    );
+    assert_default_cutoff_is_two_machine_epsilon(
+        LogisticKernel::new(1.37),
+        1e-10,
+        TworkType::Float64X2,
+    );
+}
+
+#[test]
+fn test_default_cutoff_is_two_machine_epsilon_regularized_bose() {
+    assert_default_cutoff_is_two_machine_epsilon(
+        RegularizedBoseKernel::new(1.48),
+        1e-6,
+        TworkType::Float64,
+    );
+    assert_default_cutoff_is_two_machine_epsilon(
+        RegularizedBoseKernel::new(1.37),
+        1e-10,
+        TworkType::Float64X2,
+    );
+}
