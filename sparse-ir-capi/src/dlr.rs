@@ -36,12 +36,28 @@ fn dlr_error_status(err: &DlrError) -> StatusCode {
 
 /// Creates a new DLR from an IR basis with default poles
 ///
+/// The default poles are the default real-frequency sampling points of `b`
+/// (see `spir_basis_get_default_ws`).
+///
 /// # Arguments
-/// * `b` - Pointer to a finite temperature basis object
-/// * `status` - Pointer to store the status code
+/// * `b` - Pointer to a finite temperature (IR) basis object
+/// * `status` - Pointer to store the status code (may be NULL, in which case
+///   no status is written)
 ///
 /// # Returns
-/// Pointer to the newly created DLR basis object, or NULL if creation fails
+/// * Pointer to the newly created DLR basis object, or NULL on failure. The
+///   caller owns it and must release it with `spir_basis_release`.
+/// * Status code:
+///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `b` is NULL or already a DLR, or if
+///     `b` has fewer default poles than basis functions
+///     (`spir_basis_get_n_default_ws` < `spir_basis_get_size`). Root finding
+///     can lose poles, e.g. for `RegularizedBoseKernel` at large lambda; pass
+///     the poles explicitly with `spir_dlr_new_with_poles` instead.
+///   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
+///     statistics (`RegularizedBoseKernel` with fermionic statistics). The
+///     basis constructors already reject this combination.
+///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Safety
 /// Caller must ensure `b` is a valid IR basis pointer
@@ -125,13 +141,23 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
 /// Creates a new DLR with custom poles
 ///
 /// # Arguments
-/// * `b` - Pointer to a finite temperature basis object
-/// * `npoles` - Number of poles to use
-/// * `poles` - Array of pole locations on the real-frequency axis
-/// * `status` - Pointer to store the status code
+/// * `b` - Pointer to a finite temperature (IR) basis object
+/// * `npoles` - Number of poles to use (must be > 0)
+/// * `poles` - Array of `npoles` pole locations on the real-frequency axis
+/// * `status` - Pointer to store the status code (may be NULL, in which case
+///   no status is written)
 ///
 /// # Returns
-/// Pointer to the newly created DLR basis object, or NULL if creation fails
+/// * Pointer to the newly created DLR basis object, or NULL on failure. The
+///   caller owns it and must release it with `spir_basis_release`.
+/// * Status code:
+///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `b` or `poles` is NULL, `npoles <= 0`,
+///     or `b` is already a DLR
+///   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
+///     statistics (`RegularizedBoseKernel` with fermionic statistics). The
+///     basis constructors already reject this combination.
+///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Safety
 /// Caller must ensure `b` is valid and `poles` has `npoles` elements
@@ -783,5 +809,251 @@ mod tests {
             crate::sve::spir_sve_result_release(sve);
             crate::kernel::spir_kernel_release(kernel);
         }
+    }
+
+    // ------------------------------------------------------------------------
+    // Status codes of the DLR constructors (#237)
+    // ------------------------------------------------------------------------
+
+    use crate::basis::{spir_basis_get_n_default_ws, spir_basis_get_size, spir_basis_release};
+    use crate::kernel::spir_kernel_release;
+    use crate::{SPIR_INTERNAL_ERROR, SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
+    use sparse_ir::basis::FiniteTempBasis;
+    use sparse_ir::kernel::{
+        CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel,
+    };
+    use sparse_ir::poly::PiecewiseLegendrePolyVector;
+    use sparse_ir::sve::{SVEResult, TworkType, compute_sve};
+    use sparse_ir::traits::{Bosonic, Fermionic};
+    use std::ptr;
+
+    /// Every `DlrError` variant maps to its documented status code.
+    #[test]
+    fn test_dlr_error_status_mapping() {
+        let insufficient = DlrError::InsufficientDefaultPoles {
+            basis_size: 6,
+            n_poles: 3,
+        };
+        assert_eq!(dlr_error_status(&insufficient), SPIR_INVALID_ARGUMENT);
+        assert_eq!(
+            dlr_error_status(&DlrError::KernelStatisticsMismatch),
+            SPIR_NOT_SUPPORTED
+        );
+    }
+
+    /// Basis size of the bases built from [`sve_with_too_few_default_poles`].
+    const TRUNCATED_BASIS_SIZE: usize = 6;
+
+    /// The SVE result of `kernel`, truncated to `TRUNCATED_BASIS_SIZE`
+    /// singular values, with every right singular function replaced by v_0.
+    ///
+    /// A basis built from it uses all of its functions, so its default
+    /// real-frequency sampling points (the default DLR poles) are the extrema
+    /// of v_0 plus two outer points: 3 instead of `TRUNCATED_BASIS_SIZE`. The
+    /// `RegularizedBoseKernel` case reported in #114 (lambda = 1e4,
+    /// epsilon = 1e-12) no longer loses poles, and no other kernel reachable
+    /// through the C API is known to, hence the synthetic SVE result.
+    fn sve_with_too_few_default_poles<K>(kernel: K) -> SVEResult
+    where
+        K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    {
+        let SVEResult { u, s, v, epsilon } =
+            compute_sve(kernel, 1e-6, None, None, TworkType::Float64);
+        assert!(s.len() > TRUNCATED_BASIS_SIZE);
+        let v0 = v.get_polys()[0].clone();
+        SVEResult::new(
+            u,
+            s[..TRUNCATED_BASIS_SIZE].to_vec(),
+            PiecewiseLegendrePolyVector::new(vec![v0; TRUNCATED_BASIS_SIZE]),
+            epsilon,
+        )
+    }
+
+    /// `spir_dlr_new` on a basis with fewer default poles than basis functions
+    /// must return `SPIR_INVALID_ARGUMENT` and NULL, not panic.
+    fn check_dlr_new_insufficient_default_poles(basis: *mut spir_basis, case: &str) {
+        // The trigger, observed through the C API.
+        let mut size = -1;
+        assert_eq!(
+            spir_basis_get_size(basis, &mut size),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        assert_eq!(size, TRUNCATED_BASIS_SIZE as libc::c_int, "{}", case);
+        let mut n_default_ws = -1;
+        assert_eq!(
+            spir_basis_get_n_default_ws(basis, &mut n_default_ws),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        assert!(
+            (0..size).contains(&n_default_ws),
+            "{}: expected fewer default poles than basis functions, got {} for size {}",
+            case,
+            n_default_ws,
+            size
+        );
+
+        let mut status = SPIR_COMPUTATION_SUCCESS;
+        let dlr = spir_dlr_new(basis, &mut status);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "{}", case);
+        assert!(dlr.is_null(), "{}", case);
+
+        // Without a status pointer the failure is still reported by NULL.
+        assert!(spir_dlr_new(basis, ptr::null_mut()).is_null(), "{}", case);
+
+        // Only the default poles are missing: explicit poles still work.
+        let poles: Vec<f64> = (0..size)
+            .map(|i| -0.9 + 1.8 * i as f64 / (size - 1) as f64)
+            .collect();
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new_with_poles(basis, size, poles.as_ptr(), &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{}", case);
+        assert!(!dlr.is_null(), "{}", case);
+        let mut npoles = -1;
+        assert_eq!(
+            spir_dlr_get_npoles(dlr, &mut npoles),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        assert_eq!(npoles, size, "{}", case);
+        spir_basis_release(dlr);
+    }
+
+    #[test]
+    fn test_dlr_new_insufficient_default_poles_status() {
+        let beta = 10.0;
+        let lambda = 10.0; // wmax = 1
+
+        let kernel = LogisticKernel::new(lambda);
+        let sve = sve_with_too_few_default_poles(kernel);
+        let fermionic: FiniteTempBasis<LogisticKernel, Fermionic> =
+            FiniteTempBasis::from_sve_result(kernel, beta, sve.clone(), Some(1e-6), None);
+        let bosonic: FiniteTempBasis<LogisticKernel, Bosonic> =
+            FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None);
+
+        let kernel = RegularizedBoseKernel::new(lambda);
+        let sve = sve_with_too_few_default_poles(kernel);
+        let reg_bose: FiniteTempBasis<RegularizedBoseKernel, Bosonic> =
+            FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None);
+
+        let handles = [
+            (
+                "LogisticKernel, fermionic",
+                spir_basis::new_logistic_fermionic(fermionic),
+            ),
+            (
+                "LogisticKernel, bosonic",
+                spir_basis::new_logistic_bosonic(bosonic),
+            ),
+            (
+                "RegularizedBoseKernel, bosonic",
+                spir_basis::new_regularized_bose_bosonic(reg_bose),
+            ),
+        ];
+        for (case, basis) in handles {
+            let basis = Box::into_raw(Box::new(basis));
+            check_dlr_new_insufficient_default_poles(basis, case);
+            spir_basis_release(basis);
+        }
+    }
+
+    /// A `RegularizedBoseKernel` basis with fermionic statistics must be
+    /// rejected with `SPIR_NOT_SUPPORTED` by both DLR constructors, not panic
+    /// in the fermionic regularizer.
+    #[test]
+    fn test_dlr_rejects_fermionic_regularized_bose_status() {
+        let beta = 1.0;
+        let lambda = 10.0;
+        let ir_basis: FiniteTempBasis<RegularizedBoseKernel, Fermionic> =
+            FiniteTempBasis::new(RegularizedBoseKernel::new(lambda), beta, Some(1e-6), None);
+        // The C basis constructors reject this combination (#241), so build
+        // the handle directly to reach the defensive dispatch arms.
+        let basis = Box::into_raw(Box::new(spir_basis::new_regularized_bose_fermionic(
+            ir_basis,
+        )));
+
+        let mut status = SPIR_COMPUTATION_SUCCESS;
+        let dlr = spir_dlr_new(basis, &mut status);
+        assert_eq!(status, SPIR_NOT_SUPPORTED);
+        assert!(dlr.is_null());
+
+        let poles = [-2.0, 0.5, 3.0];
+        let mut status = SPIR_COMPUTATION_SUCCESS;
+        let dlr = spir_dlr_new_with_poles(
+            basis,
+            poles.len() as libc::c_int,
+            poles.as_ptr(),
+            &mut status,
+        );
+        assert_eq!(status, SPIR_NOT_SUPPORTED);
+        assert!(dlr.is_null());
+
+        spir_basis_release(basis);
+    }
+
+    /// The argument checks documented for both DLR constructors.
+    #[test]
+    fn test_dlr_constructors_reject_invalid_arguments() {
+        let poles = [-0.5, 0.5];
+        let expect_invalid = |dlr: *mut spir_basis, status: StatusCode, case: &str| {
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "{}", case);
+            assert!(dlr.is_null(), "{}", case);
+        };
+
+        let mut status = SPIR_COMPUTATION_SUCCESS;
+        let dlr = spir_dlr_new(ptr::null(), &mut status);
+        expect_invalid(dlr, status, "spir_dlr_new with NULL basis");
+
+        let mut status = SPIR_COMPUTATION_SUCCESS;
+        let dlr = spir_dlr_new_with_poles(ptr::null(), 2, poles.as_ptr(), &mut status);
+        expect_invalid(dlr, status, "spir_dlr_new_with_poles with NULL basis");
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        for statistics in [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new(
+                statistics,
+                10.0,
+                1.0,
+                1e-6,
+                kernel,
+                ptr::null(),
+                -1,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+            let mut status = SPIR_COMPUTATION_SUCCESS;
+            let dlr = spir_dlr_new_with_poles(basis, 2, ptr::null(), &mut status);
+            expect_invalid(dlr, status, "spir_dlr_new_with_poles with NULL poles");
+
+            for npoles in [0, -1] {
+                let mut status = SPIR_COMPUTATION_SUCCESS;
+                let dlr = spir_dlr_new_with_poles(basis, npoles, poles.as_ptr(), &mut status);
+                expect_invalid(
+                    dlr,
+                    status,
+                    &format!("spir_dlr_new_with_poles with npoles = {}", npoles),
+                );
+            }
+
+            // A DLR is not an IR basis.
+            let mut status = SPIR_INTERNAL_ERROR;
+            let dlr = spir_dlr_new(basis, &mut status);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(!dlr.is_null());
+
+            let mut status = SPIR_COMPUTATION_SUCCESS;
+            let dlr_of_dlr = spir_dlr_new(dlr, &mut status);
+            expect_invalid(dlr_of_dlr, status, "spir_dlr_new on a DLR");
+
+            let mut status = SPIR_COMPUTATION_SUCCESS;
+            let dlr_of_dlr = spir_dlr_new_with_poles(dlr, 2, poles.as_ptr(), &mut status);
+            expect_invalid(dlr_of_dlr, status, "spir_dlr_new_with_poles on a DLR");
+
+            spir_basis_release(dlr);
+            spir_basis_release(basis);
+        }
+        spir_kernel_release(kernel);
     }
 }

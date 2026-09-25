@@ -18,7 +18,7 @@ use std::sync::Arc;
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, SamplingType, is_in_domain, spir_basis, spir_sampling, tau_domain};
 use crate::utils::{
-    MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd,
+    MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd, validate_dims,
     validate_transform_dims,
 };
 use crate::{
@@ -111,6 +111,11 @@ pub extern "C" fn spir_sampling_is_assigned(obj: *const spir_sampling) -> i32 {
 /// - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, or a
 ///   point is NaN, infinite or outside [-β, β]
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// The points may be in any order, and the sampling object keeps it:
+/// `spir_sampling_get_taus` returns `points` unchanged, and index i along the
+/// sampling-point axis of the evaluate and fit functions refers to
+/// `points[i]`.
 ///
 /// # Safety
 /// Caller must ensure `b` is valid and `points` has `num_points` elements
@@ -238,6 +243,11 @@ pub extern "C" fn spir_tau_sampling_new(
 ///   index has the wrong parity for the statistics of `b`, or `positive_only`
 ///   is true and an index is negative
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// The points may be in any order, and the sampling object keeps it: they
+/// are not sorted, `spir_sampling_get_matsus` returns `points` unchanged, and
+/// index i along the sampling-point axis of the evaluate and fit functions
+/// refers to `points[i]`.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_matsu_sampling_new(
     b: *const spir_basis,
@@ -360,16 +370,35 @@ pub extern "C" fn spir_matsu_sampling_new(
 /// Creates a new tau sampling object with custom sampling points and pre-computed matrix
 ///
 /// # Arguments
-/// * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+/// * `order` - Memory layout of `matrix` (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
-/// * `basis_size` - Basis size
-/// * `num_points` - Number of sampling points
-/// * `points` - Array of sampling points in imaginary time (τ)
-/// * `matrix` - Pre-computed matrix for the sampling points (num_points x basis_size)
+/// * `basis_size` - Basis size (the number of columns of `matrix`)
+/// * `num_points` - Number of sampling points (the number of rows of `matrix`)
+/// * `points` - Array of `num_points` finite sampling points in imaginary time
+///   (τ), one per row of `matrix`. Without β the domain [-β, β] of
+///   `spir_tau_sampling_new` cannot be checked here: any finite value is
+///   accepted and reported back by `spir_sampling_get_taus`
+/// * `matrix` - Pre-computed `num_points × basis_size` sampling matrix in
+///   `order`, with finite entries
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to the newly created sampling object, or NULL if creation fails
+/// Pointer to the newly created sampling object, or NULL if creation fails.
+/// If `status` is non-NULL, `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
+///   `basis_size` <= 0, `order` or `statistics` is not one of the constants
+///   above, a point is NaN or infinite, or an entry of `matrix` is NaN or
+///   infinite
+/// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// The scalar arguments are validated before `points` or `matrix` is read.
+///
+/// The points may be in any order, and the sampling object keeps it:
+/// `spir_sampling_get_taus` returns `points` unchanged, and index i along the
+/// sampling-point axis of the evaluate and fit functions refers to
+/// `points[i]`, the point of row i of `matrix`.
 ///
 /// # Safety
 /// Caller must ensure `points` and `matrix` have correct sizes
@@ -397,14 +426,35 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
             Ok(o) => o,
             Err(_) => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
         };
+        let fermionic = match statistics {
+            SPIR_STATISTICS_FERMIONIC => true,
+            SPIR_STATISTICS_BOSONIC => false,
+            _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
+        };
+        // The matrix must be addressable before `points` or `matrix` is read (#245).
+        let dims = match validate_dims::<f64>(&[num_points, basis_size]) {
+            Ok(dims) => dims,
+            Err(code) => return (std::ptr::null_mut(), code),
+        };
 
-        // Convert points to Vec
-        let points_slice = unsafe { std::slice::from_raw_parts(points, num_points as usize) };
+        // SAFETY: `points` is non-null and `dims[0] == num_points > 0` (checked
+        // above); the caller guarantees that `points` holds `num_points` elements.
+        let points_slice = unsafe { std::slice::from_raw_parts(points, dims[0]) };
+        // Without β only finiteness can be checked, not τ ∈ [-β, β] (#266).
+        if !points_slice.iter().all(|tau| tau.is_finite()) {
+            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
+        }
         let tau_points: Vec<f64> = points_slice.to_vec();
 
-        // Convert matrix to Tensor using the new helper function
-        let orig_dims = [num_points as usize, basis_size as usize];
-        let dyn_tensor = unsafe { read_tensor_nd(matrix, &orig_dims, mem_order) };
+        // SAFETY: `matrix` is non-null and `validate_dims` proved that `dims`
+        // passes `checked_len::<f64>`; the caller guarantees that `matrix` holds
+        // `num_points * basis_size` elements.
+        let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
+        // The fitter factorizes the matrix: reject NaN and infinities here
+        // rather than in a panicking SVD at the first fit.
+        if !dyn_tensor.iter().all(|x| x.is_finite()) {
+            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
+        }
 
         // Convert DynRank to fixed 2D shape using from_fn (safe conversion)
         let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
@@ -421,24 +471,16 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
                 dyn_tensor[&[idx[0], idx[1]][..]]
             });
         // Create sampling based on statistics
-        let sampling_type = match statistics {
-            SPIR_STATISTICS_FERMIONIC => {
-                // SPIR_STATISTICS_FERMIONIC
-                let tau_sampling = sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
-                    tau_points,
-                    matrix_tensor,
-                );
-                SamplingType::TauFermionic(Arc::new(tau_sampling))
-            }
-            SPIR_STATISTICS_BOSONIC => {
-                // SPIR_STATISTICS_BOSONIC
-                let tau_sampling = sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(
-                    tau_points,
-                    matrix_tensor,
-                );
-                SamplingType::TauBosonic(Arc::new(tau_sampling))
-            }
-            _ => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
+        let sampling_type = if fermionic {
+            let tau_sampling = sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
+                tau_points,
+                matrix_tensor,
+            );
+            SamplingType::TauFermionic(Arc::new(tau_sampling))
+        } else {
+            let tau_sampling =
+                sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(tau_points, matrix_tensor);
+            SamplingType::TauBosonic(Arc::new(tau_sampling))
         };
 
         let inner = sampling_type;
@@ -472,16 +514,17 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
 /// Creates a new Matsubara sampling object with custom sampling points and pre-computed matrix
 ///
 /// # Arguments
-/// * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+/// * `order` - Memory layout of `matrix` (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
-/// * `basis_size` - Basis size
+/// * `basis_size` - Basis size (the number of columns of `matrix`)
 /// * `positive_only` - If true, only non-negative frequencies are used; the IR
 ///   coefficients are then real, i.e. G(-iν) = conj(G(iν))
-/// * `num_points` - Number of sampling points
+/// * `num_points` - Number of sampling points (the number of rows of `matrix`)
 /// * `points` - Array of `num_points` reduced Matsubara frequencies n
 ///   (iν = iπn/β): odd for fermionic, even for bosonic `statistics`, and
 ///   non-negative when `positive_only` is true
-/// * `matrix` - Pre-computed complex matrix (num_points x basis_size)
+/// * `matrix` - Pre-computed complex `num_points × basis_size` sampling matrix
+///   in `order`, with finite real and imaginary parts
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
@@ -490,9 +533,19 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
 ///   `basis_size` <= 0, `order` or `statistics` is not one of the constants
-///   above, an index has the wrong parity for `statistics`, or `positive_only`
-///   is true and an index is negative
+///   above, an index has the wrong parity for `statistics`, `positive_only`
+///   is true and an index is negative, or an entry of `matrix` has a NaN or
+///   infinite part
+/// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// The scalar arguments are validated before `points` or `matrix` is read,
+/// and the indices before `matrix` is read.
+///
+/// The points may be in any order, and the sampling object keeps it:
+/// `spir_sampling_get_matsus` returns `points` unchanged, and index i along
+/// the sampling-point axis of the evaluate and fit functions refers to
+/// `points[i]`, the point of row i of `matrix`.
 ///
 /// # Safety
 /// Caller must ensure `points` and `matrix` have correct sizes
@@ -542,11 +595,21 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
             Ok(o) => o,
             Err(_) => return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT),
         };
+        if statistics != SPIR_STATISTICS_FERMIONIC && statistics != SPIR_STATISTICS_BOSONIC {
+            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
+        }
+        // The matrix must be addressable before `points` or `matrix` is read (#245).
+        let dims = match validate_dims::<Complex64>(&[num_points, basis_size]) {
+            Ok(dims) => dims,
+            Err(code) => return (std::ptr::null_mut(), code),
+        };
 
         // Convert points to Vec<MatsubaraFreq>
         debug_println!("spir_matsu_sampling_new_with_matrix: creating points slice...");
         std::io::stderr().flush().ok();
-        let points_slice = unsafe { std::slice::from_raw_parts(points, num_points as usize) };
+        // SAFETY: `points` is non-null and `dims[0] == num_points > 0` (checked
+        // above); the caller guarantees that `points` holds `num_points` elements.
+        let points_slice = unsafe { std::slice::from_raw_parts(points, dims[0]) };
         debug_println!(
             "spir_matsu_sampling_new_with_matrix: points slice created, len = {}",
             points_slice.len()
@@ -580,17 +643,27 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
         };
 
         // Convert matrix to Tensor using the new helper function
-        let orig_dims = [num_points as usize, basis_size as usize];
         debug_println!(
-            "spir_matsu_sampling_new_with_matrix: orig_dims = {:?}, mem_order = {:?}",
-            orig_dims,
+            "spir_matsu_sampling_new_with_matrix: dims = {:?}, mem_order = {:?}",
+            dims,
             mem_order
         );
         std::io::stderr().flush().ok();
 
         debug_println!("spir_matsu_sampling_new_with_matrix: reading tensor from buffer...");
         std::io::stderr().flush().ok();
-        let dyn_tensor = unsafe { read_tensor_nd(matrix, &orig_dims, mem_order) };
+        // SAFETY: `matrix` is non-null and `validate_dims` proved that `dims`
+        // passes `checked_len::<Complex64>`; the caller guarantees that `matrix`
+        // holds `num_points * basis_size` elements.
+        let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
+        // The fitter factorizes the matrix: reject NaN and infinities here
+        // rather than in a panicking SVD at the first fit.
+        if !dyn_tensor
+            .iter()
+            .all(|z| z.re.is_finite() && z.im.is_finite())
+        {
+            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
+        }
         let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
         debug_println!(
             "spir_matsu_sampling_new_with_matrix: dyn_tensor created, shape = {:?}",

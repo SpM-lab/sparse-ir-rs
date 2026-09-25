@@ -14,11 +14,16 @@ use crate::{
 use mdarray::Shape;
 use sparse_ir::numeric::CustomNumeric; // Used in test code for with_dims
 
-/// Check if SPARSEIR_DEBUG environment variable is set
+/// Check if the `SPARSEIR_DEBUG` environment variable enables debug output
 ///
-/// Returns true if SPARSEIR_DEBUG is set to any non-empty value.
+/// Returns true only if `SPARSEIR_DEBUG` is `1`, `true`, `yes` or `on`, in any
+/// letter case, the same values pylibsparseir accepts. Any other value,
+/// including `0` or an empty string, and an unset variable return false.
+///
+/// This forwards to [`sparse_ir::is_debug_enabled`], so the debug macros of
+/// this crate and of `sparse-ir` share one rule.
 pub fn is_debug_enabled() -> bool {
-    std::env::var("SPARSEIR_DEBUG").is_ok()
+    sparse_ir::is_debug_enabled()
 }
 
 /// Memory layout order

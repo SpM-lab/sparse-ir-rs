@@ -1016,6 +1016,196 @@ fn test_bosonic_single_pole_diverges_at_zero_omega() {
     }
 }
 
+// ====================
+// DlrError paths (#237)
+// ====================
+
+/// Basis whose default ω sampling points, i.e. the default DLR poles, are
+/// truncated to `n_poles`; everything else is delegated to `inner`.
+///
+/// This stands in for a basis where root finding yields fewer default poles
+/// than the basis size, as reported for `RegularizedBoseKernel` at large Λ in
+/// #114. That case no longer reproduces, so the truncation is synthetic.
+struct TruncatedDefaultPoles<'a, B> {
+    inner: &'a B,
+    n_poles: usize,
+}
+
+impl<S, B> Basis<S> for TruncatedDefaultPoles<'_, B>
+where
+    S: StatisticsType,
+    B: Basis<S>,
+{
+    type Kernel = B::Kernel;
+
+    fn kernel(&self) -> &Self::Kernel {
+        self.inner.kernel()
+    }
+
+    fn beta(&self) -> f64 {
+        self.inner.beta()
+    }
+
+    fn wmax(&self) -> f64 {
+        self.inner.wmax()
+    }
+
+    fn lambda(&self) -> f64 {
+        self.inner.lambda()
+    }
+
+    fn size(&self) -> usize {
+        self.inner.size()
+    }
+
+    fn accuracy(&self) -> f64 {
+        self.inner.accuracy()
+    }
+
+    fn significance(&self) -> Vec<f64> {
+        self.inner.significance()
+    }
+
+    fn svals(&self) -> Vec<f64> {
+        self.inner.svals()
+    }
+
+    fn default_tau_sampling_points(&self) -> Vec<f64> {
+        self.inner.default_tau_sampling_points()
+    }
+
+    fn default_matsubara_sampling_points(&self, positive_only: bool) -> Vec<MatsubaraFreq<S>>
+    where
+        S: 'static,
+    {
+        self.inner.default_matsubara_sampling_points(positive_only)
+    }
+
+    fn evaluate_tau(&self, tau: &[f64]) -> DTensor<f64, 2> {
+        self.inner.evaluate_tau(tau)
+    }
+
+    fn evaluate_matsubara(&self, freqs: &[MatsubaraFreq<S>]) -> DTensor<Complex<f64>, 2>
+    where
+        S: 'static,
+    {
+        self.inner.evaluate_matsubara(freqs)
+    }
+
+    fn evaluate_omega(&self, omega: &[f64]) -> DTensor<f64, 2> {
+        self.inner.evaluate_omega(omega)
+    }
+
+    fn default_omega_sampling_points(&self) -> Vec<f64> {
+        let mut poles = self.inner.default_omega_sampling_points();
+        poles.truncate(self.n_poles);
+        poles
+    }
+}
+
+fn check_dlr_new_insufficient_default_poles<S: StatisticsType + 'static>() {
+    let beta = 10.0;
+    let wmax = 1.0;
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(1e-6), None);
+    let basis_size = basis.size();
+    assert_eq!(basis.default_omega_sampling_points().len(), basis_size);
+
+    // Exactly as many default poles as basis functions is enough.
+    let enough = TruncatedDefaultPoles {
+        inner: &basis,
+        n_poles: basis_size,
+    };
+    let dlr = DiscreteLehmannRepresentation::<S>::new(&enough).unwrap();
+    assert_eq!(dlr.poles.len(), basis_size);
+
+    // One pole fewer than the basis size is rejected with a typed error
+    // carrying both counts, instead of a panic.
+    let too_few = TruncatedDefaultPoles {
+        inner: &basis,
+        n_poles: basis_size - 1,
+    };
+    let err = DiscreteLehmannRepresentation::<S>::new(&too_few)
+        .err()
+        .expect("DLR construction must fail with too few default poles");
+    assert_eq!(
+        err,
+        DlrError::InsufficientDefaultPoles {
+            basis_size,
+            n_poles: basis_size - 1,
+        }
+    );
+}
+
+#[test]
+fn test_dlr_new_insufficient_default_poles_fermionic() {
+    check_dlr_new_insufficient_default_poles::<Fermionic>();
+}
+
+#[test]
+fn test_dlr_new_insufficient_default_poles_bosonic() {
+    check_dlr_new_insufficient_default_poles::<Bosonic>();
+}
+
+/// `RegularizedBoseKernel` supports only bosonic statistics. A fermionic basis
+/// built from it must be rejected by both DLR constructors with a typed error
+/// instead of panicking in `RegularizedBoseKernel::regularizer` (#237, #241).
+#[test]
+fn test_dlr_regularized_bose_fermionic_is_kernel_statistics_mismatch() {
+    let beta = 1.0;
+    let wmax = 10.0;
+    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let basis =
+        FiniteTempBasis::<RegularizedBoseKernel, Fermionic>::new(kernel, beta, Some(1e-6), None);
+    // The default poles are sufficient, so `new` reaches the statistics check.
+    assert!(basis.default_omega_sampling_points().len() >= basis.size());
+
+    let err = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&basis, vec![-2.0, 0.5, 3.0])
+        .err()
+        .expect("with_poles must reject RegularizedBoseKernel with fermionic statistics");
+    assert_eq!(err, DlrError::KernelStatisticsMismatch);
+
+    let err = DiscreteLehmannRepresentation::<Fermionic>::new(&basis)
+        .err()
+        .expect("new must reject RegularizedBoseKernel with fermionic statistics");
+    assert_eq!(err, DlrError::KernelStatisticsMismatch);
+
+    // The same kernel with bosonic statistics is supported.
+    let bosonic =
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-6), None);
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&bosonic, vec![-2.0, 0.5, 3.0])
+        .unwrap();
+    assert_eq!(dlr.poles, vec![-2.0, 0.5, 3.0]);
+}
+
+#[test]
+fn test_dlr_error_display_and_error_trait() {
+    let err = DlrError::InsufficientDefaultPoles {
+        basis_size: 12,
+        n_poles: 7,
+    };
+    assert_eq!(
+        err.to_string(),
+        "Number of default poles (7) is less than the basis size (12)"
+    );
+
+    let err = DlrError::KernelStatisticsMismatch;
+    assert_eq!(
+        err.to_string(),
+        "Kernel does not support the requested statistics: kernels with ypower = 1 \
+         (e.g. RegularizedBoseKernel) require bosonic statistics"
+    );
+
+    // Usable as a boxed `std::error::Error`, e.g. with `?` in functions
+    // returning `Box<dyn Error>`. Neither variant wraps an underlying cause.
+    let boxed: Box<dyn std::error::Error> = Box::new(err);
+    assert!(boxed.source().is_none());
+    assert_eq!(
+        boxed.to_string(),
+        DlrError::KernelStatisticsMismatch.to_string()
+    );
+}
+
 /// Converting an empty batch gives an empty result of the right shape.
 /// Before the fix `from_ir_nd` and `to_ir_nd` segfaulted in `movedim`
 /// (mdarray#21) for a zero extent before the last axis of a permuted view.
@@ -1068,4 +1258,8 @@ fn test_dlr_with_no_poles_is_an_error() {
     );
     let result = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&basis, vec![]);
     assert!(matches!(result, Err(DlrError::NoPoles)));
+    assert_eq!(
+        DlrError::NoPoles.to_string(),
+        "No poles given: a DLR needs at least one pole"
+    );
 }

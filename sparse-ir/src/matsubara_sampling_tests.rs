@@ -344,10 +344,15 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
         .fold(0.0f64, f64::max);
 
     println!("MatsubaraSampling roundtrip max error: {:.2e}", max_error);
-    // RegularizedBoseKernel has lower numerical precision due to y=0 singularity
-    // Looser tolerance required
+    // `symmetric_points` are unsorted (0, 2, 4, ..., then -2, -4, ...) and
+    // `giwn_values` follows their order. The bound 2.0 used here passed only
+    // because the sampling sorted its points, so that the values were fitted
+    // at the wrong frequencies (max error 1.66). With the points kept in the
+    // given order, the round trip has the accuracy of the positive-only test
+    // below on the same basis (eps = 1e-4), so it uses the same bound 1e-2,
+    // which still fails for values taken in the wrong order.
     assert!(
-        max_error < 2.0,
+        max_error < 1e-2,
         "RegularizedBose Matsubara roundtrip error too large: {}",
         max_error
     );
@@ -844,6 +849,141 @@ fn test_positive_only_condition_number_from_matrix() {
         sampling.condition_number(),
         oracle,
     );
+}
+
+/// The default points of `basis`, reordered so that they are neither sorted
+/// nor reverse-sorted: every other point, then the rest in reverse.
+fn unsorted_points<S: StatisticsType + 'static>(
+    basis: &FiniteTempBasis<LogisticKernel, S>,
+    positive_only: bool,
+) -> Vec<MatsubaraFreq<S>> {
+    let sorted = basis.default_matsubara_sampling_points(positive_only);
+    let mut points: Vec<_> = sorted.iter().step_by(2).cloned().collect();
+    points.extend(sorted.iter().skip(1).step_by(2).rev().cloned());
+    assert_eq!(points.len(), sorted.len());
+    assert!(!points.windows(2).all(|w| w[0] <= w[1]));
+    assert!(!points.windows(2).all(|w| w[0] >= w[1]));
+    points
+}
+
+/// The reduced frequencies n of `points`.
+fn indices<S: StatisticsType>(points: &[MatsubaraFreq<S>]) -> Vec<i64> {
+    points.iter().map(|p| p.n()).collect()
+}
+
+/// Checks that `values[i]` is row i of `a` times `coeffs`, to rounding.
+fn assert_rows_times<T>(
+    a: &mdarray::DTensor<Complex<f64>, 2>,
+    coeffs: &[T],
+    values: &[Complex<f64>],
+) where
+    T: Copy + Into<Complex<f64>>,
+{
+    let (n, l) = *a.shape();
+    assert_eq!(values.len(), n);
+    for i in 0..n {
+        let terms: Vec<Complex<f64>> = (0..l).map(|j| a[[i, j]] * coeffs[j].into()).collect();
+        let expected: Complex<f64> = terms.iter().sum();
+        let scale: f64 = terms.iter().map(|t| t.norm()).sum();
+        assert!(
+            (values[i] - expected).norm() <= 1e-13 * scale,
+            "row {i}: {} vs {expected}",
+            values[i]
+        );
+    }
+}
+
+/// `from_matrix` takes the points in any order and keeps it: row i of the
+/// matrix belongs to `sampling_points[i]`, which `sampling_points()` returns
+/// unchanged and which labels index i of `evaluate` and `fit`. The fitters do
+/// not depend on the order. Before the fix, a `debug_assert!` rejected
+/// unsorted points in debug builds only.
+fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
+    let kernel = LogisticKernel::new(10.0);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None);
+    let l = basis.size();
+    // The data are exact values of these coefficients, and the default
+    // points give a condition number below 1e2, so a backward-stable fit
+    // recovers them to ~1e-13 (kappa * n * eps); 1e-10 leaves a margin.
+    let coeffs: Vec<f64> = (0..l).map(|j| 1.0 / (1.0 + j as f64)).collect();
+    let coeffs_z: Vec<Complex<f64>> = (0..l)
+        .map(|j| Complex::new(1.0 / (1.0 + j as f64), 0.5 - 0.1 * j as f64))
+        .collect();
+
+    let points = unsorted_points(&basis, true);
+    let a = uhat_matrix(&basis, &points);
+    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), a.clone());
+    assert_eq!(indices(sampling.sampling_points()), indices(&points));
+    assert!(sampling.condition_number() < 1e2);
+    let values = sampling.evaluate(&coeffs);
+    assert_rows_times(&a, &coeffs, &values);
+    let fitted = sampling.fit(&values);
+    for (f, c) in fitted.iter().zip(&coeffs) {
+        assert!((f - c).abs() <= 1e-10, "positive-only fit: {f} vs {c}");
+    }
+
+    let points = unsorted_points(&basis, false);
+    let a = uhat_matrix(&basis, &points);
+    let sampling = MatsubaraSampling::from_matrix(points.clone(), a.clone());
+    assert_eq!(indices(sampling.sampling_points()), indices(&points));
+    assert!(sampling.condition_number() < 1e2);
+    let values = sampling.evaluate(&coeffs_z);
+    assert_rows_times(&a, &coeffs_z, &values);
+    let fitted = sampling.fit(&values);
+    for (f, c) in fitted.iter().zip(&coeffs_z) {
+        assert!((f - c).norm() <= 1e-10, "full fit: {f} vs {c}");
+    }
+}
+
+#[test]
+fn test_from_matrix_keeps_the_given_order_fermionic() {
+    check_from_matrix_keeps_the_given_order::<Fermionic>();
+}
+
+#[test]
+fn test_from_matrix_keeps_the_given_order_bosonic() {
+    check_from_matrix_keeps_the_given_order::<Bosonic>();
+}
+
+/// `with_sampling_points` keeps the points in the given order: it returns
+/// them unchanged from `sampling_points()`, and value i of `evaluate` is at
+/// `sampling_points[i]`. Before the fix, both constructors sorted the points,
+/// so that values fitted in the caller's order were taken at the wrong
+/// frequencies.
+fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>() {
+    let kernel = LogisticKernel::new(10.0);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None);
+    let l = basis.size();
+    let coeffs: Vec<f64> = (0..l).map(|j| 1.0 / (1.0 + j as f64)).collect();
+    let coeffs_z: Vec<Complex<f64>> = coeffs.iter().map(|&c| Complex::new(c, 0.5 * c)).collect();
+
+    let points = unsorted_points(&basis, true);
+    let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
+    assert_eq!(indices(sampling.sampling_points()), indices(&points));
+    assert_rows_times(
+        &uhat_matrix(&basis, &points),
+        &coeffs,
+        &sampling.evaluate(&coeffs),
+    );
+
+    let points = unsorted_points(&basis, false);
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
+    assert_eq!(indices(sampling.sampling_points()), indices(&points));
+    assert_rows_times(
+        &uhat_matrix(&basis, &points),
+        &coeffs_z,
+        &sampling.evaluate(&coeffs_z),
+    );
+}
+
+#[test]
+fn test_with_sampling_points_keeps_the_given_order_fermionic() {
+    check_with_sampling_points_keeps_the_given_order::<Fermionic>();
+}
+
+#[test]
+fn test_with_sampling_points_keeps_the_given_order_bosonic() {
+    check_with_sampling_points_keeps_the_given_order::<Bosonic>();
 }
 
 /// Batches with a zero extent, as (batch extents, target axis)

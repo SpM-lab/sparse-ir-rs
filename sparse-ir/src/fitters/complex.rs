@@ -37,7 +37,7 @@ use super::common::{
 ///     let phase = 2.0 * PI * (idx[0] * idx[1]) as f64 / n as f64;
 ///     Complex::from_polar(1.0 / (n as f64).sqrt(), phase)
 /// });
-/// // The (sorted) frequencies only label the rows here; the matrix is given explicitly
+/// // The frequencies only label the rows here; the matrix is given explicitly
 /// let freqs = (0..n as i64).map(|i| FermionicFreq::new(2 * i - 9).unwrap()).collect();
 /// let sampling = MatsubaraSampling::<Fermionic>::from_matrix(freqs, matrix);
 ///

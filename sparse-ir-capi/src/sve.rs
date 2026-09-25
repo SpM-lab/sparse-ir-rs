@@ -118,7 +118,7 @@ pub extern "C" fn spir_sve_result_new(
 
     // Catch panics to prevent unwinding across FFI boundary
     // Force flush debug output before entering catch_unwind
-    if std::env::var("SPARSEIR_DEBUG").is_ok() {
+    if crate::is_debug_enabled() {
         eprintln!(
             "[SPARSEIR DEBUG] spir_sve_result_new: called with epsilon={}, twork={}, kernel_ptr={:p}",
             epsilon, twork, k
@@ -127,7 +127,7 @@ pub extern "C" fn spir_sve_result_new(
     }
     let result = catch_unwind(|| unsafe {
         let kernel = &*k;
-        if std::env::var("SPARSEIR_DEBUG").is_ok() {
+        if crate::is_debug_enabled() {
             eprintln!("[SPARSEIR DEBUG] spir_sve_result_new: kernel type determined");
             std::io::Write::flush(&mut std::io::stderr()).ok();
         }

@@ -151,7 +151,7 @@ This package automatically uses SciPy's optimized BLAS backend for improved line
 - **Automatic BLAS**: Uses SciPy's BLAS functions for optimal performance
 - **No additional setup**: SciPy provides all necessary BLAS functionality
 
-The build system automatically configures BLAS support through SciPy. You can verify BLAS support by checking the build output for messages like:
+The build system automatically configures BLAS support through SciPy. You can verify BLAS support with [debug output](#debug-output) enabled:
 
 ```bash
 export SPARSEIR_DEBUG=1
@@ -160,9 +160,23 @@ python -c "import pylibsparseir"
 
 This will show:
 ```
-BLAS support enabled
-Registered SciPy BLAS dgemm @ 0x...
+[core.py] Created SciPy BLAS backend handle
+[core.py] Registered SciPy BLAS dgemm @ 0x...
+[core.py] Registered SciPy BLAS zgemm @ 0x...
 ```
+
+### Debug Output
+
+The `SPARSEIR_DEBUG` environment variable enables debug output only when it is
+set to `1`, `true`, `yes` or `on`, in any letter case. Any other value,
+including `0`, `false` or an empty string, disables it, as does leaving it
+unset. The same rule applies to both layers:
+
+- pylibsparseir prints its messages to stdout. It checks the variable when it
+  is imported.
+- The Rust library prints `[SPARSEIR DEBUG]`, `[SPARSEIR DEBUG ERROR]` and
+  `[SPARSEIR WARN]` lines to stderr. It checks the variable each time it
+  would print one.
 
 ### Troubleshooting
 

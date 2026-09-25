@@ -60,11 +60,23 @@ pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
 /// * `epsilon` - Accuracy target (must be > 0)
 /// * `k` - Kernel object (required; its Λ must equal beta * omega_max)
 /// * `sve` - Pre-computed SVE result (can be NULL, will compute if needed)
-/// * `max_size` - Maximum basis size (-1 for no limit)
+/// * `max_size` - Maximum basis size (-1 for no limit). It truncates the basis,
+///   not the SVE (also when `sve` is NULL and the SVE is computed here): the
+///   default sampling points and `spir_basis_get_uhat_full` use the SVE
+///   functions beyond the basis
 /// * `status` - Pointer to store status code
 ///
 /// # Returns
 /// * Pointer to basis object, or NULL on failure
+/// * Status code:
+///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
+///     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
+///     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+///   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
+///     `statistics` is fermionic: that kernel supports bosonic statistics
+///     only
+///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure `status` is a valid pointer.
@@ -240,6 +252,16 @@ pub extern "C" fn spir_basis_new(
 ///
 /// # Returns
 /// * Pointer to basis object, or NULL on failure
+/// * Status code:
+///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
+///     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
+///     `lambda` is not positive and finite, or `lambda` differs from
+///     `beta * omega_max` by more than 1e-10
+///   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
+///     and `statistics` is fermionic: that kernel supports bosonic statistics
+///     only
+///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Note
 /// The kernel type is determined by `ypower`: 0 selects `LogisticKernel`, 1 selects
@@ -1595,6 +1617,137 @@ mod tests {
         }
     }
 
+    /// Issue #285: with `sve == NULL`, `spir_basis_new` computes the SVE
+    /// itself, and `max_size` must truncate only the basis, as when the caller
+    /// passes the untruncated SVE. Both paths must give the same `uhat_full`
+    /// and default sampling points, and the Matsubara points of SparseIR.jl.
+    #[test]
+    fn test_basis_new_max_size_keeps_untruncated_sve() {
+        let (beta, omega_max, epsilon, max_size) = (10.0, 1.0, 1e-10, 7);
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(beta * omega_max, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, -1, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut n_sve = 0;
+        assert_eq!(
+            spir_sve_result_get_size(sve, &mut n_sve),
+            SPIR_COMPUTATION_SUCCESS
+        );
+
+        let new_basis = |sve: *const spir_sve_result| {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new(
+                SPIR_STATISTICS_FERMIONIC,
+                beta,
+                omega_max,
+                epsilon,
+                kernel,
+                sve,
+                max_size,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            basis
+        };
+        let computed = new_basis(ptr::null());
+        let provided = new_basis(sve);
+
+        let size = |b: *const spir_basis| {
+            let mut n = 0;
+            assert_eq!(spir_basis_get_size(b, &mut n), SPIR_COMPUTATION_SUCCESS);
+            n
+        };
+        let uhat_full_size = |b: *const spir_basis| {
+            let mut status = SPIR_INTERNAL_ERROR;
+            // SAFETY: `b` is one of the two live handles returned by
+            // `spir_basis_new` above, released only at the end of the test.
+            let funcs = unsafe { spir_basis_get_uhat_full(b, &mut status) };
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            let mut n = 0;
+            assert_eq!(spir_funcs_get_size(funcs, &mut n), SPIR_COMPUTATION_SUCCESS);
+            spir_funcs_release(funcs);
+            n
+        };
+        let matsus = |b: *const spir_basis, positive_only: bool| {
+            let mut n = 0;
+            assert_eq!(
+                spir_basis_get_n_default_matsus(b, positive_only, &mut n),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut points = vec![0i64; n as usize];
+            assert_eq!(
+                spir_basis_get_default_matsus(b, positive_only, points.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            points
+        };
+        let taus = |b: *const spir_basis| {
+            let mut n = 0;
+            assert_eq!(
+                spir_basis_get_n_default_taus(b, &mut n),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut points = vec![0.0; n as usize];
+            assert_eq!(
+                spir_basis_get_default_taus(b, points.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            points
+        };
+        let ws = |b: *const spir_basis| {
+            let mut n = 0;
+            assert_eq!(
+                spir_basis_get_n_default_ws(b, &mut n),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut points = vec![0.0; n as usize];
+            assert_eq!(
+                spir_basis_get_default_ws(b, points.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            points
+        };
+
+        assert_eq!(size(computed), max_size);
+        assert_eq!(size(provided), max_size);
+        // The untruncated SVE of Λ = 10, ε = 1e-10 has 31 functions.
+        assert!(n_sve > max_size + 1, "SVE size {n_sve}");
+        assert_eq!(uhat_full_size(computed), n_sve);
+        assert_eq!(uhat_full_size(provided), n_sve);
+
+        // SparseIR.jl 1.1.4: default_matsubara_sampling_points of
+        // FiniteTempBasis(Fermionic(), 10.0, 1.0, 1e-10; max_size=7), see
+        // sparse-ir/tests/basis_max_size.rs. Before the fix, the NULL-SVE path
+        // gave 6 points, [-19, -5, -1, 1, 5, 19].
+        let expected_all: &[i64] = &[-15, -5, -3, -1, 1, 3, 5, 15];
+        let expected_positive: &[i64] = &[1, 3, 5, 15];
+        for b in [computed, provided] {
+            assert_eq!(matsus(b, false), expected_all);
+            assert_eq!(matsus(b, true), expected_positive);
+        }
+
+        // Both paths compute the SVE with the same arguments, so the points
+        // agree to rounding; 1e-12 of the interval allows a threaded BLAS to
+        // sum in a different order. Before the fix they differed by up to
+        // 0.43 (tau) and 0.096 (omega).
+        let close = |a: &[f64], b: &[f64], scale: f64| {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-12 * scale)
+        };
+        let (taus_c, taus_p) = (taus(computed), taus(provided));
+        assert_eq!(taus_c.len(), max_size as usize);
+        assert!(close(&taus_c, &taus_p, beta), "{taus_c:?} vs {taus_p:?}");
+        let (ws_c, ws_p) = (ws(computed), ws(provided));
+        assert_eq!(ws_c.len(), max_size as usize);
+        assert!(close(&ws_c, &ws_p, omega_max), "{ws_c:?} vs {ws_p:?}");
+
+        spir_basis_release(computed);
+        spir_basis_release(provided);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+
     #[test]
     fn test_basis_new_from_sve_and_regularizer() {
         use crate::{
@@ -1840,6 +1993,159 @@ mod tests {
         unsafe {
             spir_kernel_release(kernel);
         }
+    }
+
+    /// Each `SPIR_INVALID_ARGUMENT` condition documented for `spir_basis_new`
+    /// and `spir_basis_new_from_sve_and_regularizer`, one argument at a time.
+    #[test]
+    fn test_basis_new_rejects_invalid_arguments() {
+        use crate::spir_funcs_from_piecewise_legendre;
+
+        let beta = 10.0;
+        let omega_max = 1.0;
+        let epsilon = 1e-6;
+        let lambda = beta * omega_max;
+        let fermionic = SPIR_STATISTICS_FERMIONIC;
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(lambda, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, -1, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let segments = [-omega_max, omega_max];
+        let coeffs = [1.0];
+        let mut status = SPIR_INTERNAL_ERROR;
+        let regularizer = spir_funcs_from_piecewise_legendre(
+            segments.as_ptr(),
+            1,
+            coeffs.as_ptr(),
+            1,
+            0,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        // spir_basis_new(statistics, beta, omega_max, epsilon, k): each case
+        // changes one argument of a valid call.
+        type Args = (libc::c_int, f64, f64, f64, *const spir_kernel);
+        let new_basis = |(statistics, beta, omega_max, epsilon, k): Args| {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new(
+                statistics,
+                beta,
+                omega_max,
+                epsilon,
+                k,
+                ptr::null(),
+                -1,
+                &mut status,
+            );
+            (basis, status)
+        };
+        let valid: Args = (fermionic, beta, omega_max, epsilon, kernel);
+        let (basis, status) = new_basis(valid);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!basis.is_null());
+        spir_basis_release(basis);
+
+        let (s, b, w, e, k) = valid;
+        let inf = f64::INFINITY;
+        let cases: [(&str, Args); 11] = [
+            ("statistics = 2", (2, b, w, e, k)),
+            ("statistics = -1", (-1, b, w, e, k)),
+            ("beta = 0", (s, 0.0, w, e, k)),
+            ("beta < 0", (s, -b, w, e, k)),
+            ("beta = inf", (s, inf, w, e, k)),
+            ("omega_max = 0", (s, b, 0.0, e, k)),
+            ("omega_max = inf", (s, b, inf, e, k)),
+            ("epsilon = 0", (s, b, w, 0.0, k)),
+            ("epsilon = inf", (s, b, w, inf, k)),
+            ("NULL kernel", (s, b, w, e, ptr::null())),
+            ("kernel lambda != beta * omega_max", (s, b, 2.0 * w, e, k)),
+        ];
+        for (case, args) in cases {
+            let (basis, status) = new_basis(args);
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "spir_basis_new: {}", case);
+            assert!(basis.is_null(), "spir_basis_new: {}", case);
+        }
+
+        // spir_basis_new_from_sve_and_regularizer(statistics, beta, omega_max,
+        // epsilon, lambda, ypower, sve, regularizer_funcs), likewise.
+        type RegArgs = (
+            libc::c_int,
+            f64,
+            f64,
+            f64,
+            f64,
+            libc::c_int,
+            *const spir_sve_result,
+            *const spir_funcs,
+        );
+        let new_basis =
+            |(statistics, beta, omega_max, epsilon, lambda, ypower, sve, reg): RegArgs| {
+                let mut status = SPIR_INTERNAL_ERROR;
+                let basis = spir_basis_new_from_sve_and_regularizer(
+                    statistics,
+                    beta,
+                    omega_max,
+                    epsilon,
+                    lambda,
+                    ypower,
+                    1.0,
+                    sve,
+                    reg,
+                    -1,
+                    &mut status,
+                );
+                (basis, status)
+            };
+        let valid: RegArgs = (
+            fermionic,
+            beta,
+            omega_max,
+            epsilon,
+            lambda,
+            0,
+            sve,
+            regularizer,
+        );
+        let (basis, status) = new_basis(valid);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!basis.is_null());
+        spir_basis_release(basis);
+
+        let (s, b, w, e, l, y, v, r) = valid;
+        let cases: [(&str, RegArgs); 11] = [
+            ("statistics = 2", (2, b, w, e, l, y, v, r)),
+            ("beta = 0", (s, 0.0, w, e, l, y, v, r)),
+            ("omega_max < 0", (s, b, -w, e, l, y, v, r)),
+            ("epsilon = 0", (s, b, w, 0.0, l, y, v, r)),
+            ("lambda = 0", (s, b, w, e, 0.0, y, v, r)),
+            ("lambda = inf", (s, b, w, e, inf, y, v, r)),
+            ("lambda != beta * omega_max", (s, b, w, e, 2.0 * l, y, v, r)),
+            ("ypower = 2", (s, b, w, e, l, 2, v, r)),
+            ("ypower = -1", (s, b, w, e, l, -1, v, r)),
+            ("NULL sve", (s, b, w, e, l, y, ptr::null(), r)),
+            ("NULL regularizer_funcs", (s, b, w, e, l, y, v, ptr::null())),
+        ];
+        for (case, args) in cases {
+            let (basis, status) = new_basis(args);
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "spir_basis_new_from_sve_and_regularizer: {}",
+                case
+            );
+            assert!(
+                basis.is_null(),
+                "spir_basis_new_from_sve_and_regularizer: {}",
+                case
+            );
+        }
+
+        spir_funcs_release(regularizer);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
     }
 
     #[test]

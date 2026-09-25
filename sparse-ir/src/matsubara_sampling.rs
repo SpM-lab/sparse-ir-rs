@@ -72,11 +72,16 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
 
     /// Create Matsubara sampling with custom sampling points
     ///
+    /// The points may be in any order, and are kept in the given order:
+    /// [`Self::sampling_points`] returns them unchanged, and index i along the
+    /// sampling-point axis of `evaluate` and `fit` refers to
+    /// `sampling_points[i]`.
+    ///
     /// # Panics
     /// Panics if `sampling_points` is empty
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
-        mut sampling_points: Vec<MatsubaraFreq<S>>,
+        sampling_points: Vec<MatsubaraFreq<S>>,
     ) -> Self
     where
         S: 'static,
@@ -85,9 +90,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         // and the fitter's transposes would go through the zero-extent paths
         // of mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
         assert!(!sampling_points.is_empty(), "No sampling points given");
-
-        // Sort sampling points
-        sampling_points.sort();
 
         // Evaluate matrix at sampling points
         // Use Basis trait's evaluate_matsubara method
@@ -109,8 +111,13 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// (e.g., from external sources or for testing).
     ///
     /// # Arguments
-    /// * `sampling_points` - Matsubara frequency sampling points
-    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size)
+    /// * `sampling_points` - Matsubara frequency sampling points, in any order
+    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size); row i
+    ///   belongs to `sampling_points[i]`
+    ///
+    /// The points are kept in the given order: [`Self::sampling_points`]
+    /// returns them unchanged, and index i along the sampling-point axis of
+    /// `evaluate` and `fit` refers to `sampling_points[i]`.
     ///
     /// # Returns
     /// A new MatsubaraSampling object
@@ -138,10 +145,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             matrix.shape().1 > 0,
             "Matrix must have at least one column (basis function), got shape {:?}",
             matrix.shape()
-        );
-        debug_assert!(
-            sampling_points.windows(2).all(|w| w[0] <= w[1]),
-            "Sampling points must be sorted in ascending order"
         );
 
         let fitter = ComplexMatrixFitter::new(matrix);
@@ -817,11 +820,16 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
 
     /// Create Matsubara sampling with custom positive-only sampling points
     ///
+    /// The points may be in any order, and are kept in the given order:
+    /// [`Self::sampling_points`] returns them unchanged, and index i along the
+    /// sampling-point axis of `evaluate` and `fit` refers to
+    /// `sampling_points[i]`.
+    ///
     /// # Panics
-    /// Panics if `sampling_points` is empty or has a negative frequency
+    /// Panics if `sampling_points` is empty or a sampling point is negative
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
-        mut sampling_points: Vec<MatsubaraFreq<S>>,
+        sampling_points: Vec<MatsubaraFreq<S>>,
     ) -> Self
     where
         S: 'static,
@@ -830,9 +838,6 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         // and the fitter's transposes would go through the zero-extent paths
         // of mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
         assert!(!sampling_points.is_empty(), "No sampling points given");
-
-        // Sort and validate (all n >= 0)
-        sampling_points.sort();
 
         // Validate that all points are non-negative
         assert!(
@@ -860,8 +865,14 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// Uses symmetry to fit real coefficients from complex values at non-negative frequencies.
     ///
     /// # Arguments
-    /// * `sampling_points` - Matsubara frequency sampling points (must be non-negative)
-    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size)
+    /// * `sampling_points` - Matsubara frequency sampling points (must be
+    ///   non-negative), in any order
+    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size); row i
+    ///   belongs to `sampling_points[i]`
+    ///
+    /// The points are kept in the given order: [`Self::sampling_points`]
+    /// returns them unchanged, and index i along the sampling-point axis of
+    /// `evaluate` and `fit` refers to `sampling_points[i]`.
     ///
     /// # Returns
     /// A new MatsubaraSamplingPositiveOnly object
@@ -889,10 +900,6 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             matrix.shape().1 > 0,
             "Matrix must have at least one column (basis function), got shape {:?}",
             matrix.shape()
-        );
-        debug_assert!(
-            sampling_points.windows(2).all(|w| w[0] <= w[1]),
-            "Sampling points must be sorted in ascending order"
         );
 
         let fitter = ComplexToRealFitter::new(&matrix);
