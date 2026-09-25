@@ -51,6 +51,22 @@ pub fn remove_weights<T: CustomNumeric>(
     result
 }
 
+/// Mirror half-domain segment boundaries onto the full domain
+///
+/// Maps `[0, s_1, ..., s_n]` to `[-s_n, ..., -s_1, -0, s_1, ..., s_n]`.
+/// This is the knot layout that [`extend_to_full_domain`] gives the singular
+/// functions of a centrosymmetric SVE, so a full-domain discretization built
+/// from these segments uses the mirror images of the half-domain segments.
+///
+/// The input must start at zero, as [`crate::kernel::SVEHints`] documents
+/// for the segments of centrosymmetric kernels.
+pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Vec<T> {
+    let mut full = Vec::with_capacity((2 * half.len()).saturating_sub(1));
+    full.extend(half.iter().rev().map(|&s| -s));
+    full.extend(half.iter().skip(1).copied());
+    full
+}
+
 /// Extend polynomials from [0, xmax] to [-xmax, xmax] using symmetry
 ///
 /// Following the C++ implementation logic from sve.rs.bak:856-888
@@ -95,14 +111,7 @@ pub fn extend_to_full_domain(
         .into_iter()
         .map(|poly| {
             // Create full segments from this polynomial's knots: [-xmax, ..., 0, ..., xmax]
-            let knots_pos = &poly.knots;
-            let mut full_segments = Vec::new();
-            for i in (0..knots_pos.len()).rev() {
-                full_segments.push(-knots_pos[i]);
-            }
-            for i in 1..knots_pos.len() {
-                full_segments.push(knots_pos[i]);
-            }
+            let full_segments = mirror_segments_to_full_domain(&poly.knots);
 
             // Normalize by 1/sqrt(2) and convert to f64
             let pos_data = DTensor::<f64, 2>::from_fn(*poly.data.shape(), |idx| {
@@ -264,7 +273,7 @@ pub fn svd_to_polynomials<T: CustomNumeric>(
 /// * `u_polys` - Left singular functions
 /// * `v_polys` - Right singular functions
 /// * `xmax` - Maximum value to evaluate at (typically 1.0)
-fn canonicalize_signs(
+pub(crate) fn canonicalize_signs(
     u_polys: PiecewiseLegendrePolyVector,
     v_polys: PiecewiseLegendrePolyVector,
     xmax: f64,
