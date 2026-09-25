@@ -25,7 +25,7 @@ pub enum Statistics {
 /// value expansion or IR basis:
 ///
 /// ```text
-/// K(τ, ω) ≈ sum(u[l](τ) * s[l] * v[l](ω) for l in 1:L)
+/// K(τ, ω) ≈ sum(u[l](τ) * s[l] * v[l](ω) for l in 0..L)
 /// ```
 ///
 /// This basis is inferred from a reduced form by appropriate scaling of
@@ -262,10 +262,14 @@ where
 
         let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm));
 
-        // Scale singular values
-        // s_scaled = sqrt(β/2 * ωmax) * ωmax^(-ypower) * s_sve
+        // Scale singular values to τ = β(x + 1)/2 and ω = ωmax y. A kernel with
+        // `ypower` carries that power of y = ω/ωmax, so its physical form is
+        // K(τ, ω) = ωmax^ypower K(x, y) and
+        // s_scaled = sqrt(β/2 * ωmax) * ωmax^ypower * s_sve,
+        // e.g. S_l = sqrt(β ωmax³/2) s_l for RegularizedBoseKernel (irbasis
+        // paper, Chikano et al., CPC 240, 181 (2019), arXiv:1807.05237, Eq. (25)).
         let ypower = kernel.ypower();
-        let scale_factor = (beta / 2.0 * omega_max).sqrt() * omega_max.powi(-ypower);
+        let scale_factor = (beta / 2.0 * omega_max).sqrt() * omega_max.powi(ypower);
         let s: Vec<f64> = s_sve.iter().map(|&x| scale_factor * x).collect();
 
         // Construct uhat (Fourier transform of u)
@@ -369,8 +373,9 @@ where
 
     /// Get default Matsubara frequency sampling points
     ///
-    /// Returns sampling points as MatsubaraFreq objects based on extrema
-    /// of the Matsubara basis functions (same algorithm as C++/Julia).
+    /// Returns sampling points as MatsubaraFreq objects: the sign changes of the
+    /// first discarded Matsubara basis function (its extrema when that function
+    /// is not available); bosonic sets always include n = 0.
     ///
     /// # Arguments
     /// * `positive_only` - If true, returns only non-negative frequencies
@@ -677,7 +682,7 @@ where
         let basis_size = self.size();
 
         // Evaluate each basis function at all Matsubara frequencies
-        // Result: matrix[i, l] = uhat_l(iωn[i])
+        // Result: matrix[i, l] = uhat_l(iν[i])
         DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
             let i = idx[0]; // frequency index
             let l = idx[1]; // basis function index

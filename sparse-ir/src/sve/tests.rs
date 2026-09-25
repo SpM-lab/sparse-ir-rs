@@ -1,4 +1,6 @@
 //! Tests for SVE module functions
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 
 use super::utils::{extend_to_full_domain, merge_results, mirror_segments_to_full_domain};
 use super::{SVDStrategy, SVEResult, TworkType, compute_sve, compute_sve_general, safe_epsilon};

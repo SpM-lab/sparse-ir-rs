@@ -12,16 +12,16 @@ use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 
 /// Matsubara frequency for a specific statistics type
 ///
-/// This represents the Matsubara frequency ω = n π/β, where:
+/// This represents the Matsubara frequency ν = nπ/β, where:
 /// - n is the stored integer (the *reduced* Matsubara frequency, returned by
 ///   [`n`](Self::n)): odd for fermionic statistics (n = ±1, ±3, …) and even
 ///   for bosonic statistics (n = 0, ±2, ±4, …)
 /// - β is the inverse temperature, passed to [`value`](Self::value) and
 ///   [`value_imaginary`](Self::value_imaginary)
 ///
-/// In terms of the conventional Matsubara index k of ω_k = (2k + ζ)π/β, with
+/// In terms of the conventional Matsubara index m of ν = (2m + ζ)π/β, with
 /// ζ = 1 for fermionic and ζ = 0 for bosonic statistics, the stored integer is
-/// n = 2k + ζ; it is *not* k itself. [`new`](Self::new) rejects an n whose
+/// n = 2m + ζ; it is *not* m itself. [`new`](Self::new) rejects an n whose
 /// parity does not match the statistics.
 ///
 /// The statistics type S is checked at compile time to ensure type safety.
@@ -57,7 +57,7 @@ pub type FermionicFreq = MatsubaraFreq<Fermionic>;
 pub type BosonicFreq = MatsubaraFreq<Bosonic>;
 
 impl<S: StatisticsType> MatsubaraFreq<S> {
-    /// Get the reduced Matsubara frequency n, where ω = n π/β
+    /// Get the reduced Matsubara frequency n, where ν = nπ/β
     ///
     /// n is odd for fermionic and even for bosonic statistics.
     pub fn n(&self) -> i64 {
@@ -67,7 +67,7 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
     /// Create a new Matsubara frequency
     ///
     /// # Arguments
-    /// * `n` - The reduced Matsubara frequency n of ω = n π/β: odd for
+    /// * `n` - The reduced Matsubara frequency n of ν = nπ/β: odd for
     ///   fermionic statistics, even for bosonic statistics
     ///
     /// # Returns
@@ -114,7 +114,7 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
         }
     }
 
-    /// Get the reduced Matsubara frequency n, where ω = n π/β (same as [`n`](Self::n))
+    /// Get the reduced Matsubara frequency n, where ν = nπ/β (same as [`n`](Self::n))
     pub fn get_n(&self) -> i64 {
         self.n
     }

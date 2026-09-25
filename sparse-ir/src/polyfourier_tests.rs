@@ -1,4 +1,6 @@
 //! Tests for piecewise Legendre polynomial Fourier transform implementations
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 
 use crate::basis::FiniteTempBasis;
 use crate::freq::{BosonicFreq, FermionicFreq};

@@ -168,7 +168,7 @@ extern "C" {
  * * `beta` - Inverse temperature (must be > 0)
  * * `omega_max` - Frequency cutoff (must be > 0)
  * * `epsilon` - Accuracy target (must be > 0)
- * * `k` - Kernel object (can be NULL if sve is provided)
+ * * `k` - Kernel object (required; its Λ must equal beta * omega_max)
  * * `sve` - Pre-computed SVE result (can be NULL, will compute if needed)
  * * `max_size` - Maximum basis size (-1 for no limit)
  * * `status` - Pointer to store status code
@@ -298,6 +298,11 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
 /**
  * Get default tau sampling points
  *
+ * The points are the roots of the first discarded basis function u_L (the
+ * extrema of u_{L-1} when u_L is not available), sorted and in (-β/2, β/2]; a
+ * negative point τ stands for τ + β with the sign of the statistics (see
+ * `spir_funcs_eval`).
+ *
  * # Arguments
  * * `b` - Basis object
  * * `points` - Pre-allocated array to store tau points
@@ -314,7 +319,8 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  *
  * # Arguments
  * * `b` - Basis object
- * * `positive_only` - If true, return only positive frequencies
+ * * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
+ *   sets include n = 0)
  * * `num_points` - Pointer to store the number of points
  *
  * # Returns
@@ -332,8 +338,10 @@ StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
  *
  * # Arguments
  * * `b` - Basis object
- * * `positive_only` - If true, return only positive frequencies
- * * `points` - Pre-allocated array to store Matsubara indices
+ * * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
+ *   sets include n = 0)
+ * * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
+ *   (iν = iπn/β)
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -914,8 +922,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * - τ functions (`u` of an IR or DLR basis, and their slices and
  *   derivatives): τ ∈ [-β, β]. A negative τ is folded onto [0, β] by the
  *   (anti)periodicity: u(τ) = -u(τ + β) for fermions and u(τ) = u(τ + β) for
- *   bosons. τ = β is read as β⁻, τ = -β as -β⁺ (folded onto 0⁺), and
- *   τ = -0.0 as 0⁻ (folded onto β⁻).
+ *   bosons. τ = +0.0 is read as 0⁺, τ = β as β⁻, τ = -β as (-β)⁺ (folded
+ *   onto 0⁺), and τ = -0.0 as 0⁻ (folded onto β⁻).
  * - ω functions (`v` of an IR basis, and functions from
  *   `spir_funcs_from_piecewise_legendre`): ω from the first to the last knot
  *   (see `spir_funcs_get_knots`), i.e. ω ∈ [-ωmax, ωmax] for `v`.
@@ -943,8 +951,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `n` - Matsubara index n (ω = nπ/β): odd for fermionic, even for bosonic
- *   functions
+ * * `n` - Reduced Matsubara frequency n (iν = iπn/β): odd for fermionic, even
+ *   for bosonic functions
  * * `out` - Pre-allocated array to store complex function values
  *
  * # Returns
@@ -970,7 +978,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * * `funcs` - Pointer to the funcs object
  * * `order` - Memory layout: 0 for row-major, 1 for column-major
  * * `num_points` - Number of evaluation points
- * * `xs` - Array of points to evaluate at
+ * * `xs` - Array of points to evaluate at, in the units and domain of `x` in
+ *   `spir_funcs_eval`
  * * `out` - Pre-allocated array to store results
  *
  * # Returns
@@ -1000,8 +1009,8 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  * * `funcs` - Pointer to the funcs object
  * * `order` - Memory layout: 0 for row-major, 1 for column-major
  * * `num_freqs` - Number of Matsubara frequencies
- * * `ns` - Array of Matsubara indices n (ω = nπ/β): odd for fermionic, even
- *   for bosonic functions
+ * * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β): odd for
+ *   fermionic, even for bosonic functions
  * * `out` - Pre-allocated array to store complex results
  *
  * # Returns
@@ -1029,16 +1038,15 @@ StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
 /**
  * Get default Matsubara sampling points from a Matsubara-space spir_funcs
  *
- * This function computes default sampling points in Matsubara frequencies (iωn) from
+ * This function computes default sampling points in Matsubara frequencies (iν) from
  * a spir_funcs object that represents Matsubara-space basis functions (e.g., uhat or uhat_full).
  * The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
  *
  * This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
- * `FiniteTempBasis::default_matsubara_sampling_points_impl` from `basis.rs` (lines 332-387)
- * to compute default sampling points.
- *
- * The implementation uses the same algorithm as defined in `sparseir-rust/src/basis.rs`,
- * which selects sampling points based on sign changes or extrema of the Matsubara basis functions.
+ * `FiniteTempBasis::default_matsubara_sampling_points_impl` (sparse-ir/src/basis.rs)
+ * to compute default sampling points: the sign changes of the first discarded
+ * Matsubara basis function (its extrema when that function is not available);
+ * bosonic sets always include n = 0.
  *
  * # Arguments
  * * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
@@ -1172,6 +1180,11 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
 
 /**
  * Create a new RegularizedBose kernel
+ *
+ * # Deprecated
+ * Use `spir_logistic_kernel_new`, the default kernel for both statistics.
+ * `RegularizedBoseKernel` will be removed in a future release
+ * (https://github.com/SpM-lab/sparse-ir-rs/issues/273).
  *
  * # Arguments
  * * `lambda` - The kernel parameter Λ = β * ωmax (must be > 0)
@@ -1403,11 +1416,12 @@ struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
  *
  * # Arguments
  * * `b` - Pointer to a finite temperature basis object
- * * `positive_only` - If true, only non-negative frequencies are used
+ * * `positive_only` - If true, only non-negative frequencies are used; the IR
+ *   coefficients are then real, i.e. G(-iν) = conj(G(iν))
  * * `num_points` - Number of sampling points
- * * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for a
- *   fermionic basis, even for a bosonic basis, and non-negative when
- *   `positive_only` is true
+ * * `points` - Array of `num_points` reduced Matsubara frequencies n
+ *   (iν = iπn/β): odd for a fermionic basis, even for a bosonic basis, and
+ *   non-negative when `positive_only` is true
  * * `status` - Pointer to store the status code
  *
  * # Returns
@@ -1460,11 +1474,12 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
  * * `basis_size` - Basis size
- * * `positive_only` - If true, only non-negative frequencies are used
+ * * `positive_only` - If true, only non-negative frequencies are used; the IR
+ *   coefficients are then real, i.e. G(-iν) = conj(G(iν))
  * * `num_points` - Number of sampling points
- * * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for
- *   fermionic, even for bosonic `statistics`, and non-negative when
- *   `positive_only` is true
+ * * `points` - Array of `num_points` reduced Matsubara frequencies n
+ *   (iν = iπn/β): odd for fermionic, even for bosonic `statistics`, and
+ *   non-negative when `positive_only` is true
  * * `matrix` - Pre-computed complex matrix (num_points x basis_size)
  * * `status` - Pointer to store the status code
  *

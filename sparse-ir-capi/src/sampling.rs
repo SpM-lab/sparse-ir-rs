@@ -1,7 +1,7 @@
 //! Sampling API for C
 //!
 //! This module provides the C API for sparse sampling in imaginary time (τ),
-//! Matsubara frequency (iωn), and real frequency (ω) domains.
+//! Matsubara frequency (iν), and real frequency (ω) domains.
 //!
 //! Functions:
 //! - Creation: spir_tau_sampling_new, spir_matsu_sampling_new, ...
@@ -222,11 +222,12 @@ pub extern "C" fn spir_tau_sampling_new(
 ///
 /// # Arguments
 /// * `b` - Pointer to a finite temperature basis object
-/// * `positive_only` - If true, only non-negative frequencies are used
+/// * `positive_only` - If true, only non-negative frequencies are used; the IR
+///   coefficients are then real, i.e. G(-iν) = conj(G(iν))
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for a
-///   fermionic basis, even for a bosonic basis, and non-negative when
-///   `positive_only` is true
+/// * `points` - Array of `num_points` reduced Matsubara frequencies n
+///   (iν = iπn/β): odd for a fermionic basis, even for a bosonic basis, and
+///   non-negative when `positive_only` is true
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
@@ -474,11 +475,12 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
 /// * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
 /// * `basis_size` - Basis size
-/// * `positive_only` - If true, only non-negative frequencies are used
+/// * `positive_only` - If true, only non-negative frequencies are used; the IR
+///   coefficients are then real, i.e. G(-iν) = conj(G(iν))
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for
-///   fermionic, even for bosonic `statistics`, and non-negative when
-///   `positive_only` is true
+/// * `points` - Array of `num_points` reduced Matsubara frequencies n
+///   (iν = iπn/β): odd for fermionic, even for bosonic `statistics`, and
+///   non-negative when `positive_only` is true
 /// * `matrix` - Pre-computed complex matrix (num_points x basis_size)
 /// * `status` - Pointer to store the status code
 ///

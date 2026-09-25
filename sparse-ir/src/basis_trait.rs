@@ -86,7 +86,9 @@ pub trait Basis<S: StatisticsType> {
 
     /// Get singular values (non-normalized)
     ///
-    /// Returns the singular values s[i] from the SVE decomposition.
+    /// Returns the singular values S_l of the basis in physical units; for
+    /// `FiniteTempBasis`, S_l = sqrt(β ωmax/2) ωmax^ypower s_l with s_l those of
+    /// the SVE.
     /// These are the absolute values, not normalized by s[0].
     ///
     /// # Returns
@@ -121,10 +123,11 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// Computes the value of basis functions at given τ points.
     /// For IR basis: u_l(τ)
-    /// For DLR basis: sum over poles weighted by basis coefficients
+    /// For DLR basis: the pole functions u_p(τ), one column per pole
     ///
     /// # Arguments
-    /// * `tau` - Imaginary time points where τ ∈ [0, β] (or extended range for DLR)
+    /// * `tau` - Imaginary time points τ ∈ [-β, β]; negative τ uses the
+    ///   (anti)periodicity of the statistics
     ///
     /// # Returns
     /// Matrix of shape [tau.len(), self.size()] where result[i, l] = u_l(τ_i)
@@ -133,14 +136,14 @@ pub trait Basis<S: StatisticsType> {
     /// Evaluate basis functions at Matsubara frequencies
     ///
     /// Computes the value of basis functions at given Matsubara frequencies.
-    /// For IR basis: û_l(iωn)
+    /// For IR basis: û_l(iν)
     /// For DLR basis: basis functions in Matsubara space
     ///
     /// # Arguments
     /// * `freqs` - Matsubara frequencies
     ///
     /// # Returns
-    /// Matrix of shape [freqs.len(), self.size()] where result[i, l] = û_l(iωn_i)
+    /// Matrix of shape [freqs.len(), self.size()] where result[i, l] = û_l(iν_i)
     fn evaluate_matsubara(
         &self,
         freqs: &[MatsubaraFreq<S>],
@@ -152,7 +155,7 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// Computes the value of spectral basis functions at given real frequencies.
     /// For IR basis: V_l(ω)
-    /// For DLR basis: may return identity or specific representation
+    /// Not supported for the DLR basis, which panics
     ///
     /// # Arguments
     /// * `omega` - Real frequency points in [-ωmax, ωmax]
