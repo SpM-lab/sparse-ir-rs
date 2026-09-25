@@ -4,7 +4,8 @@
 
 use crate::{
     AbstractKernel, Basis, Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis,
-    LogisticKernel, MatsubaraSampling, RegularizedBoseKernel, TauSampling,
+    LogisticKernel, MatsubaraFreq, MatsubaraSampling, RegularizedBoseKernel, Statistics,
+    StatisticsType, TauSampling, bosonic_single_pole, giwn_single_pole, gtau_single_pole,
 };
 use mdarray::{DTensor, Shape, Tensor};
 use num_complex::Complex;
@@ -717,4 +718,299 @@ fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
         "bosonic logistic DLR tau sampling matrix mismatch: {:.3e}",
         rel_error
     );
+}
+
+// ============================================================================
+// Single-pole helpers: gtau_single_pole / giwn_single_pole (#262)
+// ============================================================================
+
+/// `(beta, omega)` cases for the single-pole helper tests: both signs of
+/// `omega`, three temperatures, and `|beta * omega|` from 1e-3 (close to the
+/// bosonic pole at `omega = 0`) to 50 (strongly suppressed tails).
+const SINGLE_POLE_CASES: [(f64, f64); 18] = [
+    (1.0, -5.0),
+    (1.0, -1.0),
+    (1.0, -1e-3),
+    (1.0, 1e-3),
+    (1.0, 1.0),
+    (1.0, 5.0),
+    (10.0, -5.0),
+    (10.0, -0.1),
+    (10.0, -1e-4),
+    (10.0, 1e-4),
+    (10.0, 0.1),
+    (10.0, 5.0),
+    (100.0, -0.5),
+    (100.0, -0.01),
+    (100.0, -1e-5),
+    (100.0, 1e-5),
+    (100.0, 0.01),
+    (100.0, 0.5),
+];
+
+/// `zeta` in `G(tau - beta) = zeta * G(tau)`: -1 for fermions, +1 for bosons.
+fn statistics_zeta<S: StatisticsType>() -> f64 {
+    match S::STATISTICS {
+        Statistics::Fermionic => -1.0,
+        Statistics::Bosonic => 1.0,
+    }
+}
+
+/// Single-pole `G(tau) = -exp(-omega tau) / (1 + zeta' exp(-beta omega))` for
+/// `tau` in `[0, beta]` (`zeta' = +1` fermions, `-1` bosons).
+///
+/// Written without the overflow-avoiding rearrangement the implementation uses
+/// for `omega < 0`, so it independently checks both branches. Valid while
+/// `|beta * omega|` stays far below the `exp` overflow threshold (~709).
+fn single_pole_tau_reference<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f64 {
+    let boltzmann = (-beta * omega).exp();
+    let denominator = match S::STATISTICS {
+        Statistics::Fermionic => 1.0 + boltzmann,
+        Statistics::Bosonic => 1.0 - boltzmann,
+    };
+    -(-omega * tau).exp() / denominator
+}
+
+/// `gtau_single_pole` against the closed form, its sign, and the jump
+/// `G(0+) - G(0-) = -1` fixed by the canonical (anti)commutator.
+fn check_single_pole_tau_closed_form<S: StatisticsType>() {
+    let zeta = statistics_zeta::<S>();
+    for (beta, omega) in SINGLE_POLE_CASES {
+        let x = (beta * omega).abs();
+        // Error model: exp amplifies the rounding of its argument by |beta*omega|
+        // on both sides; the bosonic reference loses ~eps/|beta*omega| to the
+        // cancellation in 1 - exp(-beta*omega). Factor 16 is headroom.
+        let rel_tol = 16.0 * f64::EPSILON * (1.0 + x + 1.0 / x);
+
+        // G(tau) = -<T c(tau) c^dag>: negative for fermions at every omega;
+        // for bosons negative for omega > 0 and positive for omega < 0.
+        let expected_sign = match S::STATISTICS {
+            Statistics::Fermionic => -1.0,
+            Statistics::Bosonic => -omega.signum(),
+        };
+
+        for frac in [0.0, 0.1, 0.5, 0.9, 1.0] {
+            let tau = frac * beta;
+            let value = gtau_single_pole::<S>(tau, omega, beta);
+            let reference = single_pole_tau_reference::<S>(tau, omega, beta);
+            assert!(
+                (value - reference).abs() <= rel_tol * reference.abs(),
+                "{:?} G(tau={}) for omega={}, beta={}: got {:.16e}, expected {:.16e} \
+                 (rel. error {:.3e}, tol {:.3e})",
+                S::STATISTICS,
+                tau,
+                omega,
+                beta,
+                value,
+                reference,
+                ((value - reference) / reference).abs(),
+                rel_tol
+            );
+            assert_eq!(
+                value.signum(),
+                expected_sign,
+                "{:?} G(tau={}) for omega={}, beta={} has the wrong sign: {:.16e}",
+                S::STATISTICS,
+                tau,
+                omega,
+                beta,
+                value
+            );
+        }
+
+        // Periodic (bosons) / antiperiodic (fermions) extension to tau < 0.
+        let tau = -0.25 * beta;
+        let value = gtau_single_pole::<S>(tau, omega, beta);
+        let reference = zeta * single_pole_tau_reference::<S>(tau + beta, omega, beta);
+        assert!(
+            (value - reference).abs() <= rel_tol * reference.abs(),
+            "{:?} G(tau={}) for omega={}, beta={}: got {:.16e}, expected {:.16e}",
+            S::STATISTICS,
+            tau,
+            omega,
+            beta,
+            value,
+            reference
+        );
+
+        // G(0+) - G(0-) = -1 with G(0-) = zeta * G(beta-). Both terms carry a
+        // few ulps of relative error, so the bound scales with their magnitude.
+        let g_0 = gtau_single_pole::<S>(0.0, omega, beta);
+        let g_beta = gtau_single_pole::<S>(beta, omega, beta);
+        let jump = g_0 - zeta * g_beta;
+        let jump_tol = 16.0 * f64::EPSILON * g_0.abs().max(g_beta.abs()).max(1.0);
+        assert!(
+            (jump + 1.0).abs() <= jump_tol,
+            "{:?} G(0+) - G(0-) for omega={}, beta={}: got {:.16e}, expected -1 (tol {:.3e})",
+            S::STATISTICS,
+            omega,
+            beta,
+            jump,
+            jump_tol
+        );
+    }
+}
+
+#[test]
+fn test_single_pole_tau_matches_closed_form_fermionic() {
+    check_single_pole_tau_closed_form::<Fermionic>();
+}
+
+#[test]
+fn test_single_pole_tau_matches_closed_form_bosonic() {
+    check_single_pole_tau_closed_form::<Bosonic>();
+}
+
+/// `gtau_single_pole` and `giwn_single_pole` must be a Fourier pair:
+/// `G(iv_n) = int_0^beta dtau exp(i v_n tau) G(tau)`.
+fn check_single_pole_fourier_pair<S: StatisticsType>() {
+    let n_segments: usize = 32;
+    let rule = crate::gauss::legendre::<f64>(16);
+    // Lowest Matsubara index of the right parity: 1 for fermions, 0 for bosons.
+    let parity = match S::STATISTICS {
+        Statistics::Fermionic => 1,
+        Statistics::Bosonic => 0,
+    };
+
+    for (beta, omega) in SINGLE_POLE_CASES {
+        let edges: Vec<f64> = (0..=n_segments)
+            .map(|k| beta * k as f64 / n_segments as f64)
+            .collect();
+        let quad = rule.piecewise(&edges);
+        let gtau: Vec<f64> = quad
+            .x
+            .iter()
+            .map(|&tau| gtau_single_pole::<S>(tau, omega, beta))
+            .collect();
+
+        // Error model: every quadrature term carries O(100) ulps of relative
+        // rounding error (exp/cos/sin of arguments up to ~50) and the N-term sum
+        // adds at most N/2 ulps of sum_i |w_i G(tau_i)|; 2 N eps bounds both.
+        // The quadrature truncation error is negligible: 16-point Gauss-Legendre
+        // on 32 panels resolves exp((i v_n - omega) tau) far below machine
+        // precision for |v_n| <= 17 pi / beta and |beta omega| <= 50.
+        let l1: f64 = quad.w.iter().zip(&gtau).map(|(&w, &g)| (w * g).abs()).sum();
+        let tol = 2.0 * quad.x.len() as f64 * f64::EPSILON * l1;
+
+        for m in -8..=8 {
+            let freq = MatsubaraFreq::<S>::new(2 * m + parity).unwrap();
+            let nu = freq.value(beta);
+            let transform: Complex<f64> = quad
+                .x
+                .iter()
+                .zip(&quad.w)
+                .zip(&gtau)
+                .map(|((&tau, &w), &g)| Complex::new(0.0, nu * tau).exp() * (w * g))
+                .sum();
+            let reference = giwn_single_pole::<S>(&freq, omega, beta);
+            assert!(
+                (transform - reference).norm() <= tol,
+                "{:?} Fourier transform of G(tau) at n={} for omega={}, beta={}: \
+                 got {:.16e}, giwn_single_pole gives {:.16e} (|diff| {:.3e}, tol {:.3e})",
+                S::STATISTICS,
+                freq.n(),
+                omega,
+                beta,
+                transform,
+                reference,
+                (transform - reference).norm(),
+                tol
+            );
+        }
+    }
+}
+
+#[test]
+fn test_single_pole_fourier_pair_fermionic() {
+    check_single_pole_fourier_pair::<Fermionic>();
+}
+
+#[test]
+fn test_single_pole_fourier_pair_bosonic() {
+    check_single_pole_fourier_pair::<Bosonic>();
+}
+
+/// `gtau_single_pole` times the pole weight must reproduce the DLR tau
+/// functions, which carry the same convention as the C ABI DLR evaluation.
+fn check_single_pole_matches_dlr_evaluate_tau<S: StatisticsType + 'static>() {
+    let beta = 10.0;
+    let wmax = 5.0;
+    let epsilon = 1e-10;
+
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None);
+    let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).unwrap();
+    assert!(
+        dlr.poles.iter().any(|&pole| pole > 0.0) && dlr.poles.iter().any(|&pole| pole < 0.0),
+        "DLR poles must cover both signs of omega: {:?}",
+        dlr.poles
+    );
+
+    let taus = [
+        -0.75 * beta,
+        -0.1 * beta,
+        0.0,
+        0.1 * beta,
+        0.5 * beta,
+        0.9 * beta,
+        beta,
+    ];
+    let dlr_tau = dlr.evaluate_tau(&taus);
+
+    for (p, (&pole, &weight)) in dlr.poles.iter().zip(dlr.pole_weights()).enumerate() {
+        // An exact bosonic zero pole is a genuine pole of the unweighted
+        // single-pole function; the DLR evaluates it through its finite
+        // regularized limit instead.
+        if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
+            continue;
+        }
+        for (i, &tau) in taus.iter().enumerate() {
+            let expected = gtau_single_pole::<S>(tau, pole, beta) * weight;
+            let actual = dlr_tau[[i, p]];
+            // Both sides combine the same rounded exp, weight and denominator in
+            // a different order, so they agree to a few ulps.
+            assert!(
+                (actual - expected).abs() <= 8.0 * f64::EPSILON * expected.abs(),
+                "{:?} DLR u_p(tau={}) for pole {}: evaluate_tau gives {:.16e}, \
+                 gtau_single_pole * weight gives {:.16e}",
+                S::STATISTICS,
+                tau,
+                pole,
+                actual,
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn test_single_pole_matches_dlr_evaluate_tau_fermionic() {
+    check_single_pole_matches_dlr_evaluate_tau::<Fermionic>();
+}
+
+#[test]
+fn test_single_pole_matches_dlr_evaluate_tau_bosonic() {
+    check_single_pole_matches_dlr_evaluate_tau::<Bosonic>();
+}
+
+/// `omega = 0` is a genuine pole of the Bose factor (#209). The result stays
+/// infinite, with the sign of the one-sided limit selected by the sign of the
+/// zero: `G -> -inf` as `omega -> 0+` and `G -> +inf` as `omega -> 0-`.
+#[test]
+fn test_bosonic_single_pole_diverges_at_zero_omega() {
+    let beta = 10.0;
+    for tau in [0.0, 0.5 * beta, beta] {
+        assert_eq!(
+            bosonic_single_pole(tau, 0.0, beta),
+            f64::NEG_INFINITY,
+            "omega = +0.0 at tau = {}",
+            tau
+        );
+        assert_eq!(
+            bosonic_single_pole(tau, -0.0, beta),
+            f64::INFINITY,
+            "omega = -0.0 at tau = {}",
+            tau
+        );
+    }
 }

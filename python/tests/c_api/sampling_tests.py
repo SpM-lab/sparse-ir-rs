@@ -23,7 +23,11 @@ from pylibsparseir.constants import *
 
 
 def _spir_basis_new(stat, beta, wmax, epsilon):
-    """Helper function to create basis directly via C API (for testing)."""
+    """Create a basis through the pylibsparseir wrappers (for testing).
+
+    The returned BasisHandle is owned by pylibsparseir: close it with
+    ``close()``; the raw ``spir_basis_release`` refuses owned handles.
+    """
     # Create kernel
     if stat == SPIR_STATISTICS_FERMIONIC:
         kernel = logistic_kernel_new(beta * wmax)
@@ -101,7 +105,7 @@ class TestSamplingBasics:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
     @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
     @pytest.mark.parametrize("positive_only", [True, False])
@@ -149,7 +153,7 @@ class TestSamplingBasics:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
     @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
     def test_condition_number_realistic_parameters(self, statistics):
@@ -191,7 +195,7 @@ class TestSamplingBasics:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
 
 class TestSamplingEvaluation1D:
@@ -273,7 +277,7 @@ class TestSamplingEvaluation1D:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
 
 class TestSamplingEvaluationMultiD:
@@ -373,7 +377,7 @@ class TestSamplingEvaluationMultiD:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
 
 class TestSamplingEvaluationComplex:
@@ -478,7 +482,7 @@ class TestSamplingEvaluationComplex:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
 
 class TestAdvanced4DComplexSampling:
@@ -583,7 +587,7 @@ class TestAdvanced4DComplexSampling:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
     @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
     def test_tau_sampling_evaluation_4d_column_major_complex(self, statistics):
@@ -684,7 +688,7 @@ class TestAdvanced4DComplexSampling:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
     @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
     def test_3d_real_sampling_comprehensive(self, statistics):
@@ -774,7 +778,7 @@ class TestAdvanced4DComplexSampling:
 
         # Cleanup
         _lib.spir_sampling_release(sampling)
-        _lib.spir_basis_release(basis)
+        basis.close()
 
 
 if __name__ == "__main__":

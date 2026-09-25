@@ -844,17 +844,30 @@ struct spir_funcs *spir_funcs_from_piecewise_legendre(const double *segments,
 /**
  * Extract a subset of functions by indices
  *
+ * The new object holds the selected functions in the order given by
+ * `indices`, for every function type (τ, ω, Matsubara and DLR functions).
+ *
  * # Arguments
  * * `funcs` - Pointer to the source funcs object
- * * `nslice` - Number of functions to select (length of indices array)
- * * `indices` - Array of indices specifying which functions to include
+ * * `nslice` - Number of functions to select (length of `indices`), at least 1
+ * * `indices` - Array of `nslice` distinct 0-based indices, each in
+ *   `[0, size)` where `size` is given by `spir_funcs_get_size(funcs)`
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to a new funcs object containing only the selected functions, or null on error
+ * Pointer to a new funcs object containing only the selected functions, or
+ * NULL on error. `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs` or `indices` is NULL, if `nslice` < 1
+ *   (an empty selection is rejected for every function type), or if an index
+ *   is negative, not less than `size`, or repeated
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * Nothing is written when `status` is NULL.
  *
  * # Safety
- * The caller must ensure that `funcs` and `indices` are valid pointers.
+ * The caller must ensure that `funcs` and `indices` are valid pointers and
+ * that `indices` holds at least `nslice` elements.
  * The returned pointer must be freed with `spir_funcs_release()`.
  */
 
@@ -905,17 +918,28 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
 /**
  * Evaluate functions at a single point (continuous functions only)
  *
+ * The valid points depend on the functions:
+ * - τ functions (`u` of an IR or DLR basis, and their slices and
+ *   derivatives): τ ∈ [-β, β]. A negative τ is folded onto [0, β] by the
+ *   (anti)periodicity: u(τ) = -u(τ + β) for fermions and u(τ) = u(τ + β) for
+ *   bosons. τ = +0.0 is read as 0⁺, τ = β as β⁻, τ = -β as (-β)⁺ (folded
+ *   onto 0⁺), and τ = -0.0 as 0⁻ (folded onto β⁻).
+ * - ω functions (`v` of an IR basis, and functions from
+ *   `spir_funcs_from_piecewise_legendre`): ω from the first to the last knot
+ *   (see `spir_funcs_get_knots`), i.e. ω ∈ [-ωmax, ωmax] for `v`.
+ *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `x` - Point to evaluate at, in physical units (not the scaled x ∈ [-1, 1]).
- *   For `u` (IR or DLR): imaginary time τ ∈ [-β, β]. Negative τ uses
- *   f(τ) = ∓f(τ + β) (− for fermions, + for bosons); +0.0 is read as 0⁺,
- *   β as β⁻, -0.0 as 0⁻ (= ∓f(β⁻)) and -β as (-β)⁺ (= ∓f(0⁺)).
- *   For `v`: real frequency ω ∈ [-ωmax, ωmax].
+ * * `x` - Point to evaluate at: τ or ω in the domain above
  * * `out` - Pre-allocated array to store function values
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs` or `out` is NULL, or `x` is NaN,
+ *   infinite or outside the domain; `out` is not written
+ * - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
@@ -927,13 +951,17 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `n` - Reduced Matsubara frequency: iν = iπn/β, with n odd for fermions and
- *   even for bosons
+ * * `n` - Reduced Matsubara frequency n (iν = iπn/β): odd for fermionic, even
+ *   for bosonic functions
  * * `out` - Pre-allocated array to store complex function values
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type
- * or if `n` has the wrong parity for the statistics)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs` or `out` is NULL, or `n` has the wrong
+ *   parity for the statistics of `funcs`; `out` is not written
+ * - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
@@ -944,6 +972,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
 /**
  * Batch evaluate functions at multiple points (continuous functions only)
  *
+ * Every point must lie in the domain described for `spir_funcs_eval`.
+ *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
  * * `order` - Memory layout: 0 for row-major, 1 for column-major
@@ -953,7 +983,12 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * * `out` - Pre-allocated array to store results
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs`, `xs` or `out` is NULL, `num_points` <= 0,
+ *   or any point is NaN, infinite or outside the domain; `out` is not written
+ * - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * - `xs` must have size >= `num_points`
@@ -974,12 +1009,18 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  * * `funcs` - Pointer to the funcs object
  * * `order` - Memory layout: 0 for row-major, 1 for column-major
  * * `num_freqs` - Number of Matsubara frequencies
- * * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β; odd for fermions,
- *   even for bosons)
+ * * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β): odd for
+ *   fermionic, even for bosonic functions
  * * `out` - Pre-allocated array to store complex results
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs`, `ns` or `out` is NULL, `num_freqs` <= 0,
+ *   or any index has the wrong parity for the statistics of `funcs`; `out` is
+ *   not written
+ * - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * - `ns` must have size >= `num_freqs`
@@ -1348,12 +1389,18 @@ StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
  * # Arguments
  * * `b` - Pointer to a finite temperature basis object
  * * `num_points` - Number of sampling points
- * * `points` - Array of sampling points in imaginary time τ ∈ [-β, β], read as
- *   in `spir_funcs_eval` (e.g. -0.0 is 0⁻)
+ * * `points` - Array of `num_points` sampling points τ ∈ [-β, β], with β the
+ *   inverse temperature of `b`; a negative τ is folded onto [0, β] as in
+ *   `spir_funcs_eval`
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, or a
+ *   point is NaN, infinite or outside [-β, β]
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * Caller must ensure `b` is valid and `points` has `num_points` elements
@@ -1369,15 +1416,22 @@ struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
  *
  * # Arguments
  * * `b` - Pointer to a finite temperature basis object
- * * `positive_only` - If true, the points must be non-negative (n ≥ 0) and the
- *   IR coefficients are real, i.e. G(-iν) = conj(G(iν))
+ * * `positive_only` - If true, only non-negative frequencies are used; the IR
+ *   coefficients are then real, i.e. G(-iν) = conj(G(iν))
  * * `num_points` - Number of sampling points
- * * `points` - Array of reduced Matsubara frequencies n (iν = iπn/β; odd for
- *   fermions, even for bosons)
+ * * `points` - Array of `num_points` reduced Matsubara frequencies n
+ *   (iν = iπn/β): odd for a fermionic basis, even for a bosonic basis, and
+ *   non-negative when `positive_only` is true
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, an
+ *   index has the wrong parity for the statistics of `b`, or `positive_only`
+ *   is true and an index is negative
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  */
 
 struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
@@ -1420,16 +1474,24 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
  * * `basis_size` - Basis size
- * * `positive_only` - If true, the points must be non-negative (n ≥ 0) and the
- *   IR coefficients are real, i.e. G(-iν) = conj(G(iν))
+ * * `positive_only` - If true, only non-negative frequencies are used; the IR
+ *   coefficients are then real, i.e. G(-iν) = conj(G(iν))
  * * `num_points` - Number of sampling points
- * * `points` - Array of reduced Matsubara frequencies n (iν = iπn/β; odd for
- *   fermions, even for bosons)
+ * * `points` - Array of `num_points` reduced Matsubara frequencies n
+ *   (iν = iπn/β): odd for fermionic, even for bosonic `statistics`, and
+ *   non-negative when `positive_only` is true
  * * `matrix` - Pre-computed complex matrix (num_points x basis_size)
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
+ *   `basis_size` <= 0, `order` or `statistics` is not one of the constants
+ *   above, an index has the wrong parity for `statistics`, or `positive_only`
+ *   is true and an index is negative
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes

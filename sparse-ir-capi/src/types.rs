@@ -40,6 +40,19 @@ pub(crate) fn statistics_from_c(value: i32) -> Result<Statistics, i32> {
     }
 }
 
+/// The imaginary-time domain [-β, β] accepted by the C API.
+///
+/// `normalize_tau` folds a negative τ onto [0, β] with the statistics sign;
+/// a point outside [-β, β] makes it (and `TauSampling`) panic.
+pub(crate) fn tau_domain(beta: f64) -> (f64, f64) {
+    (-beta, beta)
+}
+
+/// Whether `x` is finite and lies in the closed interval `[lo, hi]`.
+pub(crate) fn is_in_domain(x: f64, (lo, hi): (f64, f64)) -> bool {
+    x.is_finite() && lo <= x && x <= hi
+}
+
 /// Function domain type for continuous functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FunctionDomain {
@@ -957,10 +970,44 @@ impl spir_funcs {
         }
     }
 
+    /// The closed interval of valid points for `eval_continuous` and
+    /// `batch_eval_continuous`, or None if the functions are not continuous
+    ///
+    /// τ functions accept `tau_domain(beta)`. ω functions accept the interval
+    /// shared by all their polynomials, outside which `PiecewiseLegendrePoly`
+    /// panics.
+    pub(crate) fn continuous_domain(&self) -> Option<(f64, f64)> {
+        match self.inner_type() {
+            FuncsType::PolyVector(pv) => match pv.domain {
+                FunctionDomain::Tau(_) => Some(tau_domain(self.beta)),
+                FunctionDomain::Omega => Some(
+                    pv.poly
+                        .polyvec
+                        .iter()
+                        .fold((f64::NEG_INFINITY, f64::INFINITY), |(lo, hi), p| {
+                            (lo.max(p.xmin), hi.min(p.xmax))
+                        }),
+                ),
+            },
+            FuncsType::DLRTau(dlr) => Some(tau_domain(dlr.beta)),
+            FuncsType::FTVector(_) | FuncsType::DLRMatsubara(_) => None,
+        }
+    }
+
+    /// The statistics of Matsubara-domain functions, or None for τ/ω functions
+    pub(crate) fn matsubara_statistics(&self) -> Option<Statistics> {
+        match self.inner_type() {
+            FuncsType::FTVector(ftv) => Some(ftv.statistics),
+            FuncsType::DLRMatsubara(dlr) => Some(dlr.statistics),
+            FuncsType::PolyVector(_) | FuncsType::DLRTau(_) => None,
+        }
+    }
+
     /// Evaluate at a single tau/omega point (for continuous functions only)
     ///
     /// # Arguments
-    /// * `x` - For u: tau ∈ [-beta, beta], For v: omega ∈ [-omega_max, omega_max]
+    /// * `x` - A point in `continuous_domain()`: for u, tau ∈ [-beta, beta];
+    ///   for v, omega ∈ [-omega_max, omega_max]
     ///
     /// # Returns
     /// Vector of function values, or None if not continuous

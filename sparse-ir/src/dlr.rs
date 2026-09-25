@@ -32,6 +32,8 @@ pub enum DlrError {
 /// Generic single-pole Green's function at imaginary time τ
 ///
 /// Computes G(τ) for either fermionic or bosonic statistics based on the type parameter S.
+/// Both use G(τ) = -exp(-ω×τ) / (1 ± exp(-β×ω)) (+ for fermions, - for bosons),
+/// the imaginary-time counterpart of [`giwn_single_pole`]'s G(iωn) = 1/(iωn - ω).
 ///
 /// # Type Parameters
 /// * `S` - Statistics type (Fermionic or Bosonic)
@@ -65,7 +67,7 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 ///
 /// Supports extended τ ranges with anti-periodic boundary conditions:
 /// - G(τ + β) = -G(τ) (fermionic anti-periodicity)
-/// - Valid for τ ∈ [-β, β]
+/// - Valid for τ ∈ [-β, β]; panics outside this range
 ///
 /// # Arguments
 /// * `tau` - Imaginary time (can be outside [0, β))
@@ -103,14 +105,24 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 
 /// Compute bosonic single-pole Green's function at imaginary time τ
 ///
-/// Evaluates G(τ) = exp(-ω×τ) / (1 - exp(-β×ω)) for a single pole at frequency ω.
+/// Evaluates G(τ) = -exp(-ω×τ) / (1 - exp(-β×ω)) for a single pole at frequency ω.
+///
+/// This is the imaginary-time counterpart of [`giwn_single_pole`]:
+/// G(iνn) = ∫₀^β dτ exp(iνn×τ) G(τ) = 1/(iνn - ω). G(τ) is negative for ω > 0
+/// and positive for ω < 0, the same sign convention as [`fermionic_single_pole`]
+/// and the bosonic τ functions of [`DiscreteLehmannRepresentation`].
 ///
 /// Supports extended τ ranges with periodic boundary conditions:
 /// - G(τ + β) = G(τ) (bosonic periodicity)
-/// - Valid for τ ∈ [-β, β]
+/// - Valid for τ ∈ [-β, β]; panics outside this range
+///
+/// ω = 0 is a genuine pole of the Bose factor, so the result is infinite there:
+/// `-inf` for `omega = +0.0` (the ω → 0⁺ limit) and `+inf` for `omega = -0.0`.
+/// [`DiscreteLehmannRepresentation`] evaluates a zero pole through its finite,
+/// regularized limit instead.
 ///
 /// # Arguments
-/// * `tau` - Imaginary time (can be outside [0, β))
+/// * `tau` - Imaginary time in [-β, β]
 /// * `omega` - Pole position (real frequency)
 /// * `beta` - Inverse temperature
 ///
@@ -118,11 +130,17 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// Real-valued Green's function G(τ)
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// use sparse_ir::bosonic_single_pole;
+///
 /// let beta = 1.0;
 /// let omega = 5.0;
 /// let tau = 0.5 * beta;
 /// let g = bosonic_single_pole(tau, omega, beta);
+///
+/// let expected = -(-omega * tau).exp() / (1.0 - (-beta * omega).exp());
+/// assert!((g - expected).abs() <= 1e-14 * expected.abs());
+/// assert!(g < 0.0);
 /// ```
 pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     use crate::taufuncs::normalize_tau;
@@ -132,10 +150,19 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     // G(τ + β) = G(τ) for bosons
     let tau_normalized = normalize_tau::<Bosonic>(tau, beta).0;
 
+    // Avoid overflow for large negative ω by factoring out exp(βω): both
+    // branches keep the exponents non-positive. expm1 keeps the Bose
+    // denominator 1 - exp(-β|ω|) accurate for small β|ω|. This is the same
+    // form as the bosonic arm of `DiscreteLehmannRepresentation::evaluate_tau`.
+    // At ω = ±0 the denominator is a signed zero and the result is ∓inf.
     if omega >= 0.0 {
-        (-omega * tau_normalized).exp() / (1.0 - (-beta * omega).exp())
+        // 1 - exp(-βω) = -expm1(-βω)
+        let denominator = -(-beta * omega).exp_m1();
+        -(-omega * tau_normalized).exp() / denominator
     } else {
-        -(omega * (beta - tau_normalized)).exp() / (1.0 - (beta * omega).exp())
+        // -exp(-ωτ) / (1 - exp(-βω)) = exp(ω(β - τ)) / (1 - exp(βω))
+        let denominator = -(beta * omega).exp_m1();
+        (omega * (beta - tau_normalized)).exp() / denominator
     }
 }
 

@@ -24,7 +24,11 @@ from pylibsparseir.constants import *
 
 
 def _spir_basis_new(stat, beta, wmax, epsilon):
-    """Helper function to create basis directly via C API (for testing)."""
+    """Create a basis through the pylibsparseir wrappers (for testing).
+
+    The returned BasisHandle is owned by pylibsparseir: close it with
+    ``close()``; the raw ``spir_basis_release`` refuses owned handles.
+    """
     # Create kernel
     if stat == SPIR_STATISTICS_FERMIONIC:
         kernel = logistic_kernel_new(beta * wmax)
@@ -183,7 +187,7 @@ class TestIntegrationWorkflow:
         _lib.spir_sampling_release(dlr_tau_sampling)
         _lib.spir_sampling_release(dlr_matsu_sampling)
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
     def _test_dlr_ir_conversion_roundtrip(self, dlr, ir_size, n_poles):
         """Test DLR ↔ IR conversion roundtrip accuracy."""
@@ -327,7 +331,7 @@ class TestIntegrationMultiDimensional:
 
         # Cleanup
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
     def _test_3d_dlr_conversion(self, dlr, ir_size, n_poles, d1, d2, target_dim):
         """Test 3D DLR to IR conversion along specific target dimension."""
@@ -430,7 +434,7 @@ class TestIntegrationErrorHandling:
 
         # Cleanup
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
 
 class TestEnhancedDLRSamplingIntegration:
@@ -691,7 +695,7 @@ class TestEnhancedDLRSamplingIntegration:
         _lib.spir_sampling_release(dlr_tau_sampling)
         _lib.spir_sampling_release(dlr_matsu_sampling)
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
     def test_dlr_sampling_tensor_operations(self):
         """Test DLR sampling with multi-dimensional tensor operations"""
@@ -743,7 +747,7 @@ class TestEnhancedDLRSamplingIntegration:
 
         # Cleanup
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
 
 if __name__ == "__main__":
