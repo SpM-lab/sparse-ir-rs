@@ -1,5 +1,6 @@
 //! Main SVE computation functions
 
+use crate::error::{Error, require_accuracy, require_nonzero_size};
 use crate::fpu_check::FpuGuard;
 use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints};
 use crate::numeric::CustomNumeric;
@@ -58,20 +59,29 @@ fn release_unused_memory() {
 /// # Arguments
 ///
 /// * `kernel` - The centrosymmetric kernel to expand
-/// * `epsilon` - Required accuracy
+/// * `epsilon` - Required accuracy, in (0, 1). `None` selects the best
+///   accuracy of the working precision (about 1.6e-16 in Float64X2).
 /// * `cutoff` - Relative tolerance for singular value truncation: singular
 ///   values smaller than `cutoff` times the largest singular value are
 ///   discarded. `None` selects `2 * machine epsilon` of the working precision,
 ///   about 4.44e-16 for Float64 and 4.93e-32 for Float64X2 (the libsparseir
 ///   default). The SVD of each even/odd block already discards singular values
 ///   below `2 * machine epsilon` times that block's largest singular value, so
-///   a smaller `cutoff` has little effect.
+///   a smaller `cutoff` has little effect. Must be in [0, 1].
 /// * `max_num_svals` - Maximum number of singular values to keep
 /// * `twork` - Working precision type (Auto for automatic selection)
 ///
 /// # Returns
 ///
 /// SVEResult containing singular functions and values
+///
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `epsilon` is not in (0, 1), `cutoff` is
+///   not in [0, 1], or `max_num_svals` is `Some(0)`; checked before any work
+/// * [`Error::NonFiniteInput`] if the discretized kernel has a NaN or
+///   infinite entry (e.g. a cutoff Λ so small that 1/Λ overflows)
+/// * [`Error::DecompositionFailed`] if an SVD fails
 ///
 /// # FPU State Warning
 ///
@@ -81,14 +91,16 @@ fn release_unused_memory() {
 /// compiling with Intel Fortran.
 pub fn compute_sve<K>(
     kernel: K,
-    epsilon: f64,
+    epsilon: Option<f64>,
     cutoff: Option<f64>,
     max_num_svals: Option<usize>,
     twork: TworkType,
-) -> SVEResult
+) -> Result<SVEResult, Error>
 where
     K: CentrosymmKernel + KernelProperties + Clone + 'static,
 {
+    check_sve_parameters(epsilon, cutoff, max_num_svals)?;
+
     // Protect computation from dangerous FPU settings (FZ/DAZ)
     // This temporarily disables FZ/DAZ and restores them after computation
     let _fpu_guard = FpuGuard::new_protect_computation();
@@ -143,20 +155,29 @@ where
 /// # Arguments
 ///
 /// * `kernel` - The kernel to expand (can be centrosymmetric or non-centrosymmetric)
-/// * `epsilon` - Required accuracy
+/// * `epsilon` - Required accuracy, in (0, 1). `None` selects the best
+///   accuracy of the working precision (about 1.6e-16 in Float64X2).
 /// * `cutoff` - Relative tolerance for singular value truncation: singular
 ///   values smaller than `cutoff` times the largest singular value are
 ///   discarded. `None` selects `2 * machine epsilon` of the working precision,
 ///   about 4.44e-16 for Float64 and 4.93e-32 for Float64X2, as in
 ///   [`compute_sve`]. The SVD of the full-domain matrix already discards
 ///   singular values below `2 * machine epsilon` times the largest one, so a
-///   smaller `cutoff` has no effect.
+///   smaller `cutoff` has no effect. Must be in [0, 1].
 /// * `max_num_svals` - Maximum number of singular values to keep
 /// * `twork` - Working precision type (Auto for automatic selection)
 ///
 /// # Returns
 ///
 /// SVEResult containing singular functions and values
+///
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `epsilon` is not in (0, 1), `cutoff` is
+///   not in [0, 1], or `max_num_svals` is `Some(0)`; checked before any work
+/// * [`Error::NonFiniteInput`] if the discretized kernel has a NaN or
+///   infinite entry (e.g. a cutoff Λ so small that 1/Λ overflows)
+/// * [`Error::DecompositionFailed`] if an SVD fails
 ///
 /// # FPU State Warning
 ///
@@ -166,14 +187,16 @@ where
 /// compiling with Intel Fortran.
 pub fn compute_sve_general<K>(
     kernel: K,
-    epsilon: f64,
+    epsilon: Option<f64>,
     cutoff: Option<f64>,
     max_num_svals: Option<usize>,
     twork: TworkType,
-) -> SVEResult
+) -> Result<SVEResult, Error>
 where
     K: AbstractKernel + KernelProperties + Clone + 'static,
 {
+    check_sve_parameters(epsilon, cutoff, max_num_svals)?;
+
     // Protect computation from dangerous FPU settings (FZ/DAZ)
     // This temporarily disables FZ/DAZ and restores them after computation
     let _fpu_guard = FpuGuard::new_protect_computation();
@@ -205,13 +228,32 @@ where
     result
 }
 
+/// Check the parameters shared by [`compute_sve`] and [`compute_sve_general`]
+fn check_sve_parameters(
+    epsilon: Option<f64>,
+    cutoff: Option<f64>,
+    max_num_svals: Option<usize>,
+) -> Result<(), Error> {
+    require_accuracy("epsilon", epsilon)?;
+    if let Some(c) = cutoff {
+        if !(0.0..=1.0).contains(&c) {
+            return Err(Error::InvalidParameter {
+                name: "cutoff",
+                value: format!("{c:?}"),
+                reason: "must be in [0, 1]".to_string(),
+            });
+        }
+    }
+    require_nonzero_size("max_num_svals", max_num_svals)
+}
+
 /// Compute SVE with specific precision type
 fn compute_sve_with_precision<T, K>(
     kernel: K,
     epsilon: f64,
     cutoff: Option<T>,
     max_num_svals: Option<usize>,
-) -> SVEResult
+) -> Result<SVEResult, Error>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
     K: CentrosymmKernel + KernelProperties + Clone + 'static,
@@ -229,7 +271,7 @@ where
     let mut v_list = Vec::new();
 
     for matrix in matrices.iter() {
-        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix);
+        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
         u_list.push(u);
         s_list.push(s);
         v_list.push(v);
@@ -249,7 +291,7 @@ fn compute_sve_general_with_precision<T, K>(
     epsilon: f64,
     cutoff: Option<T>,
     max_num_svals: Option<usize>,
-) -> SVEResult
+) -> Result<SVEResult, Error>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
     K: AbstractKernel + KernelProperties + Clone + 'static,
@@ -267,7 +309,7 @@ where
     let mut v_list = Vec::new();
 
     for matrix in matrices.iter() {
-        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix);
+        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
         u_list.push(u);
         s_list.push(s);
         v_list.push(v);

@@ -34,7 +34,7 @@ fn test_sve_example() {
     let kernel = LogisticKernel::new(1.0).unwrap();
 
     // Compute SVE
-    let sve_result = compute_sve(kernel, 1e-12, None, Some(100), TworkType::Auto);
+    let sve_result = compute_sve(kernel, Some(1e-12), None, Some(100), TworkType::Auto).unwrap();
 
     println!("SVE computed with {} singular values", sve_result.s.len());
 

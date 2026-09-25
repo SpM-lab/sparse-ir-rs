@@ -821,7 +821,8 @@ mod tests {
     const TRUNCATED_BASIS_SIZE: usize = 6;
 
     /// The SVE result of `kernel`, truncated to `TRUNCATED_BASIS_SIZE`
-    /// singular values, with every right singular function replaced by v_0.
+    /// singular values and left singular functions, with every right singular
+    /// function replaced by v_0.
     ///
     /// A basis built from it uses all of its functions, so its default
     /// real-frequency sampling points (the default DLR poles) are the extrema
@@ -834,15 +835,16 @@ mod tests {
         K: CentrosymmKernel + KernelProperties + Clone + 'static,
     {
         let SVEResult { u, s, v, epsilon } =
-            compute_sve(kernel, 1e-6, None, None, TworkType::Float64);
+            compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
         assert!(s.len() > TRUNCATED_BASIS_SIZE);
         let v0 = v.get_polys()[0].clone();
         SVEResult::new(
-            u,
+            PiecewiseLegendrePolyVector::new(u.get_polys()[..TRUNCATED_BASIS_SIZE].to_vec()),
             s[..TRUNCATED_BASIS_SIZE].to_vec(),
             PiecewiseLegendrePolyVector::new(vec![v0; TRUNCATED_BASIS_SIZE]),
             epsilon,
         )
+        .unwrap()
     }
 
     /// `spir_dlr_new` on a basis with fewer default poles than basis functions

@@ -4,6 +4,7 @@
 
 use super::utils::{extend_to_full_domain, merge_results, mirror_segments_to_full_domain};
 use super::{SVDStrategy, SVEResult, TworkType, compute_sve, compute_sve_general, safe_epsilon};
+use crate::error::Error;
 use crate::kernel::{
     AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints,
     RegularizedBoseKernel, SVEHints, SymmetryType,
@@ -269,7 +270,8 @@ fn test_sve_decomposition_kernel_impl_with_tolerance<K>(
 ) where
     K: CentrosymmKernel + KernelProperties + Clone + 'static,
 {
-    let sve_result = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
+    let sve_result =
+        compute_sve(kernel.clone(), Some(epsilon), None, None, TworkType::Auto).unwrap();
     assert_sve_reconstructs_kernel(&kernel, &sve_result, tolerance);
 }
 
@@ -345,7 +347,8 @@ fn test_merge_results_assigns_global_index() {
             PiecewiseLegendrePolyVector::new(odd),
         ),
         1e-10,
-    );
+    )
+    .unwrap();
 
     assert_eq!(merged.s, vec![1.0, 0.5, 0.1, 0.05]);
     // The extension divides by sqrt(2), so f(1) = c + 1 identifies the source
@@ -376,18 +379,20 @@ fn test_compute_sve_global_index_matches_parity() {
     let results = [
         compute_sve(
             LogisticKernel::new(10.0).unwrap(),
-            1e-10,
+            Some(1e-10),
             None,
             None,
             TworkType::Auto,
-        ),
+        )
+        .unwrap(),
         compute_sve(
             RegularizedBoseKernel::new(10.0).unwrap(),
-            1e-10,
+            Some(1e-10),
             None,
             None,
             TworkType::Auto,
-        ),
+        )
+        .unwrap(),
     ];
     for sve in &results {
         assert!(sve.s.len() >= 8, "SVE too small: {}", sve.s.len());
@@ -404,7 +409,7 @@ fn test_compute_sve_global_index_matches_parity() {
 /// Machine epsilon of the working precision that `compute_sve*` selects for
 /// `(epsilon, twork)`
 fn working_machine_epsilon(epsilon: f64, twork: TworkType) -> f64 {
-    match safe_epsilon(epsilon, twork, SVDStrategy::Auto).1 {
+    match safe_epsilon(Some(epsilon), twork, SVDStrategy::Auto).1 {
         TworkType::Float64 => f64::EPSILON,
         TworkType::Float64X2 => CustomNumeric::to_f64(<crate::Df64 as CustomNumeric>::epsilon()),
         TworkType::Auto => unreachable!("safe_epsilon resolves TworkType::Auto"),
@@ -444,8 +449,8 @@ fn assert_general_path_matches_compute_sve<K>(
     // Explicit cutoff, so that this comparison does not depend on the
     // default-cutoff policy of either path.
     let cutoff = 2.0 * u_work;
-    let reference = compute_sve(kernel.clone(), epsilon, Some(cutoff), None, twork);
-    let general = compute_sve_general(kernel, epsilon, Some(cutoff), None, twork);
+    let reference = compute_sve(kernel.clone(), Some(epsilon), Some(cutoff), None, twork).unwrap();
+    let general = compute_sve_general(kernel, Some(epsilon), Some(cutoff), None, twork).unwrap();
 
     let s0 = reference.s[0];
     let tol = |s: f64| 1000.0 * u_work * s0 + 2.0 * f64::EPSILON * s;
@@ -546,16 +551,16 @@ fn test_compute_sve_general_matches_compute_sve_regularized_bose() {
 #[test]
 fn test_compute_sve_general_reconstructs_centrosymmetric_kernels() {
     let kernel = LogisticKernel::new(100.0).unwrap();
-    let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
+    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6 * 200.0);
 
     // TworkType::Auto selects Float64X2 for this epsilon.
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve_general(kernel, 1e-10, None, None, TworkType::Auto);
+    let sve = compute_sve_general(kernel, Some(1e-10), None, None, TworkType::Auto).unwrap();
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-10 * 200.0);
 
     let kernel = RegularizedBoseKernel::new(100.0).unwrap();
-    let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
+    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6);
 }
 
@@ -640,7 +645,7 @@ fn test_compute_sve_general_non_centrosymmetric_kernel() {
     let kernel = TiltedLogisticKernel(LogisticKernel::new(10.0).unwrap());
     assert!(!kernel.is_centrosymmetric());
     let epsilon = 1e-6;
-    let sve = compute_sve_general(kernel, epsilon, None, None, TworkType::Float64);
+    let sve = compute_sve_general(kernel, Some(epsilon), None, None, TworkType::Float64).unwrap();
 
     assert!(
         sve.s.windows(2).all(|w| w[0] >= w[1]) && sve.s[sve.s.len() - 1] > 0.0,
@@ -680,8 +685,15 @@ where
 {
     let u_work = working_machine_epsilon(epsilon, twork);
 
-    let explicit_2u = compute_sve(kernel.clone(), epsilon, Some(2.0 * u_work), None, twork);
-    let explicit_u = compute_sve(kernel.clone(), epsilon, Some(u_work), None, twork);
+    let explicit_2u = compute_sve(
+        kernel.clone(),
+        Some(epsilon),
+        Some(2.0 * u_work),
+        None,
+        twork,
+    )
+    .unwrap();
+    let explicit_u = compute_sve(kernel.clone(), Some(epsilon), Some(u_work), None, twork).unwrap();
     assert_eq!(
         explicit_u.s.len(),
         explicit_2u.s.len() + 1,
@@ -689,14 +701,21 @@ where
          cutoff is observable (eps={epsilon:e}, twork={twork:?}); choose another lambda"
     );
 
-    let centro_default = compute_sve(kernel.clone(), epsilon, None, None, twork);
+    let centro_default = compute_sve(kernel.clone(), Some(epsilon), None, None, twork).unwrap();
     assert_eq!(
         centro_default.s, explicit_2u.s,
         "compute_sve default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
     );
 
-    let general_2u = compute_sve_general(kernel.clone(), epsilon, Some(2.0 * u_work), None, twork);
-    let general_default = compute_sve_general(kernel, epsilon, None, None, twork);
+    let general_2u = compute_sve_general(
+        kernel.clone(),
+        Some(epsilon),
+        Some(2.0 * u_work),
+        None,
+        twork,
+    )
+    .unwrap();
+    let general_default = compute_sve_general(kernel, Some(epsilon), None, None, twork).unwrap();
     assert_eq!(
         general_default.s, general_2u.s,
         "compute_sve_general default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
@@ -737,15 +756,25 @@ fn test_default_cutoff_is_two_machine_epsilon_regularized_bose() {
     );
 }
 
-/// The public `lambda` field bypasses the Λ > 0 check of
-/// `RegularizedBoseKernel::new`. With Λ = 0 the discretized kernel is
-/// infinite (1/Λ at y = 0); before the fix its SVD iterated forever and
-/// `compute_sve` did not return. Now the TSVD rejects the non-finite matrix.
+/// A cutoff Λ = 0, which only a struct literal can build since the field is
+/// public, and the smallest positive Λ (a subnormal, so 1/Λ overflows) make
+/// the kernel matrix non-finite: 1/Λ at y = 0. Its SVD first iterated
+/// forever, then the TSVD panicked ("TSVD computation failed"); compute_sve
+/// now reports it.
 #[test]
-#[should_panic(expected = "NonFiniteInput")]
-fn test_compute_sve_rejects_non_finite_kernel_matrix() {
-    let kernel = RegularizedBoseKernel { lambda: 0.0 };
-    compute_sve(kernel, 1e-6, None, None, TworkType::Float64);
+fn test_compute_sve_reports_a_non_finite_kernel_matrix() {
+    for kernel in [
+        RegularizedBoseKernel { lambda: 0.0 },
+        RegularizedBoseKernel::new(f64::from_bits(1)).unwrap(),
+    ] {
+        let result = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto);
+        assert!(
+            matches!(result, Err(Error::NonFiniteInput { name: "matrix", .. })),
+            "lambda = {}: {:?}",
+            kernel.lambda,
+            result.err()
+        );
+    }
 }
 
 /// Assert that `truncated` holds exactly the first `n` singular values and
@@ -776,10 +805,10 @@ fn check_sve_truncated_to_one<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
     K: CentrosymmKernel + KernelProperties + Clone + 'static,
 {
-    let full = compute_sve(kernel.clone(), epsilon, None, None, twork);
+    let full = compute_sve(kernel.clone(), Some(epsilon), None, None, twork).unwrap();
     assert!(full.s.len() >= 4, "SVE too small: {}", full.s.len());
     for (cutoff, max_num_svals) in [(None, Some(1)), (Some(1.0), None)] {
-        let sve = compute_sve(kernel.clone(), epsilon, cutoff, max_num_svals, twork);
+        let sve = compute_sve(kernel.clone(), Some(epsilon), cutoff, max_num_svals, twork).unwrap();
         assert_leading_part_of(&sve, &full, 1);
         assert_eq!(
             sve.u.get_polys()[0].symm,
@@ -788,7 +817,7 @@ where
         );
     }
     // Two singular values keep one of each parity, as before the fix
-    let sve = compute_sve(kernel, epsilon, None, Some(2), twork);
+    let sve = compute_sve(kernel, Some(epsilon), None, Some(2), twork).unwrap();
     assert_leading_part_of(&sve, &full, 2);
 }
 
@@ -866,9 +895,10 @@ fn test_merge_results_with_an_empty_block() {
         block(&even, vec![1.0, 0.1]),
         (empty(), vec![], empty()),
         1e-10,
-    );
+    )
+    .unwrap();
     assert_eq!(merged.s, vec![1.0, 0.1]);
-    let merged = merge_results((empty(), vec![], empty()), block(&odd, vec![0.5]), 1e-10);
+    let merged = merge_results((empty(), vec![], empty()), block(&odd, vec![0.5]), 1e-10).unwrap();
     assert_eq!(merged.s, vec![0.5]);
     assert_eq!(merged.u.get_polys()[0].symm, -1);
     for (i, u) in merged.u.get_polys().iter().enumerate() {
@@ -877,12 +907,171 @@ fn test_merge_results_with_an_empty_block() {
 }
 
 #[test]
-#[should_panic(expected = "no singular values")]
 fn test_merge_results_rejects_two_empty_blocks() {
     let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
-    merge_results(
+    let err = merge_results(
         (empty(), vec![], empty()),
         (empty(), vec![], empty()),
         1e-10,
+    )
+    .unwrap_err();
+    assert_eq!(
+        err,
+        Error::EmptyInput {
+            name: "singular values"
+        }
     );
+}
+
+fn invalid(name: &'static str, value: &str, reason: &str) -> Error {
+    Error::InvalidParameter {
+        name,
+        value: value.to_string(),
+        reason: reason.to_string(),
+    }
+}
+
+/// Both SVE functions check their parameters before any work. A NaN epsilon
+/// used to mean "automatic" here and to panic in `part`; `None` is the only
+/// automatic value now.
+#[test]
+fn test_compute_sve_rejects_invalid_parameters() {
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let cases = [
+        (
+            Some(0.0),
+            None,
+            None,
+            invalid("epsilon", "0.0", "must be in (0, 1)"),
+        ),
+        (
+            Some(1.0),
+            None,
+            None,
+            invalid("epsilon", "1.0", "must be in (0, 1)"),
+        ),
+        (
+            Some(f64::NAN),
+            None,
+            None,
+            invalid("epsilon", "NaN", "must be in (0, 1)"),
+        ),
+        (
+            Some(-1.0),
+            None,
+            None,
+            invalid("epsilon", "-1.0", "must be in (0, 1)"),
+        ),
+        (
+            None,
+            Some(-0.5),
+            None,
+            invalid("cutoff", "-0.5", "must be in [0, 1]"),
+        ),
+        (
+            None,
+            Some(1.5),
+            None,
+            invalid("cutoff", "1.5", "must be in [0, 1]"),
+        ),
+        (
+            None,
+            Some(f64::NAN),
+            None,
+            invalid("cutoff", "NaN", "must be in [0, 1]"),
+        ),
+        (
+            None,
+            None,
+            Some(0),
+            invalid("max_num_svals", "0", "must be positive"),
+        ),
+    ];
+    for (epsilon, cutoff, max_num_svals, expected) in cases {
+        let err = compute_sve(kernel, epsilon, cutoff, max_num_svals, TworkType::Auto).unwrap_err();
+        assert_eq!(err, expected);
+        let err = compute_sve_general(kernel, epsilon, cutoff, max_num_svals, TworkType::Auto)
+            .unwrap_err();
+        assert_eq!(err, expected);
+    }
+}
+
+#[test]
+fn test_sve_result_new_checks_its_invariants() {
+    let sve = compute_sve(
+        LogisticKernel::new(10.0).unwrap(),
+        Some(1e-6),
+        None,
+        None,
+        TworkType::Auto,
+    )
+    .unwrap();
+    let (u, s, v) = (sve.u.clone(), sve.s.clone(), sve.v.clone());
+    let n = s.len();
+    let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
+
+    assert!(SVEResult::new(u.clone(), s.clone(), v.clone(), 0.0).is_ok());
+    assert_eq!(
+        SVEResult::new(empty(), vec![], empty(), 1e-6).unwrap_err(),
+        Error::EmptyInput { name: "s" }
+    );
+    assert_eq!(
+        SVEResult::new(u.clone(), s[..n - 1].to_vec(), v.clone(), 1e-6).unwrap_err(),
+        invalid(
+            "u",
+            &format!("{n} functions"),
+            &format!("must have one function per singular value ({})", n - 1)
+        )
+    );
+    let mut nan = s.clone();
+    nan[1] = f64::NAN;
+    assert!(matches!(
+        SVEResult::new(u.clone(), nan, v.clone(), 1e-6),
+        Err(Error::NonFiniteInput { name: "s", ref index, .. }) if index == &vec![1]
+    ));
+    let mut negative = s.clone();
+    negative[n - 1] = -1.0;
+    assert!(matches!(
+        SVEResult::new(u.clone(), negative, v.clone(), 1e-6),
+        Err(Error::InvalidParameter { name: "s", .. })
+    ));
+    let mut increasing = s.clone();
+    increasing.swap(0, 1);
+    assert!(matches!(
+        SVEResult::new(u.clone(), increasing, v.clone(), 1e-6),
+        Err(Error::InvalidParameter { name: "s", .. })
+    ));
+    assert_eq!(
+        SVEResult::new(u, s, v, 1.0).unwrap_err(),
+        invalid("epsilon", "1.0", "must be in [0, 1)")
+    );
+}
+
+/// `part` rejects a threshold of 1 or more and max_size = 0 (both emptied
+/// the result and panicked, except eps = 1, which kept one value). A
+/// threshold of 0 keeps every singular value.
+#[test]
+fn test_sve_result_part_checks_its_parameters() {
+    let sve = compute_sve(
+        LogisticKernel::new(10.0).unwrap(),
+        Some(1e-6),
+        None,
+        None,
+        TworkType::Auto,
+    )
+    .unwrap();
+    assert_eq!(sve.part(Some(0.0), None).unwrap().1.len(), sve.s.len());
+    assert_eq!(
+        sve.part(Some(1.0), None).unwrap_err(),
+        invalid("eps", "1.0", "must be in [0, 1)")
+    );
+    assert_eq!(
+        sve.part(Some(f64::NAN), None).unwrap_err(),
+        invalid("eps", "NaN", "must be in [0, 1)")
+    );
+    assert_eq!(
+        sve.part(None, Some(0)).unwrap_err(),
+        invalid("max_size", "0", "must be positive")
+    );
+    assert_eq!(sve.part(None, Some(3)).unwrap().1, sve.s[..3].to_vec());
 }

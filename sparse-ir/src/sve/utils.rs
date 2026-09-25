@@ -1,5 +1,6 @@
 //! Utility functions for SVE computation
 
+use crate::error::Error;
 use crate::gauss::Rule;
 use crate::interpolation1d::legendre_collocation_matrix;
 use crate::kernel::SymmetryType;
@@ -352,10 +353,10 @@ pub(crate) type SvdBlock = (
 /// of each returned polynomial is its position in this merged result, not
 /// its index within the even or odd block.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if both blocks are empty: an SVE result has at least one singular
-/// value.
+/// [`Error::EmptyInput`] if both blocks are empty: an SVE result has at least
+/// one singular value
 pub fn merge_results(
     result_even: (
         PiecewiseLegendrePolyVector,
@@ -368,7 +369,7 @@ pub fn merge_results(
         PiecewiseLegendrePolyVector,
     ),
     epsilon: f64,
-) -> crate::sve::SVEResult {
+) -> Result<crate::sve::SVEResult, Error> {
     let (u_even, s_even, v_even) = result_even;
     let (u_odd, s_odd, v_odd) = result_odd;
     merge_blocks(
@@ -385,22 +386,23 @@ pub fn merge_results(
 /// the largest singular value (`max_num_svals = Some(1)`, or `cutoff =
 /// Some(1.0)`) leaves the odd block empty.
 ///
-/// # Panics
+/// # Errors
 ///
-/// Panics if both blocks are empty.
+/// [`Error::EmptyInput`] if both blocks are empty
 pub(crate) fn merge_blocks(
     result_even: SvdBlock,
     result_odd: SvdBlock,
     epsilon: f64,
-) -> crate::sve::SVEResult {
+) -> Result<crate::sve::SVEResult, Error> {
     use crate::sve::SVEResult;
 
     let (u_even, s_even, v_even) = result_even;
     let (u_odd, s_odd, v_odd) = result_odd;
-    assert!(
-        !(s_even.is_empty() && s_odd.is_empty()),
-        "SVE has no singular values: both the even and the odd block are empty"
-    );
+    if s_even.is_empty() && s_odd.is_empty() {
+        return Err(Error::EmptyInput {
+            name: "singular values",
+        });
+    }
 
     // Debug output
     // Create indices with symmetry info

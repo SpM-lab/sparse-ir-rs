@@ -403,12 +403,15 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
 ///
 /// Supports both f64 and Df64 types. Uses nalgebra TSVD backend for both.
 ///
+/// # Errors
+/// The errors of [`tsvd`]: [`Error::EmptyInput`], [`Error::NonFiniteInput`]
+/// and [`Error::DecompositionFailed`]
+///
 /// # Panics
-/// Panics if [`tsvd`] fails, e.g. if the matrix is empty or has a NaN or
-/// infinite entry, or if `T` is neither `f64` nor `Df64`.
+/// Panics if `T` is neither `f64` nor `Df64`
 pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
     matrix: &DTensor<T, 2>,
-) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
+) -> Result<(DTensor<T, 2>, Vec<T>, DTensor<T, 2>), Error> {
     use nalgebra::DMatrix;
     use std::any::TypeId;
 
@@ -421,7 +424,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
 
         // Use TSVD with appropriate tolerance for f64
         let rtol = 2.0 * f64::EPSILON;
-        let result = tsvd(&matrix_f64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
+        let result = tsvd(&matrix_f64, TSVDConfig::new(rtol))?;
 
         // Convert back to DTensor<T>
         let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
@@ -436,7 +439,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
             T::from_f64_unchecked(result.v[(i, j)])
         });
 
-        (u, s, v)
+        Ok((u, s, v))
     } else if TypeId::of::<T>() == TypeId::of::<Df64>() {
         // Convert to DMatrix<Df64> without going through f64 to preserve precision
         // TypeId check ensures T == Df64 at runtime, so we can safely cast
@@ -448,7 +451,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
 
         // Use TSVD with appropriate tolerance for Df64
         let rtol = Df64::from(2.0) * Df64::epsilon();
-        let result = tsvd_df64(&matrix_df64, rtol).expect("TSVD computation failed");
+        let result = tsvd_df64(&matrix_df64, rtol)?;
 
         // Convert back to DTensor<T> without going through f64 to preserve Df64 precision
         let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
@@ -463,7 +466,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
             T::convert_from(result.v[(i, j)])
         });
 
-        (u, s, v)
+        Ok((u, s, v))
     } else {
         panic!("SVD is only implemented for f64 and Df64");
     }
@@ -573,6 +576,37 @@ mod tests {
         let matrix_df64 = matrix.map(Df64::from);
         let err = tsvd_df64(&matrix_df64, Df64::from(f64::NAN)).unwrap_err();
         assert_eq!(err.to_string(), expected);
+    }
+
+    #[test]
+    fn test_compute_svd_dtensor_reports_errors() {
+        let empty = DTensor::<f64, 2>::zeros([0, 3]);
+        assert_eq!(
+            compute_svd_dtensor(&empty).unwrap_err(),
+            Error::EmptyInput { name: "matrix" }
+        );
+        let nan = DTensor::<f64, 2>::from_fn([2, 2], |idx| {
+            if idx[0] == 1 && idx[1] == 0 {
+                f64::NAN
+            } else {
+                1.0
+            }
+        });
+        assert!(matches!(
+            compute_svd_dtensor(&nan),
+            Err(Error::NonFiniteInput { name: "matrix", .. })
+        ));
+        let nan_df64 = DTensor::<Df64, 2>::from_fn([2, 2], |idx| {
+            Df64::from(if idx[0] == 1 && idx[1] == 0 {
+                f64::NAN
+            } else {
+                1.0
+            })
+        });
+        assert!(matches!(
+            compute_svd_dtensor(&nan_df64),
+            Err(Error::NonFiniteInput { name: "matrix", .. })
+        ));
     }
 
     /// A finite matrix whose QR overflows: the norm of its column, about

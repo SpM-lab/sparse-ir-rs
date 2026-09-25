@@ -252,13 +252,6 @@ impl spir_sve_result {
         self.inner_arc().epsilon
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn truncate(&self, epsilon: f64, max_size: Option<usize>) -> Self {
-        let (u_part, s_part, v_part) = self.inner_arc().part(Some(epsilon), max_size);
-        let truncated = SVEResult::new(u_part, s_part, v_part, epsilon);
-        Self::new(truncated)
-    }
-
     /// Get inner SVEResult for basis construction
     pub(crate) fn inner(&self) -> &Arc<SVEResult> {
         self.inner_arc()

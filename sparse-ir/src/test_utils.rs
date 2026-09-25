@@ -300,7 +300,7 @@ pub fn oracle_condition_number(matrix: &mdarray::DTensor<f64, 2>) -> f64 {
 
     let (rows, cols) = *matrix.shape();
     let a = mdarray::DTensor::<Df64, 2>::from_fn([rows, cols], |idx| Df64::from(matrix[idx]));
-    let (_, s, _) = crate::tsvd::compute_svd_dtensor(&a);
+    let (_, s, _) = crate::tsvd::compute_svd_dtensor(&a).unwrap();
     // compute_svd_dtensor truncates below 2 eps_Df64 * σ_max; it must not have
     // dropped a singular value, or s_min below would not be σ_min.
     assert_eq!(

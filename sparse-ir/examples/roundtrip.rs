@@ -505,7 +505,7 @@ fn run_integration_example(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
         beta, omega_max, epsilon
     );
     println!("Computing SVE for all tests");
-    let sve = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
+    let sve = compute_sve(kernel.clone(), Some(epsilon), None, None, TworkType::Auto).unwrap();
     println!("SVE computed");
     println!();
 
@@ -549,7 +549,7 @@ fn run_integration_example_regularized_bose(beta: f64, omega_max: f64, epsilon: 
         beta, omega_max, lambda, epsilon
     );
     println!("Computing SVE for all tests");
-    let sve = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
+    let sve = compute_sve(kernel.clone(), Some(epsilon), None, None, TworkType::Auto).unwrap();
     println!("SVE computed");
     println!();
 

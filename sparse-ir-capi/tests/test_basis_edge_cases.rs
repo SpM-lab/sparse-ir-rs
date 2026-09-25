@@ -353,3 +353,72 @@ fn basis_new_rejects_an_sve_on_another_domain() {
     spir_kernel_release(kernel);
     spir_sve_result_release(sve);
 }
+
+// ---------------------------------------------------------------------------
+// Invalid parameters of the SVE constructors
+// ---------------------------------------------------------------------------
+
+/// `spir_sve_result_new` with epsilon = 1 used to succeed and return an SVE
+/// that failed later; epsilon >= 1 is an invalid argument now.
+#[test]
+fn sve_result_new_rejects_epsilon_of_one_or_more() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    for epsilon in [1.0, 2.0] {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &mut status);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "epsilon = {epsilon}");
+        assert!(sve.is_null());
+    }
+    spir_kernel_release(kernel);
+}
+
+/// `spir_sve_result_truncate` with max_size = 0 or epsilon > 1 was a core
+/// panic (-7), and epsilon = 1 kept one value. epsilon = 0 keeps them all.
+#[test]
+fn sve_result_truncate_checks_its_parameters() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let mut n_full = 0;
+    assert_eq!(
+        spir_sve_result_get_size(sve, &mut n_full),
+        SPIR_COMPUTATION_SUCCESS
+    );
+
+    for (epsilon, max_size) in [(1e-3, 0), (1.0, -1), (1.5, -1)] {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let truncated = spir_sve_result_truncate(sve, epsilon, max_size, &mut status);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "epsilon = {epsilon}, max_size = {max_size}"
+        );
+        assert!(truncated.is_null());
+    }
+    let mut status = SPIR_INTERNAL_ERROR;
+    let all = spir_sve_result_truncate(sve, 0.0, -1, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let mut n_all = 0;
+    assert_eq!(
+        spir_sve_result_get_size(all, &mut n_all),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    assert_eq!(n_all, n_full);
+
+    spir_sve_result_release(all);
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
+/// A matrix of rank 0 leaves no singular functions: the empty vector of
+/// functions made the C API panic (SPIR_INTERNAL_ERROR, -7).
+#[test]
+fn sve_result_from_matrix_rejects_a_matrix_of_rank_zero() {
+    let m = logistic_full_domain_matrix();
+    let zeros = vec![0.0; m.k_high.len()];
+    let (status, sve) = sve_from_matrix(&m, &zeros, 1.0);
+    assert_eq!(status, SPIR_INVALID_ARGUMENT);
+    assert!(sve.is_null());
+}

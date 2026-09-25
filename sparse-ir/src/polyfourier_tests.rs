@@ -487,7 +487,7 @@ fn test_default_matsubara_points_need_functions_of_definite_parity() {
     use crate::sve::{TworkType, compute_sve_general};
 
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
+    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)

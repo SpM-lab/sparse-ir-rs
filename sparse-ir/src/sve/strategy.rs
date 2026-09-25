@@ -1,5 +1,6 @@
 //! SVE computation strategies
 
+use crate::error::Error;
 use crate::gauss::{Rule, legendre_generic};
 use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
 use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
@@ -20,12 +21,16 @@ pub trait SVEStrategy<T: CustomNumeric> {
     fn matrices(&self) -> Vec<DTensor<T, 2>>;
 
     /// Post-process SVD results to create SVEResult
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`SVEResult::new`]
     fn postprocess(
         &self,
         u_list: Vec<DTensor<T, 2>>,
         s_list: Vec<Vec<T>>,
         v_list: Vec<DTensor<T, 2>>,
-    ) -> SVEResult;
+    ) -> Result<SVEResult, Error>;
 }
 
 /// Sampling-based SVE computation
@@ -250,7 +255,7 @@ where
         u_list: Vec<DTensor<T, 2>>,
         s_list: Vec<Vec<T>>,
         v_list: Vec<DTensor<T, 2>>,
-    ) -> SVEResult {
+    ) -> Result<SVEResult, Error> {
         // Process even and odd results using SamplingSVE (which doesn't know
         // about symmetry). Keep plain vectors until the merge: truncation can
         // empty a block (keeping only the largest singular value empties the
@@ -436,7 +441,7 @@ where
         u_list: Vec<DTensor<T, 2>>,
         s_list: Vec<Vec<T>>,
         v_list: Vec<DTensor<T, 2>>,
-    ) -> SVEResult {
+    ) -> Result<SVEResult, Error> {
         // Process single result using SamplingSVE
         let (u_polys, s, v_polys) = self
             .sampling_sve

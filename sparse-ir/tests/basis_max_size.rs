@@ -108,7 +108,8 @@ where
     K: KernelProperties + CentrosymmKernel + Clone + 'static,
 {
     // The untruncated SVE, whose functions a size-limited basis must keep.
-    let n_sve = compute_sve(kernel.clone(), group.eps, None, None, TworkType::Auto)
+    let n_sve = compute_sve(kernel.clone(), Some(group.eps), None, None, TworkType::Auto)
+        .unwrap()
         .s
         .len();
     let mut failures = Vec::new();

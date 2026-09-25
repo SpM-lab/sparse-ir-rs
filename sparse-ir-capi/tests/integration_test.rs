@@ -1351,7 +1351,7 @@ fn test_concurrent_matsubara_fit_zd_positive_only_is_thread_safe() {
 fn oracle_cond(rows: usize, cols: usize, a: &[f64]) -> f64 {
     assert_eq!(a.len(), rows * cols);
     let m = DTensor::<Df64, 2>::from_fn([rows, cols], |idx| Df64::from(a[idx[0] * cols + idx[1]]));
-    let (_, s, _) = compute_svd_dtensor(&m);
+    let (_, s, _) = compute_svd_dtensor(&m).unwrap();
     // compute_svd_dtensor truncates below 2 eps_Df64 * sigma_max; it must not
     // have dropped a singular value, or s_min below would not be sigma_min.
     assert_eq!(

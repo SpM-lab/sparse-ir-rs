@@ -139,11 +139,12 @@ fn test_sve_singular_values_lambda_5() {
     let kernel = LogisticKernel::new(lambda).unwrap();
     let result = compute_sve(
         kernel,
-        epsilon,
+        Some(epsilon),
         None, // cutoff
         None, // max_num_svals
         TworkType::Auto,
-    );
+    )
+    .unwrap();
 
     // Load reference values
     let s_ref: Vec<f64> = REFERENCE_SVALS.to_vec();
@@ -221,7 +222,7 @@ fn test_sve_singular_functions_lambda_5() {
     );
 
     let kernel = LogisticKernel::new(lambda).unwrap();
-    let result = compute_sve(kernel, epsilon, None, None, TworkType::Auto);
+    let result = compute_sve(kernel, Some(epsilon), None, None, TworkType::Auto).unwrap();
 
     // Test points
     let x_test = [-0.9, -0.5, 0.0, 0.5, 0.9];

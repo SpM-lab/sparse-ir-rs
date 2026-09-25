@@ -254,14 +254,13 @@ where
         // sve_result=SVEResult(kernel; ε))`): its default SVE takes no `lmax`,
         // and `part(sve_result; ε, max_size)` truncates the basis only. No
         // code was ported.
-        let epsilon_value = epsilon.unwrap_or(f64::NAN);
         let sve_result = compute_sve(
             kernel.clone(),
-            epsilon_value,
+            epsilon,
             None, // cutoff
             None, // no limit on the number of singular values
             TworkType::Auto,
-        );
+        )?;
 
         Self::from_sve_result(kernel, beta, sve_result, epsilon, max_size)
     }
@@ -295,7 +294,7 @@ where
         check_unit_domain(&sve_result)?;
 
         // Get truncated u, s, v from SVE result
-        let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size);
+        let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size)?;
 
         // Calculate accuracy
         let accuracy = if sve_result.s.len() > s_sve.len() {

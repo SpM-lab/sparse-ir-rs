@@ -118,7 +118,7 @@ fn test_basis_new_rejects_invalid_parameters() {
 #[test]
 fn test_basis_from_sve_result_checks_its_parameters() {
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve(kernel, 1e-6, None, None, TworkType::Auto);
+    let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     let build = |beta, epsilon, max_size| {
         FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
             kernel,
@@ -154,7 +154,7 @@ fn test_basis_from_sve_result_checks_its_parameters() {
 #[test]
 fn test_basis_from_sve_result_rejects_an_sve_on_another_domain() {
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let mut sve = compute_sve(kernel, 1e-6, None, None, TworkType::Auto);
+    let mut sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     let knots: Vec<f64> = sve.u.get_polys()[0].knots.iter().map(|x| 2.0 * x).collect();
     sve.u = sve.u.rescale_domain(knots, None, None);
     let err = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(

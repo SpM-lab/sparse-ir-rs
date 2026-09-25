@@ -2036,6 +2036,15 @@ StatusCode spir_sampling_fit_zd(const struct spir_sampling *s,
  *
  * # Returns
  * * Pointer to SVE result, or NULL on failure
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `epsilon` is not
+ *     positive and finite or is 1 or more, `Twork` is invalid, or the
+ *     discretized kernel has a NaN or infinite entry (e.g. a
+ *     `RegularizedBoseKernel` whose lambda is so small that 1/lambda
+ *     overflows)
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an SVD does not converge or an internal
+ *     panic occurs
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
@@ -2087,7 +2096,9 @@ struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
  * * Pointer to new truncated SVE result, or NULL on failure
  * * Status code:
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
- *   - `SPIR_INVALID_ARGUMENT` (-6) if sve or status is null, or epsilon is invalid
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` is NULL, `epsilon` is not
+ *     finite, negative or 1 or more (0 keeps every singular value), or
+ *     `max_size` is 0
  *   - `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Safety
@@ -2158,11 +2169,12 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * non-NULL, `*status` is set to:
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
- *   a size is less than 1, `epsilon` is not positive and finite, an entry of
- *   `K_high` or `K_low` is NaN or infinite, or the segments are not finite
- *   and strictly increasing
+ *   a size is less than 1, `epsilon` is not positive and finite or is 1 or
+ *   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
+ *   are not finite and strictly increasing, or the matrix has rank 0
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
- * - SPIR_INTERNAL_ERROR if an internal error occurs
+ * - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
+ *   overflows) or an internal error occurs
  *
  * The arrays are validated before the SVE is computed.
  */
@@ -2217,10 +2229,12 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
  *   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
- *   and finite, an entry of a matrix that is read is NaN or infinite, or the
- *   segments are not finite and strictly increasing
+ *   and finite or is 1 or more, an entry of a matrix that is read is NaN or
+ *   infinite, the segments are not finite and strictly increasing, or both
+ *   matrices have rank 0
  * - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
- * - SPIR_INTERNAL_ERROR if an internal error occurs
+ * - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
+ *   or an internal error occurs
  *
  * The low parts are read only if both are non-NULL. The arrays are validated
  * before the SVE is computed.
