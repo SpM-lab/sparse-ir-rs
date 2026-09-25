@@ -6,7 +6,7 @@
 use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter, InplaceFitter};
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
-use crate::sampling::movedim;
+use crate::sampling::{build_output_shape, movedim};
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
@@ -71,6 +71,9 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     }
 
     /// Create Matsubara sampling with custom sampling points
+    ///
+    /// # Panics
+    /// Panics if `sampling_points` is empty
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
         mut sampling_points: Vec<MatsubaraFreq<S>>,
@@ -78,6 +81,11 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     where
         S: 'static,
     {
+        // With no points the sampling matrix would have no rows; building it
+        // and the fitter's transposes would go through the zero-extent paths
+        // of mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
+        assert!(!sampling_points.is_empty(), "No sampling points given");
+
         // Sort sampling points
         sampling_points.sort();
 
@@ -108,7 +116,9 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// A new MatsubaraSampling object
     ///
     /// # Panics
-    /// Panics if `sampling_points` is empty or if matrix dimensions don't match
+    /// Panics if `sampling_points` is empty, if the number of matrix rows
+    /// differs from the number of sampling points, or if the matrix has no
+    /// columns (no basis functions)
     pub fn from_matrix(
         sampling_points: Vec<MatsubaraFreq<S>>,
         matrix: DTensor<Complex<f64>, 2>,
@@ -120,6 +130,14 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             "Matrix rows ({}) must match number of sampling points ({})",
             matrix.shape().0,
             sampling_points.len()
+        );
+        // A matrix without columns would make the fitter transpose [n, 0]
+        // arrays, which mdarray 0.7.2 does out of bounds (mdarray#21,
+        // https://github.com/fre-hu/mdarray/issues/21); there is nothing to fit.
+        assert!(
+            matrix.shape().1 > 0,
+            "Matrix must have at least one column (basis function), got shape {:?}",
+            matrix.shape()
         );
         debug_assert!(
             sampling_points.windows(2).all(|w| w[0] <= w[1]),
@@ -211,6 +229,16 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             dim, target_dim_size, basis_size
         );
 
+        if coeffs.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to evaluate.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
+            return Tensor::zeros(&out_shape[..]);
+        }
+
         // 1. Move target dimension to position 0
         let coeffs_dim0 = movedim(coeffs, dim, 0);
 
@@ -261,6 +289,16 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             "coeffs.shape().dim({}) = {} must equal basis_size = {}",
             dim, target_dim_size, basis_size
         );
+
+        if coeffs.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to evaluate.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
+            return Tensor::zeros(&out_shape[..]);
+        }
 
         // 1. Move target dimension to position 0
         let coeffs_dim0 = movedim(coeffs, dim, 0);
@@ -388,6 +426,16 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             dim, target_dim_size, basis_size
         );
 
+        if coeffs.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to evaluate.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
+            return Tensor::zeros(&out_shape[..]);
+        }
+
         // 1. Move target dimension to position 0
         let coeffs_dim0 = movedim(coeffs, dim, 0);
 
@@ -450,6 +498,16 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             dim, target_dim_size, n_points
         );
 
+        if values.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to fit.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
+            return Tensor::zeros(&out_shape[..]);
+        }
+
         // 1. Move target dimension to position 0
         let values_dim0 = movedim(values, dim, 0);
 
@@ -510,6 +568,16 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             "values.shape().dim({}) = {} must equal n_sampling_points = {}",
             dim, target_dim_size, n_points
         );
+
+        if values.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to fit.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
+            return Tensor::zeros(&out_shape[..]);
+        }
 
         // 1. Move target dimension to position 0
         let values_dim0 = movedim(values, dim, 0);
@@ -748,6 +816,9 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     }
 
     /// Create Matsubara sampling with custom positive-only sampling points
+    ///
+    /// # Panics
+    /// Panics if `sampling_points` is empty or has a negative frequency
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
         mut sampling_points: Vec<MatsubaraFreq<S>>,
@@ -755,6 +826,11 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     where
         S: 'static,
     {
+        // With no points the sampling matrix would have no rows; building it
+        // and the fitter's transposes would go through the zero-extent paths
+        // of mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
+        assert!(!sampling_points.is_empty(), "No sampling points given");
+
         // Sort and validate (all n >= 0)
         sampling_points.sort();
 
@@ -791,7 +867,9 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// A new MatsubaraSamplingPositiveOnly object
     ///
     /// # Panics
-    /// Panics if `sampling_points` is empty or if matrix dimensions don't match
+    /// Panics if `sampling_points` is empty, if the number of matrix rows
+    /// differs from the number of sampling points, or if the matrix has no
+    /// columns (no basis functions)
     pub fn from_matrix(
         sampling_points: Vec<MatsubaraFreq<S>>,
         matrix: DTensor<Complex<f64>, 2>,
@@ -803,6 +881,14 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             "Matrix rows ({}) must match number of sampling points ({})",
             matrix.shape().0,
             sampling_points.len()
+        );
+        // A matrix without columns would make the fitter transpose [n, 0]
+        // arrays, which mdarray 0.7.2 does out of bounds (mdarray#21,
+        // https://github.com/fre-hu/mdarray/issues/21); there is nothing to fit.
+        assert!(
+            matrix.shape().1 > 0,
+            "Matrix must have at least one column (basis function), got shape {:?}",
+            matrix.shape()
         );
         debug_assert!(
             sampling_points.windows(2).all(|w| w[0] <= w[1]),
@@ -895,6 +981,16 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             dim, target_dim_size, basis_size
         );
 
+        if coeffs.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to evaluate.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
+            return Tensor::zeros(&out_shape[..]);
+        }
+
         // 1. Move target dimension to position 0
         let coeffs_dim0 = movedim(coeffs, dim, 0);
 
@@ -955,6 +1051,16 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             "values.shape().dim({}) = {} must equal n_sampling_points = {}",
             dim, target_dim_size, n_points
         );
+
+        if values.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to fit.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
+            return Tensor::zeros(&out_shape[..]);
+        }
 
         // 1. Move target dimension to position 0
         let values_dim0 = movedim(values, dim, 0);

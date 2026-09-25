@@ -10,7 +10,11 @@ use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
 
 /// Build output shape by replacing dimension `dim` with `new_size`
-fn build_output_shape<S: Shape>(input_shape: &S, dim: usize, new_size: usize) -> Vec<usize> {
+pub(crate) fn build_output_shape<S: Shape>(
+    input_shape: &S,
+    dim: usize,
+    new_size: usize,
+) -> Vec<usize> {
     let mut out_shape: Vec<usize> = Vec::with_capacity(input_shape.rank());
     input_shape.with_dims(|dims| {
         for (i, d) in dims.iter().enumerate() {
@@ -87,6 +91,15 @@ pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Ten
             perm.push(pos);
             pos += 1;
         }
+    }
+
+    if arr.is_empty() {
+        // Zero-extent guard: mdarray 0.7.2 (and 0.8.0) copies a permuted,
+        // strided view out of bounds when an extent other than the last is
+        // zero (https://github.com/fre-hu/mdarray/issues/21). An empty array
+        // has no elements to move, so reshape it (a dense view) instead.
+        let dims: Vec<usize> = perm.iter().map(|&axis| arr.shape().dim(axis)).collect();
+        return arr.reshape(&dims[..]).to_tensor();
     }
 
     arr.permute(&perm[..]).to_tensor()
@@ -192,7 +205,9 @@ where
     /// A new TauSampling object
     ///
     /// # Panics
-    /// Panics if `sampling_points` is empty or if matrix dimensions don't match
+    /// Panics if `sampling_points` is empty, if the number of matrix rows
+    /// differs from the number of sampling points, or if the matrix has no
+    /// columns (no basis functions)
     pub fn from_matrix(sampling_points: Vec<f64>, matrix: DTensor<f64, 2>) -> Self {
         assert!(!sampling_points.is_empty(), "No sampling points given");
         assert_eq!(
@@ -201,6 +216,14 @@ where
             "Matrix rows ({}) must match number of sampling points ({})",
             matrix.shape().0,
             sampling_points.len()
+        );
+        // A matrix without columns has an SVD without singular values, whose
+        // [n, 0] factors mdarray 0.7.2 transposes out of bounds (mdarray#21,
+        // https://github.com/fre-hu/mdarray/issues/21); there is nothing to fit.
+        assert!(
+            matrix.shape().1 > 0,
+            "Matrix must have at least one column (basis function), got shape {:?}",
+            matrix.shape()
         );
 
         let fitter = crate::fitters::RealMatrixFitter::new(matrix);

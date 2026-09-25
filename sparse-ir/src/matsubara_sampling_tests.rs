@@ -845,3 +845,151 @@ fn test_positive_only_condition_number_from_matrix() {
         oracle,
     );
 }
+
+/// Batches with a zero extent, as (batch extents, target axis)
+fn empty_batches() -> Vec<(Vec<usize>, usize)> {
+    vec![
+        (vec![0], 1),
+        (vec![0], 0),
+        (vec![0, 3], 1),
+        (vec![2, 0], 2),
+        (vec![0, 3], 0),
+    ]
+}
+
+fn with_target(batch: &[usize], dim: usize, n: usize) -> Vec<usize> {
+    let mut dims = batch.to_vec();
+    dims.insert(dim, n);
+    dims
+}
+
+/// Evaluating or fitting an empty batch gives an empty result of the right
+/// shape. Before the fix these segfaulted in `movedim` (mdarray#21) when the
+/// zero extent ended up before the last axis of a permuted view.
+#[test]
+fn test_matsubara_nd_with_empty_batch() {
+    use mdarray::{DynRank, Tensor};
+
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    let sampling = MatsubaraSampling::new(&basis);
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis);
+    let l = sampling.basis_size();
+
+    for (batch, dim) in empty_batches() {
+        let dims_l = with_target(&batch, dim, l);
+        let coeffs = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
+        let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
+
+        for (s_np, values) in [
+            (
+                sampling.n_sampling_points(),
+                sampling.evaluate_nd::<f64>(None, &coeffs, dim),
+            ),
+            (
+                sampling.n_sampling_points(),
+                sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_z, dim),
+            ),
+            (
+                sampling.n_sampling_points(),
+                sampling.evaluate_nd_real(None, &coeffs, dim),
+            ),
+            (
+                positive.n_sampling_points(),
+                positive.evaluate_nd(None, &coeffs, dim),
+            ),
+        ] {
+            assert_eq!(values.shape().dims(), &with_target(&batch, dim, s_np)[..]);
+        }
+
+        let dims_np = with_target(&batch, dim, sampling.n_sampling_points());
+        let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        assert_eq!(
+            sampling.fit_nd(None, &values, dim).shape().dims(),
+            &dims_l[..]
+        );
+        assert_eq!(
+            sampling.fit_nd_real(None, &values, dim).shape().dims(),
+            &dims_l[..]
+        );
+        let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        sampling.evaluate_nd_to::<f64>(None, &coeffs, dim, &mut out);
+        let mut out_l = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
+        sampling.fit_nd_to(None, &values, dim, &mut out_l);
+
+        let dims_np = with_target(&batch, dim, positive.n_sampling_points());
+        let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        assert_eq!(
+            positive.fit_nd(None, &values, dim).shape().dims(),
+            &dims_l[..]
+        );
+    }
+}
+
+/// The InplaceFitter methods of both Matsubara samplings accept an empty
+/// batch. Before the fix, the zd fit of MatsubaraSampling along a middle
+/// axis iterated a permuted view of the empty output, which mdarray 0.7.2
+/// does out of bounds (mdarray#21), and wrote past its end.
+#[test]
+fn test_matsubara_inplace_fitter_with_empty_batch() {
+    use crate::fitters::InplaceFitter;
+    use mdarray::{DynRank, Tensor};
+
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    let full = MatsubaraSampling::new(&basis);
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis);
+
+    fn check<F: InplaceFitter>(f: &F, batch: &[usize], dim: usize) {
+        let (l, np) = (f.basis_size(), f.n_points());
+        let (dims_l, dims_np) = (with_target(batch, dim, l), with_target(batch, dim, np));
+        let coeffs = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
+        let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
+        let values_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        let mut out_np = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        let mut out_l = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
+        let mut out_l_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
+        assert!(f.evaluate_nd_dz_to(None, &coeffs, dim, &mut out_np.expr_mut()));
+        assert!(f.evaluate_nd_zz_to(None, &coeffs_z, dim, &mut out_np.expr_mut()));
+        assert!(f.fit_nd_zd_to(None, &values_z, dim, &mut out_l.expr_mut()));
+        assert!(f.fit_nd_zz_to(None, &values_z, dim, &mut out_l_z.expr_mut()));
+    }
+
+    for (batch, dim) in empty_batches() {
+        check(&full, &batch, dim);
+        check(&positive, &batch, dim);
+    }
+}
+
+#[test]
+#[should_panic(expected = "No sampling points given")]
+fn test_matsubara_sampling_rejects_empty_sampling_points() {
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    MatsubaraSampling::with_sampling_points(&basis, vec![]);
+}
+
+#[test]
+#[should_panic(expected = "No sampling points given")]
+fn test_matsubara_sampling_positive_only_rejects_empty_sampling_points() {
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, vec![]);
+}
+
+#[test]
+#[should_panic(expected = "Matrix must have at least one column")]
+fn test_matsubara_from_matrix_rejects_zero_columns() {
+    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
+    MatsubaraSampling::<Fermionic>::from_matrix(vec![MatsubaraFreq::new(1).unwrap()], matrix);
+}
+
+#[test]
+#[should_panic(expected = "Matrix must have at least one column")]
+fn test_matsubara_positive_only_from_matrix_rejects_zero_columns() {
+    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
+    MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(
+        vec![MatsubaraFreq::new(1).unwrap()],
+        matrix,
+    );
+}

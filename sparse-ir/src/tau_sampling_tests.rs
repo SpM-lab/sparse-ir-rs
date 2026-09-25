@@ -758,3 +758,97 @@ fn test_nd_to_rejects_out_with_wrong_batch_extent() {
         }
     }
 }
+
+/// Extents of `dims` permuted as `movedim(_, src, dst)` does
+fn moved_dims(dims: &[usize], src: usize, dst: usize) -> Vec<usize> {
+    let mut moved = dims.to_vec();
+    let d = moved.remove(src);
+    moved.insert(dst, d);
+    moved
+}
+
+/// mdarray 0.7.2 copies a permuted (strided) view out of bounds when an
+/// extent other than the last is zero (https://github.com/fre-hu/mdarray/issues/21).
+/// Before the fix `movedim` of e.g. a [2, 0] array from axis 1 to 0
+/// segfaulted. Every zero-extent array must move to an empty array of the
+/// permuted shape.
+#[test]
+fn test_movedim_with_zero_extent() {
+    use crate::sampling::movedim;
+    use mdarray::{DynRank, Tensor};
+
+    for dims in [
+        vec![0usize, 3],
+        vec![2, 0],
+        vec![0, 2, 3],
+        vec![2, 0, 3],
+        vec![2, 3, 0],
+        vec![0, 0, 4],
+    ] {
+        let arr = Tensor::<f64, DynRank>::zeros(&dims[..]);
+        for src in 0..dims.len() {
+            for dst in 0..dims.len() {
+                let moved = movedim(&arr, src, dst);
+                assert_eq!(moved.shape().dims(), &moved_dims(&dims, src, dst)[..]);
+                assert_eq!(moved.len(), 0);
+            }
+        }
+    }
+
+    // A non-empty array still moves its elements
+    let arr = Tensor::<usize, DynRank>::from_fn(&[2, 3, 4][..], |idx| {
+        100 * idx[0] + 10 * idx[1] + idx[2]
+    });
+    let moved = movedim(&arr, 2, 0);
+    assert_eq!(moved.shape().dims(), &[4, 2, 3]);
+    assert_eq!(moved[&[3, 1, 2][..]], arr[&[1, 2, 3][..]]);
+}
+
+/// Evaluating or fitting an empty batch gives an empty result of the right
+/// shape, for every target axis
+#[test]
+fn test_tau_nd_with_empty_batch() {
+    use mdarray::{DynRank, Tensor};
+
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    let sampling = TauSampling::new(&basis);
+    let (l, np) = (sampling.basis_size(), sampling.n_sampling_points());
+
+    for (batch, dim) in [
+        (vec![0usize, 3], 0),
+        (vec![3, 0], 1),
+        (vec![0, 3], 2),
+        (vec![2, 0], 1),
+    ] {
+        let mut dims = batch.clone();
+        dims.insert(dim, l);
+        let mut expected = batch.clone();
+        expected.insert(dim, np);
+
+        let coeffs = Tensor::<f64, DynRank>::zeros(&dims[..]);
+        let values = sampling.evaluate_nd(None, &coeffs, dim);
+        assert_eq!(values.shape().dims(), &expected[..]);
+        let fitted = sampling.fit_nd(None, &values, dim);
+        assert_eq!(fitted.shape().dims(), &dims[..]);
+
+        let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims[..]);
+        let values_z = sampling.evaluate_nd_zz(None, &coeffs_z, dim);
+        assert_eq!(values_z.shape().dims(), &expected[..]);
+        let fitted_z = sampling.fit_nd_zz(None, &values_z, dim);
+        assert_eq!(fitted_z.shape().dims(), &dims[..]);
+    }
+}
+
+/// A sampling matrix without columns describes no basis function. Before the
+/// fix `from_matrix` accepted it and the first fit or condition number
+/// segfaulted in the SVD (mdarray#21).
+#[test]
+#[should_panic(expected = "Matrix must have at least one column")]
+fn test_from_matrix_rejects_zero_columns() {
+    use mdarray::DTensor;
+    let matrix = DTensor::<f64, 2>::zeros([3, 0]);
+    let sampling = TauSampling::<Fermionic>::from_matrix(vec![0.1, 0.2, 0.3], matrix);
+    // Not reached after the fix; crashed before it
+    sampling.condition_number();
+}

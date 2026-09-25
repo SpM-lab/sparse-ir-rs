@@ -266,6 +266,20 @@ pub(crate) fn complex_slice_mut_as_real<'a>(
 // SVD structures
 // ============================================================================
 
+/// Transpose of a matrix, as a new dense tensor
+///
+/// Zero-extent guard: mdarray 0.7.2 copies the transposed (strided) view of a
+/// `[n, 0]` matrix out of bounds (https://github.com/fre-hu/mdarray/issues/21),
+/// which the SVD of a matrix with a zero dimension produces. An empty matrix
+/// has nothing to copy.
+fn transposed<T: Clone + Default>(m: &DTensor<T, 2>) -> DTensor<T, 2> {
+    let (rows, cols) = *m.shape();
+    if m.is_empty() {
+        return DTensor::<T, 2>::zeros([cols, rows]);
+    }
+    m.transpose().to_tensor()
+}
+
 /// SVD decomposition for real matrices
 pub(crate) struct RealSVD {
     pub ut: DTensor<f64, 2>, // (min_dim, n_rows) - U^T
@@ -292,8 +306,8 @@ impl RealSVD {
         );
 
         // Create ut and v from u and vt
-        let ut = u.transpose().to_tensor(); // (min_dim, n_rows)
-        let v = vt.transpose().to_tensor(); // (n_cols, min_dim)
+        let ut = transposed(&u); // (min_dim, n_rows)
+        let v = transposed(&vt); // (n_cols, min_dim)
 
         // Verify v.cols() == s.len() (v.shape().1 is the second dimension, which is min_dim)
         assert_eq!(
@@ -318,7 +332,7 @@ pub(crate) struct ComplexSVD {
 impl ComplexSVD {
     pub fn new(u: DTensor<Complex<f64>, 2>, s: Vec<f64>, vt: DTensor<Complex<f64>, 2>) -> Self {
         // Check dimensions
-        let (u_rows, u_cols) = *u.shape();
+        let (_, u_cols) = *u.shape();
         let (vt_rows, _) = *vt.shape();
         let min_dim = s.len();
 
@@ -334,10 +348,8 @@ impl ComplexSVD {
         );
 
         // Create ut (U^H, conjugate transpose) and v from u and vt
-        let ut = DTensor::<Complex<f64>, 2>::from_fn([u_cols, u_rows], |idx| {
-            u[[idx[1], idx[0]]].conj() // conjugate transpose: U^H
-        });
-        let v = vt.transpose().to_tensor(); // (n_cols, min_dim)
+        let ut = transposed(&u).map(|x| x.conj()); // conjugate transpose: U^H
+        let v = transposed(&vt); // (n_cols, min_dim)
 
         // Verify v.cols() == s.len() (v.shape().1 is the second dimension, which is min_dim)
         assert_eq!(

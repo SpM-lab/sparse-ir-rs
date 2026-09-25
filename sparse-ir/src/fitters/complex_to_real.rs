@@ -439,6 +439,13 @@ impl ComplexToRealFitter {
             out.shape().dims(),
             ("n_points", n_points),
         );
+        if out.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to compute. It
+            // would otherwise reach zero-size GEMMs and, on some paths,
+            // iterate permuted views of empty arrays, which mdarray 0.7.2
+            // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
+            return true;
+        }
 
         let total = coeffs.len();
         let extra_size = total / basis_size;
@@ -750,6 +757,13 @@ impl ComplexToRealFitter {
             out.shape().dims(),
             ("basis_size", basis_size),
         );
+        if out.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to compute. It
+            // would otherwise reach zero-size GEMMs and, on some paths,
+            // iterate permuted views of empty arrays, which mdarray 0.7.2
+            // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
+            return true;
+        }
 
         let total = values.len();
         let extra_size = total / n_points;

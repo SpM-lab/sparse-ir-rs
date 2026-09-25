@@ -345,4 +345,16 @@ mod tests {
             }
         }
     }
+
+    /// The SVD of a matrix with a zero dimension has no singular values.
+    /// Before the fix, transposing its [n, 0] factor U segfaulted in mdarray
+    /// 0.7.2 (https://github.com/fre-hu/mdarray/issues/21). The public
+    /// constructors now reject such matrices; the SVD of the fitter must still
+    /// not touch memory out of bounds.
+    #[test]
+    fn test_real_fitter_svd_with_zero_columns_does_not_crash() {
+        let fitter = RealMatrixFitter::new(DTensor::<f64, 2>::zeros([3, 0]));
+        // No singular values: the documented convention for a zero dimension
+        assert_eq!(fitter.condition_number(), 1.0);
+    }
 }
