@@ -1035,7 +1035,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `order` - Memory layout: 0 for row-major, 1 for column-major
+ * * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+ *   SPIR_ORDER_COLUMN_MAJOR (1)
  * * `num_points` - Number of evaluation points
  * * `xs` - Array of points to evaluate at, in the units and domain of `x` in
  *   `spir_funcs_eval`
@@ -1045,7 +1046,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * Status code:
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `funcs`, `xs` or `out` is NULL, `num_points` <= 0,
- *   or any point is NaN, infinite or outside the domain; `out` is not written
+ *   `order` is not one of the constants above, or any point is NaN, infinite
+ *   or outside the domain; `out` is not written
  * - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
  * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
@@ -1066,7 +1068,8 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `order` - Memory layout: 0 for row-major, 1 for column-major
+ * * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+ *   SPIR_ORDER_COLUMN_MAJOR (1)
  * * `num_freqs` - Number of Matsubara frequencies
  * * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β): odd for
  *   fermionic, even for bosonic functions
@@ -1076,8 +1079,8 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  * Status code:
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `funcs`, `ns` or `out` is NULL, `num_freqs` <= 0,
- *   or any index has the wrong parity for the statistics of `funcs`; `out` is
- *   not written
+ *   `order` is not one of the constants above, or any index has the wrong
+ *   parity for the statistics of `funcs`; `out` is not written
  * - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
  * - SPIR_INTERNAL_ERROR if an internal error occurs
  *

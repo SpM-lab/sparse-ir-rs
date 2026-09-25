@@ -3,6 +3,7 @@
 //! This module provides C-compatible functions for working with basis functions.
 
 use crate::types::spir_funcs;
+use crate::utils::MemoryOrder;
 use sparse_ir::traits::Statistics;
 use std::sync::Arc;
 
@@ -688,7 +689,8 @@ pub extern "C" fn spir_funcs_eval_matsu(
 ///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
-/// * `order` - Memory layout: 0 for row-major, 1 for column-major
+/// * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+///   SPIR_ORDER_COLUMN_MAJOR (1)
 /// * `num_points` - Number of evaluation points
 /// * `xs` - Array of points to evaluate at, in the units and domain of `x` in
 ///   `spir_funcs_eval`
@@ -698,7 +700,8 @@ pub extern "C" fn spir_funcs_eval_matsu(
 /// Status code:
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `funcs`, `xs` or `out` is NULL, `num_points` <= 0,
-///   or any point is NaN, infinite or outside the domain; `out` is not written
+///   `order` is not one of the constants above, or any point is NaN, infinite
+///   or outside the domain; `out` is not written
 /// - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
@@ -723,6 +726,10 @@ pub extern "C" fn spir_funcs_batch_eval(
     if funcs.is_null() || xs.is_null() || out.is_null() || num_points <= 0 {
         return SPIR_INVALID_ARGUMENT;
     }
+    // Reject an unknown order: every value but 0 used to mean column-major (#266).
+    let Ok(order) = MemoryOrder::from_c_int(order) else {
+        return SPIR_INVALID_ARGUMENT;
+    };
 
     // SAFETY: the pointers are non-null and `num_points` > 0 (checked above);
     // the caller guarantees a live handle, `num_points` readable points and
@@ -745,18 +752,21 @@ pub extern "C" fn spir_funcs_batch_eval(
                 let n_funcs = result_matrix.len();
                 let n_points = num_points as usize;
 
-                if order == 0 {
-                    // Row-major: out[point][func]
-                    for i in 0..n_points {
-                        for j in 0..n_funcs {
-                            *out.add(i * n_funcs + j) = result_matrix[j][i];
+                match order {
+                    MemoryOrder::RowMajor => {
+                        // Row-major: out[point][func]
+                        for i in 0..n_points {
+                            for j in 0..n_funcs {
+                                *out.add(i * n_funcs + j) = result_matrix[j][i];
+                            }
                         }
                     }
-                } else {
-                    // Column-major: out[func][point]
-                    for j in 0..n_funcs {
-                        for i in 0..n_points {
-                            *out.add(j * n_points + i) = result_matrix[j][i];
+                    MemoryOrder::ColumnMajor => {
+                        // Column-major: out[func][point]
+                        for j in 0..n_funcs {
+                            for i in 0..n_points {
+                                *out.add(j * n_points + i) = result_matrix[j][i];
+                            }
                         }
                     }
                 }
@@ -773,7 +783,8 @@ pub extern "C" fn spir_funcs_batch_eval(
 ///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
-/// * `order` - Memory layout: 0 for row-major, 1 for column-major
+/// * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+///   SPIR_ORDER_COLUMN_MAJOR (1)
 /// * `num_freqs` - Number of Matsubara frequencies
 /// * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β): odd for
 ///   fermionic, even for bosonic functions
@@ -783,8 +794,8 @@ pub extern "C" fn spir_funcs_batch_eval(
 /// Status code:
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `funcs`, `ns` or `out` is NULL, `num_freqs` <= 0,
-///   or any index has the wrong parity for the statistics of `funcs`; `out` is
-///   not written
+///   `order` is not one of the constants above, or any index has the wrong
+///   parity for the statistics of `funcs`; `out` is not written
 /// - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
@@ -809,6 +820,10 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
     if funcs.is_null() || ns.is_null() || out.is_null() || num_freqs <= 0 {
         return SPIR_INVALID_ARGUMENT;
     }
+    // Reject an unknown order: every value but 0 used to mean column-major (#266).
+    let Ok(order) = MemoryOrder::from_c_int(order) else {
+        return SPIR_INVALID_ARGUMENT;
+    };
 
     // SAFETY: the pointers are non-null and `num_freqs` > 0 (checked above);
     // the caller guarantees a live handle, `num_freqs` readable indices and
@@ -831,18 +846,21 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
                 let n_funcs = result_matrix.len();
                 let n_freqs = num_freqs as usize;
 
-                if order == 0 {
-                    // Row-major: out[freq][func]
-                    for i in 0..n_freqs {
-                        for j in 0..n_funcs {
-                            *out.add(i * n_funcs + j) = result_matrix[j][i];
+                match order {
+                    MemoryOrder::RowMajor => {
+                        // Row-major: out[freq][func]
+                        for i in 0..n_freqs {
+                            for j in 0..n_funcs {
+                                *out.add(i * n_funcs + j) = result_matrix[j][i];
+                            }
                         }
                     }
-                } else {
-                    // Column-major: out[func][freq]
-                    for j in 0..n_funcs {
-                        for i in 0..n_freqs {
-                            *out.add(j * n_freqs + i) = result_matrix[j][i];
+                    MemoryOrder::ColumnMajor => {
+                        // Column-major: out[func][freq]
+                        for j in 0..n_funcs {
+                            for i in 0..n_freqs {
+                                *out.add(j * n_freqs + i) = result_matrix[j][i];
+                            }
                         }
                     }
                 }

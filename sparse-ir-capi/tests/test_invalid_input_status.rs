@@ -1511,3 +1511,67 @@ fn from_piecewise_legendre_accepts_the_extreme_valid_segments() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// spir_funcs_batch_eval / spir_funcs_batch_eval_matsu: memory order (#266)
+// ---------------------------------------------------------------------------
+
+/// Values of `order` that are neither SPIR_ORDER_ROW_MAJOR nor
+/// SPIR_ORDER_COLUMN_MAJOR.
+const UNKNOWN_ORDERS: [i32; 4] = [-1, 2, i32::MIN, i32::MAX];
+
+/// Before the fix, every `order` other than 0 was taken as column-major: the
+/// call succeeded (0) and wrote a column-major result.
+#[test]
+fn batch_eval_rejects_unknown_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, funcs, (lo, hi)) in continuous_function_sets(&fx) {
+            let xs = points_inside(lo, hi);
+            for order in UNKNOWN_ORDERS {
+                let (status, out) = batch_eval(&funcs, order, &xs);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}, order {order}, statistics {statistics}"
+                );
+                assert!(out.iter().all(|&v| v == OUT_SENTINEL), "{name}");
+            }
+        }
+    }
+}
+
+/// As for `spir_funcs_batch_eval`. Both valid orders still give the same
+/// values, as transposes of each other.
+#[test]
+fn batch_eval_matsu_rejects_unknown_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let (_, ns) = matsubara_indices(statistics);
+        for (name, funcs) in matsubara_function_sets(&fx) {
+            for order in UNKNOWN_ORDERS {
+                let (status, out) = batch_eval_matsu(&funcs, order, &ns);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}, order {order}, statistics {statistics}"
+                );
+                assert!(out.iter().all(|&z| z == OUT_SENTINEL_Z), "{name}");
+            }
+
+            let n_funcs = funcs.size() as usize;
+            let (status, row_major) = batch_eval_matsu(&funcs, SPIR_ORDER_ROW_MAJOR, &ns);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name}");
+            let (status, col_major) = batch_eval_matsu(&funcs, SPIR_ORDER_COLUMN_MAJOR, &ns);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name}");
+            for i in 0..ns.len() {
+                for l in 0..n_funcs {
+                    assert_eq!(
+                        row_major[i * n_funcs + l],
+                        col_major[l * ns.len() + i],
+                        "{name}, n = {}, l = {l}",
+                        ns[i]
+                    );
+                }
+            }
+        }
+    }
+}
