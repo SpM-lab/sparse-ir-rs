@@ -133,6 +133,8 @@ impl spir_kernel {
         }
     }
 
+    // spir_reg_bose_kernel_new stays available until the kernel is removed (#273).
+    #[allow(deprecated)]
     pub(crate) fn new_regularized_bose(lambda: f64) -> Self {
         let inner = KernelType::RegularizedBose(Arc::new(RegularizedBoseKernel::new(lambda)));
         Self {

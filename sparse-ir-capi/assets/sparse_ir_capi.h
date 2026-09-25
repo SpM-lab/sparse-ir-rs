@@ -1125,6 +1125,11 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dge
 /**
  * Create a new RegularizedBose kernel
  *
+ * # Deprecated
+ * Use `spir_logistic_kernel_new`, the default kernel for both statistics.
+ * `RegularizedBoseKernel` will be removed in a future release
+ * (https://github.com/SpM-lab/sparse-ir-rs/issues/273).
+ *
  * # Arguments
  * * `lambda` - The kernel parameter Λ = β * ωmax (must be > 0)
  * * `status` - Pointer to store the status code

@@ -1,4 +1,6 @@
 //! Tests for DiscreteLehmannRepresentation
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 
 use crate::{
     AbstractKernel, Basis, Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis,

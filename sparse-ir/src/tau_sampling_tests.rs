@@ -1,3 +1,5 @@
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 use crate::basis::FiniteTempBasis;
 use crate::kernel::{CentrosymmKernel, KernelProperties};
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};

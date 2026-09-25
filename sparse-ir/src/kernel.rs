@@ -458,6 +458,10 @@ where
 
 /// Regularized bosonic analytical continuation kernel
 ///
+/// **Deprecated:** use [`LogisticKernel`], the default kernel for both
+/// statistics. `RegularizedBoseKernel` will be removed in a future release
+/// (<https://github.com/SpM-lab/sparse-ir-rs/issues/273>).
+///
 /// In dimensionless variables x = 2τ/β - 1, y = βω/Λ, the integral kernel is:
 ///
 /// ```text
@@ -498,6 +502,9 @@ impl RegularizedBoseKernel {
     ///
     /// # Panics
     /// Panics if lambda < 0 or lambda is NaN/infinite
+    #[deprecated(
+        note = "use LogisticKernel, the default kernel for both statistics; RegularizedBoseKernel will be removed in a future release (https://github.com/SpM-lab/sparse-ir-rs/issues/273)"
+    )]
     pub fn new(lambda: f64) -> Self {
         if lambda < 0.0 || !lambda.is_finite() {
             panic!("Kernel cutoff Λ must be non-negative, got {}", lambda);

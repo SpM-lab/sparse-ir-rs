@@ -1,4 +1,6 @@
 //! Tests for FiniteTempBasis functionality
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 
 use crate::basis::{FermionicBasis, FiniteTempBasis};
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};

@@ -377,6 +377,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                 return Err(SPIR_NOT_SUPPORTED);
             } else {
                 use sparse_ir::kernel::RegularizedBoseKernel;
+                // Still supported until the kernel is removed (#273).
+                #[allow(deprecated)]
                 let kernel = RegularizedBoseKernel::new(lambda);
 
                 let basis =
