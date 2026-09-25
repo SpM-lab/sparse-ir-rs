@@ -1103,38 +1103,42 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
     result.unwrap_or(SPIR_INTERNAL_ERROR)
 }
 
-/// Get number of default Matsubara sampling points with custom limit (extended version)
+/// Get the number of default Matsubara sampling points for a given basis size
+/// (extended version)
 ///
 /// # Arguments
 /// * `b` - Basis object
-/// * `positive_only` - If true, return only positive frequencies
-/// * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
-/// * `L` - Requested number of sampling points
-/// * `num_points_returned` - Pointer to store the computed point count
+/// * `positive_only` - If true, return only non-negative frequencies
+/// * `fence` - If true, add fencing points to improve conditioning
+/// * `basis_size` - Size of the basis the points are chosen for. When sampling
+///   an augmented basis, pass the augmented size; it may differ from the size
+///   of `b`.
+/// * `n_points_total` - Pointer to store the number of sampling points
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
-/// * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or L < 0
+/// * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
+///   `basis_size < 0`
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
-/// Returns the full computed count for `spir_basis_get_default_matsus_ext`
-/// with the same parameters. When mitigate is true, fencing may produce more
-/// points than requested; the getter truncates the output to the provided
-/// buffer size, so this count can exceed what was returned.
+/// The count generally differs from `basis_size`: the parity adjustment,
+/// `fence` and `positive_only` all change it. Pass it as `points_capacity` to
+/// `spir_basis_get_default_matsus_ext` with the same `positive_only`, `fence`
+/// and `basis_size`.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_n_default_matsus_ext(
     b: *const spir_basis,
     positive_only: bool,
-    mitigate: bool,
-    #[allow(non_snake_case)] L: libc::c_int,
-    num_points_returned: *mut libc::c_int,
+    fence: bool,
+    basis_size: libc::c_int,
+    n_points_total: *mut libc::c_int,
 ) -> StatusCode {
-    if b.is_null() || num_points_returned.is_null() {
+    if b.is_null() || n_points_total.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    if L < 0 {
+    if basis_size < 0 {
         return SPIR_INVALID_ARGUMENT;
     }
 
@@ -1142,11 +1146,11 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
         let basis = &*b;
         let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
-            mitigate,
-            L as usize,
+            fence,
+            basis_size as usize,
         );
 
-        *num_points_returned = matsu_points.len() as libc::c_int;
+        *n_points_total = matsu_points.len() as libc::c_int;
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -1154,43 +1158,49 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
     result.unwrap_or(SPIR_INTERNAL_ERROR)
 }
 
-/// Get default Matsubara sampling points with custom limit (extended version)
+/// Get default Matsubara sampling points for a given basis size (extended
+/// version)
 ///
 /// # Arguments
 /// * `b` - Basis object
-/// * `positive_only` - If true, return only positive frequencies
-/// * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
-/// * `n_points` - Maximum number of points requested
-/// * `points` - Pre-allocated array to store Matsubara indices (size >= n_points)
-/// * `n_points_returned` - Pointer to store the full computed point count
+/// * `positive_only` - If true, return only non-negative frequencies
+/// * `fence` - If true, add fencing points to improve conditioning
+/// * `basis_size` - Size of the basis the points are chosen for. When sampling
+///   an augmented basis, pass the augmented size; it may differ from the size
+///   of `b`.
+/// * `points_capacity` - Number of elements `points` can hold
+/// * `points` - Buffer for the Matsubara indices, or NULL to query the number
+///   of points only
+/// * `n_points_total` - Pointer to store the number of sampling points
 ///
 /// # Returns
-/// * `SPIR_COMPUTATION_SUCCESS` (0) on success
-/// * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+/// * `SPIR_COMPUTATION_SUCCESS` (0) on success, including a count query
+///   (`points` is NULL, `points_capacity` is ignored)
+/// * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
+///   `basis_size` or `points_capacity` is negative; nothing is written
+/// * `SPIR_INVALID_ARGUMENT` (-6) if `points_capacity` is smaller than the
+///   number of points; `points` is left untouched and `*n_points_total` is
+///   set to the required number
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
-/// `points` must hold at least `n_points` elements and is never written
-/// beyond that. When `mitigate` is true, fencing can produce more points than
-/// requested: the output is truncated to `n_points` elements and
-/// `n_points_returned` reports the full computed count, so
-/// `n_points_returned > n_points` signals truncation. Call
-/// `spir_basis_get_n_default_matsus_ext` with the same parameters to see the
-/// full count before choosing the buffer size.
+/// The point set depends only on `positive_only`, `fence` and `basis_size`.
+/// `points_capacity` never changes it, and the output is never truncated.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_default_matsus_ext(
     b: *const spir_basis,
     positive_only: bool,
-    mitigate: bool,
-    n_points: libc::c_int,
+    fence: bool,
+    basis_size: libc::c_int,
+    points_capacity: libc::c_int,
     points: *mut i64,
-    n_points_returned: *mut libc::c_int,
+    n_points_total: *mut libc::c_int,
 ) -> StatusCode {
-    if b.is_null() || points.is_null() || n_points_returned.is_null() {
+    if b.is_null() || n_points_total.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    if n_points < 0 {
+    if basis_size < 0 || points_capacity < 0 {
         return SPIR_INVALID_ARGUMENT;
     }
 
@@ -1198,19 +1208,19 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
         let basis = &*b;
         let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
-            mitigate,
-            n_points as usize,
+            fence,
+            basis_size as usize,
         );
 
-        // The caller-owned buffer holds n_points elements and is never written
-        // beyond that. With mitigate=true, fencing can compute more points than
-        // requested; only the first n_points elements are returned and
-        // n_points_returned reports the number actually written. Call
-        // spir_basis_get_n_default_matsus_ext with the same parameters to see
-        // the full computed count and detect truncation.
-        let n_to_return = matsu_points.len().min(n_points as usize);
-        std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, n_to_return);
-        *n_points_returned = n_to_return as libc::c_int;
+        *n_points_total = matsu_points.len() as libc::c_int;
+        if points.is_null() {
+            return SPIR_COMPUTATION_SUCCESS;
+        }
+        if matsu_points.len() > points_capacity as usize {
+            return SPIR_INVALID_ARGUMENT;
+        }
+
+        std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, matsu_points.len());
 
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -1473,13 +1483,13 @@ mod tests {
         debug_println!("  First 3: {:?}", &tau_points[..3]);
 
         // Test get_n_default_matsus_ext
-        let requested_matsu = 3; // Request only 3 points
+        let matsu_basis_size = 3;
         let mut matsu_count = 0;
         let status = spir_basis_get_n_default_matsus_ext(
             basis,
             true,  // positive_only
-            false, // mitigate
-            requested_matsu,
+            false, // fence
+            matsu_basis_size,
             &mut matsu_count,
         );
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
@@ -1493,8 +1503,9 @@ mod tests {
         let status = spir_basis_get_default_matsus_ext(
             basis,
             true,  // positive_only
-            false, // mitigate
-            requested_matsu,
+            false, // fence
+            matsu_basis_size,
+            matsu_count,
             matsu_points.as_mut_ptr(),
             &mut matsu_returned,
         );
@@ -1822,7 +1833,7 @@ mod tests {
     }
 
     #[test]
-    fn test_get_default_matsus_ext_mitigate_buffer_check() {
+    fn test_get_default_matsus_ext_capacity_protocol() {
         let beta = 10.0;
         let wmax = 10.0;
         let epsilon = 1e-8;
@@ -1853,63 +1864,198 @@ mod tests {
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
         let positive_only = false;
-        let mitigate = true;
-        let n_requested = basis_size;
+        let fence = true;
 
-        // Query the required buffer size (fencing may add points).
-        let mut n_required = 0;
+        // The count query and a NULL-buffer call report the same count.
+        let mut n_total = 0;
         let status = spir_basis_get_n_default_matsus_ext(
             basis,
             positive_only,
-            mitigate,
-            n_requested,
+            fence,
+            basis_size,
+            &mut n_total,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(n_total >= basis_size);
+
+        let mut n_query = -1;
+        let status = spir_basis_get_default_matsus_ext(
+            basis,
+            positive_only,
+            fence,
+            basis_size,
+            0,
+            ptr::null_mut(),
+            &mut n_query,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert_eq!(n_query, n_total);
+
+        // A buffer of exactly n_total elements receives the full point set.
+        let expected = unsafe {
+            (*basis).default_matsubara_sampling_points_with_mitigate(
+                positive_only,
+                fence,
+                basis_size as usize,
+            )
+        };
+        assert_eq!(expected.len(), n_total as usize);
+        let mut points = vec![0i64; n_total as usize];
+        let mut n_written = -1;
+        let status = spir_basis_get_default_matsus_ext(
+            basis,
+            positive_only,
+            fence,
+            basis_size,
+            n_total,
+            points.as_mut_ptr(),
+            &mut n_written,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert_eq!(n_written, n_total);
+        assert_eq!(points, expected);
+
+        // A larger buffer receives the same points; the rest is untouched.
+        let sentinel = i64::MIN;
+        let mut points = vec![sentinel; n_total as usize + 5];
+        let mut n_written = -1;
+        let status = spir_basis_get_default_matsus_ext(
+            basis,
+            positive_only,
+            fence,
+            basis_size,
+            n_total + 5,
+            points.as_mut_ptr(),
+            &mut n_written,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert_eq!(n_written, n_total);
+        assert_eq!(&points[..n_total as usize], &expected[..]);
+        assert!(points[n_total as usize..].iter().all(|&p| p == sentinel));
+
+        // A buffer one element short is rejected without being written, and
+        // the required count is reported.
+        let mut points = vec![sentinel; n_total as usize];
+        let mut n_required = -1;
+        let status = spir_basis_get_default_matsus_ext(
+            basis,
+            positive_only,
+            fence,
+            basis_size,
+            n_total - 1,
+            points.as_mut_ptr(),
             &mut n_required,
         );
-        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        assert!(n_required >= n_requested);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT);
+        assert_eq!(n_required, n_total);
+        assert!(points.iter().all(|&p| p == sentinel));
 
-        // A buffer sized exactly to the request is never overflowed: the
-        // getter writes at most n_points elements and reports the count
-        // written. When fencing computes more points, the output is truncated
-        // to the buffer size; comparing with the query above reveals it.
-        let mut points = vec![0i64; n_requested as usize];
-        let mut n_returned = -1;
-        let status = spir_basis_get_default_matsus_ext(
-            basis,
-            positive_only,
-            mitigate,
-            n_requested,
-            points.as_mut_ptr(),
-            &mut n_returned,
-        );
-        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        assert!(
-            n_returned <= n_requested,
-            "never report more than was written"
-        );
-        if n_required > n_requested {
-            assert_eq!(n_returned, n_requested, "output truncated to buffer size");
-        } else {
-            assert_eq!(n_returned, n_required);
+        // Invalid arguments leave n_points_total untouched.
+        for (size, capacity) in [(-1, n_total), (basis_size, -1)] {
+            let mut n_untouched = -7;
+            let status = spir_basis_get_default_matsus_ext(
+                basis,
+                positive_only,
+                fence,
+                size,
+                capacity,
+                points.as_mut_ptr(),
+                &mut n_untouched,
+            );
+            assert_eq!(status, SPIR_INVALID_ARGUMENT);
+            assert_eq!(n_untouched, -7);
         }
-
-        // A larger request also never overflows its buffer.
-        let mut points = vec![0i64; n_required as usize];
-        let mut n_returned = 0;
+        let mut n_untouched = -7;
+        let status =
+            spir_basis_get_n_default_matsus_ext(basis, positive_only, fence, -1, &mut n_untouched);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT);
+        assert_eq!(n_untouched, -7);
         let status = spir_basis_get_default_matsus_ext(
             basis,
             positive_only,
-            mitigate,
-            n_required,
+            fence,
+            basis_size,
+            n_total,
             points.as_mut_ptr(),
-            &mut n_returned,
+            ptr::null_mut(),
         );
-        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-        assert!(n_returned <= n_required);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT);
+        let status = spir_basis_get_default_matsus_ext(
+            ptr::null(),
+            positive_only,
+            fence,
+            basis_size,
+            n_total,
+            points.as_mut_ptr(),
+            &mut n_untouched,
+        );
+        assert_eq!(status, SPIR_INVALID_ARGUMENT);
+        assert_eq!(n_untouched, -7);
 
         unsafe {
             spir_basis_release(basis);
             spir_sve_result_release(sve);
+            spir_kernel_release(kernel);
+        }
+    }
+
+    /// Regression test for sparse-ir-rs#268: points for a basis size larger
+    /// than the basis (the augmented-basis case) must be returned in full,
+    /// independent of the buffer length.
+    #[test]
+    fn test_get_default_matsus_ext_basis_size_exceeds_basis() {
+        let mut kernel_status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut kernel_status);
+        assert_eq!(kernel_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut basis_status = SPIR_INTERNAL_ERROR;
+        let basis = spir_basis_new(
+            SPIR_STATISTICS_BOSONIC,
+            10.0,
+            1.0,
+            1e-6,
+            kernel,
+            ptr::null(),
+            -1,
+            &mut basis_status,
+        );
+        assert_eq!(basis_status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut size = 0;
+        let status = spir_basis_get_size(basis, &mut size);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert_eq!(size, 10);
+
+        // Point sets from the reproduction in sparse-ir-rs#268 (basis size 12).
+        let cases: [(bool, &[i64]); 2] = [
+            (false, &[-38, -12, -8, -6, -4, -2, 0, 2, 4, 6, 8, 12, 38]),
+            (true, &[0, 2, 4, 6, 8, 12, 38]),
+        ];
+        for (positive_only, expected) in cases {
+            let mut n_total = 0;
+            let status =
+                spir_basis_get_n_default_matsus_ext(basis, positive_only, false, 12, &mut n_total);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert_eq!(n_total as usize, expected.len());
+
+            let mut points = vec![0i64; n_total as usize];
+            let mut n_written = 0;
+            let status = spir_basis_get_default_matsus_ext(
+                basis,
+                positive_only,
+                false,
+                12,
+                n_total,
+                points.as_mut_ptr(),
+                &mut n_written,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert_eq!(n_written, n_total);
+            assert_eq!(points, expected);
+        }
+
+        unsafe {
+            spir_basis_release(basis);
             spir_kernel_release(kernel);
         }
     }

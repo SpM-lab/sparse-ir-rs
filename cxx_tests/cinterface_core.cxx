@@ -711,103 +711,68 @@ TEST_CASE("Test spir_basis_get_default_matsus_ext with fence", "[cinterface]")
     status = spir_basis_get_size(basis, &basis_size);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
 
-    // Test without mitigation (fence = false)
-    {
-        bool positive_only = false;
-        bool mitigate = false;
-        int n_points_requested = basis_size;
+    // Query the count, then fetch into a buffer of exactly that size: all
+    // points are returned.
+    for (bool positive_only : {false, true}) {
+        for (bool fence : {false, true}) {
+            int n_total = -1;
+            status = spir_basis_get_n_default_matsus_ext(
+                basis, positive_only, fence, basis_size, &n_total);
+            REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+            REQUIRE(n_total > 0);
 
-        int n_points_returned = 0;
-        std::vector<int64_t> points(n_points_requested + 10);
+            // A NULL buffer is a count query.
+            int n_query = -1;
+            status = spir_basis_get_default_matsus_ext(
+                basis, positive_only, fence, basis_size, 0, nullptr, &n_query);
+            REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+            REQUIRE(n_query == n_total);
 
-        status = spir_basis_get_default_matsus_ext(
-            basis, positive_only, mitigate, n_points_requested, points.data(), &n_points_returned);
-        REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
-        REQUIRE(n_points_returned >= n_points_requested);
-        REQUIRE(n_points_returned <= n_points_requested + 10);
+            std::vector<int64_t> points(n_total);
+            int n_written = -1;
+            status = spir_basis_get_default_matsus_ext(
+                basis, positive_only, fence, basis_size, n_total, points.data(), &n_written);
+            REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+            REQUIRE(n_written == n_total);
 
-        // Verify points are valid fermionic frequencies (odd integers)
-        for (int i = 0; i < n_points_returned; ++i) {
-            REQUIRE(llabs(points[i]) % 2 == 1);
+            // Fermionic frequencies are odd integers
+            for (int i = 0; i < n_written; ++i) {
+                REQUIRE(llabs(points[i]) % 2 == 1);
+                if (positive_only) {
+                    REQUIRE(points[i] > 0);
+                }
+            }
         }
     }
 
-    // Test with mitigation (fence = true): fencing can compute more points
-    // than requested. The getter never writes past n_points elements; when
-    // the computed set is larger, the output is truncated to the buffer size
-    // and n_points_returned reports the number written.
+    // Fencing adds points; the count can exceed the basis size.
     {
-        bool positive_only = false;
-        bool mitigate = true;
-        int n_points_requested = basis_size;
-
-        int n_points_returned = 0;
-        std::vector<int64_t> points(n_points_requested + 20);  // Extra space for fence points
-
-        status = spir_basis_get_default_matsus_ext(
-            basis, positive_only, mitigate, n_points_requested, points.data(), &n_points_returned);
+        int n_plain = 0;
+        int n_fenced = 0;
+        status = spir_basis_get_n_default_matsus_ext(basis, false, false, basis_size, &n_plain);
         REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
-        REQUIRE(n_points_returned > 0);
-        REQUIRE(n_points_returned <= n_points_requested);  // Never more than the buffer size
-
-        // Verify points are valid fermionic frequencies (odd integers)
-        for (int i = 0; i < n_points_returned; ++i) {
-            REQUIRE(llabs(points[i]) % 2 == 1);
-        }
-
-        // The size query reports the full computed count; when fencing adds
-        // points beyond the request, the output above is truncated to the
-        // request size.
-        int n_full = 0;
-        status = spir_basis_get_n_default_matsus_ext(
-            basis, positive_only, mitigate, n_points_requested, &n_full);
+        status = spir_basis_get_n_default_matsus_ext(basis, false, true, basis_size, &n_fenced);
         REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
-        if (n_full > n_points_requested) {
-            REQUIRE(n_points_returned == n_points_requested);
-        } else {
-            REQUIRE(n_points_returned == n_full);
-        }
+        REQUIRE(n_fenced >= n_plain);
+        REQUIRE(n_fenced >= basis_size);
     }
 
-    // Test that an undersized buffer is truncated, never overflowed
+    // An undersized buffer is rejected without being written, and the
+    // required count is reported.
     {
-        bool positive_only = false;
-        bool mitigate = true;
-        int n_points_requested = basis_size;
-
-        int n_points_returned = -1;
-        std::vector<int64_t> points(n_points_requested);  // Exactly the request size
-
-        status = spir_basis_get_default_matsus_ext(
-            basis, positive_only, mitigate, n_points_requested, points.data(), &n_points_returned);
+        int n_total = 0;
+        status = spir_basis_get_n_default_matsus_ext(basis, false, true, basis_size, &n_total);
         REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
-        REQUIRE(n_points_returned <= n_points_requested);  // Never more than the buffer
-        // Fencing adds points beyond the request for basis_size >= 20, so the
-        // returned count then equals the buffer size (truncated).
-        if (basis_size >= 20) {
-            REQUIRE(n_points_returned == n_points_requested);
-        }
-    }
 
-    // Test positive_only = true with mitigation
-    {
-        bool positive_only = true;
-        bool mitigate = true;
-        int n_points_requested = basis_size;
-
-        int n_points_returned = 0;
-        std::vector<int64_t> points(n_points_requested + 20);
-
+        const int64_t sentinel = std::numeric_limits<int64_t>::min();
+        std::vector<int64_t> points(n_total, sentinel);
+        int n_required = -1;
         status = spir_basis_get_default_matsus_ext(
-            basis, positive_only, mitigate, n_points_requested, points.data(), &n_points_returned);
-        REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
-        REQUIRE(n_points_returned > 0);
-        REQUIRE(n_points_returned <= n_points_requested);
-
-        // Verify all points are positive and odd
-        for (int i = 0; i < n_points_returned; ++i) {
-            REQUIRE(points[i] > 0);
-            REQUIRE(points[i] % 2 == 1);
+            basis, false, true, basis_size, n_total - 1, points.data(), &n_required);
+        REQUIRE(status == SPIR_INVALID_ARGUMENT);
+        REQUIRE(n_required == n_total);
+        for (int64_t p : points) {
+            REQUIRE(p == sentinel);
         }
     }
 

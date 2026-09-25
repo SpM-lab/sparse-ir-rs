@@ -759,18 +759,18 @@ status_tau_ext = ccall(
 println("✅ get_default_taus_ext returned $(tau_returned[]) points (requested $requested_tau)")
 println("   First 3: $(tau_points_ext[1:3])")
 
-# Test get_n_default_matsus_ext - request 3 points
-requested_matsu = 3
+# Test get_n_default_matsus_ext - points for a basis of size 3
+matsu_basis_size = 3
 matsu_count_ext = Ref{Int32}(0)
 status_matsu_count_ext = ccall(
     (:spir_basis_get_n_default_matsus_ext, libpath),
     Int32,
-    (Ptr{Cvoid}, Bool, Int32, Ref{Int32}),
-    basis, true, Int32(requested_matsu), matsu_count_ext
+    (Ptr{Cvoid}, Bool, Bool, Int32, Ref{Int32}),
+    basis, true, false, Int32(matsu_basis_size), matsu_count_ext
 )
 
 @assert status_matsu_count_ext == SPIR_COMPUTATION_SUCCESS
-@assert matsu_count_ext[] == requested_matsu
+@assert matsu_count_ext[] > 0
 println("✅ get_n_default_matsus_ext returned count: $(matsu_count_ext[])")
 
 # Test get_default_matsus_ext
@@ -779,8 +779,9 @@ matsu_returned = Ref{Int32}(0)
 status_matsu_ext = ccall(
     (:spir_basis_get_default_matsus_ext, libpath),
     Int32,
-    (Ptr{Cvoid}, Bool, Int32, Ptr{Int64}, Ref{Int32}),
-    basis, true, Int32(requested_matsu), matsu_points_ext, matsu_returned
+    (Ptr{Cvoid}, Bool, Bool, Int32, Int32, Ptr{Int64}, Ref{Int32}),
+    basis, true, false, Int32(matsu_basis_size), matsu_count_ext[], matsu_points_ext,
+    matsu_returned
 )
 
 @assert status_matsu_ext == SPIR_COMPUTATION_SUCCESS

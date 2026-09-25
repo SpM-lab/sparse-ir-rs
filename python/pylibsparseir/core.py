@@ -551,24 +551,39 @@ def basis_get_default_matsubara_sampling_points(basis, positive_only=False):
     return points
 
 
-def basis_get_n_default_matsus_ext(basis, n_points, positive_only, mitigate=False):
-    """Get the number of default Matsubara sampling points for a basis."""
-    n_points_returned = c_int()
+def basis_get_n_default_matsus_ext(basis, basis_size, positive_only, fence=False):
+    """Get the number of default Matsubara sampling points for a basis size.
+
+    ``basis_size`` is the size of the basis the points are chosen for; for an
+    augmented basis, pass the augmented size.
+    """
+    n_points_total = c_int()
     status = _lib.spir_basis_get_n_default_matsus_ext(
-        basis, c_bool(positive_only), c_bool(mitigate), c_int(n_points), byref(n_points_returned))
+        basis, c_bool(positive_only), c_bool(fence), c_int(basis_size), byref(n_points_total))
     if status != COMPUTATION_SUCCESS:
         raise RuntimeError(
             f"Failed to get number of default Matsubara points: {status}")
-    return n_points_returned.value
+    return n_points_total.value
 
 
-def basis_get_default_matsus_ext(basis, positive_only, points):
-    n_points = len(points)
-    n_points_returned = c_int()
-    status = _lib.spir_basis_get_default_matsus_ext(basis, c_bool(
-        positive_only), c_bool(False), c_int(n_points), points.ctypes.data_as(POINTER(c_int64)), byref(n_points_returned))
+def basis_get_default_matsus_ext(basis, basis_size, positive_only, fence=False):
+    """Get default Matsubara sampling points for a basis size.
+
+    ``basis_size`` is the size of the basis the points are chosen for; for an
+    augmented basis, pass the augmented size. Returns all points.
+    """
+    n_points = basis_get_n_default_matsus_ext(basis, basis_size, positive_only, fence)
+    points = np.zeros(n_points, dtype=np.int64)
+    n_points_total = c_int()
+    status = _lib.spir_basis_get_default_matsus_ext(
+        basis, c_bool(positive_only), c_bool(fence), c_int(basis_size), c_int(n_points),
+        points.ctypes.data_as(POINTER(c_int64)), byref(n_points_total))
     if status != COMPUTATION_SUCCESS:
         raise RuntimeError(f"Failed to get default Matsubara points: {status}")
+    if n_points_total.value != n_points:
+        raise RuntimeError(
+            f"Default Matsubara point count changed between calls: "
+            f"{n_points} then {n_points_total.value}")
     return points
 
 

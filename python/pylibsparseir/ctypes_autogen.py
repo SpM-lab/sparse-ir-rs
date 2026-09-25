@@ -29,7 +29,7 @@ class c_double_complex(Structure):
 FUNCTIONS = {
     'spir_basis_clone': ('POINTER(struct spir_basis)', ['POINTER(struct spir_basis)']),
     'spir_basis_get_default_matsus': ('c_int', ['POINTER(struct spir_basis)', 'c_bool', 'POINTER(c_int64)']),
-    'spir_basis_get_default_matsus_ext': ('c_int', ['POINTER(struct spir_basis)', 'c_bool', 'c_bool', 'c_int', 'POINTER(c_int64)', 'POINTER(c_int)']),
+    'spir_basis_get_default_matsus_ext': ('c_int', ['POINTER(struct spir_basis)', 'c_bool', 'c_bool', 'c_int', 'c_int', 'POINTER(c_int64)', 'POINTER(c_int)']),
     'spir_basis_get_default_taus': ('c_int', ['POINTER(struct spir_basis)', 'POINTER(c_double)']),
     'spir_basis_get_default_taus_ext': ('c_int', ['POINTER(struct spir_basis)', 'c_int', 'POINTER(c_double)', 'POINTER(c_int)']),
     'spir_basis_get_default_ws': ('c_int', ['POINTER(struct spir_basis)', 'POINTER(c_double)']),
@@ -114,5 +114,5 @@ FUNCTIONS = {
     'spir_sve_result_truncate': ('POINTER(struct spir_sve_result)', ['POINTER(struct spir_sve_result)', 'c_double', 'c_int', 'POINTER(c_int)']),
     'spir_tau_sampling_new': ('POINTER(struct spir_sampling)', ['POINTER(struct spir_basis)', 'c_int', 'POINTER(c_double)', 'POINTER(c_int)']),
     'spir_tau_sampling_new_with_matrix': ('POINTER(struct spir_sampling)', ['c_int', 'c_int', 'c_int', 'c_int', 'POINTER(c_double)', 'POINTER(c_double)', 'POINTER(c_int)']),
-    'spir_uhat_get_default_matsus': ('c_int', ['POINTER(struct spir_funcs)', 'c_int', 'c_bool', 'c_bool', 'POINTER(c_int64)', 'POINTER(c_int)']),
+    'spir_uhat_get_default_matsus': ('c_int', ['POINTER(struct spir_funcs)', 'c_bool', 'c_bool', 'c_int', 'c_int', 'POINTER(c_int64)', 'POINTER(c_int)']),
 }

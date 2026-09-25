@@ -116,23 +116,33 @@ end
 # %%
 function spir_uhat_get_default_matsus(
     uhat::Ptr{spir_funcs},
-    l::Integer,
+    basis_size::Integer,
     positive_only::Bool,
-    mitigate::Bool
+    fence::Bool
 )
-    points_buffer = Vector{Int64}()
-    n_points_returned = Ref{Int32}(0)
+    # Query the number of points (NULL buffer), then fetch them
+    n_points_total = Ref{Int32}(0)
     status = ccall(
         (:spir_uhat_get_default_matsus, libpath),
         Int32,
-        (Ptr{spir_funcs}, Int32, Bool, Bool, Ptr{Int64}, Ptr{Int32}),
-        uhat, Cint(l), positive_only, mitigate, pointer(points_buffer), n_points_returned
+        (Ptr{spir_funcs}, Bool, Bool, Int32, Int32, Ptr{Int64}, Ptr{Int32}),
+        uhat, positive_only, fence, Cint(basis_size), Cint(0), C_NULL, n_points_total
+    )
+    if status != 0
+        error("Failed to count default Matsubara frequencies: status = $status")
+    end
+    points = Vector{Int64}(undef, n_points_total[])
+    status = ccall(
+        (:spir_uhat_get_default_matsus, libpath),
+        Int32,
+        (Ptr{spir_funcs}, Bool, Bool, Int32, Int32, Ptr{Int64}, Ptr{Int32}),
+        uhat, positive_only, fence, Cint(basis_size), Cint(length(points)), points,
+        n_points_total
     )
     if status != 0
         error("Failed to get default Matsubara frequencies: status = $status")
     end
-    # Return only the actual points that were written
-    unsafe_wrap(Vector{Int64}, pointer(points_buffer), n_points_returned[])
+    points
 end
 
 # %%
@@ -148,23 +158,23 @@ let
 
     let
         positive_only = true
-        mitigate = false
+        fence = false
         default_matsus_positive_only = spir_uhat_get_default_matsus(
-            uhat, 10, positive_only, mitigate
+            uhat, 10, positive_only, fence
         )
         println("default_matsus_positive_only: $default_matsus_positive_only")
-        @assert default_matsus_positive_only == [3, 5, 7, 15]
+        @assert default_matsus_positive_only == [1, 5, 7, 15]
     end
 
     let
         positive_only = false
-        mitigate = false
+        fence = false
         default_matsus = spir_uhat_get_default_matsus(
-            uhat, 10, positive_only, mitigate
+            uhat, 10, positive_only, fence
         )
         println("default_matsus: $default_matsus")
         @assert default_matsus == [
-            -15, -7, -5, -3, 3, 5, 7, 15
+            -15, -7, -5, -1, 1, 5, 7, 15
         ]
     end
 end
