@@ -24,6 +24,7 @@ pub mod basis_trait; // Common trait for basis representations
 pub mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
 mod debug; // SPARSEIR_DEBUG switch for debug diagnostics
 pub mod dlr; // Discrete Lehmann Representation utilities
+pub mod error; // Error type of the public API
 pub mod fitters; // Least-squares fitters (real/complex matrices)
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod freq;
@@ -50,9 +51,10 @@ pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
 pub use basis_trait::Basis;
 pub use debug::is_debug_enabled;
 pub use dlr::{
-    DiscreteLehmannRepresentation, DlrError, bosonic_single_pole, fermionic_single_pole,
-    giwn_single_pole, gtau_single_pole,
+    DiscreteLehmannRepresentation, bosonic_single_pole, fermionic_single_pole, giwn_single_pole,
+    gtau_single_pole,
 };
+pub use error::{Error, ErrorKind};
 pub use fitters::InplaceFitter;
 pub use freq::{BosonicFreq, FermionicFreq, MatsubaraFreq};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
@@ -81,7 +83,7 @@ pub use sve::{
 };
 pub use traits::{Bosonic, Fermionic, Statistics, StatisticsMarker, StatisticsType};
 pub use tsvd::{
-    SVDResult, TSVDConfig, TSVDError, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
+    SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
 };
 
 // Re-export external dependencies for convenience

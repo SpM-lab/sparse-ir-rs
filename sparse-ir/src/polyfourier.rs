@@ -6,6 +6,7 @@
 use num_complex::Complex64;
 use std::f64::consts::PI;
 
+use crate::error::Error;
 use crate::freq::MatsubaraFreq;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::special_functions::spherical_bessel_j;
@@ -540,9 +541,18 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     }
 
     /// Set element at index
-    pub fn set(&mut self, index: usize, poly: PiecewiseLegendreFT<S>) -> Result<(), String> {
-        if index >= self.polyvec.len() {
-            return Err(format!("Index {} out of range", index));
+    ///
+    /// # Errors
+    /// [`Error::InvalidParameter`] if `index` is not less than the length;
+    /// the vector is then unchanged
+    pub fn set(&mut self, index: usize, poly: PiecewiseLegendreFT<S>) -> Result<(), Error> {
+        let len = self.polyvec.len();
+        if index >= len {
+            return Err(Error::InvalidParameter {
+                name: "index",
+                value: index.to_string(),
+                reason: format!("must be less than the length {len}"),
+            });
         }
         self.polyvec[index] = poly;
         Ok(())

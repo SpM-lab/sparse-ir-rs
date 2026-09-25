@@ -15,6 +15,7 @@ mod funcs;
 mod gemm;
 mod kernel;
 mod sampling;
+mod status;
 mod sve;
 mod types;
 mod utils;

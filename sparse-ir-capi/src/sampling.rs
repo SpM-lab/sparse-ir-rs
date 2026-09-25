@@ -16,6 +16,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
+use crate::status::status_from;
 use crate::types::{BasisType, SamplingType, is_in_domain, spir_basis, spir_sampling, tau_domain};
 use crate::utils::{
     MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd, validate_dims,
@@ -46,7 +47,7 @@ fn matsubara_freqs<S: StatisticsType>(
             if positive_only && n < 0 {
                 return Err(SPIR_INVALID_ARGUMENT);
             }
-            MatsubaraFreq::new(n).map_err(|_| SPIR_INVALID_ARGUMENT)
+            MatsubaraFreq::new(n).map_err(|e| status_from(&e))
         })
         .collect()
 }

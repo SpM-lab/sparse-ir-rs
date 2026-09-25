@@ -8,6 +8,7 @@ use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
 use std::fmt;
 use std::ops::{Add, Neg, Sub};
 
+use crate::error::Error;
 use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 
 /// Matsubara frequency for a specific statistics type
@@ -70,9 +71,9 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
     /// * `n` - The reduced Matsubara frequency n of ν = nπ/β: odd for
     ///   fermionic statistics, even for bosonic statistics
     ///
-    /// # Returns
-    /// * `Ok(MatsubaraFreq)` if the frequency is valid for the statistics type
-    /// * `Err(String)` if the frequency is not allowed (e.g., even n for fermionic)
+    /// # Errors
+    /// [`Error::InvalidMatsubaraIndex`] if `n` is even for fermionic or odd
+    /// for bosonic statistics
     ///
     /// # Examples
     /// ```
@@ -81,7 +82,7 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
     /// let fermionic = FermionicFreq::new(1).unwrap();  // OK: odd n for fermionic
     /// let bosonic = BosonicFreq::new(0).unwrap();      // OK: even n for bosonic
     /// ```
-    pub fn new(n: i64) -> Result<Self, String> {
+    pub fn new(n: i64) -> Result<Self, Error> {
         // Check if the frequency is allowed for this statistics type
         let allowed = match S::STATISTICS {
             Statistics::Fermionic => n % 2 != 0, // Fermionic: odd n only
@@ -89,11 +90,10 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
         };
 
         if !allowed {
-            return Err(format!(
-                "Frequency n={} is not allowed for {} statistics",
+            return Err(Error::InvalidMatsubaraIndex {
                 n,
-                S::STATISTICS.as_str()
-            ));
+                statistics: S::STATISTICS,
+            });
         }
 
         Ok(Self {
@@ -556,5 +556,32 @@ mod tests {
         // Invalid zeta
         assert!(create_statistics(2).is_err());
         assert!(create_statistics(-1).is_err());
+    }
+
+    /// The parity check holds for negative n, whose remainder is negative.
+    #[test]
+    fn test_new_rejects_wrong_parity_with_typed_error() {
+        use crate::error::Error;
+
+        assert_eq!(
+            FermionicFreq::new(2).unwrap_err(),
+            Error::InvalidMatsubaraIndex {
+                n: 2,
+                statistics: Statistics::Fermionic,
+            }
+        );
+        assert_eq!(
+            BosonicFreq::new(-3).unwrap_err(),
+            Error::InvalidMatsubaraIndex {
+                n: -3,
+                statistics: Statistics::Bosonic,
+            }
+        );
+        assert_eq!(
+            BosonicFreq::new(-3).unwrap_err().to_string(),
+            "Matsubara frequency n = -3 is not allowed for bosonic statistics"
+        );
+        assert_eq!(FermionicFreq::new(-1).unwrap().n(), -1);
+        assert_eq!(BosonicFreq::new(-2).unwrap().n(), -2);
     }
 }

@@ -490,3 +490,37 @@ fn test_default_matsubara_points_need_functions_of_definite_parity() {
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None);
     basis.default_matsubara_sampling_points(false);
 }
+
+/// `set` rejects an index past the end, including `index == len`, and then
+/// leaves the vector unchanged.
+#[test]
+fn test_ft_vector_set_rejects_index_past_the_end() {
+    use crate::error::Error;
+
+    let knots = vec![-1.0, 1.0];
+    let poly0 = PiecewiseLegendrePoly::new(tensor![[1.0], [0.0]], knots.clone(), 0, None, 0);
+    let poly1 = PiecewiseLegendrePoly::new(tensor![[0.0], [1.0]], knots, 1, None, 0);
+    let ft0 = FermionicPiecewiseLegendreFT::new(poly0, Fermionic, None);
+    let ft1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None);
+    let mut ft_vector =
+        FermionicPiecewiseLegendreFTVector::from_vector(vec![ft0.clone(), ft1.clone()]);
+
+    for index in [2, 3] {
+        let err = ft_vector.set(index, ft0.clone()).unwrap_err();
+        assert_eq!(
+            err,
+            Error::InvalidParameter {
+                name: "index",
+                value: index.to_string(),
+                reason: "must be less than the length 2".to_string(),
+            }
+        );
+    }
+    assert_eq!(ft_vector.size(), 2);
+    assert_eq!(ft_vector.get(0).unwrap().poly.l, 0);
+    assert_eq!(ft_vector.get(1).unwrap().poly.l, 1);
+
+    // A valid index replaces the element.
+    ft_vector.set(0, ft1).unwrap();
+    assert_eq!(ft_vector.get(0).unwrap().poly.l, 1);
+}

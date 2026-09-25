@@ -14,21 +14,11 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
+use crate::status::status_from;
 use crate::types::{BasisType, spir_basis};
 use crate::utils::{MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, validate_dims};
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
-use sparse_ir::dlr::{DiscreteLehmannRepresentation, DlrError};
-
-/// Map a core [`DlrError`] to a C ABI status code, preserving the error
-/// category instead of collapsing it to `SPIR_INTERNAL_ERROR`.
-fn dlr_error_status(err: &DlrError) -> StatusCode {
-    match err {
-        DlrError::InsufficientDefaultPoles { .. } => SPIR_INVALID_ARGUMENT,
-        DlrError::KernelStatisticsMismatch => SPIR_NOT_SUPPORTED,
-        // `spir_dlr_new_with_poles` rejects npoles <= 0 before this is reached
-        DlrError::NoPoles => SPIR_INVALID_ARGUMENT,
-    }
-}
+use sparse_ir::dlr::DiscreteLehmannRepresentation;
 
 // ============================================================================
 // Creation Functions
@@ -76,22 +66,22 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
             let dlr_type = match basis_ref.inner() {
                 BasisType::LogisticFermionic(ir_basis) => {
                     let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
-                        .map_err(|e| dlr_error_status(&e))?;
+                        .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::LogisticBosonic(ir_basis) => {
                     let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
-                        .map_err(|e| dlr_error_status(&e))?;
+                        .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseFermionic(ir_basis) => {
                     let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
-                        .map_err(|e| dlr_error_status(&e))?;
+                        .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseBosonic(ir_basis) => {
                     let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
-                        .map_err(|e| dlr_error_status(&e))?;
+                        .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 _ => {
@@ -187,25 +177,25 @@ pub extern "C" fn spir_dlr_new_with_poles(
                 BasisType::LogisticFermionic(ir_basis) => {
                     let dlr =
                         DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| dlr_error_status(&e))?;
+                            .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::LogisticBosonic(ir_basis) => {
                     let dlr =
                         DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| dlr_error_status(&e))?;
+                            .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseFermionic(ir_basis) => {
                     let dlr =
                         DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| dlr_error_status(&e))?;
+                            .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseBosonic(ir_basis) => {
                     let dlr =
                         DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| dlr_error_status(&e))?;
+                            .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 _ => {
@@ -826,20 +816,6 @@ mod tests {
     use sparse_ir::sve::{SVEResult, TworkType, compute_sve};
     use sparse_ir::traits::{Bosonic, Fermionic};
     use std::ptr;
-
-    /// Every `DlrError` variant maps to its documented status code.
-    #[test]
-    fn test_dlr_error_status_mapping() {
-        let insufficient = DlrError::InsufficientDefaultPoles {
-            basis_size: 6,
-            n_poles: 3,
-        };
-        assert_eq!(dlr_error_status(&insufficient), SPIR_INVALID_ARGUMENT);
-        assert_eq!(
-            dlr_error_status(&DlrError::KernelStatisticsMismatch),
-            SPIR_NOT_SUPPORTED
-        );
-    }
 
     /// Basis size of the bases built from [`sve_with_too_few_default_poles`].
     const TRUNCATED_BASIS_SIZE: usize = 6;

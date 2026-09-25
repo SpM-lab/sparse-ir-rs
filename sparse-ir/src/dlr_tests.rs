@@ -3,7 +3,7 @@
 #![allow(deprecated)]
 
 use crate::{
-    AbstractKernel, Basis, Bosonic, DiscreteLehmannRepresentation, DlrError, Fermionic,
+    AbstractKernel, Basis, Bosonic, DiscreteLehmannRepresentation, Error, Fermionic,
     FiniteTempBasis, LogisticKernel, MatsubaraFreq, MatsubaraSampling, RegularizedBoseKernel,
     Statistics, StatisticsType, TauSampling, bosonic_single_pole, giwn_single_pole,
     gtau_single_pole,
@@ -1017,7 +1017,7 @@ fn test_bosonic_single_pole_diverges_at_zero_omega() {
 }
 
 // ====================
-// DlrError paths (#237)
+// DLR error paths (#237)
 // ====================
 
 /// Basis whose default ω sampling points, i.e. the default DLR poles, are
@@ -1130,7 +1130,7 @@ fn check_dlr_new_insufficient_default_poles<S: StatisticsType + 'static>() {
         .expect("DLR construction must fail with too few default poles");
     assert_eq!(
         err,
-        DlrError::InsufficientDefaultPoles {
+        Error::InsufficientDefaultPoles {
             basis_size,
             n_poles: basis_size - 1,
         }
@@ -1163,12 +1163,12 @@ fn test_dlr_regularized_bose_fermionic_is_kernel_statistics_mismatch() {
     let err = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&basis, vec![-2.0, 0.5, 3.0])
         .err()
         .expect("with_poles must reject RegularizedBoseKernel with fermionic statistics");
-    assert_eq!(err, DlrError::KernelStatisticsMismatch);
+    assert_eq!(err, Error::KernelStatisticsMismatch);
 
     let err = DiscreteLehmannRepresentation::<Fermionic>::new(&basis)
         .err()
         .expect("new must reject RegularizedBoseKernel with fermionic statistics");
-    assert_eq!(err, DlrError::KernelStatisticsMismatch);
+    assert_eq!(err, Error::KernelStatisticsMismatch);
 
     // The same kernel with bosonic statistics is supported.
     let bosonic =
@@ -1180,19 +1180,19 @@ fn test_dlr_regularized_bose_fermionic_is_kernel_statistics_mismatch() {
 
 #[test]
 fn test_dlr_error_display_and_error_trait() {
-    let err = DlrError::InsufficientDefaultPoles {
+    let err = Error::InsufficientDefaultPoles {
         basis_size: 12,
         n_poles: 7,
     };
     assert_eq!(
         err.to_string(),
-        "Number of default poles (7) is less than the basis size (12)"
+        "number of default poles (7) is less than the basis size (12)"
     );
 
-    let err = DlrError::KernelStatisticsMismatch;
+    let err = Error::KernelStatisticsMismatch;
     assert_eq!(
         err.to_string(),
-        "Kernel does not support the requested statistics: kernels with ypower = 1 \
+        "kernel does not support the requested statistics: kernels with ypower = 1 \
          (e.g. RegularizedBoseKernel) require bosonic statistics"
     );
 
@@ -1202,7 +1202,7 @@ fn test_dlr_error_display_and_error_trait() {
     assert!(boxed.source().is_none());
     assert_eq!(
         boxed.to_string(),
-        DlrError::KernelStatisticsMismatch.to_string()
+        Error::KernelStatisticsMismatch.to_string()
     );
 }
 
@@ -1257,9 +1257,9 @@ fn test_dlr_with_no_poles_is_an_error() {
         None,
     );
     let result = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&basis, vec![]);
-    assert!(matches!(result, Err(DlrError::NoPoles)));
+    assert!(matches!(result, Err(Error::EmptyInput { name: "poles" })));
     assert_eq!(
-        DlrError::NoPoles.to_string(),
-        "No poles given: a DLR needs at least one pole"
+        Error::EmptyInput { name: "poles" }.to_string(),
+        "poles must not be empty"
     );
 }

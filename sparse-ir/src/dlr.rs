@@ -4,6 +4,7 @@
 //! which represents Green's functions as a linear combination of poles on the
 //! real-frequency axis.
 
+use crate::error::Error;
 use crate::fitters::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
@@ -11,31 +12,6 @@ use crate::traits::{Statistics, StatisticsType};
 use mdarray::DTensor;
 use num_complex::Complex;
 use std::marker::PhantomData;
-
-/// Errors returned when constructing a [`DiscreteLehmannRepresentation`].
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum DlrError {
-    /// The number of default poles is less than the basis size. This can
-    /// happen with certain kernel types (e.g., `RegularizedBoseKernel`) due
-    /// to numerical precision limitations in root finding.
-    #[error("Number of default poles ({n_poles}) is less than the basis size ({basis_size})")]
-    InsufficientDefaultPoles {
-        /// Basis size.
-        basis_size: usize,
-        /// Number of poles actually found.
-        n_poles: usize,
-    },
-    /// The kernel does not support the requested statistics (e.g.
-    /// `RegularizedBoseKernel` with fermionic statistics).
-    #[error(
-        "Kernel does not support the requested statistics: kernels with ypower = 1 \
-         (e.g. RegularizedBoseKernel) require bosonic statistics"
-    )]
-    KernelStatisticsMismatch,
-    /// No poles were given: a DLR needs at least one.
-    #[error("No poles given: a DLR needs at least one pole")]
-    NoPoles,
-}
 
 /// Generic single-pole Green's function at imaginary time τ
 ///
@@ -319,13 +295,14 @@ where
     /// * `poles` - Pole positions on the real-frequency axis
     ///
     /// # Errors
-    /// Returns [`DlrError::KernelStatisticsMismatch`] if the kernel does not
-    /// support the requested statistics (e.g. `RegularizedBoseKernel` with
-    /// fermionic statistics), and [`DlrError::NoPoles`] if `poles` is empty.
+    /// * [`Error::KernelStatisticsMismatch`] if the kernel does not support
+    ///   the requested statistics (e.g. `RegularizedBoseKernel` with fermionic
+    ///   statistics)
+    /// * [`Error::EmptyInput`] if `poles` is empty
     pub fn with_poles<K>(
         basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
         poles: Vec<f64>,
-    ) -> Result<Self, DlrError>
+    ) -> Result<Self, Error>
     where
         S: 'static,
         K: crate::kernel::KernelProperties + Clone,
@@ -336,13 +313,13 @@ where
         // statistics; its regularizer panics for fermionic input. Reject the
         // combination before computing anything.
         if S::STATISTICS == Statistics::Fermionic && basis.kernel().ypower() == 1 {
-            return Err(DlrError::KernelStatisticsMismatch);
+            return Err(Error::KernelStatisticsMismatch);
         }
         // Without poles the fitting matrix has no columns, and its SVD would
         // transpose [n, 0] arrays, which mdarray 0.7.2 does out of bounds
         // (https://github.com/fre-hu/mdarray/issues/21).
         if poles.is_empty() {
-            return Err(DlrError::NoPoles);
+            return Err(Error::EmptyInput { name: "poles" });
         }
 
         let beta = basis.beta();
@@ -424,11 +401,12 @@ where
     /// * `basis` - The IR basis to construct DLR from
     ///
     /// # Errors
-    /// Returns [`DlrError::InsufficientDefaultPoles`] if the number of default
-    /// poles is less than the basis size. This can happen with certain kernel
-    /// types (e.g., `RegularizedBoseKernel`) due to numerical precision
-    /// limitations in root finding.
-    pub fn new<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Result<Self, DlrError>
+    /// * [`Error::InsufficientDefaultPoles`] if the basis has fewer default
+    ///   poles than functions. This can happen with certain kernel types
+    ///   (e.g. `RegularizedBoseKernel`) due to numerical precision limitations
+    ///   in root finding.
+    /// * [`Error::KernelStatisticsMismatch`] as in [`Self::with_poles`]
+    pub fn new<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Result<Self, Error>
     where
         S: 'static,
         K: crate::kernel::KernelProperties + Clone,
@@ -436,7 +414,7 @@ where
         let poles = basis.default_omega_sampling_points();
         let basis_size = basis.size();
         if basis_size > poles.len() {
-            return Err(DlrError::InsufficientDefaultPoles {
+            return Err(Error::InsufficientDefaultPoles {
                 basis_size,
                 n_poles: poles.len(),
             });
