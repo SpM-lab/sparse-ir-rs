@@ -20,7 +20,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sparse-ir = "0.8.3"
+sparse-ir = "0.9.1"
 ```
 
 #### Optional: System BLAS Support
