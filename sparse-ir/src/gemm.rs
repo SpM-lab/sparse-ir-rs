@@ -9,18 +9,26 @@
 //! - **Thread-safe**: Global dispatcher protected by RwLock
 //!
 //! # Example
-//! ```ignore
-//! use sparse_ir::gemm::{matmul_par, set_blas_backend};
-//!
-//! // Use default Faer backend
-//! let c = matmul_par(&a, &b);
-//!
-//! // Or inject custom BLAS (from C-API)
-//! unsafe {
-//!     set_blas_backend(my_dgemm_ptr, my_zgemm_ptr);
-//! }
-//! let c = matmul_par(&a, &b);  // Now uses custom BLAS
 //! ```
+//! use mdarray::tensor;
+//! use sparse_ir::gemm::{GemmBackendHandle, matmul_par};
+//!
+//! let a = tensor![[1.0, 2.0], [3.0, 4.0]];
+//! let b = tensor![[5.0, 6.0], [7.0, 8.0]];
+//!
+//! // `None` uses the global dispatcher: the Faer backend by default (system
+//! // BLAS with the `system-blas` feature, or a BLAS injected at runtime)
+//! let c = matmul_par(&a, &b, None);
+//! assert_eq!(c, tensor![[19.0, 22.0], [43.0, 50.0]]);
+//!
+//! // Or pass an explicit backend handle instead of relying on global state
+//! let faer = GemmBackendHandle::default();
+//! assert_eq!(matmul_par(&a, &b, Some(&faer)), c);
+//! ```
+//!
+//! A custom BLAS (e.g. from the C API) is injected at runtime with
+//! [`set_blas_backend`] (LP64) or [`set_ilp64_backend`] (ILP64); see their
+//! examples. [`clear_blas_backend`] restores the Faer backend.
 
 use mdarray::{DSlice, DTensor, DView, DViewMut, Layout};
 use once_cell::sync::Lazy;
@@ -557,11 +565,15 @@ impl GemmBackend for ExternalBlas64Backend {
 /// across multiple function calls without global state.
 ///
 /// # Example
-/// ```ignore
-/// use sparse_ir::gemm::GemmBackendHandle;
+/// ```
+/// use mdarray::tensor;
+/// use sparse_ir::gemm::{GemmBackendHandle, matmul_par};
 ///
+/// let a = tensor![[1.0, 2.0], [3.0, 4.0]];
+/// let b = tensor![[5.0, 6.0], [7.0, 8.0]];
 /// let backend = GemmBackendHandle::default();
 /// let result = matmul_par(&a, &b, Some(&backend));
+/// assert_eq!(result, tensor![[19.0, 22.0], [43.0, 50.0]]);
 /// ```
 #[derive(Clone)]
 pub struct GemmBackendHandle {
@@ -619,10 +631,79 @@ static BLAS_DISPATCHER: Lazy<RwLock<Box<dyn GemmBackend>>> = Lazy::new(|| {
 /// - Must follow Fortran BLAS calling convention
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// use mdarray::{DTensor, tensor};
+/// use num_complex::Complex;
+/// use sparse_ir::gemm::{clear_blas_backend, get_backend_info, matmul_par, set_blas_backend};
+/// # use std::ffi::{c_char, c_int};
+/// # use std::ops::{Add, Mul};
+/// #
+/// # // Naive column-major C = alpha * A * B + beta * C for transa = transb = 'N'
+/// # // (what sparse-ir passes), standing in for a BLAS library.
+/// # unsafe fn gemm_nn<T>(mnk: [usize; 3], alpha: T, a: *const T, lda: usize,
+/// #                    b: *const T, ldb: usize, beta: T, c: *mut T, ldc: usize)
+/// # where
+/// #     T: Copy + Default + PartialEq + Add<Output = T> + Mul<Output = T>,
+/// # {
+/// #     let [m, n, k] = mnk;
+/// #     for j in 0..n {
+/// #         for i in 0..m {
+/// #             let mut acc = T::default();
+/// #             for p in 0..k {
+/// #                 acc = acc + unsafe { *a.add(i + p * lda) * *b.add(p + j * ldb) };
+/// #             }
+/// #             let cij = unsafe { &mut *c.add(i + j * ldc) };
+/// #             *cij = if beta == T::default() { alpha * acc } else { alpha * acc + beta * *cij };
+/// #         }
+/// #     }
+/// # }
+/// # unsafe extern "C" fn my_dgemm(
+/// #     _transa: *const c_char, _transb: *const c_char,
+/// #     m: *const c_int, n: *const c_int, k: *const c_int,
+/// #     alpha: *const f64, a: *const f64, lda: *const c_int,
+/// #     b: *const f64, ldb: *const c_int,
+/// #     beta: *const f64, c: *mut f64, ldc: *const c_int,
+/// # ) {
+/// #     unsafe {
+/// #         let mnk = [*m as usize, *n as usize, *k as usize];
+/// #         gemm_nn(mnk, *alpha, a, *lda as usize, b, *ldb as usize, *beta, c, *ldc as usize);
+/// #     }
+/// # }
+/// # unsafe extern "C" fn my_zgemm(
+/// #     _transa: *const c_char, _transb: *const c_char,
+/// #     m: *const c_int, n: *const c_int, k: *const c_int,
+/// #     alpha: *const Complex<f64>, a: *const Complex<f64>, lda: *const c_int,
+/// #     b: *const Complex<f64>, ldb: *const c_int,
+/// #     beta: *const Complex<f64>, c: *mut Complex<f64>, ldc: *const c_int,
+/// # ) {
+/// #     unsafe {
+/// #         let mnk = [*m as usize, *n as usize, *k as usize];
+/// #         gemm_nn(mnk, *alpha, a, *lda as usize, b, *ldb as usize, *beta, c, *ldc as usize);
+/// #     }
+/// # }
+///
+/// // `my_dgemm` and `my_zgemm` are the LP64 Fortran BLAS `dgemm_` and `zgemm_`
+/// // to use, e.g. from OpenBLAS. (This example defines naive stand-ins in
+/// // hidden lines so that it runs without a BLAS library.)
 /// unsafe {
-///     set_blas_backend(dgemm_ as _, zgemm_ as _);
+///     set_blas_backend(my_dgemm, my_zgemm);
 /// }
+/// assert_eq!(get_backend_info(), ("External BLAS (LP64)", true, false));
+///
+/// // Calls without an explicit backend handle now go through the injected BLAS
+/// let a = tensor![[1.0, 2.0], [3.0, 4.0]];
+/// let b = tensor![[5.0, 6.0], [7.0, 8.0]];
+/// let c = matmul_par(&a, &b, None);
+/// assert_eq!(c, tensor![[19.0, 22.0], [43.0, 50.0]]);
+///
+/// // Complex matrices use `zgemm`: (i A) B = i (A B)
+/// let ia = DTensor::<Complex<f64>, 2>::from_fn([2, 2], |idx| Complex::new(0.0, a[idx]));
+/// let bz = DTensor::<Complex<f64>, 2>::from_fn([2, 2], |idx| Complex::new(b[idx], 0.0));
+/// let ic = DTensor::<Complex<f64>, 2>::from_fn([2, 2], |idx| Complex::new(0.0, c[idx]));
+/// assert_eq!(matmul_par(&ia, &bz, None), ic);
+///
+/// clear_blas_backend(); // back to the pure-Rust Faer backend
+/// assert!(!get_backend_info().1);
 /// ```
 pub unsafe fn set_blas_backend(dgemm: DgemmFnPtr, zgemm: ZgemmFnPtr) {
     let backend = ExternalBlasBackend { dgemm, zgemm };
@@ -638,10 +719,73 @@ pub unsafe fn set_blas_backend(dgemm: DgemmFnPtr, zgemm: ZgemmFnPtr) {
 /// - Must follow Fortran BLAS calling convention with ILP64 interface
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// use mdarray::tensor;
+/// use sparse_ir::gemm::{clear_blas_backend, get_backend_info, matmul_par, set_ilp64_backend};
+/// # use num_complex::Complex;
+/// # use std::ffi::c_char;
+/// # use std::ops::{Add, Mul};
+/// #
+/// # // Naive column-major C = alpha * A * B + beta * C for transa = transb = 'N'
+/// # // (what sparse-ir passes), standing in for a BLAS library.
+/// # unsafe fn gemm_nn<T>(mnk: [usize; 3], alpha: T, a: *const T, lda: usize,
+/// #                    b: *const T, ldb: usize, beta: T, c: *mut T, ldc: usize)
+/// # where
+/// #     T: Copy + Default + PartialEq + Add<Output = T> + Mul<Output = T>,
+/// # {
+/// #     let [m, n, k] = mnk;
+/// #     for j in 0..n {
+/// #         for i in 0..m {
+/// #             let mut acc = T::default();
+/// #             for p in 0..k {
+/// #                 acc = acc + unsafe { *a.add(i + p * lda) * *b.add(p + j * ldb) };
+/// #             }
+/// #             let cij = unsafe { &mut *c.add(i + j * ldc) };
+/// #             *cij = if beta == T::default() { alpha * acc } else { alpha * acc + beta * *cij };
+/// #         }
+/// #     }
+/// # }
+/// # unsafe extern "C" fn my_dgemm64(
+/// #     _transa: *const c_char, _transb: *const c_char,
+/// #     m: *const i64, n: *const i64, k: *const i64,
+/// #     alpha: *const f64, a: *const f64, lda: *const i64,
+/// #     b: *const f64, ldb: *const i64,
+/// #     beta: *const f64, c: *mut f64, ldc: *const i64,
+/// # ) {
+/// #     unsafe {
+/// #         let mnk = [*m as usize, *n as usize, *k as usize];
+/// #         gemm_nn(mnk, *alpha, a, *lda as usize, b, *ldb as usize, *beta, c, *ldc as usize);
+/// #     }
+/// # }
+/// # unsafe extern "C" fn my_zgemm64(
+/// #     _transa: *const c_char, _transb: *const c_char,
+/// #     m: *const i64, n: *const i64, k: *const i64,
+/// #     alpha: *const Complex<f64>, a: *const Complex<f64>, lda: *const i64,
+/// #     b: *const Complex<f64>, ldb: *const i64,
+/// #     beta: *const Complex<f64>, c: *mut Complex<f64>, ldc: *const i64,
+/// # ) {
+/// #     unsafe {
+/// #         let mnk = [*m as usize, *n as usize, *k as usize];
+/// #         gemm_nn(mnk, *alpha, a, *lda as usize, b, *ldb as usize, *beta, c, *ldc as usize);
+/// #     }
+/// # }
+///
+/// // `my_dgemm64` and `my_zgemm64` are the ILP64 (64-bit integer) Fortran BLAS
+/// // `dgemm_` and `zgemm_` to use. (This example defines naive stand-ins in
+/// // hidden lines so that it runs without an ILP64 BLAS library.)
 /// unsafe {
-///     set_ilp64_backend(dgemm_ as _, zgemm_ as _);
+///     set_ilp64_backend(my_dgemm64, my_zgemm64);
 /// }
+/// assert_eq!(get_backend_info(), ("External BLAS (ILP64)", true, true));
+///
+/// // Calls without an explicit backend handle now go through the injected BLAS
+/// let a = tensor![[1.0, 2.0], [3.0, 4.0]];
+/// let b = tensor![[5.0, 6.0], [7.0, 8.0]];
+/// assert_eq!(matmul_par(&a, &b, None), tensor![[19.0, 22.0], [43.0, 50.0]]);
+///
+/// clear_blas_backend(); // back to the pure-Rust Faer backend
+/// let (_, is_external, is_ilp64) = get_backend_info();
+/// assert!(!is_external && !is_ilp64);
 /// ```
 pub unsafe fn set_ilp64_backend(dgemm64: Dgemm64FnPtr, zgemm64: Zgemm64FnPtr) {
     let backend = ExternalBlas64Backend { dgemm64, zgemm64 };
@@ -689,15 +833,15 @@ pub fn get_backend_info() -> (&'static str, bool, bool) {
 /// Panics if matrix dimensions are incompatible (A.cols != B.rows)
 ///
 /// # Example
-/// ```ignore
+/// ```
 /// use mdarray::tensor;
-/// use sparse_ir::gemm::{matmul_par, GemmBackendHandle};
+/// use sparse_ir::gemm::{GemmBackendHandle, matmul_par};
 ///
 /// let a = tensor![[1.0, 2.0], [3.0, 4.0]];
 /// let b = tensor![[5.0, 6.0], [7.0, 8.0]];
 /// let backend = GemmBackendHandle::default();
 /// let c = matmul_par(&a, &b, Some(&backend));
-/// // c = [[19.0, 22.0], [43.0, 50.0]]
+/// assert_eq!(c, tensor![[19.0, 22.0], [43.0, 50.0]]);
 /// ```
 pub fn matmul_par<T>(
     a: &DTensor<T, 2>,
@@ -740,14 +884,16 @@ where
 /// - Views are not contiguous in memory
 ///
 /// # Example
-/// ```ignore
-/// use mdarray::DView;
+/// ```
+/// use mdarray::{DView, tensor};
+/// use sparse_ir::gemm::matmul_par_view;
 ///
 /// let a = tensor![[1.0, 2.0], [3.0, 4.0]];
 /// let b = tensor![[5.0, 6.0], [7.0, 8.0]];
-/// let a_view: DView<'_, f64, 2> = a.view(..);
-/// let b_view: DView<'_, f64, 2> = b.view(..);
+/// let a_view: DView<'_, f64, 2> = a.view(.., ..);
+/// let b_view: DView<'_, f64, 2> = b.view(.., ..);
 /// let c = matmul_par_view(&a_view, &b_view, None);
+/// assert_eq!(c, tensor![[19.0, 22.0], [43.0, 50.0]]);
 /// ```
 pub fn matmul_par_view<T>(
     a: &DView<'_, T, 2>,

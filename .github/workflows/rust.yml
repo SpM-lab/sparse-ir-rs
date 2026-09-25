@@ -40,6 +40,10 @@ jobs:
       - name: Run tests (all targets, default features)
         run: cargo test --all-targets --release --locked
 
+      # `--all-targets` does not include doctests, so run them separately.
+      - name: Run doctests for sparse-ir (default features)
+        run: cargo test -p sparse-ir --doc --release --locked
+
   rust-system-blas:
     runs-on: ubuntu-latest
     name: Rust (system BLAS backend)
@@ -63,6 +67,9 @@ jobs:
 
       - name: Run tests for sparse-ir with system-blas feature
         run: cargo test -p sparse-ir --features system-blas --all-targets --release --locked
+
+      - name: Run doctests for sparse-ir with system-blas feature
+        run: cargo test -p sparse-ir --features system-blas --doc --release --locked
 
   rust-rollup:
     runs-on: ubuntu-latest

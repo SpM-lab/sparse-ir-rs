@@ -38,10 +38,21 @@ fn build_output_shape<S: Shape>(input_shape: &S, dim: usize, new_size: usize) ->
 /// Tensor with axes permuted
 ///
 /// # Example
-/// ```ignore
+/// ```
+/// use sparse_ir::sampling::movedim;
+/// use sparse_ir::{DynRank, Tensor};
+///
 /// // For a 4D tensor with shape (2, 3, 4, 5)
+/// let arr = Tensor::<usize, DynRank>::from_fn(&[2, 3, 4, 5][..], |idx| {
+///     1000 * idx[0] + 100 * idx[1] + 10 * idx[2] + idx[3]
+/// });
+///
 /// // movedim(arr, 0, 2) moves axis 0 to position 2
+/// let moved = movedim(&arr, 0, 2);
+///
 /// // Result shape: (3, 4, 2, 5) with axes permuted as [1, 2, 0, 3]
+/// assert_eq!(moved.shape().dims(), &[3, 4, 2, 5]);
+/// assert_eq!(moved[&[2, 3, 1, 4][..]], arr[&[1, 2, 3, 4][..]]);
 /// ```
 pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
     if src == dst {

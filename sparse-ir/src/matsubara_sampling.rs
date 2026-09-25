@@ -176,32 +176,6 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         self.fitter.fit(None, values)
     }
 
-    /// Evaluate N-dimensional array of basis coefficients at sampling points
-    ///
-    /// Supports both real (`f64`) and complex (`Complex<f64>`) coefficients.
-    /// Always returns complex values at Matsubara frequencies.
-    ///
-    /// # Type Parameters
-    /// * `T` - Element type (f64 or Complex<f64>)
-    ///
-    /// # Arguments
-    /// * `backend` - Optional GEMM backend handle (None uses default)
-    /// * `coeffs` - N-dimensional tensor of basis coefficients
-    /// * `dim` - Dimension along which to evaluate (must have size = basis_size)
-    ///
-    /// # Returns
-    /// N-dimensional tensor of complex values at Matsubara frequencies
-    ///
-    /// # Example
-    /// ```ignore
-    /// use num_complex::Complex;
-    ///
-    /// // Real coefficients
-    /// let values = matsubara_sampling.evaluate_nd::<f64>(None, &coeffs_real, 0);
-    ///
-    /// // Complex coefficients
-    /// let values = matsubara_sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_complex, 0);
-    /// ```
     /// Evaluate N-D coefficients for the real case `T = f64`
     fn evaluate_nd_impl_real(
         &self,
@@ -306,19 +280,59 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
 
     /// Evaluate N-dimensional coefficients at Matsubara sampling points
     ///
-    /// This method dispatches to the appropriate implementation based on the
-    /// coefficient type at compile time using the `MatsubaraCoeffs` trait.
+    /// Supports both real (`f64`) and complex (`Complex<f64>`) coefficients and
+    /// always returns complex values at the Matsubara frequencies. The
+    /// implementation is selected at compile time through the `MatsubaraCoeffs`
+    /// trait.
     ///
     /// # Type Parameter
     /// * `T` - Must implement `MatsubaraCoeffs` (currently `f64` or `Complex<f64>`)
     ///
     /// # Arguments
-    /// * `backend` - Optional GEMM backend handle
+    /// * `backend` - Optional GEMM backend handle (`None` uses the global dispatcher)
     /// * `coeffs` - N-dimensional tensor of basis coefficients
-    /// * `dim` - Dimension along which to evaluate
+    /// * `dim` - Dimension along which to evaluate (must have size = basis_size)
     ///
     /// # Returns
-    /// N-dimensional tensor of complex values at Matsubara frequencies
+    /// N-dimensional tensor of complex values at Matsubara frequencies, with
+    /// dimension `dim` of size n_sampling_points
+    ///
+    /// # Example
+    /// ```
+    /// use num_complex::Complex;
+    /// use sparse_ir::{DynRank, FermionicBasis, LogisticKernel, MatsubaraSampling, Tensor};
+    ///
+    /// let beta = 10.0;
+    /// let wmax = 1.0;
+    /// let basis = FermionicBasis::new(LogisticKernel::new(beta * wmax), beta, Some(1e-6), None);
+    /// let sampling = MatsubaraSampling::new(&basis);
+    /// let (size, n_points) = (sampling.basis_size(), sampling.n_sampling_points());
+    ///
+    /// // Real coefficients: two sets stacked along axis 1, evaluated along axis 0
+    /// let coeffs_real = Tensor::<f64, DynRank>::from_fn(&[size, 2][..], |idx| {
+    ///     1.0 / (1.0 + (idx[0] + idx[1]) as f64)
+    /// });
+    /// let values = sampling.evaluate_nd::<f64>(None, &coeffs_real, 0);
+    /// assert_eq!(values.shape().dims(), &[n_points, 2]);
+    ///
+    /// // Complex coefficients
+    /// let coeffs_complex =
+    ///     Tensor::<Complex<f64>, DynRank>::from_fn(&[size, 2][..], |idx| {
+    ///         Complex::new(coeffs_real[idx], -0.5 * coeffs_real[idx])
+    ///     });
+    /// let values_z = sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_complex, 0);
+    ///
+    /// // Each column matches the 1-D `evaluate` of the corresponding coefficient set
+    /// for j in 0..2 {
+    ///     let real: Vec<Complex<f64>> = (0..size).map(|l| coeffs_real[&[l, j][..]].into()).collect();
+    ///     let complex: Vec<Complex<f64>> = (0..size).map(|l| coeffs_complex[&[l, j][..]]).collect();
+    ///     let (expected, expected_z) = (sampling.evaluate(&real), sampling.evaluate(&complex));
+    ///     for i in 0..n_points {
+    ///         assert!((values[&[i, j][..]] - expected[i]).norm() < 1e-12);
+    ///         assert!((values_z[&[i, j][..]] - expected_z[i]).norm() < 1e-12);
+    ///     }
+    /// }
+    /// ```
     pub fn evaluate_nd<T: MatsubaraCoeffs>(
         &self,
         backend: Option<&GemmBackendHandle>,

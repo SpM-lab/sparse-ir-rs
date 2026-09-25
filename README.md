@@ -146,6 +146,7 @@ With `system-blas`, the default GEMM backend becomes BLAS at compile time. Regar
 
 ```bash
 cargo test --all-targets --release   # recommended for speed
+cargo test -p sparse-ir --doc --release   # doctests (not included in --all-targets)
 ```
 
 #### C++ integration tests

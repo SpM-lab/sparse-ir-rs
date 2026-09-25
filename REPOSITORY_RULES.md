@@ -151,7 +151,9 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
 
 - `rust.yml` — `rust-default` (faer backend) and `rust-system-blas` jobs run
   `cargo build`/`cargo test --all-targets --release --locked` for the
-  workspace and for `sparse-ir --features system-blas` respectively; a
+  workspace and for `sparse-ir --features system-blas` respectively, plus
+  `cargo test -p sparse-ir --doc --release --locked` (with the same features)
+  because `--all-targets` does not run doctests; a
   `header-sync` job checks the two C headers described above stay in sync
   with cbindgen output.
 - `rust_capi.yml` — builds and tests `sparse-ir-capi` in release mode

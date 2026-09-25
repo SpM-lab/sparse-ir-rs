@@ -19,13 +19,35 @@ use super::common::{
 /// where A, coeffs, values are all complex
 ///
 /// # Example
-/// ```ignore
-/// let matrix = DTensor::from_fn([10, 5], |idx| Complex::new(...));
-/// let fitter = ComplexMatrixFitter::new(matrix);
 ///
-/// let coeffs: Vec<Complex<f64>> = vec![...];
-/// let values = fitter.evaluate(&coeffs);  // → Vec<Complex<f64>>
-/// let fitted_coeffs = fitter.fit(&values);  // ← Vec<Complex<f64>>, → Vec<Complex<f64>>
+/// This type is crate-private.
+/// [`MatsubaraSampling::from_matrix`](crate::MatsubaraSampling::from_matrix)
+/// wraps a `ComplexMatrixFitter` around the given matrix, and its `evaluate`
+/// and `fit` forward to the fitter, so the example goes through that public API.
+///
+/// ```
+/// use num_complex::Complex;
+/// use sparse_ir::{DTensor, Fermionic, FermionicFreq, MatsubaraSampling};
+/// use std::f64::consts::PI;
+///
+/// // A 10x5 matrix with orthonormal columns (DFT), so the fit is well conditioned
+/// let (n, m) = (10, 5);
+/// let matrix = DTensor::<Complex<f64>, 2>::from_fn([n, m], |idx| {
+///     let phase = 2.0 * PI * (idx[0] * idx[1]) as f64 / n as f64;
+///     Complex::from_polar(1.0 / (n as f64).sqrt(), phase)
+/// });
+/// // The (sorted) frequencies only label the rows here; the matrix is given explicitly
+/// let freqs = (0..n as i64).map(|i| FermionicFreq::new(2 * i - 9).unwrap()).collect();
+/// let sampling = MatsubaraSampling::<Fermionic>::from_matrix(freqs, matrix);
+///
+/// let coeffs: Vec<Complex<f64>> = (0..m)
+///     .map(|l| Complex::new(1.0 + l as f64, -0.5 * l as f64))
+///     .collect();
+/// let values = sampling.evaluate(&coeffs); // → Vec<Complex<f64>>
+/// let fitted_coeffs = sampling.fit(&values); // ← Vec<Complex<f64>>, → Vec<Complex<f64>>
+/// for (c, f) in coeffs.iter().zip(&fitted_coeffs) {
+///     assert!((c - f).norm() < 1e-12);
+/// }
 /// ```
 pub(crate) struct ComplexMatrixFitter {
     pub matrix: DTensor<Complex<f64>, 2>, // (n_points, basis_size)
