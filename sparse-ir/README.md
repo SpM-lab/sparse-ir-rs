@@ -41,18 +41,21 @@ sparse-ir = { version = "0.9.0", features = ["system-blas"] }
 ```rust
 use sparse_ir::*;
 
-// Create a finite temperature basis
-let beta = 10.0;
-let lambda = 10.0; // beta * omega_max
-let kernel = LogisticKernel::new(lambda);
-let basis = FermionicBasis::new(kernel, beta, None, None);
+fn main() -> Result<(), sparse_ir::Error> {
+    // Create a finite temperature basis
+    let beta = 10.0;
+    let lambda = 10.0; // beta * omega_max
+    let kernel = LogisticKernel::new(lambda)?;
+    let basis = FermionicBasis::new(kernel, beta, None, None)?;
 
-// Generate sampling points
-let sampling = TauSampling::new(&basis);
+    // Generate sampling points
+    let sampling = TauSampling::new(&basis);
 
-// Use the basis for calculations
-let tau_points = sampling.sampling_points();
-println!("Generated {} sampling points", tau_points.len());
+    // Use the basis for calculations
+    let tau_points = sampling.sampling_points();
+    println!("Generated {} sampling points", tau_points.len());
+    Ok(())
+}
 ```
 
 ### SVE Example
@@ -60,13 +63,16 @@ println!("Generated {} sampling points", tau_points.len());
 ```rust
 use sparse_ir::*;
 
-// Create a kernel for analytical continuation
-let kernel = LogisticKernel::new(1.0);
+fn main() -> Result<(), sparse_ir::Error> {
+    // Create a kernel for analytical continuation
+    let kernel = LogisticKernel::new(1.0)?;
 
-// Compute SVE
-let sve_result = compute_sve(kernel, 1e-12, None, Some(100), TworkType::Auto);
+    // Compute the SVE to an accuracy of 1e-12, keeping at most 100 singular values
+    let sve_result = compute_sve(kernel, Some(1e-12), None, Some(100), TworkType::Auto)?;
 
-println!("SVE computed with {} singular values", sve_result.s.len());
+    println!("SVE computed with {} singular values", sve_result.s.len());
+    Ok(())
+}
 ```
 
 ## API Documentation
