@@ -170,7 +170,10 @@ extern "C" {
  * * `epsilon` - Accuracy target (must be > 0)
  * * `k` - Kernel object (required; its Λ must equal beta * omega_max)
  * * `sve` - Pre-computed SVE result (can be NULL, will compute if needed)
- * * `max_size` - Maximum basis size (-1 for no limit)
+ * * `max_size` - Maximum basis size (-1 for no limit). It truncates the basis,
+ *   not the SVE (also when `sve` is NULL and the SVE is computed here): the
+ *   default sampling points and `spir_basis_get_uhat_full` use the SVE
+ *   functions beyond the basis
  * * `status` - Pointer to store status code
  *
  * # Returns
