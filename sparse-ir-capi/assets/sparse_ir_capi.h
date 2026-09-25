@@ -1489,16 +1489,26 @@ struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
  * Creates a new tau sampling object with custom sampling points and pre-computed matrix
  *
  * # Arguments
- * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `order` - Memory layout of `matrix` (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
- * * `basis_size` - Basis size
- * * `num_points` - Number of sampling points
- * * `points` - Array of sampling points in imaginary time (τ)
- * * `matrix` - Pre-computed matrix for the sampling points (num_points x basis_size)
+ * * `basis_size` - Basis size (the number of columns of `matrix`)
+ * * `num_points` - Number of sampling points (the number of rows of `matrix`)
+ * * `points` - Array of `num_points` sampling points in imaginary time (τ)
+ * * `matrix` - Pre-computed `num_points × basis_size` sampling matrix in
+ *   `order`, with finite entries
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
+ *   `basis_size` <= 0, `order` or `statistics` is not one of the constants
+ *   above, or an entry of `matrix` is NaN or infinite
+ * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The scalar arguments are validated before `points` or `matrix` is read.
  *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes
@@ -1516,16 +1526,17 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  * Creates a new Matsubara sampling object with custom sampling points and pre-computed matrix
  *
  * # Arguments
- * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `order` - Memory layout of `matrix` (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
- * * `basis_size` - Basis size
+ * * `basis_size` - Basis size (the number of columns of `matrix`)
  * * `positive_only` - If true, only non-negative frequencies are used; the IR
  *   coefficients are then real, i.e. G(-iν) = conj(G(iν))
- * * `num_points` - Number of sampling points
+ * * `num_points` - Number of sampling points (the number of rows of `matrix`)
  * * `points` - Array of `num_points` reduced Matsubara frequencies n
  *   (iν = iπn/β): odd for fermionic, even for bosonic `statistics`, and
  *   non-negative when `positive_only` is true
- * * `matrix` - Pre-computed complex matrix (num_points x basis_size)
+ * * `matrix` - Pre-computed complex `num_points × basis_size` sampling matrix
+ *   in `order`, with finite real and imaginary parts
  * * `status` - Pointer to store the status code
  *
  * # Returns
@@ -1534,9 +1545,14 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
  *   `basis_size` <= 0, `order` or `statistics` is not one of the constants
- *   above, an index has the wrong parity for `statistics`, or `positive_only`
- *   is true and an index is negative
+ *   above, an index has the wrong parity for `statistics`, `positive_only`
+ *   is true and an index is negative, or an entry of `matrix` has a NaN or
+ *   infinite part
+ * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The scalar arguments are validated before `points` or `matrix` is read,
+ * and the indices before `matrix` is read.
  *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes
