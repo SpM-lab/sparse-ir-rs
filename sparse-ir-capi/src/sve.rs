@@ -928,6 +928,8 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
 }
 
 #[cfg(test)]
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::kernel::*;

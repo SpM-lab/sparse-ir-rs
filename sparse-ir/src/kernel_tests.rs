@@ -1,3 +1,5 @@
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 use super::*;
 use crate::Df64;
 use dashu_base::Approximation;

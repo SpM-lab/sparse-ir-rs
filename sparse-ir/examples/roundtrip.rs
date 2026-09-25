@@ -523,6 +523,8 @@ fn run_integration_example(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
 /// This function uses a unified nested loop structure similar to the C++ test,
 /// but only tests Bosonic statistics since RegularizedBoseKernel does not
 /// support Fermionic statistics.
+// RegularizedBoseKernel is deprecated (#273) but exercised until it is removed.
+#[allow(deprecated)]
 fn run_integration_example_regularized_bose(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
     // Create kernel once for all tests.
     //

@@ -1,4 +1,6 @@
 //! Tests for FiniteTempBasis functionality
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 
 use crate::basis::{FermionicBasis, FiniteTempBasis};
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};
@@ -279,4 +281,75 @@ fn test_omega_points_symmetry() {
         positive.len(),
         negative.len()
     );
+}
+
+/// The regularized bosonic kernel in physical units,
+/// K^B(τ, ω) = ω e^{-τω} / (1 - e^{-βω}) for 0 ≤ τ ≤ β, with K^B(τ, 0) = 1/β.
+///
+/// Reference: irbasis paper, N. Chikano, K. Yoshimi, J. Otsuki, H. Shinaoka,
+/// Comput. Phys. Commun. 240, 181 (2019), arXiv:1807.05237, Eq. (3). A
+/// `RegularizedBoseKernel` basis must expand it as Σ_l U_l(τ) S_l V_l(ω) with
+/// S_l = sqrt(β ωmax³/2) s_l (Eq. (25)).
+fn regularized_bose_kernel_physical(tau: f64, omega: f64, beta: f64) -> f64 {
+    if omega == 0.0 {
+        1.0 / beta
+    } else if omega > 0.0 {
+        omega * (-tau * omega).exp() / (1.0 - (-beta * omega).exp())
+    } else {
+        // Same function with non-positive exponents for ω < 0.
+        omega * ((beta - tau) * omega).exp() / ((beta * omega).exp() - 1.0)
+    }
+}
+
+#[test]
+fn test_regularized_bose_basis_represents_physical_kernel() {
+    // ωmax ≠ 1 separates ωmax^(+1) (Eq. (25)) from any other power of ωmax.
+    // At ε = 1e-12 the truncation error of Σ U S V is far below 1e-8 ωmax,
+    // the scale of K^B; a wrong power of ωmax is an O(1) relative error.
+    for &(beta, omega_max) in &[(10.0, 2.0), (4.0, 2.5), (20.0, 0.5)] {
+        let kernel = RegularizedBoseKernel::new(beta * omega_max);
+        let basis =
+            FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None);
+        let s = basis.s();
+        for &tau in &[0.3, 0.37 * beta, 0.8 * beta] {
+            let u = basis.u().evaluate_at(tau);
+            for &omega in &[-0.7 * omega_max, 0.0, 0.2 * omega_max, 0.9 * omega_max] {
+                let v = basis.v().evaluate_at(omega);
+                let usv: f64 = (0..basis.size()).map(|l| u[l] * s[l] * v[l]).sum();
+                let exact = regularized_bose_kernel_physical(tau, omega, beta);
+                assert!(
+                    (usv - exact).abs() <= 1e-8 * omega_max,
+                    "beta={beta}, omega_max={omega_max}, tau={tau}, omega={omega}: \
+                     sum U S V = {usv}, K^B = {exact}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn test_regularized_bose_basis_single_pole() {
+    use crate::freq::MatsubaraFreq;
+    use num_complex::Complex64;
+
+    // A single bosonic pole, A(ω) = δ(ω - ω0), so Ĝ(iν) = 1/(iν - ω0). The
+    // kernel takes ρ(ω) = A(ω)/ω (Eq. (2)), so G_l = -S_l V_l(ω0)/ω0 (Eq. (8)).
+    let (beta, omega_max, omega0) = (10.0, 2.0, 0.6);
+    let kernel = RegularizedBoseKernel::new(beta * omega_max);
+    let basis =
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None);
+    let v = basis.v().evaluate_at(omega0);
+    let gl: Vec<f64> = (0..basis.size())
+        .map(|l| -basis.s()[l] * v[l] / omega0)
+        .collect();
+    for n in [0_i64, 2, -4, 10] {
+        let freq = MatsubaraFreq::<Bosonic>::new(n).unwrap();
+        let uhat = basis.uhat().evaluate_at(&freq);
+        let giv: Complex64 = gl.iter().zip(uhat.iter()).map(|(&g, &u)| u * g).sum();
+        let exact = Complex64::new(1.0, 0.0) / Complex64::new(-omega0, freq.value(beta));
+        assert!(
+            (giv - exact).norm() <= 1e-8 * exact.norm(),
+            "n={n}: sum G_l Uhat_l = {giv}, 1/(iν - ω0) = {exact}"
+        );
+    }
 }

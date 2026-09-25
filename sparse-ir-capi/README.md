@@ -51,7 +51,7 @@ The C-API provides `eval` (coefficients → values) and `fit` (values → coeffi
 
 - **Tau sampling**: Uses real transformation matrix. Supports `dd` for real data, `zz` for complex data (real/imag parts transformed independently).
 - **Matsubara (full)**: Uses complex transformation matrix with both positive and negative frequencies. Natural type is `zz`. The `dz` evaluate is supported for real coefficients (physically guaranteed for Green's functions).
-- **Matsubara (positive_only)**: Uses only positive frequencies with complex matrix but real coefficients. Natural types are `dz` (evaluate) and `zd` (fit). Also supports `zz` variants by extracting/adding zero imaginary parts.
+- **Matsubara (positive_only)**: Uses only non-negative frequencies with complex matrix but real coefficients. Natural types are `dz` (evaluate) and `zd` (fit). Also supports `zz` variants by extracting/adding zero imaginary parts.
 
 ### Error Handling
 
@@ -132,22 +132,23 @@ The C header (`include/sparseir/sparseir.h`) is **automatically generated** from
 # Load library
 const lib = "../target/release/libsparse_ir_capi.dylib"
 
-# Create kernel
-kernel_ptr = Ref{Ptr{Cvoid}}()
-status = ccall((:spir_logistic_kernel_new, lib),
-               Int32, (Float64, Ref{Ptr{Cvoid}}),
-               10.0, kernel_ptr)
+# Create kernel (returns the handle; the status is an out-parameter)
+status = Ref{Int32}(0)
+kernel = ccall((:spir_logistic_kernel_new, lib),
+               Ptr{Cvoid}, (Float64, Ref{Int32}),
+               10.0, status)
+@assert status[] == 0 && kernel != C_NULL
 
 # Compute kernel value
 result = Ref{Float64}()
-status = ccall((:spir_kernel_compute, lib),
-               Int32, (Ptr{Cvoid}, Float64, Float64, Ref{Float64}),
-               kernel_ptr[], 0.5, 0.5, result)
+status_compute = ccall((:spir_kernel_compute, lib),
+                       Int32, (Ptr{Cvoid}, Float64, Float64, Ref{Float64}),
+                       kernel, 0.5, 0.5, result)
 
 println("K(0.5, 0.5) = ", result[])
 
 # Release
-ccall((:spir_kernel_release, lib), Cvoid, (Ptr{Cvoid},), kernel_ptr[])
+ccall((:spir_kernel_release, lib), Cvoid, (Ptr{Cvoid},), kernel)
 ```
 
 See `examples/test_julia.jl` for a complete example.

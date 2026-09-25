@@ -271,7 +271,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// Find sign changes in the Fourier transform
     ///
     /// # Arguments
-    /// * `positive_only` - If true, only return positive frequency sign changes
+    /// * `positive_only` - If true, only return non-negative frequency sign changes
     ///
     /// # Returns
     /// Vector of Matsubara frequencies where sign changes occur
@@ -295,7 +295,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// Find extrema in the Fourier transform
     ///
     /// # Arguments
-    /// * `positive_only` - If true, only return positive frequency extrema
+    /// * `positive_only` - If true, only return non-negative frequency extrema
     ///
     /// # Returns
     /// Vector of Matsubara frequencies where extrema occur

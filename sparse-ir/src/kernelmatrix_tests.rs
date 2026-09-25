@@ -1,4 +1,6 @@
 //! Tests for kernel matrix discretization and interpolation
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 
 use crate::Df64;
 use crate::gauss::legendre;

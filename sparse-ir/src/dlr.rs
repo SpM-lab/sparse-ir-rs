@@ -38,7 +38,7 @@ pub enum DlrError {
 ///
 /// Computes G(τ) for either fermionic or bosonic statistics based on the type parameter S.
 /// Both use G(τ) = -exp(-ω×τ) / (1 ± exp(-β×ω)) (+ for fermions, - for bosons),
-/// the imaginary-time counterpart of [`giwn_single_pole`]'s G(iωn) = 1/(iωn - ω).
+/// the imaginary-time counterpart of [`giwn_single_pole`]'s G(iν) = 1/(iν - ω).
 ///
 /// # Type Parameters
 /// * `S` - Statistics type (Fermionic or Bosonic)
@@ -199,7 +199,7 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 
 /// Generic single-pole Green's function at Matsubara frequency
 ///
-/// Computes G(iωn) = 1/(iωn - ω) for a single pole at frequency ω.
+/// Computes G(iν) = 1/(iν - ω) for a single pole at frequency ω.
 ///
 /// # Type Parameters
 /// * `S` - Statistics type (Fermionic or Bosonic)
@@ -210,13 +210,13 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// * `beta` - Inverse temperature
 ///
 /// # Returns
-/// Complex-valued Green's function G(iωn)
+/// Complex-valued Green's function G(iν)
 pub fn giwn_single_pole<S: StatisticsType>(
     matsubara_freq: &MatsubaraFreq<S>,
     omega: f64,
     beta: f64,
 ) -> Complex<f64> {
-    // G(iωn) = 1/(iωn - ω)
+    // G(iν) = 1/(iν - ω)
     let wn = matsubara_freq.value(beta);
     let denominator = Complex::new(0.0, 1.0) * wn - Complex::new(omega, 0.0);
     Complex::new(1.0, 0.0) / denominator
@@ -239,11 +239,13 @@ pub fn giwn_single_pole<S: StatisticsType>(
 /// where:
 /// - `ω[i]` are pole positions on the real axis
 /// - `a[i]` are expansion coefficients
-/// - `reg[i]` are kernel-dependent pole weights on the physical ω grid
+/// - `reg[i]` are the kernel regularizers `w(β, ω_i)`
 ///
-/// The public `regularizers` field stores the raw kernel regularizer
-/// `w(β, ω_i)`. Internally, DLR evaluations use `pole_weights`, which include
-/// the ω-domain normalization carried by `FiniteTempBasis`.
+/// The public `regularizers` field stores `w(β, ω_i)`: 1 for fermions and
+/// `tanh(βω_i/2)` for bosons with `LogisticKernel`, and `ω_i` for
+/// `RegularizedBoseKernel`. The DLR functions are `-K(τ, ω_i)` and its Fourier
+/// transform for the physical kernel `K(τ, ω) = Σ_l U_l(τ) S_l V_l(ω)` of the
+/// source basis.
 ///
 /// # Type Parameters
 /// * `S` - Statistics type (Fermionic or Bosonic)
@@ -275,10 +277,10 @@ where
 
     /// Pole weights used in tau and Matsubara evaluations.
     ///
-    /// `FiniteTempBasis` rescales the ω-domain singular values by `wmax^-ypower`.
-    /// Combined with the dimensionless kernel regularizer `y^ypower =
-    /// (ω / wmax)^ypower`, the physical pole basis carries an additional
-    /// factor `wmax^(-2 * ypower)`.
+    /// They equal `regularizers`: the τ functions are
+    /// `-w_i e^{-τω_i} / (1 ± e^{-βω_i})` and the Matsubara functions
+    /// `w_i / (iν - ω_i)`, which is `-K(τ, ω_i)` and its Fourier transform for
+    /// the physical kernel of the source basis.
     pole_weights: Vec<f64>,
 
     /// Fitting matrix from IR: fitmat = -s · V(poles)
@@ -364,11 +366,7 @@ where
             .iter()
             .map(|&pole| basis.kernel().regularizer::<S>(beta, pole))
             .collect();
-        let pole_weight_scale = wmax.powi(2 * kernel_ypower);
-        let pole_weights: Vec<f64> = regularizers
-            .iter()
-            .map(|&regularizer| regularizer / pole_weight_scale)
-            .collect();
+        let pole_weights = regularizers.clone();
 
         Ok(Self {
             poles,
@@ -387,8 +385,9 @@ where
 
     fn zero_pole_tau_limit(&self) -> f64 {
         match self.kernel_ypower {
+            // -lim_{ω→0} w(β, ω) e^{-τω} / (1 - e^{-βω}) with w = tanh(βω/2) or ω
             0 => -0.5,
-            1 => -1.0 / (self.beta * self.wmax * self.wmax),
+            1 => -1.0 / self.beta,
             _ => panic!(
                 "DLR tau evaluation does not support kernel ypower = {}",
                 self.kernel_ypower
@@ -398,8 +397,9 @@ where
 
     fn zero_pole_matsubara_limit(&self) -> f64 {
         match self.kernel_ypower {
+            // lim_{ω→0} w(β, ω) / (0 - ω) at n = 0 with w = tanh(βω/2) or ω
             0 => -0.5 * self.beta,
-            1 => -1.0 / (self.wmax * self.wmax),
+            1 => -1.0,
             _ => panic!(
                 "DLR Matsubara evaluation does not support kernel ypower = {}",
                 self.kernel_ypower
@@ -692,11 +692,11 @@ where
             let pole = self.poles[idx[1]];
             let pole_weight = self.pole_weights[idx[1]];
 
-            // iν = i * n * π / β, with n = freq.n() (odd for fermions, even for bosons)
+            // iν = iπn/β, with n = freq.n() (odd for fermions, even for bosons)
             let iv = freq.value_imaginary(self.beta);
 
-            // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight`
-            // matches the ω-domain normalization of the source IR basis.
+            // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the
+            // regularizer w(β, ω_i) of the source kernel.
             if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
                 if crate::freq::is_zero(freq) {
                     Complex::new(self.zero_pole_matsubara_limit(), 0.0)

@@ -511,8 +511,8 @@ pub extern "C" fn spir_funcs_get_knots(
 /// - τ functions (`u` of an IR or DLR basis, and their slices and
 ///   derivatives): τ ∈ [-β, β]. A negative τ is folded onto [0, β] by the
 ///   (anti)periodicity: u(τ) = -u(τ + β) for fermions and u(τ) = u(τ + β) for
-///   bosons. τ = β is read as β⁻, τ = -β as -β⁺ (folded onto 0⁺), and
-///   τ = -0.0 as 0⁻ (folded onto β⁻).
+///   bosons. τ = +0.0 is read as 0⁺, τ = β as β⁻, τ = -β as (-β)⁺ (folded
+///   onto 0⁺), and τ = -0.0 as 0⁻ (folded onto β⁻).
 /// - ω functions (`v` of an IR basis, and functions from
 ///   `spir_funcs_from_piecewise_legendre`): ω from the first to the last knot
 ///   (see `spir_funcs_get_knots`), i.e. ω ∈ [-ωmax, ωmax] for `v`.
@@ -576,8 +576,8 @@ pub extern "C" fn spir_funcs_eval(
 ///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
-/// * `n` - Matsubara index n (ω = nπ/β): odd for fermionic, even for bosonic
-///   functions
+/// * `n` - Reduced Matsubara frequency n (iν = iπn/β): odd for fermionic, even
+///   for bosonic functions
 /// * `out` - Pre-allocated array to store complex function values
 ///
 /// # Returns
@@ -638,7 +638,8 @@ pub extern "C" fn spir_funcs_eval_matsu(
 /// * `funcs` - Pointer to the funcs object
 /// * `order` - Memory layout: 0 for row-major, 1 for column-major
 /// * `num_points` - Number of evaluation points
-/// * `xs` - Array of points to evaluate at
+/// * `xs` - Array of points to evaluate at, in the units and domain of `x` in
+///   `spir_funcs_eval`
 /// * `out` - Pre-allocated array to store results
 ///
 /// # Returns
@@ -722,8 +723,8 @@ pub extern "C" fn spir_funcs_batch_eval(
 /// * `funcs` - Pointer to the funcs object
 /// * `order` - Memory layout: 0 for row-major, 1 for column-major
 /// * `num_freqs` - Number of Matsubara frequencies
-/// * `ns` - Array of Matsubara indices n (ω = nπ/β): odd for fermionic, even
-///   for bosonic functions
+/// * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β): odd for
+///   fermionic, even for bosonic functions
 /// * `out` - Pre-allocated array to store complex results
 ///
 /// # Returns
@@ -804,16 +805,15 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 
 /// Get default Matsubara sampling points from a Matsubara-space spir_funcs
 ///
-/// This function computes default sampling points in Matsubara frequencies (iωn) from
+/// This function computes default sampling points in Matsubara frequencies (iν) from
 /// a spir_funcs object that represents Matsubara-space basis functions (e.g., uhat or uhat_full).
 /// The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
 ///
 /// This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
-/// `FiniteTempBasis::default_matsubara_sampling_points_impl` from `basis.rs` (lines 332-387)
-/// to compute default sampling points.
-///
-/// The implementation uses the same algorithm as defined in `sparseir-rust/src/basis.rs`,
-/// which selects sampling points based on sign changes or extrema of the Matsubara basis functions.
+/// `FiniteTempBasis::default_matsubara_sampling_points_impl` (sparse-ir/src/basis.rs)
+/// to compute default sampling points: the sign changes of the first discarded
+/// Matsubara basis function (its extrema when that function is not available);
+/// bosonic sets always include n = 0.
 ///
 /// # Arguments
 /// * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions

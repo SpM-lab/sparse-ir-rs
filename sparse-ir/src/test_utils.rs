@@ -162,7 +162,7 @@ where
         })
         .collect();
 
-    // Compute G(iωn) at Matsubara frequencies
+    // Compute G(iν) at Matsubara frequencies
     let giwn_values: Vec<Complex<f64>> = matsubara_freqs
         .iter()
         .map(|freq| giwn_single_pole::<S>(freq, omega, beta))
@@ -272,7 +272,7 @@ where
             gtau_values[&full_idx[..]] = T::from_real(g);
         }
 
-        // Compute G(iωn) values
+        // Compute G(iν) values
         for (i, freq) in matsubara_freqs.iter().enumerate() {
             let g = giwn_single_pole::<S>(freq, omega, beta);
             let mut full_idx = vec![i];

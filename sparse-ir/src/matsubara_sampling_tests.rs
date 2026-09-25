@@ -1,3 +1,5 @@
+// RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
+#![allow(deprecated)]
 use crate::freq::MatsubaraFreq;
 use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
 use crate::test_utils::{ErrorNorm, generate_test_data_tau_and_matsubara};
