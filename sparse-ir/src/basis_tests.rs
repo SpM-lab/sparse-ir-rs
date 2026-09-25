@@ -29,6 +29,15 @@ fn test_negative_beta() {
     let _ = FermionicBasis::new(kernel, -1.0, None, None);
 }
 
+/// `max_size` limits the basis only (issue #285), so a zero `max_size` is
+/// rejected explicitly instead of by the SVE truncation.
+#[test]
+#[should_panic(expected = "max_size must be positive, got 0")]
+fn test_zero_max_size() {
+    let kernel = LogisticKernel::new(10.0);
+    let _ = FermionicBasis::new(kernel, 10.0, Some(1e-10), Some(0));
+}
+
 #[test]
 fn test_default_tau_sampling_points_conditioning() {
     // Test parameters: beta=1.0, lambda=10.0
