@@ -1531,6 +1531,11 @@ struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
  *
  * The scalar arguments are validated before `points` or `matrix` is read.
  *
+ * The points may be in any order, and the sampling object keeps it:
+ * `spir_sampling_get_taus` returns `points` unchanged, and index i along the
+ * sampling-point axis of the evaluate and fit functions refers to
+ * `points[i]`, the point of row i of `matrix`.
+ *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes
  */
@@ -1574,6 +1579,11 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  *
  * The scalar arguments are validated before `points` or `matrix` is read,
  * and the indices before `matrix` is read.
+ *
+ * The points may be in any order, and the sampling object keeps it:
+ * `spir_sampling_get_matsus` returns `points` unchanged, and index i along
+ * the sampling-point axis of the evaluate and fit functions refers to
+ * `points[i]`, the point of row i of `matrix`.
  *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes

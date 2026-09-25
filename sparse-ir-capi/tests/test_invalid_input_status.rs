@@ -359,6 +359,27 @@ impl Sampling {
         );
         out
     }
+
+    /// Values at the sampling points of the real coefficients `coeffs`, for
+    /// a Matsubara sampling.
+    fn eval_dz(&self, coeffs: &[f64]) -> Vec<num_complex::Complex64> {
+        let dims = [coeffs.len() as i32];
+        let mut out = vec![num_complex::Complex64::new(f64::NAN, f64::NAN); self.npoints()];
+        assert_eq!(
+            spir_sampling_eval_dz(
+                self.0,
+                ptr::null(),
+                SPIR_ORDER_ROW_MAJOR,
+                1,
+                dims.as_ptr(),
+                0,
+                coeffs.as_ptr(),
+                out.as_mut_ptr(),
+            ),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        out
+    }
 }
 
 fn matsu_sampling_new(
@@ -1570,6 +1591,93 @@ fn batch_eval_matsu_rejects_unknown_order() {
                         "{name}, n = {}, l = {l}",
                         ns[i]
                     );
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Order of the sampling points (#266)
+// ---------------------------------------------------------------------------
+
+/// `sorted` reversed, and reordered so that it is neither sorted nor
+/// reverse-sorted (every other point, then the rest in reverse). For the
+/// bosonic defaults neither puts n = 0 first.
+fn unsorted<T: Copy + PartialOrd + std::fmt::Debug>(sorted: &[T]) -> Vec<Vec<T>> {
+    assert!(sorted.len() >= 3 && sorted.windows(2).all(|w| w[0] < w[1]));
+    let reversed: Vec<T> = sorted.iter().rev().copied().collect();
+    let mut shuffled: Vec<T> = sorted.iter().step_by(2).copied().collect();
+    shuffled.extend(sorted.iter().skip(1).step_by(2).rev());
+    assert!(!shuffled.windows(2).all(|w| w[0] <= w[1]), "{shuffled:?}");
+    assert!(!shuffled.windows(2).all(|w| w[0] >= w[1]), "{shuffled:?}");
+    vec![reversed, shuffled]
+}
+
+/// Coefficients with distinct values, so that a permutation of the points
+/// shows in the values.
+fn test_coeffs(l: usize) -> Vec<f64> {
+    (0..l).map(|j| 1.0 / (1.0 + j as f64)).collect()
+}
+
+/// Checks that `values[i]` is row i of the row-major `n × l` matrix `rows`
+/// times `coeffs`, to rounding.
+fn assert_rows_times(
+    rows: &[num_complex::Complex64],
+    coeffs: &[f64],
+    values: &[num_complex::Complex64],
+) {
+    let l = coeffs.len();
+    assert_eq!(rows.len(), values.len() * l);
+    for (i, value) in values.iter().enumerate() {
+        let terms: Vec<num_complex::Complex64> =
+            (0..l).map(|j| rows[i * l + j] * coeffs[j]).collect();
+        let expected: num_complex::Complex64 = terms.iter().sum();
+        let scale: f64 = terms.iter().map(|t| t.norm()).sum();
+        assert!(
+            (value - expected).norm() <= 1e-13 * scale,
+            "row {i}: {value} vs {expected}"
+        );
+    }
+}
+
+/// `spir_matsu_sampling_new_with_matrix` takes the points in any order and
+/// keeps it: it reports them back unchanged, and row i of the matrix, of
+/// the values and of the fit data belongs to `points[i]`. Before the fix, a
+/// `debug_assert!` in the core rejected unsorted points in debug builds only
+/// (-7); release builds accepted them (0).
+#[test]
+fn matsu_sampling_new_with_matrix_keeps_the_given_point_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let uhat = get_funcs(fx.basis, spir_basis_get_uhat);
+        let l = uhat.size() as usize;
+        let coeffs = test_coeffs(l);
+        for positive_only in [false, true] {
+            for points in unsorted(&default_matsus(fx.basis, positive_only)) {
+                let n = points.len();
+                let (status, rows) = batch_eval_matsu(&uhat, SPIR_ORDER_ROW_MAJOR, &points);
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                for (order, matrix) in [
+                    (SPIR_ORDER_ROW_MAJOR, rows.clone()),
+                    (SPIR_ORDER_COLUMN_MAJOR, to_column_major(&rows, n, l)),
+                ] {
+                    let (status, sampling) = matsu_sampling_new_with_matrix_raw(
+                        order,
+                        statistics,
+                        l as i32,
+                        positive_only,
+                        n as i32,
+                        &points,
+                        &matrix,
+                    );
+                    assert_eq!(
+                        status, SPIR_COMPUTATION_SUCCESS,
+                        "points {points:?}, order {order}, positive_only {positive_only}"
+                    );
+                    let sampling = Sampling(sampling);
+                    assert_eq!(sampling.matsus(), points);
+                    assert_rows_times(&rows, &coeffs, &sampling.eval_dz(&coeffs));
                 }
             }
         }

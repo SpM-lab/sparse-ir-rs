@@ -385,6 +385,11 @@ pub extern "C" fn spir_matsu_sampling_new(
 ///
 /// The scalar arguments are validated before `points` or `matrix` is read.
 ///
+/// The points may be in any order, and the sampling object keeps it:
+/// `spir_sampling_get_taus` returns `points` unchanged, and index i along the
+/// sampling-point axis of the evaluate and fit functions refers to
+/// `points[i]`, the point of row i of `matrix`.
+///
 /// # Safety
 /// Caller must ensure `points` and `matrix` have correct sizes
 #[unsafe(no_mangle)]
@@ -526,6 +531,11 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
 ///
 /// The scalar arguments are validated before `points` or `matrix` is read,
 /// and the indices before `matrix` is read.
+///
+/// The points may be in any order, and the sampling object keeps it:
+/// `spir_sampling_get_matsus` returns `points` unchanged, and index i along
+/// the sampling-point axis of the evaluate and fit functions refers to
+/// `points[i]`, the point of row i of `matrix`.
 ///
 /// # Safety
 /// Caller must ensure `points` and `matrix` have correct sizes
