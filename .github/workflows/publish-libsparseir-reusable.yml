@@ -67,11 +67,14 @@ jobs:
           path: Yggdrasil
           token: ${{ steps.app-token.outputs.token }}
 
-      - name: Update SpM-lab/Yggdrasil master branch
+      # Branch from upstream master: the fork's master is not kept in sync, and a
+      # branch based on an old master conflicts when it is proposed upstream.
+      # The empty extraheader fetches anonymously instead of with the app token.
+      - name: Check out JuliaPackaging/Yggdrasil master
         working-directory: Yggdrasil
         run: |
-          git checkout master
-          git pull origin master
+          git -c http.https://github.com/.extraheader= fetch https://github.com/JuliaPackaging/Yggdrasil.git master
+          git checkout --detach FETCH_HEAD
 
       - name: Copy julia/build_tarballs.jl to SpM-lab/Yggdrasil
         run: cp sparse-ir-rs/julia/build_tarballs.jl Yggdrasil/L/libsparseir/build_tarballs.jl
@@ -81,6 +84,10 @@ jobs:
         run: |
           TAG="${{ steps.release-tag.outputs.tag }}"
           BRANCH="libsparseir-${TAG}"
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null; then
+            echo "::error::Branch ${BRANCH} already exists on SpM-lab/Yggdrasil; delete it before re-running this workflow"
+            exit 1
+          fi
           git config user.name "libsparseir-bot[bot]"
           git config user.email "libsparseir-bot[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
