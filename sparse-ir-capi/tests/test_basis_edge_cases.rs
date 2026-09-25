@@ -88,7 +88,7 @@ fn sve_without_parity() -> *mut spir_sve_result {
     use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints};
     use sparse_ir::kernelmatrix::matrix_from_gauss_noncentrosymmetric;
 
-    let kernel = LogisticKernel::new(BETA * WMAX);
+    let kernel = LogisticKernel::new(BETA * WMAX).unwrap();
     let hints = kernel.sve_hints::<f64>(EPS);
     let mirror = |half: Vec<f64>| -> Vec<f64> {
         let mut full: Vec<f64> = half.iter().rev().map(|&s| -s).collect();

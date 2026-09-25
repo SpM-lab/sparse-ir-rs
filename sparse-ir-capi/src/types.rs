@@ -154,20 +154,20 @@ impl spir_kernel {
         unsafe { &*(self._private as *const KernelType) }
     }
 
-    pub(crate) fn new_logistic(lambda: f64) -> Self {
-        let inner = KernelType::Logistic(Arc::new(LogisticKernel::new(lambda)));
-        Self {
+    pub(crate) fn new_logistic(lambda: f64) -> Result<Self, sparse_ir::Error> {
+        let inner = KernelType::Logistic(Arc::new(LogisticKernel::new(lambda)?));
+        Ok(Self {
             _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
-        }
+        })
     }
 
     // spir_reg_bose_kernel_new stays available until the kernel is removed (#273).
     #[allow(deprecated)]
-    pub(crate) fn new_regularized_bose(lambda: f64) -> Self {
-        let inner = KernelType::RegularizedBose(Arc::new(RegularizedBoseKernel::new(lambda)));
-        Self {
+    pub(crate) fn new_regularized_bose(lambda: f64) -> Result<Self, sparse_ir::Error> {
+        let inner = KernelType::RegularizedBose(Arc::new(RegularizedBoseKernel::new(lambda)?));
+        Ok(Self {
             _private: Box::into_raw(Box::new(inner)) as *const std::ffi::c_void,
-        }
+        })
     }
 
     pub(crate) fn lambda(&self) -> f64 {

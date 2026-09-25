@@ -93,11 +93,11 @@ struct Matsu {
 
 fn check_group(group: &Group) {
     match group.kernel {
-        KernelKind::Logistic => check_kernel(group, LogisticKernel::new(group.lambda)),
+        KernelKind::Logistic => check_kernel(group, LogisticKernel::new(group.lambda).unwrap()),
         KernelKind::RegularizedBose => {
             // Deprecated, but still supported until it is removed (#273).
             #[allow(deprecated)]
-            let kernel = RegularizedBoseKernel::new(group.lambda);
+            let kernel = RegularizedBoseKernel::new(group.lambda).unwrap();
             check_kernel(group, kernel)
         }
     }

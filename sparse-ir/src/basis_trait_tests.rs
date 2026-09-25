@@ -8,7 +8,7 @@ fn test_basis_trait_fermionic() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
@@ -43,7 +43,7 @@ fn test_basis_trait_omega_sampling() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
@@ -71,12 +71,12 @@ fn test_basis_trait_generic() {
     let wmax = 2.0;
     let epsilon = 1e-8;
 
-    let kernel_f = LogisticKernel::new(beta * wmax);
+    let kernel_f = LogisticKernel::new(beta * wmax).unwrap();
     let basis_f =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel_f, beta, Some(epsilon), None);
     check_basis(&basis_f);
 
-    let kernel_b = LogisticKernel::new(beta * wmax);
+    let kernel_b = LogisticKernel::new(beta * wmax).unwrap();
     let basis_b =
         FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel_b, beta, Some(epsilon), None);
     check_basis(&basis_b);
@@ -88,7 +88,7 @@ fn test_basis_trait_evaluate_tau() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
@@ -121,7 +121,7 @@ fn test_basis_trait_evaluate_matsubara() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 

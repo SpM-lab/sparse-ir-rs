@@ -495,7 +495,7 @@ fn run_integration_example_single<K, S>(
 fn run_integration_example(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
     // Create kernel once for all tests
     let lambda = beta * omega_max;
-    let kernel = LogisticKernel::new(lambda);
+    let kernel = LogisticKernel::new(lambda).unwrap();
 
     // Create SVE once for all tests
     println!();
@@ -539,7 +539,7 @@ fn run_integration_example_regularized_bose(beta: f64, omega_max: f64, epsilon: 
     //   RegularizedBoseKernel tests.
     let _lambda_physical = beta * omega_max;
     let lambda = 1e2;
-    let kernel = RegularizedBoseKernel::new(lambda);
+    let kernel = RegularizedBoseKernel::new(lambda).unwrap();
 
     // Create SVE once for all tests
     println!();

@@ -439,7 +439,7 @@ fn test_uhat_asymptotic_branch_logistic_fermionic() {
     // the SVE runs in Df64), then a larger Lambda with an f64 SVE.
     for (lambda, beta, epsilon) in [(10.0, 10.0, 1e-10), (1e3, 100.0, 1e-6)] {
         let basis = FiniteTempBasis::<_, Fermionic>::new(
-            LogisticKernel::new(lambda),
+            LogisticKernel::new(lambda).unwrap(),
             beta,
             Some(epsilon),
             None,
@@ -453,7 +453,7 @@ fn test_uhat_asymptotic_branch_logistic_fermionic() {
 fn test_uhat_asymptotic_branch_logistic_bosonic() {
     for (lambda, beta, epsilon) in [(10.0, 10.0, 1e-10), (1e3, 100.0, 1e-6)] {
         let basis = FiniteTempBasis::<_, Bosonic>::new(
-            LogisticKernel::new(lambda),
+            LogisticKernel::new(lambda).unwrap(),
             beta,
             Some(epsilon),
             None,
@@ -466,7 +466,7 @@ fn test_uhat_asymptotic_branch_logistic_bosonic() {
 #[test]
 fn test_uhat_asymptotic_branch_regularized_bose() {
     let basis = FiniteTempBasis::<_, Bosonic>::new(
-        RegularizedBoseKernel::new(10.0),
+        RegularizedBoseKernel::new(10.0).unwrap(),
         10.0,
         Some(1e-10),
         None,
@@ -483,7 +483,7 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
 fn test_default_matsubara_points_need_functions_of_definite_parity() {
     use crate::sve::{TworkType, compute_sve_general};
 
-    let kernel = LogisticKernel::new(10.0);
+    let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
     assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
     let basis =

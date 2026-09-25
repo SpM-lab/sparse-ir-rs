@@ -11,7 +11,7 @@ fn test_basic_example() {
     // Create a finite temperature basis
     let beta = 10.0;
     let lambda = 10.0; // beta * omega_max
-    let kernel = LogisticKernel::new(lambda);
+    let kernel = LogisticKernel::new(lambda).unwrap();
     let basis = FermionicBasis::new(kernel, beta, None, None);
 
     // Generate sampling points
@@ -31,7 +31,7 @@ fn test_sve_example() {
     // SVE Example from README (corrected)
 
     // Create a kernel for analytical continuation
-    let kernel = LogisticKernel::new(1.0);
+    let kernel = LogisticKernel::new(1.0).unwrap();
 
     // Compute SVE
     let sve_result = compute_sve(kernel, 1e-12, None, Some(100), TworkType::Auto);

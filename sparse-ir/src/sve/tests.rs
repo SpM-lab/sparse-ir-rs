@@ -279,10 +279,10 @@ fn test_sve_decomposition_kernel_impl_with_tolerance<K>(
 #[test]
 fn test_sve_decomposition_logistic_kernel() {
     // Test with lambda = 100, epsilon = 1e-6
-    test_sve_decomposition_kernel_impl(LogisticKernel::new(100.0), 100.0, 1e-6);
+    test_sve_decomposition_kernel_impl(LogisticKernel::new(100.0).unwrap(), 100.0, 1e-6);
 
     // Test with lambda = 10^5, epsilon = 1e-12
-    test_sve_decomposition_kernel_impl(LogisticKernel::new(1e5), 1e5, 1e-12);
+    test_sve_decomposition_kernel_impl(LogisticKernel::new(1e5).unwrap(), 1e5, 1e-12);
 }
 
 /// Test that SVE decomposition satisfies k(x, y) = sum_l s_l u_l(x) v_l(y)
@@ -293,7 +293,7 @@ fn test_sve_decomposition_logistic_kernel() {
 fn test_sve_decomposition_regularized_bose_kernel() {
     // Test with lambda = 100, epsilon = 1e-6
     test_sve_decomposition_kernel_impl_with_tolerance(
-        RegularizedBoseKernel::new(100.0),
+        RegularizedBoseKernel::new(100.0).unwrap(),
         100.0,
         1e-6,
         1e-6 * 1.0,
@@ -375,14 +375,14 @@ fn test_merge_results_assigns_global_index() {
 fn test_compute_sve_global_index_matches_parity() {
     let results = [
         compute_sve(
-            LogisticKernel::new(10.0),
+            LogisticKernel::new(10.0).unwrap(),
             1e-10,
             None,
             None,
             TworkType::Auto,
         ),
         compute_sve(
-            RegularizedBoseKernel::new(10.0),
+            RegularizedBoseKernel::new(10.0).unwrap(),
             1e-10,
             None,
             None,
@@ -495,19 +495,19 @@ fn test_compute_sve_general_matches_compute_sve_logistic() {
     // Float64 and 27 u s_0 in Float64X2); at lambda = 1e4 it is about
     // 2.7 u s_0, i.e. within rounding of the cutoff.
     assert_general_path_matches_compute_sve(
-        LogisticKernel::new(10.0),
+        LogisticKernel::new(10.0).unwrap(),
         1e-6,
         TworkType::Float64,
         true,
     );
     assert_general_path_matches_compute_sve(
-        LogisticKernel::new(10.0),
+        LogisticKernel::new(10.0).unwrap(),
         1e-10,
         TworkType::Float64X2,
         true,
     );
     assert_general_path_matches_compute_sve(
-        LogisticKernel::new(1e4),
+        LogisticKernel::new(1e4).unwrap(),
         1e-6,
         TworkType::Float64,
         false,
@@ -521,19 +521,19 @@ fn test_compute_sve_general_matches_compute_sve_regularized_bose() {
     // Same margins as for LogisticKernel (smallest kept singular value about
     // 12 u s_0 in Float64 and 38 u s_0 in Float64X2 at lambda = 10).
     assert_general_path_matches_compute_sve(
-        RegularizedBoseKernel::new(10.0),
+        RegularizedBoseKernel::new(10.0).unwrap(),
         1e-6,
         TworkType::Float64,
         true,
     );
     assert_general_path_matches_compute_sve(
-        RegularizedBoseKernel::new(10.0),
+        RegularizedBoseKernel::new(10.0).unwrap(),
         1e-10,
         TworkType::Float64X2,
         true,
     );
     assert_general_path_matches_compute_sve(
-        RegularizedBoseKernel::new(1e4),
+        RegularizedBoseKernel::new(1e4).unwrap(),
         1e-6,
         TworkType::Float64,
         false,
@@ -545,16 +545,16 @@ fn test_compute_sve_general_matches_compute_sve_regularized_bose() {
 /// decomposition tests above (issue #246)
 #[test]
 fn test_compute_sve_general_reconstructs_centrosymmetric_kernels() {
-    let kernel = LogisticKernel::new(100.0);
+    let kernel = LogisticKernel::new(100.0).unwrap();
     let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6 * 200.0);
 
     // TworkType::Auto selects Float64X2 for this epsilon.
-    let kernel = LogisticKernel::new(10.0);
+    let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve_general(kernel, 1e-10, None, None, TworkType::Auto);
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-10 * 200.0);
 
-    let kernel = RegularizedBoseKernel::new(100.0);
+    let kernel = RegularizedBoseKernel::new(100.0).unwrap();
     let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6);
 }
@@ -637,7 +637,7 @@ impl KernelProperties for TiltedLogisticKernel {
 /// gauge by `u_l(xmax) >= 0` like `compute_sve`
 #[test]
 fn test_compute_sve_general_non_centrosymmetric_kernel() {
-    let kernel = TiltedLogisticKernel(LogisticKernel::new(10.0));
+    let kernel = TiltedLogisticKernel(LogisticKernel::new(10.0).unwrap());
     assert!(!kernel.is_centrosymmetric());
     let epsilon = 1e-6;
     let sve = compute_sve_general(kernel, epsilon, None, None, TworkType::Float64);
@@ -712,12 +712,12 @@ where
 #[test]
 fn test_default_cutoff_is_two_machine_epsilon_logistic() {
     assert_default_cutoff_is_two_machine_epsilon(
-        LogisticKernel::new(1.48),
+        LogisticKernel::new(1.48).unwrap(),
         1e-6,
         TworkType::Float64,
     );
     assert_default_cutoff_is_two_machine_epsilon(
-        LogisticKernel::new(1.37),
+        LogisticKernel::new(1.37).unwrap(),
         1e-10,
         TworkType::Float64X2,
     );
@@ -726,12 +726,12 @@ fn test_default_cutoff_is_two_machine_epsilon_logistic() {
 #[test]
 fn test_default_cutoff_is_two_machine_epsilon_regularized_bose() {
     assert_default_cutoff_is_two_machine_epsilon(
-        RegularizedBoseKernel::new(1.48),
+        RegularizedBoseKernel::new(1.48).unwrap(),
         1e-6,
         TworkType::Float64,
     );
     assert_default_cutoff_is_two_machine_epsilon(
-        RegularizedBoseKernel::new(1.37),
+        RegularizedBoseKernel::new(1.37).unwrap(),
         1e-10,
         TworkType::Float64X2,
     );
@@ -794,15 +794,23 @@ where
 
 #[test]
 fn test_compute_sve_truncated_to_one_singular_value_logistic() {
-    check_sve_truncated_to_one(LogisticKernel::new(10.0), 1e-6, TworkType::Float64);
-    check_sve_truncated_to_one(LogisticKernel::new(10.0), 1e-10, TworkType::Float64X2);
+    check_sve_truncated_to_one(LogisticKernel::new(10.0).unwrap(), 1e-6, TworkType::Float64);
+    check_sve_truncated_to_one(
+        LogisticKernel::new(10.0).unwrap(),
+        1e-10,
+        TworkType::Float64X2,
+    );
 }
 
 #[test]
 fn test_compute_sve_truncated_to_one_singular_value_regularized_bose() {
-    check_sve_truncated_to_one(RegularizedBoseKernel::new(10.0), 1e-6, TworkType::Float64);
     check_sve_truncated_to_one(
-        RegularizedBoseKernel::new(10.0),
+        RegularizedBoseKernel::new(10.0).unwrap(),
+        1e-6,
+        TworkType::Float64,
+    );
+    check_sve_truncated_to_one(
+        RegularizedBoseKernel::new(10.0).unwrap(),
         1e-10,
         TworkType::Float64X2,
     );
@@ -818,7 +826,7 @@ fn test_basis_with_max_size_one() {
     use crate::traits::{Bosonic, Fermionic};
 
     fn check<S: StatisticsType + 'static>() {
-        let (beta, kernel) = (10.0, LogisticKernel::new(10.0));
+        let (beta, kernel) = (10.0, LogisticKernel::new(10.0).unwrap());
         let full = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), None);
         let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), Some(1));
         assert_eq!(basis.size(), 1);

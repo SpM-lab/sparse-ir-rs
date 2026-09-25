@@ -64,7 +64,7 @@ fn test_dlr_construction_fermionic() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
@@ -92,7 +92,7 @@ fn test_dlr_with_custom_poles() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
     // Custom poles within [-wmax, wmax]
@@ -151,7 +151,7 @@ where
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None);
 
     let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).unwrap();
@@ -245,7 +245,7 @@ fn test_dlr_basis_trait() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis_ir =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis_ir).unwrap();
@@ -286,7 +286,7 @@ fn test_dlr_with_tau_sampling() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis_ir =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
@@ -320,7 +320,7 @@ fn test_dlr_regularized_bose_construction() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
@@ -365,7 +365,7 @@ fn test_dlr_regularized_bose_with_custom_poles() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
@@ -422,7 +422,7 @@ fn test_dlr_regularized_bose_basis_functions_match_physical_kernel() {
     // they must hold to rounding; wmax ≠ 1 exposes any extra power of wmax.
     let beta = 10.0;
     let wmax = 2.0;
-    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-10), None);
     let poles = vec![-1.5, -0.4, 0.3, 1.8];
@@ -482,7 +482,7 @@ where
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
@@ -558,7 +558,7 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
     let lambda = 1e2;
     let epsilon = 1e-10;
 
-    let kernel = RegularizedBoseKernel::new(lambda);
+    let kernel = RegularizedBoseKernel::new(lambda).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
@@ -622,7 +622,7 @@ fn test_fermionic_dlr_tau_sampling_matrix_matches_stable_kernel() {
     let wmax = 2.0;
     let epsilon = 1e-8;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
@@ -674,7 +674,7 @@ fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
     let wmax = 1.0;
     let epsilon = 1e-12;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
     let tau_points = basis.default_tau_sampling_points();
@@ -938,7 +938,7 @@ fn check_single_pole_matches_dlr_evaluate_tau<S: StatisticsType + 'static>() {
     let wmax = 5.0;
     let epsilon = 1e-10;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(epsilon), None);
     let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).unwrap();
     assert!(
@@ -1106,7 +1106,7 @@ where
 fn check_dlr_new_insufficient_default_poles<S: StatisticsType + 'static>() {
     let beta = 10.0;
     let wmax = 1.0;
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(1e-6), None);
     let basis_size = basis.size();
     assert_eq!(basis.default_omega_sampling_points().len(), basis_size);
@@ -1154,7 +1154,7 @@ fn test_dlr_new_insufficient_default_poles_bosonic() {
 fn test_dlr_regularized_bose_fermionic_is_kernel_statistics_mismatch() {
     let beta = 1.0;
     let wmax = 10.0;
-    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Fermionic>::new(kernel, beta, Some(1e-6), None);
     // The default poles are sufficient, so `new` reaches the statistics check.
@@ -1212,7 +1212,7 @@ fn test_dlr_error_display_and_error_trait() {
 #[test]
 fn test_dlr_nd_with_empty_batch() {
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
-        LogisticKernel::new(10.0),
+        LogisticKernel::new(10.0).unwrap(),
         1.0,
         Some(1e-6),
         None,
@@ -1251,7 +1251,7 @@ fn test_dlr_nd_with_empty_batch() {
 #[test]
 fn test_dlr_with_no_poles_is_an_error() {
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
-        LogisticKernel::new(10.0),
+        LogisticKernel::new(10.0).unwrap(),
         1.0,
         Some(1e-6),
         None,

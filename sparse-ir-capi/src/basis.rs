@@ -6,6 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use sparse_ir::basis::FiniteTempBasis;
 
+use crate::status::status_from;
 use crate::types::{spir_basis, spir_funcs, spir_kernel, spir_sve_result};
 use crate::{
     SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
@@ -364,7 +365,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
         //   ypower == 1 => RegularizedBoseKernel
         if ypower == 0 {
             use sparse_ir::kernel::LogisticKernel;
-            let kernel = LogisticKernel::new(lambda);
+            let kernel = LogisticKernel::new(lambda).map_err(|e| status_from(&e))?;
 
             if statistics == SPIR_STATISTICS_FERMIONIC {
                 let basis =
@@ -401,7 +402,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                 use sparse_ir::kernel::RegularizedBoseKernel;
                 // Still supported until the kernel is removed (#273).
                 #[allow(deprecated)]
-                let kernel = RegularizedBoseKernel::new(lambda);
+                let kernel = RegularizedBoseKernel::new(lambda).map_err(|e| status_from(&e))?;
 
                 let basis =
                     FiniteTempBasis::<RegularizedBoseKernel, sparse_ir::traits::Bosonic>::from_sve_result(

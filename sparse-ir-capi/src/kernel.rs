@@ -6,6 +6,7 @@ use std::panic::catch_unwind;
 
 use sparse_ir::kernel::SVEHints;
 
+use crate::status::status_from;
 use crate::types::spir_kernel;
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, StatusCode};
 
@@ -51,16 +52,21 @@ pub extern "C" fn spir_logistic_kernel_new(
 
     // Catch panics to prevent unwinding across FFI boundary
     let result = catch_unwind(|| {
-        let kernel = spir_kernel::new_logistic(lambda);
-        Box::into_raw(Box::new(kernel))
+        spir_kernel::new_logistic(lambda).map(|kernel| Box::into_raw(Box::new(kernel)))
     });
 
     match result {
-        Ok(ptr) => {
+        Ok(Ok(ptr)) => {
             unsafe {
                 *status = SPIR_COMPUTATION_SUCCESS;
             }
             ptr
+        }
+        Ok(Err(err)) => {
+            unsafe {
+                *status = status_from(&err);
+            }
+            std::ptr::null_mut()
         }
         Err(_) => {
             unsafe {
@@ -101,16 +107,21 @@ pub extern "C" fn spir_reg_bose_kernel_new(
     }
 
     let result = catch_unwind(|| {
-        let kernel = spir_kernel::new_regularized_bose(lambda);
-        Box::into_raw(Box::new(kernel))
+        spir_kernel::new_regularized_bose(lambda).map(|kernel| Box::into_raw(Box::new(kernel)))
     });
 
     match result {
-        Ok(ptr) => {
+        Ok(Ok(ptr)) => {
             unsafe {
                 *status = SPIR_COMPUTATION_SUCCESS;
             }
             ptr
+        }
+        Ok(Err(err)) => {
+            unsafe {
+                *status = status_from(&err);
+            }
+            std::ptr::null_mut()
         }
         Err(_) => {
             unsafe {

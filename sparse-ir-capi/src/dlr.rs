@@ -898,14 +898,14 @@ mod tests {
         let beta = 10.0;
         let lambda = 10.0; // wmax = 1
 
-        let kernel = LogisticKernel::new(lambda);
+        let kernel = LogisticKernel::new(lambda).unwrap();
         let sve = sve_with_too_few_default_poles(kernel);
         let fermionic: FiniteTempBasis<LogisticKernel, Fermionic> =
             FiniteTempBasis::from_sve_result(kernel, beta, sve.clone(), Some(1e-6), None);
         let bosonic: FiniteTempBasis<LogisticKernel, Bosonic> =
             FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None);
 
-        let kernel = RegularizedBoseKernel::new(lambda);
+        let kernel = RegularizedBoseKernel::new(lambda).unwrap();
         let sve = sve_with_too_few_default_poles(kernel);
         let reg_bose: FiniteTempBasis<RegularizedBoseKernel, Bosonic> =
             FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None);
@@ -938,8 +938,12 @@ mod tests {
     fn test_dlr_rejects_fermionic_regularized_bose_status() {
         let beta = 1.0;
         let lambda = 10.0;
-        let ir_basis: FiniteTempBasis<RegularizedBoseKernel, Fermionic> =
-            FiniteTempBasis::new(RegularizedBoseKernel::new(lambda), beta, Some(1e-6), None);
+        let ir_basis: FiniteTempBasis<RegularizedBoseKernel, Fermionic> = FiniteTempBasis::new(
+            RegularizedBoseKernel::new(lambda).unwrap(),
+            beta,
+            Some(1e-6),
+            None,
+        );
         // The C basis constructors reject this combination (#241), so build
         // the handle directly to reach the defensive dispatch arms.
         let basis = Box::into_raw(Box::new(spir_basis::new_regularized_bose_fermionic(

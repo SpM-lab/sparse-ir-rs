@@ -121,3 +121,61 @@ fn test_every_variant_lists_each_variant_once() {
     numbers.sort();
     assert_eq!(numbers, (0..VARIANT_COUNT).collect::<Vec<_>>());
 }
+
+#[test]
+fn test_parameter_checks() {
+    use super::{
+        require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
+    };
+
+    let invalid = |name: &'static str, value: &str, reason: &str| Error::InvalidParameter {
+        name,
+        value: value.to_string(),
+        reason: reason.to_string(),
+    };
+
+    assert_eq!(require_positive_finite("beta", 1e-300), Ok(()));
+    for (value, shown) in [
+        (0.0, "0.0"),
+        (-1.0, "-1.0"),
+        (f64::NAN, "NaN"),
+        (f64::INFINITY, "inf"),
+    ] {
+        assert_eq!(
+            require_positive_finite("beta", value),
+            Err(invalid("beta", shown, "must be positive and finite"))
+        );
+    }
+
+    for ok in [None, Some(1e-300), Some(0.5), Some(1.0 - f64::EPSILON)] {
+        assert_eq!(require_accuracy("epsilon", ok), Ok(()));
+    }
+    for (value, shown) in [
+        (0.0, "0.0"),
+        (1.0, "1.0"),
+        (-1e-3, "-0.001"),
+        (f64::NAN, "NaN"),
+    ] {
+        assert_eq!(
+            require_accuracy("epsilon", Some(value)),
+            Err(invalid("epsilon", shown, "must be in (0, 1)"))
+        );
+    }
+
+    for ok in [None, Some(0.0), Some(0.5)] {
+        assert_eq!(require_threshold("eps", ok), Ok(()));
+    }
+    for (value, shown) in [(1.0, "1.0"), (-1e-3, "-0.001"), (f64::INFINITY, "inf")] {
+        assert_eq!(
+            require_threshold("eps", Some(value)),
+            Err(invalid("eps", shown, "must be in [0, 1)"))
+        );
+    }
+
+    assert_eq!(require_nonzero_size("max_size", None), Ok(()));
+    assert_eq!(require_nonzero_size("max_size", Some(1)), Ok(()));
+    assert_eq!(
+        require_nonzero_size("max_size", Some(0)),
+        Err(invalid("max_size", "0", "must be positive"))
+    );
+}

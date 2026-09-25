@@ -12,7 +12,7 @@ fn test_basis_construction() {
     let omega_max = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * omega_max);
+    let kernel = LogisticKernel::new(beta * omega_max).unwrap();
     let basis = FermionicBasis::new(kernel, beta, Some(epsilon), None);
 
     assert_eq!(basis.beta, beta);
@@ -25,7 +25,7 @@ fn test_basis_construction() {
 #[test]
 #[should_panic(expected = "beta must be positive")]
 fn test_negative_beta() {
-    let kernel = LogisticKernel::new(1.0);
+    let kernel = LogisticKernel::new(1.0).unwrap();
     let _ = FermionicBasis::new(kernel, -1.0, None, None);
 }
 
@@ -34,7 +34,7 @@ fn test_negative_beta() {
 #[test]
 #[should_panic(expected = "max_size must be positive, got 0")]
 fn test_zero_max_size() {
-    let kernel = LogisticKernel::new(10.0);
+    let kernel = LogisticKernel::new(10.0).unwrap();
     let _ = FermionicBasis::new(kernel, 10.0, Some(1e-10), Some(0));
 }
 
@@ -45,7 +45,7 @@ fn test_default_tau_sampling_points_conditioning() {
     let lambda = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(lambda);
+    let kernel = LogisticKernel::new(lambda).unwrap();
     let basis = FermionicBasis::new(kernel, beta, Some(epsilon), None);
 
     println!("\n=== Default Tau Sampling Points Test ===");
@@ -154,7 +154,7 @@ fn test_regularized_bose_basis_construction() {
     let omega_max = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = RegularizedBoseKernel::new(beta * omega_max);
+    let kernel = RegularizedBoseKernel::new(beta * omega_max).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
@@ -179,7 +179,7 @@ fn test_regularized_bose_basis_different_parameters() {
     let test_cases = vec![(1.0, 1.0, 1e-6), (10.0, 10.0, 1e-6), (100.0, 1.0, 1e-6)];
 
     for (beta, omega_max, epsilon) in test_cases {
-        let kernel = RegularizedBoseKernel::new(beta * omega_max);
+        let kernel = RegularizedBoseKernel::new(beta * omega_max).unwrap();
         let basis = FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(
             kernel,
             beta,
@@ -209,7 +209,7 @@ fn test_default_omega_sampling_points_fermionic() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
 
@@ -240,7 +240,7 @@ fn test_default_omega_sampling_points_bosonic() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None);
 
     let omega_points = basis.default_omega_sampling_points();
@@ -270,7 +270,7 @@ fn test_omega_points_symmetry() {
     let wmax = 2.0;
     let epsilon = 1e-8;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis_f =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
     let omega_points = basis_f.default_omega_sampling_points();
@@ -316,7 +316,7 @@ fn test_regularized_bose_basis_represents_physical_kernel() {
     // At ε = 1e-12 the truncation error of Σ U S V is far below 1e-8 ωmax,
     // the scale of K^B; a wrong power of ωmax is an O(1) relative error.
     for &(beta, omega_max) in &[(10.0, 2.0), (4.0, 2.5), (20.0, 0.5)] {
-        let kernel = RegularizedBoseKernel::new(beta * omega_max);
+        let kernel = RegularizedBoseKernel::new(beta * omega_max).unwrap();
         let basis =
             FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None);
         let s = basis.s();
@@ -344,7 +344,7 @@ fn test_regularized_bose_basis_single_pole() {
     // A single bosonic pole, A(ω) = δ(ω - ω0), so Ĝ(iν) = 1/(iν - ω0). The
     // kernel takes ρ(ω) = A(ω)/ω (Eq. (2)), so G_l = -S_l V_l(ω0)/ω0 (Eq. (8)).
     let (beta, omega_max, omega0) = (10.0, 2.0, 0.6);
-    let kernel = RegularizedBoseKernel::new(beta * omega_max);
+    let kernel = RegularizedBoseKernel::new(beta * omega_max).unwrap();
     let basis =
         FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-12), None);
     let v = basis.v().evaluate_at(omega0);

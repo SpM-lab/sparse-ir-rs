@@ -1112,10 +1112,10 @@ mod tests {
                 assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
                 let reference = |cutoff: f64| -> SVEResult {
                     if bosonic {
-                        let k = RegularizedBoseKernel::new(lambda);
+                        let k = RegularizedBoseKernel::new(lambda).unwrap();
                         compute_sve(k, epsilon, Some(cutoff), None, twork_type)
                     } else {
-                        let k = LogisticKernel::new(lambda);
+                        let k = LogisticKernel::new(lambda).unwrap();
                         compute_sve(k, epsilon, Some(cutoff), None, twork_type)
                     }
                 };
@@ -1544,7 +1544,7 @@ mod tests {
 
         let lambda = 10.0;
         let epsilon = 1e-6;
-        let kernel = LogisticKernel::new(lambda);
+        let kernel = LogisticKernel::new(lambda).unwrap();
 
         // Get SVE hints
         let hints = kernel.sve_hints::<f64>(epsilon);
@@ -1765,7 +1765,7 @@ mod tests {
             matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
         };
 
-        let kernel = LogisticKernel::new(MATRICES_LAMBDA);
+        let kernel = LogisticKernel::new(MATRICES_LAMBDA).unwrap();
         let hints = kernel.sve_hints::<f64>(MATRICES_EPSILON);
         let (segs_x, segs_y) = (hints.segments_x(), hints.segments_y());
         let rule = legendre::<f64>(hints.ngauss());
@@ -1882,7 +1882,7 @@ mod tests {
     /// `compute_sve` for the same kernel and accuracy
     fn s0_relative_error(sve: *const spir_sve_result) -> f64 {
         let reference = compute_sve(
-            sparse_ir::kernel::LogisticKernel::new(MATRICES_LAMBDA),
+            sparse_ir::kernel::LogisticKernel::new(MATRICES_LAMBDA).unwrap(),
             MATRICES_EPSILON,
             None,
             None,

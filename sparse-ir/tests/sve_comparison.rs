@@ -136,7 +136,7 @@ fn test_sve_singular_values_lambda_5() {
 
     println!("Testing SVE for λ={}, ε={}", lambda, epsilon);
 
-    let kernel = LogisticKernel::new(lambda);
+    let kernel = LogisticKernel::new(lambda).unwrap();
     let result = compute_sve(
         kernel,
         epsilon,
@@ -220,7 +220,7 @@ fn test_sve_singular_functions_lambda_5() {
         lambda, epsilon
     );
 
-    let kernel = LogisticKernel::new(lambda);
+    let kernel = LogisticKernel::new(lambda).unwrap();
     let result = compute_sve(kernel, epsilon, None, None, TworkType::Auto);
 
     // Test points

@@ -18,7 +18,7 @@ use crate::numeric::CustomNumeric;
 #[test]
 fn test_matrix_from_gauss_basic() {
     // 2x2の小さな行列で基本動作確認
-    let kernel = LogisticKernel::new(1.0);
+    let kernel = LogisticKernel::new(1.0).unwrap();
     let gauss_x = legendre::<f64>(2).reseat(0.0, 1.0);
     let gauss_y = legendre::<f64>(2).reseat(0.0, 1.0);
     let matrix = matrix_from_gauss(&kernel, &gauss_x, &gauss_y, SymmetryType::Even);
@@ -29,7 +29,7 @@ fn test_matrix_from_gauss_basic() {
 
 #[test]
 fn test_matrix_from_gauss_sizes() {
-    let kernel = LogisticKernel::new(1.0);
+    let kernel = LogisticKernel::new(1.0).unwrap();
 
     for n in [2, 4, 8] {
         let gauss_x = legendre::<f64>(n).reseat(0.0, 1.0);
@@ -220,7 +220,7 @@ fn test_kernel_interpolation_both_symmetries<T, K, H>(
 #[test]
 fn test_logistic_kernel_interpolation_f64() {
     test_kernel_interpolation_both_symmetries::<f64, _, _>(
-        LogisticKernel::new(100.0),
+        LogisticKernel::new(100.0).unwrap(),
         LogisticSVEHints::new,
         "LogisticKernel (f64)",
         1e-12, // epsilon
@@ -235,7 +235,7 @@ fn test_logistic_kernel_interpolation_f64() {
 #[test]
 fn test_logistic_kernel_interpolation_twofloat() {
     test_kernel_interpolation_both_symmetries::<Df64, _, _>(
-        LogisticKernel::new(100.0),
+        LogisticKernel::new(100.0).unwrap(),
         LogisticSVEHints::new,
         "LogisticKernel (Df64)",
         1e-12, // epsilon
@@ -254,7 +254,7 @@ fn test_logistic_kernel_interpolation_twofloat() {
 #[test]
 fn test_regularized_bose_kernel_interpolation_f64() {
     test_kernel_interpolation_both_symmetries::<f64, _, _>(
-        RegularizedBoseKernel::new(10.0),
+        RegularizedBoseKernel::new(10.0).unwrap(),
         RegularizedBoseSVEHints::new,
         "RegularizedBoseKernel (f64)",
         1e-4,  // epsilon
@@ -269,7 +269,7 @@ fn test_regularized_bose_kernel_interpolation_f64() {
 #[test]
 fn test_regularized_bose_kernel_interpolation_twofloat() {
     test_kernel_interpolation_both_symmetries::<Df64, _, _>(
-        RegularizedBoseKernel::new(10.0),
+        RegularizedBoseKernel::new(10.0).unwrap(),
         RegularizedBoseSVEHints::new,
         "RegularizedBoseKernel (Df64)",
         1e-4,  // epsilon

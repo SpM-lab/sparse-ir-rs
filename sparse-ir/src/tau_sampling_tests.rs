@@ -19,7 +19,7 @@ where
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -94,7 +94,7 @@ where
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -160,7 +160,7 @@ fn test_regularized_bose_evaluate_nd_roundtrip_real() {
     let wmax = 1.0;
     let epsilon = Some(1e-4);
 
-    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -211,7 +211,7 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
     let wmax = 1.0;
     let epsilon = Some(1e-4);
 
-    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -276,7 +276,7 @@ fn test_evaluate_nd_to_matches_fermionic_real() {
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -329,7 +329,7 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -390,7 +390,7 @@ fn test_fit_nd_to_matches_fermionic_real() {
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -443,7 +443,7 @@ fn test_fit_nd_to_matches_fermionic_complex() {
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -507,7 +507,7 @@ fn test_evaluate_nd_to_dim0() {
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -556,7 +556,7 @@ fn test_evaluate_nd_to_dim1() {
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -610,7 +610,7 @@ fn test_evaluate_nd_to_dim_last() {
     let wmax = 10.0;
     let epsilon = Some(1e-6);
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None);
     let sampling = TauSampling::new(&basis);
 
@@ -661,7 +661,7 @@ fn check_tau_condition_number<S: StatisticsType + 'static>() {
     use crate::test_utils::{assert_condition_number_close, oracle_condition_number};
 
     let (beta, wmax, epsilon) = (10.0, 1.0, 1e-6);
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
     let sampling = TauSampling::new(&basis);
 
@@ -694,8 +694,12 @@ fn test_nd_to_rejects_out_with_wrong_batch_extent() {
     use mdarray::{DenseMapping, DynRank, Shape, Tensor, ViewMut};
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    );
     let sampling = TauSampling::new(&basis);
     let (l, np, extra) = (sampling.basis_size(), sampling.n_sampling_points(), 50);
     const CANARY: f64 = -12345.0;
@@ -810,8 +814,12 @@ fn test_movedim_with_zero_extent() {
 fn test_tau_nd_with_empty_batch() {
     use mdarray::{DynRank, Tensor};
 
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    );
     let sampling = TauSampling::new(&basis);
     let (l, np) = (sampling.basis_size(), sampling.n_sampling_points());
 

@@ -347,7 +347,7 @@ where
         let fitter = RealMatrixFitter::new(fitmat.clone());
 
         let lambda = beta * wmax;
-        let logistic_kernel = LogisticKernel::new(lambda);
+        let logistic_kernel = LogisticKernel::new(lambda)?;
         let regularizers: Vec<f64> = poles
             .iter()
             .map(|&pole| basis.kernel().regularizer::<S>(beta, pole))
