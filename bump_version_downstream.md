@@ -11,15 +11,16 @@ This note covers the downstream version bumps most likely to matter after a new 
 
 1. Bump the Rust workspace version in `Cargo.toml`.
 2. Bump the Python wrapper version in `python/pyproject.toml`.
-3. Run `python3 check_version.py`.
-4. Merge the release PR.
-5. Run `.github/workflows/manual-release.yml` to publish `sparse-ir` and `sparse-ir-capi`.
-6. Let the release workflow push tag `vX.Y.Z`.
-7. Let `.github/workflows/PublishPyPI.yml` publish `pylibsparseir` from that tag.
-8. Confirm that `pylibsparseir X.Y.Z` is actually available on PyPI before bumping downstream Python consumers that resolve from package indexes.
-9. After crates.io publication and tag creation, bump `julia/build_tarballs.jl` if the BinaryBuilder recipe in this repo still needs to follow the release.
-10. After crates.io publication, bump `SpM-lab/SparseIR.jl` to the new backend version if that wrapper should consume the release.
-11. After `pylibsparseir X.Y.Z` is available, bump `SpM-lab/sparse-ir` to depend on it.
+3. Bump the install snippets in `sparse-ir/README.md`.
+4. Run `python3 check_version.py`.
+5. Merge the release PR.
+6. Run `.github/workflows/manual-release.yml` to publish `sparse-ir` and `sparse-ir-capi`.
+7. Let the release workflow push tag `vX.Y.Z`.
+8. Let `.github/workflows/PublishPyPI.yml` publish `pylibsparseir` from that tag.
+9. Confirm that `pylibsparseir X.Y.Z` is actually available on PyPI before bumping downstream Python consumers that resolve from package indexes.
+10. After crates.io publication and tag creation, bump `julia/build_tarballs.jl` if the BinaryBuilder recipe in this repo still needs to follow the release.
+11. After crates.io publication, bump `SpM-lab/SparseIR.jl` to the new backend version if that wrapper should consume the release.
+12. After `pylibsparseir X.Y.Z` is available, bump `SpM-lab/sparse-ir` to depend on it.
 
 The critical dependency is that the Julia update script requires an existing `vX.Y.Z` tag, while the Python wrapper version must already match the workspace version before the Rust release.
 

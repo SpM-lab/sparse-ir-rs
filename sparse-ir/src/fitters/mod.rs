@@ -45,6 +45,24 @@ mod tests {
     }
 
     #[test]
+    fn test_condition_number_from_singular_values_conventions() {
+        use super::common::condition_number_from_singular_values as cond;
+
+        assert_eq!(cond(&[4.0, 2.0, 0.5]), 8.0);
+        // Independent of the order of the singular values
+        assert_eq!(cond(&[0.5, 4.0, 2.0]), 8.0);
+        assert_eq!(cond(&[3.0]), 1.0);
+        // No singular values (a matrix with a zero dimension)
+        assert_eq!(cond(&[]), 1.0);
+        // Numerically singular
+        assert_eq!(cond(&[1.0, 1e-16]), f64::INFINITY);
+        assert_eq!(cond(&[1.0, 0.0]), f64::INFINITY);
+        // A NaN singular value is never turned into a finite value
+        assert!(cond(&[1.0, f64::NAN]).is_nan());
+        assert!(cond(&[f64::NAN, 1.0]).is_nan());
+    }
+
+    #[test]
     fn test_complex_fitter_real_matrix_equivalence() {
         let n_points = 8;
         let basis_size = 4;

@@ -730,3 +730,118 @@ fn test_matsubara_sampling_debug_parameters() {
         "Matrix columns should match basis size"
     );
 }
+
+// ============================================================================
+// condition_number (SpM-lab/sparse-ir-rs#270)
+// ============================================================================
+
+/// `A[i, l] = uhat_l(iν_i)`, built from the basis functions independently of
+/// any sampling object
+fn uhat_matrix<S: StatisticsType + 'static>(
+    basis: &FiniteTempBasis<LogisticKernel, S>,
+    points: &[MatsubaraFreq<S>],
+) -> mdarray::DTensor<Complex<f64>, 2> {
+    let uhat = basis.uhat();
+    mdarray::DTensor::<Complex<f64>, 2>::from_fn([points.len(), basis.size()], |idx| {
+        uhat[idx[1]].evaluate(&points[idx[0]])
+    })
+}
+
+/// Positive-only sampling reports the condition number of the stacked real
+/// matrix `[Re A; Im A]` that `fit` solves, not that of the complex matrix `A`
+fn check_positive_only_condition_number<S: StatisticsType + 'static>(
+    beta: f64,
+    wmax: f64,
+    epsilon: f64,
+) {
+    use crate::test_utils::{assert_condition_number_close, oracle_condition_number, stack_re_im};
+
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let points = basis.default_matsubara_sampling_points(true);
+    let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
+
+    let oracle = oracle_condition_number(&stack_re_im(&uhat_matrix(&basis, &points)));
+    let label = format!(
+        "positive-only {:?}, beta={beta}, wmax={wmax}, eps={epsilon:e}, L={}, n={}",
+        S::STATISTICS,
+        basis.size(),
+        points.len()
+    );
+    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+}
+
+/// Full-set sampling reports the condition number of the complex matrix `A`
+fn check_full_condition_number<S: StatisticsType + 'static>(beta: f64, wmax: f64, epsilon: f64) {
+    use crate::test_utils::{assert_condition_number_close, oracle_condition_number, realify};
+
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let points = basis.default_matsubara_sampling_points(false);
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
+
+    let oracle = oracle_condition_number(&realify(&uhat_matrix(&basis, &points)));
+    let label = format!(
+        "full-set {:?}, beta={beta}, wmax={wmax}, eps={epsilon:e}, L={}, n={}",
+        S::STATISTICS,
+        basis.size(),
+        points.len()
+    );
+    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+}
+
+#[test]
+fn test_positive_only_condition_number_fermionic() {
+    check_positive_only_condition_number::<Fermionic>(10.0, 1.0, 1e-6);
+}
+
+#[test]
+fn test_positive_only_condition_number_bosonic() {
+    check_positive_only_condition_number::<Bosonic>(10.0, 1.0, 1e-6);
+    check_positive_only_condition_number::<Bosonic>(1000.0, 1.0, 1e-10);
+}
+
+#[test]
+fn test_full_condition_number_fermionic() {
+    check_full_condition_number::<Fermionic>(10.0, 1.0, 1e-6);
+}
+
+#[test]
+fn test_full_condition_number_bosonic() {
+    check_full_condition_number::<Bosonic>(10.0, 1.0, 1e-6);
+    check_full_condition_number::<Bosonic>(1000.0, 1.0, 1e-10);
+}
+
+/// `from_matrix` samplings follow the same rule. The matrix is wide (5 points,
+/// 8 coefficients, so `[Re A; Im A]` is 10 × 8), as for positive-only
+/// sampling points, and chosen so that `cond(A)` over its 5 singular values
+/// and `cond([Re A; Im A])` differ.
+#[test]
+fn test_positive_only_condition_number_from_matrix() {
+    use crate::test_utils::{
+        assert_condition_number_close, oracle_condition_number, realify, stack_re_im,
+    };
+
+    let (n, l) = (5, 8);
+    let a = mdarray::DTensor::<Complex<f64>, 2>::from_fn([n, l], |idx| {
+        let x = (idx[0] as f64 + 1.0) / n as f64;
+        let j = idx[1] as i32;
+        Complex::new(x.powi(j), (x * (j as f64 + 1.0)).sin())
+    });
+    let points: Vec<MatsubaraFreq<Bosonic>> = (0..n as i64)
+        .map(|k| MatsubaraFreq::new(2 * k).unwrap())
+        .collect();
+    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points, a.clone());
+
+    let oracle = oracle_condition_number(&stack_re_im(&a));
+    let cond_complex = oracle_condition_number(&realify(&a));
+    assert!(
+        (oracle - cond_complex).abs() > 1e-3 * oracle,
+        "test matrix must separate cond([Re A; Im A]) = {oracle:.6e} from cond(A) = {cond_complex:.6e}"
+    );
+    assert_condition_number_close(
+        "from_matrix positive-only",
+        sampling.condition_number(),
+        oracle,
+    );
+}

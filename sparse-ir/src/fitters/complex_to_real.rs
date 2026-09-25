@@ -12,7 +12,9 @@ use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::sync::OnceLock;
 
-use super::common::{InplaceFitter, RealSVD, compute_real_svd};
+use super::common::{
+    InplaceFitter, RealSVD, compute_real_svd, condition_number_from_singular_values,
+};
 
 // ============================================================================
 // Helper functions for efficient interleave/deinterleave
@@ -94,13 +96,33 @@ fn flatten_complex_to_real_cols(values: &DView<'_, Complex<f64>, 2>, out: &mut D
 ///   values_flat ∈ R^{2n}: [Re(v[0]); Im(v[0]); Re(v[1]); Im(v[1]); ...]
 ///
 /// # Example
-/// ```ignore
-/// let matrix = DTensor::from_fn([10, 5], |idx| Complex::new(...));
-/// let fitter = ComplexToRealFitter::new(&matrix);
+///
+/// This type is crate-private.
+/// [`MatsubaraSamplingPositiveOnly::from_matrix`](crate::MatsubaraSamplingPositiveOnly::from_matrix)
+/// wraps a `ComplexToRealFitter` around the given matrix, and its `evaluate`
+/// and `fit` forward to the fitter, so the example goes through that public API.
+///
+/// ```
+/// use num_complex::Complex;
+/// use sparse_ir::{DTensor, Fermionic, FermionicFreq, MatsubaraSamplingPositiveOnly};
+/// use std::f64::consts::PI;
+///
+/// // A 10x5 matrix whose flattened real form has orthonormal columns
+/// let (n, m) = (10, 5);
+/// let matrix = DTensor::<Complex<f64>, 2>::from_fn([n, m], |idx| {
+///     let phase = 2.0 * PI * (idx[0] * idx[1]) as f64 / n as f64;
+///     Complex::from_polar(1.0 / (n as f64).sqrt(), phase)
+/// });
+/// // The (sorted) frequencies only label the rows here; the matrix is given explicitly
+/// let freqs = (0..n as i64).map(|i| FermionicFreq::new(2 * i + 1).unwrap()).collect();
+/// let sampling = MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(freqs, matrix);
 ///
 /// let coeffs = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-/// let values = fitter.evaluate(&coeffs);  // → Vec<Complex<f64>>
-/// let fitted_coeffs = fitter.fit(&values);  // ← Vec<Complex<f64>>, → Vec<f64>
+/// let values = sampling.evaluate(&coeffs); // → Vec<Complex<f64>>
+/// let fitted_coeffs = sampling.fit(&values); // ← Vec<Complex<f64>>, → Vec<f64>
+/// for (c, f) in coeffs.iter().zip(&fitted_coeffs) {
+///     assert!((c - f).abs() < 1e-12);
+/// }
 /// ```
 pub(crate) struct ComplexToRealFitter {
     // A_real ∈ R^{2n×m}: flattened complex matrix (for fit)
@@ -197,6 +219,19 @@ impl ComplexToRealFitter {
     /// Number of basis functions (coefficients)
     pub fn basis_size(&self) -> usize {
         self.matrix_real.shape().1
+    }
+
+    /// Condition number `σ_max / σ_min` of the real least-squares problem that
+    /// [`Self::fit`] solves
+    ///
+    /// Computed from the singular values of `matrix_real` (2n × m), not of the
+    /// complex n × m `matrix`. `matrix_real` interleaves the rows of
+    /// `[Re A; Im A]`; a row permutation leaves singular values unchanged, so
+    /// this is also the condition number of the stacked `[Re A; Im A]`.
+    /// Uses the SVD that fitting uses (computed on first use, then cached).
+    /// See [`condition_number_from_singular_values`] for edge cases.
+    pub fn condition_number(&self) -> f64 {
+        condition_number_from_singular_values(&self.get_svd().svd.s)
     }
 
     /// Evaluate: coeffs (real) → values (complex)

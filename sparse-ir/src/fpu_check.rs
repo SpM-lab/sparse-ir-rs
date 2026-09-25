@@ -14,7 +14,9 @@
 //!
 //! The [`FpuGuard`] RAII guard automatically saves, corrects, and restores FPU state:
 //!
-//! ```ignore
+//! ```
+//! use sparse_ir::fpu_check::FpuGuard;
+//!
 //! let _guard = FpuGuard::new_protect_computation();
 //! // Computation here - FZ/DAZ are disabled
 //! // FPU state is automatically restored when _guard is dropped
@@ -178,12 +180,20 @@ pub fn init_fpu_check() {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```
+/// use sparse_ir::fpu_check::{FpuGuard, get_fpu_state};
+///
+/// let before = get_fpu_state();
 /// {
 ///     let _guard = FpuGuard::new_protect_computation();
 ///     // Computation here - FZ/DAZ are disabled
-///     perform_svd_computation();
+///     assert!(!get_fpu_state().is_dangerous());
+///     let subnormal = std::hint::black_box(f64::MIN_POSITIVE) / 2.0;
+///     assert!(subnormal > 0.0); // not flushed to zero
 /// } // Original FPU state is restored here
+/// let after = get_fpu_state();
+/// assert_eq!(after.flush_to_zero, before.flush_to_zero);
+/// assert_eq!(after.denormals_are_zero, before.denormals_are_zero);
 /// ```
 ///
 /// # Performance

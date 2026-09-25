@@ -294,6 +294,29 @@ impl ComplexSVD {
     }
 }
 
+/// Condition number `σ_max / σ_min` from the singular values of a fitting matrix
+///
+/// Conventions shared by the `condition_number` methods of all samplings and
+/// by `spir_sampling_get_cond_num`:
+/// - `f64::INFINITY` if `σ_min < 1e-15` (numerically singular matrix);
+/// - `1.0` if there are no singular values (a matrix with a zero dimension);
+/// - `NaN` if any singular value is NaN, so a failed decomposition never
+///   yields a plausible finite value.
+pub(crate) fn condition_number_from_singular_values(s: &[f64]) -> f64 {
+    if s.is_empty() {
+        return 1.0;
+    }
+    if s.iter().any(|x| x.is_nan()) {
+        return f64::NAN;
+    }
+    let s_max = s.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let s_min = s.iter().copied().fold(f64::INFINITY, f64::min);
+    if s_min.abs() < 1e-15 {
+        return f64::INFINITY;
+    }
+    s_max / s_min
+}
+
 // ============================================================================
 // SVD computation functions
 // ============================================================================
