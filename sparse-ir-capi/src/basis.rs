@@ -58,7 +58,7 @@ pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
 /// * `beta` - Inverse temperature (must be > 0)
 /// * `omega_max` - Frequency cutoff (must be > 0)
 /// * `epsilon` - Accuracy target (must be > 0)
-/// * `k` - Kernel object (can be NULL if sve is provided)
+/// * `k` - Kernel object (required; its Λ must equal beta * omega_max)
 /// * `sve` - Pre-computed SVE result (can be NULL, will compute if needed)
 /// * `max_size` - Maximum basis size (-1 for no limit)
 /// * `status` - Pointer to store status code
@@ -560,6 +560,11 @@ pub extern "C" fn spir_basis_get_n_default_taus(
 
 /// Get default tau sampling points
 ///
+/// The points are the roots of the first discarded basis function u_L (the
+/// extrema of u_{L-1} when u_L is not available), sorted and in (-β/2, β/2]; a
+/// negative point τ stands for τ + β with the sign of the statistics (see
+/// `spir_funcs_eval`).
+///
 /// # Arguments
 /// * `b` - Basis object
 /// * `points` - Pre-allocated array to store tau points
@@ -591,7 +596,8 @@ pub extern "C" fn spir_basis_get_default_taus(
 ///
 /// # Arguments
 /// * `b` - Basis object
-/// * `positive_only` - If true, return only positive frequencies
+/// * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
+///   sets include n = 0)
 /// * `num_points` - Pointer to store the number of points
 ///
 /// # Returns
@@ -622,8 +628,10 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 ///
 /// # Arguments
 /// * `b` - Basis object
-/// * `positive_only` - If true, return only positive frequencies
-/// * `points` - Pre-allocated array to store Matsubara indices
+/// * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
+///   sets include n = 0)
+/// * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
+///   (iν = iπn/β)
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success

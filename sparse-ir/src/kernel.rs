@@ -178,7 +178,9 @@ pub trait CentrosymmKernel: AbstractKernel {
     fn lambda(&self) -> f64;
 }
 
-/// Logistic kernel for fermionic analytical continuation
+/// Logistic kernel for fermionic and bosonic analytical continuation
+///
+/// For bosons the spectral function is divided by the regularizer tanh(βω/2).
 ///
 /// This kernel implements K(x, y) = exp(-Λy(x + 1)/2)/(1 + exp(-Λy))
 /// where x ∈ [-1, 1] and y ∈ [-1, 1]

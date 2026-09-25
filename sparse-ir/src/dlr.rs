@@ -65,7 +65,7 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 ///
 /// Supports extended τ ranges with anti-periodic boundary conditions:
 /// - G(τ + β) = -G(τ) (fermionic anti-periodicity)
-/// - Valid for τ ∈ (-β, 2β)
+/// - Valid for τ ∈ [-β, β]
 ///
 /// # Arguments
 /// * `tau` - Imaginary time (can be outside [0, β))
@@ -107,7 +107,7 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 ///
 /// Supports extended τ ranges with periodic boundary conditions:
 /// - G(τ + β) = G(τ) (bosonic periodicity)
-/// - Valid for τ ∈ (-β, 2β)
+/// - Valid for τ ∈ [-β, β]
 ///
 /// # Arguments
 /// * `tau` - Imaginary time (can be outside [0, β))
@@ -141,7 +141,7 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 
 /// Generic single-pole Green's function at Matsubara frequency
 ///
-/// Computes G(iωn) = 1/(iωn - ω) for a single pole at frequency ω.
+/// Computes G(iν) = 1/(iν - ω) for a single pole at frequency ω.
 ///
 /// # Type Parameters
 /// * `S` - Statistics type (Fermionic or Bosonic)
@@ -152,13 +152,13 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// * `beta` - Inverse temperature
 ///
 /// # Returns
-/// Complex-valued Green's function G(iωn)
+/// Complex-valued Green's function G(iν)
 pub fn giwn_single_pole<S: StatisticsType>(
     matsubara_freq: &MatsubaraFreq<S>,
     omega: f64,
     beta: f64,
 ) -> Complex<f64> {
-    // G(iωn) = 1/(iωn - ω)
+    // G(iν) = 1/(iν - ω)
     let wn = matsubara_freq.value(beta);
     let denominator = Complex::new(0.0, 1.0) * wn - Complex::new(omega, 0.0);
     Complex::new(1.0, 0.0) / denominator
@@ -634,7 +634,7 @@ where
             let pole = self.poles[idx[1]];
             let pole_weight = self.pole_weights[idx[1]];
 
-            // iν = i * π * (2n + ζ) / β
+            // iν = iπn/β with the reduced frequency n
             let iv = freq.value_imaginary(self.beta);
 
             // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the

@@ -60,7 +60,8 @@ pub struct MatsubaraSampling<S: StatisticsType> {
 impl<S: StatisticsType> MatsubaraSampling<S> {
     /// Create Matsubara sampling with default sampling points
     ///
-    /// Uses extrema-based sampling point selection (symmetric: positive and negative frequencies).
+    /// Uses the default sampling points of the basis (symmetric: positive and
+    /// negative frequencies).
     pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Self
     where
         S: 'static,
@@ -694,10 +695,10 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSampling<S> {
     }
 }
 
-/// Matsubara sampling for positive frequencies only
+/// Matsubara sampling for non-negative frequencies only
 ///
-/// Exploits symmetry to reconstruct real coefficients from positive frequencies only.
-/// Supports: {0, 1, 2, 3, ...} (no negative frequencies)
+/// Exploits symmetry to reconstruct real coefficients from non-negative frequencies only.
+/// Supports reduced frequencies n ≥ 0 (no negative frequencies)
 pub struct MatsubaraSamplingPositiveOnly<S: StatisticsType> {
     sampling_points: Vec<MatsubaraFreq<S>>,
     fitter: ComplexToRealFitter,
@@ -707,7 +708,7 @@ pub struct MatsubaraSamplingPositiveOnly<S: StatisticsType> {
 impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// Create Matsubara sampling with default positive-only sampling points
     ///
-    /// Uses extrema-based sampling point selection (positive frequencies only).
+    /// Uses the default sampling points of the basis (non-negative frequencies only).
     /// Exploits symmetry to reconstruct real coefficients.
     pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Self
     where
@@ -751,10 +752,10 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// Create Matsubara sampling (positive-only) with custom sampling points and pre-computed matrix
     ///
     /// This constructor is useful when the sampling matrix is already computed.
-    /// Uses symmetry to fit real coefficients from complex values at positive frequencies.
+    /// Uses symmetry to fit real coefficients from complex values at non-negative frequencies.
     ///
     /// # Arguments
-    /// * `sampling_points` - Matsubara frequency sampling points (should be positive)
+    /// * `sampling_points` - Matsubara frequency sampling points (must be non-negative)
     /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size)
     ///
     /// # Returns

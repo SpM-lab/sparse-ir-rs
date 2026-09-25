@@ -46,7 +46,7 @@ fn is_odd_period(tau: f64, beta: f64) -> bool {
 ///
 /// # Boundary Interpretation
 /// * `β` is interpreted as `β-` (left limit at β): `tau == beta` stays in normal range
-/// * `-β` wraps to 0 for bosons, or to β with sign flip for fermions
+/// * `-β` is read as (-β)⁺ and maps to (0, 1.0) for bosons and (0, -1.0) for fermions
 /// * `-0.0` (negative zero) is treated as being in the odd period for fermions
 ///
 /// # Special Cases

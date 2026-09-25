@@ -105,8 +105,9 @@ where
 {
     /// Create a new TauSampling with default sampling points
     ///
-    /// The default sampling points are chosen as the extrema of the highest-order
-    /// basis function, which gives near-optimal conditioning.
+    /// The default sampling points are the roots of the first discarded basis
+    /// function u_L (the extrema of u_{L-1} when u_L is not available), which
+    /// gives near-optimal conditioning.
     /// SVD is computed lazily on first call to `fit` or `fit_nd`.
     ///
     /// # Arguments

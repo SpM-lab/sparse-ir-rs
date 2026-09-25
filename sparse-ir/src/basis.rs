@@ -25,7 +25,7 @@ pub enum Statistics {
 /// value expansion or IR basis:
 ///
 /// ```text
-/// K(τ, ω) ≈ sum(u[l](τ) * s[l] * v[l](ω) for l in 1:L)
+/// K(τ, ω) ≈ sum(u[l](τ) * s[l] * v[l](ω) for l in 0..L)
 /// ```
 ///
 /// This basis is inferred from a reduced form by appropriate scaling of
@@ -373,8 +373,9 @@ where
 
     /// Get default Matsubara frequency sampling points
     ///
-    /// Returns sampling points as MatsubaraFreq objects based on extrema
-    /// of the Matsubara basis functions (same algorithm as C++/Julia).
+    /// Returns sampling points as MatsubaraFreq objects: the sign changes of the
+    /// first discarded Matsubara basis function (its extrema when that function
+    /// is not available); bosonic sets always include n = 0.
     ///
     /// # Arguments
     /// * `positive_only` - If true, returns only non-negative frequencies
@@ -681,7 +682,7 @@ where
         let basis_size = self.size();
 
         // Evaluate each basis function at all Matsubara frequencies
-        // Result: matrix[i, l] = uhat_l(iωn[i])
+        // Result: matrix[i, l] = uhat_l(iν[i])
         DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
             let i = idx[0]; // frequency index
             let l = idx[1]; // basis function index

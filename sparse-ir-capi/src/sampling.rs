@@ -1,7 +1,7 @@
 //! Sampling API for C
 //!
 //! This module provides the C API for sparse sampling in imaginary time (τ),
-//! Matsubara frequency (iωn), and real frequency (ω) domains.
+//! Matsubara frequency (iν), and real frequency (ω) domains.
 //!
 //! Functions:
 //! - Creation: spir_tau_sampling_new, spir_matsu_sampling_new, ...
@@ -76,7 +76,8 @@ pub extern "C" fn spir_sampling_is_assigned(obj: *const spir_sampling) -> i32 {
 /// # Arguments
 /// * `b` - Pointer to a finite temperature basis object
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of sampling points in imaginary time (τ)
+/// * `points` - Array of sampling points in imaginary time τ ∈ [-β, β], read as
+///   in `spir_funcs_eval` (e.g. -0.0 is 0⁻)
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
@@ -185,9 +186,11 @@ pub extern "C" fn spir_tau_sampling_new(
 ///
 /// # Arguments
 /// * `b` - Pointer to a finite temperature basis object
-/// * `positive_only` - If true, only positive frequencies are used
+/// * `positive_only` - If true, the points must be non-negative (n ≥ 0) and the
+///   IR coefficients are real, i.e. G(-iν) = conj(G(iν))
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of Matsubara frequency indices (n)
+/// * `points` - Array of reduced Matsubara frequencies n (iν = iπn/β; odd for
+///   fermions, even for bosons)
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
@@ -437,9 +440,11 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
 /// * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
 /// * `basis_size` - Basis size
-/// * `positive_only` - If true, only positive frequencies are used
+/// * `positive_only` - If true, the points must be non-negative (n ≥ 0) and the
+///   IR coefficients are real, i.e. G(-iν) = conj(G(iν))
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of Matsubara frequency indices (n)
+/// * `points` - Array of reduced Matsubara frequencies n (iν = iπn/β; odd for
+///   fermions, even for bosons)
 /// * `matrix` - Pre-computed complex matrix (num_points x basis_size)
 /// * `status` - Pointer to store the status code
 ///

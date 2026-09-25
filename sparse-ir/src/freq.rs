@@ -12,9 +12,10 @@ use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 
 /// Matsubara frequency for a specific statistics type
 ///
-/// This represents a Matsubara frequency ω_n = (2n + ζ)π/β where:
-/// - n is the Matsubara index (integer)
-/// - ζ is the statistics parameter (1 for fermionic, 0 for bosonic)
+/// This represents a Matsubara frequency ν = nπ/β, where:
+/// - n is the reduced frequency stored in the struct: odd for fermions and
+///   even for bosons, i.e. n = 2m + ζ with an integer m and ζ = 1 (fermionic)
+///   or 0 (bosonic)
 /// - β is the inverse temperature
 ///
 /// The statistics type S is checked at compile time to ensure type safety.
