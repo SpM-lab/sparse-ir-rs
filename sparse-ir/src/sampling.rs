@@ -220,6 +220,21 @@ where
         &self.fitter.matrix
     }
 
+    /// Condition number of the sampling matrix, which fitting solves with
+    ///
+    /// Returns `σ_max / σ_min`, the ratio of the largest to the smallest of the
+    /// `min(n_sampling_points, basis_size)` singular values of the real
+    /// `n_sampling_points × basis_size` matrix [`Self::matrix`]. It bounds how
+    /// much [`Self::fit`] can amplify relative errors in the values.
+    ///
+    /// Returns `f64::INFINITY` if the smallest singular value is below `1e-15`
+    /// (numerically singular matrix). The singular value decomposition is the
+    /// one fitting uses: it is computed by the first call to this method or to
+    /// a fit, then cached.
+    pub fn condition_number(&self) -> f64 {
+        self.fitter.condition_number()
+    }
+
     // ========================================================================
     // 1D functions (real and complex)
     // ========================================================================

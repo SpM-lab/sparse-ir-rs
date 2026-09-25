@@ -12,7 +12,9 @@ use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::sync::OnceLock;
 
-use super::common::{InplaceFitter, RealSVD, compute_real_svd};
+use super::common::{
+    InplaceFitter, RealSVD, compute_real_svd, condition_number_from_singular_values,
+};
 
 // ============================================================================
 // Helper functions for efficient interleave/deinterleave
@@ -197,6 +199,19 @@ impl ComplexToRealFitter {
     /// Number of basis functions (coefficients)
     pub fn basis_size(&self) -> usize {
         self.matrix_real.shape().1
+    }
+
+    /// Condition number `σ_max / σ_min` of the real least-squares problem that
+    /// [`Self::fit`] solves
+    ///
+    /// Computed from the singular values of `matrix_real` (2n × m), not of the
+    /// complex n × m `matrix`. `matrix_real` interleaves the rows of
+    /// `[Re A; Im A]`; a row permutation leaves singular values unchanged, so
+    /// this is also the condition number of the stacked `[Re A; Im A]`.
+    /// Uses the SVD that fitting uses (computed on first use, then cached).
+    /// See [`condition_number_from_singular_values`] for edge cases.
+    pub fn condition_number(&self) -> f64 {
+        condition_number_from_singular_values(&self.get_svd().svd.s)
     }
 
     /// Evaluate: coeffs (real) → values (complex)
