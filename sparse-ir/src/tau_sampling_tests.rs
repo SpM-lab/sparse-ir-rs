@@ -653,3 +653,32 @@ fn test_evaluate_nd_to_dim_last() {
         }
     }
 }
+
+/// TauSampling reports the condition number of its real sampling matrix
+fn check_tau_condition_number<S: StatisticsType + 'static>() {
+    use crate::test_utils::{assert_condition_number_close, oracle_condition_number};
+
+    let (beta, wmax, epsilon) = (10.0, 1.0, 1e-6);
+    let kernel = LogisticKernel::new(beta * wmax);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let sampling = TauSampling::new(&basis);
+
+    let oracle = oracle_condition_number(sampling.matrix());
+    let label = format!(
+        "tau {:?}, beta={beta}, wmax={wmax}, eps={epsilon:e}, L={}, n={}",
+        S::STATISTICS,
+        basis.size(),
+        sampling.n_sampling_points()
+    );
+    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+}
+
+#[test]
+fn test_tau_condition_number_fermionic() {
+    check_tau_condition_number::<Fermionic>();
+}
+
+#[test]
+fn test_tau_condition_number_bosonic() {
+    check_tau_condition_number::<Bosonic>();
+}

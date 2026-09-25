@@ -154,6 +154,21 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         &self.fitter.matrix
     }
 
+    /// Condition number of the sampling matrix, which fitting solves with
+    ///
+    /// Returns `σ_max / σ_min`, the ratio of the largest to the smallest of the
+    /// `min(n_sampling_points, basis_size)` singular values of the complex
+    /// `n_sampling_points × basis_size` matrix [`Self::matrix`]. It bounds how
+    /// much [`Self::fit`] can amplify relative errors in the values.
+    ///
+    /// Returns `f64::INFINITY` if the smallest singular value is below `1e-15`
+    /// (numerically singular matrix). The singular value decomposition is the
+    /// one fitting uses: it is computed by the first call to this method or to
+    /// a fit, then cached.
+    pub fn condition_number(&self) -> f64 {
+        self.fitter.condition_number()
+    }
+
     /// Evaluate complex basis coefficients at sampling points
     ///
     /// # Arguments
@@ -806,6 +821,27 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// Get the original complex sampling matrix
     pub fn matrix(&self) -> &DTensor<Complex<f64>, 2> {
         &self.fitter.matrix
+    }
+
+    /// Condition number of the real least-squares problem that fitting solves
+    ///
+    /// Fitting real coefficients `x` to complex values `g` at non-negative
+    /// frequencies solves `[Re A; Im A] x = [Re g; Im g]`, where `A` is the
+    /// complex `n_sampling_points × basis_size` matrix [`Self::matrix`]. This
+    /// returns `σ_max / σ_min`, the ratio of the largest to the smallest of the
+    /// `min(2 n_sampling_points, basis_size)` singular values of that real
+    /// `2 n_sampling_points × basis_size` matrix; it bounds how much
+    /// [`Self::fit`] can amplify relative errors in the values. It is not the
+    /// condition number of `A`: with `n_sampling_points ≈ basis_size / 2`, `A`
+    /// is wide, and its condition number can understate that amplification by
+    /// orders of magnitude.
+    ///
+    /// Returns `f64::INFINITY` if the smallest singular value is below `1e-15`
+    /// (numerically singular matrix). The singular value decomposition is the
+    /// one fitting uses: it is computed by the first call to this method or to
+    /// a fit, then cached.
+    pub fn condition_number(&self) -> f64 {
+        self.fitter.condition_number()
     }
 
     /// Evaluate basis coefficients at sampling points

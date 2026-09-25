@@ -9,8 +9,9 @@ use num_complex::Complex;
 use std::sync::OnceLock;
 
 use super::common::{
-    ComplexSVD, InplaceFitter, combine_complex, compute_complex_svd, copy_from_contiguous,
-    extract_real_parts_coeffs, make_perm_to_front,
+    ComplexSVD, InplaceFitter, combine_complex, compute_complex_svd,
+    condition_number_from_singular_values, copy_from_contiguous, extract_real_parts_coeffs,
+    make_perm_to_front,
 };
 
 /// Fitter for complex matrix with complex coefficients: A ∈ C^{n×m}
@@ -104,6 +105,15 @@ impl ComplexMatrixFitter {
     /// Number of basis functions (coefficients)
     pub fn basis_size(&self) -> usize {
         self.matrix.shape().1
+    }
+
+    /// Condition number `σ_max / σ_min` of the complex `matrix`, which
+    /// [`Self::fit`] solves with
+    ///
+    /// Uses the SVD that fitting uses (computed on first use, then cached).
+    /// See [`condition_number_from_singular_values`] for edge cases.
+    pub fn condition_number(&self) -> f64 {
+        condition_number_from_singular_values(&self.get_svd().svd.s)
     }
 
     /// Evaluate: coeffs (complex) → values (complex)

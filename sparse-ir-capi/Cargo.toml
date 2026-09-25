@@ -27,10 +27,6 @@ sparse-ir.workspace = true
 # Array library (for Shape trait)
 mdarray.workspace = true
 
-# Linear algebra for SVD computation (condition number)
-mdarray-linalg.workspace = true
-mdarray-linalg-faer.workspace = true
-
 # Error code type
 libc.workspace = true
 

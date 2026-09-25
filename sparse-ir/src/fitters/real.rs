@@ -8,7 +8,7 @@ use mdarray::{DTensor, DView, DynRank, Shape, Slice, ViewMut};
 use num_complex::Complex;
 use std::sync::OnceLock;
 
-use super::common::{RealSVD, compute_real_svd};
+use super::common::{RealSVD, compute_real_svd, condition_number_from_singular_values};
 
 /// Fitter for real matrix: A ∈ R^{n×m}
 ///
@@ -67,6 +67,14 @@ impl RealMatrixFitter {
     /// Number of basis functions (coefficients)
     pub fn basis_size(&self) -> usize {
         self.matrix.shape().1
+    }
+
+    /// Condition number `σ_max / σ_min` of `matrix`, which [`Self::fit`] solves with
+    ///
+    /// Uses the SVD that fitting uses (computed on first use, then cached).
+    /// See [`condition_number_from_singular_values`] for edge cases.
+    pub fn condition_number(&self) -> f64 {
+        condition_number_from_singular_values(&self.get_svd().s)
     }
 
     /// Evaluate: coeffs (real) → values (real)

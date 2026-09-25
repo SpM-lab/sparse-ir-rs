@@ -283,3 +283,85 @@ where
 
     (coeffs, gtau_values, giwn_values)
 }
+
+// ============================================================================
+// Condition-number oracle
+// ============================================================================
+
+/// Condition number `σ_max / σ_min` of a real matrix, as an independent oracle
+///
+/// The singular values are computed in double-double precision by the
+/// nalgebra-based [`crate::tsvd::compute_svd_dtensor`], which shares no code
+/// with the faer SVD that the fitters (and so the samplings' `condition_number`)
+/// use.
+pub fn oracle_condition_number(matrix: &mdarray::DTensor<f64, 2>) -> f64 {
+    use crate::Df64;
+    use crate::numeric::CustomNumeric;
+
+    let (rows, cols) = *matrix.shape();
+    let a = mdarray::DTensor::<Df64, 2>::from_fn([rows, cols], |idx| Df64::from(matrix[idx]));
+    let (_, s, _) = crate::tsvd::compute_svd_dtensor(&a);
+    // compute_svd_dtensor truncates below 2 eps_Df64 * σ_max; it must not have
+    // dropped a singular value, or s_min below would not be σ_min.
+    assert_eq!(
+        s.len(),
+        rows.min(cols),
+        "oracle SVD dropped a singular value"
+    );
+    let (mut s_max, mut s_min) = (s[0], s[0]);
+    for &x in &s[1..] {
+        if x > s_max {
+            s_max = x;
+        }
+        if x < s_min {
+            s_min = x;
+        }
+    }
+    (s_max / s_min).to_f64()
+}
+
+/// `[Re A; Im A]` (2n × m) of a complex n × m matrix `A`: the matrix of the
+/// real least-squares problem `[Re A; Im A] x = [Re g; Im g]`
+pub fn stack_re_im(a: &mdarray::DTensor<Complex<f64>, 2>) -> mdarray::DTensor<f64, 2> {
+    let (n, m) = *a.shape();
+    mdarray::DTensor::<f64, 2>::from_fn([2 * n, m], |idx| {
+        let z = a[[idx[0] % n, idx[1]]];
+        if idx[0] < n { z.re } else { z.im }
+    })
+}
+
+/// Real embedding `[[Re A, -Im A], [Im A, Re A]]` (2n × 2m) of a complex n × m
+/// matrix `A`; it has the singular values of `A`, each twice, and so the
+/// condition number of `A`
+pub fn realify(a: &mdarray::DTensor<Complex<f64>, 2>) -> mdarray::DTensor<f64, 2> {
+    let (n, m) = *a.shape();
+    mdarray::DTensor::<f64, 2>::from_fn([2 * n, 2 * m], |idx| {
+        let z = a[[idx[0] % n, idx[1] % m]];
+        match (idx[0] < n, idx[1] < m) {
+            (true, true) | (false, false) => z.re,
+            (true, false) => -z.im,
+            (false, true) => z.im,
+        }
+    })
+}
+
+/// Assert that a condition number equals the oracle value
+///
+/// Tolerance: a backward-stable SVD returns every singular value with an
+/// absolute error O(eps_mach σ_max), so σ_min, and with it κ = σ_max / σ_min,
+/// carries a relative error O(eps_mach κ). The factor 100 covers the
+/// dimension-dependent constant of the f64 SVD behind `value` (the
+/// double-double oracle is exact at this level); the 1e-12 floor covers
+/// κ = O(1).
+pub fn assert_condition_number_close(label: &str, value: f64, oracle: f64) {
+    let rtol = (100.0 * f64::EPSILON * oracle).max(1e-12);
+    let rel_err = (value - oracle).abs() / oracle;
+    println!(
+        "{label}: condition number {value:.6e}, oracle {oracle:.6e}, relative error {rel_err:.3e} (bound {rtol:.3e})"
+    );
+    assert!(
+        rel_err <= rtol,
+        "{label}: condition number {value:.6e}, oracle {oracle:.6e}, \
+         relative error {rel_err:.3e} > {rtol:.3e}"
+    );
+}

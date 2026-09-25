@@ -1786,8 +1786,6 @@ dependencies = [
  "blas-sys",
  "libc",
  "mdarray",
- "mdarray-linalg",
- "mdarray-linalg-faer",
  "num-complex",
  "paste",
  "rstest",

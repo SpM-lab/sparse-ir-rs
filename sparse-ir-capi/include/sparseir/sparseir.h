@@ -1551,11 +1551,27 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  StatusCode spir_sampling_get_matsus(const struct spir_sampling *s, int64_t *points);
 
 /**
- * Gets the condition number of the sampling matrix.
+ * Gets the condition number of the least-squares problem that fitting solves.
  *
- * This function returns the condition number of the sampling matrix used in the
- * specified sampling object. The condition number is a measure of how well-
- * conditioned the sampling matrix is.
+ * Stores in `*cond_num` the ratio σ_max / σ_min of the largest to the smallest
+ * of the min(rows, columns) singular values of the matrix that the fit
+ * functions (`spir_sampling_fit_dd`, `spir_sampling_fit_zz`,
+ * `spir_sampling_fit_zd`) solve with. Let `A` be the `n_points × basis_size`
+ * sampling matrix: `A[i, l]` is basis function `l` at sampling point `i`, or
+ * `A` is the matrix passed to `spir_tau_sampling_new_with_matrix` or
+ * `spir_matsu_sampling_new_with_matrix`. The matrix the fit solves with is:
+ *
+ * - τ sampling: the real matrix `A`.
+ * - Matsubara sampling with `positive_only = false`: the complex matrix `A`.
+ * - Matsubara sampling with `positive_only = true`: the real
+ *   `2 n_points × basis_size` matrix `[Re A; Im A]` of the real least-squares
+ *   problem `[Re A; Im A] x = [Re g; Im g]` that the fit solves for real
+ *   coefficients `x`. This is not the condition number of the complex matrix
+ *   `A`: with `n_points ≈ basis_size / 2`, `A` is wide, and its condition
+ *   number can understate the error amplification of the fit by orders of
+ *   magnitude.
+ *
+ * The value bounds how much fitting can amplify relative errors in the values.
  *
  * # Parameters
  * - `s`: Pointer to the sampling object.
@@ -1564,13 +1580,18 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  * # Returns
  * An integer status code:
  * - 0 (`SPIR_COMPUTATION_SUCCESS`) on success
- * - Non-zero error code on failure
+ * - `SPIR_INVALID_ARGUMENT` if `s` or `cond_num` is null; `*cond_num` is not
+ *   written
+ * - `SPIR_INTERNAL_ERROR` if an internal error occurs
  *
  * # Notes
- * - A large condition number indicates that the sampling matrix is ill-conditioned,
- *   which may lead to numerical instability in transformations.
- * - The condition number is the ratio of the largest to smallest singular value
- *   of the sampling matrix.
+ * - A large condition number indicates that the sampling problem is
+ *   ill-conditioned, which may lead to numerical instability in fitting.
+ * - `+inf` is stored if the smallest singular value is below 1e-15
+ *   (numerically singular matrix).
+ * - The singular value decomposition is the one the fit functions use: it is
+ *   computed once per sampling object (shared with its clones), by the first
+ *   call to this function or to a fit function, and then reused.
  */
  StatusCode spir_sampling_get_cond_num(const struct spir_sampling *s, double *cond_num);
 

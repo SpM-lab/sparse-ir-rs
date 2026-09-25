@@ -880,11 +880,27 @@ pub extern "C" fn spir_sampling_get_matsus(
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
 }
 
-/// Gets the condition number of the sampling matrix.
+/// Gets the condition number of the least-squares problem that fitting solves.
 ///
-/// This function returns the condition number of the sampling matrix used in the
-/// specified sampling object. The condition number is a measure of how well-
-/// conditioned the sampling matrix is.
+/// Stores in `*cond_num` the ratio σ_max / σ_min of the largest to the smallest
+/// of the min(rows, columns) singular values of the matrix that the fit
+/// functions (`spir_sampling_fit_dd`, `spir_sampling_fit_zz`,
+/// `spir_sampling_fit_zd`) solve with. Let `A` be the `n_points × basis_size`
+/// sampling matrix: `A[i, l]` is basis function `l` at sampling point `i`, or
+/// `A` is the matrix passed to `spir_tau_sampling_new_with_matrix` or
+/// `spir_matsu_sampling_new_with_matrix`. The matrix the fit solves with is:
+///
+/// - τ sampling: the real matrix `A`.
+/// - Matsubara sampling with `positive_only = false`: the complex matrix `A`.
+/// - Matsubara sampling with `positive_only = true`: the real
+///   `2 n_points × basis_size` matrix `[Re A; Im A]` of the real least-squares
+///   problem `[Re A; Im A] x = [Re g; Im g]` that the fit solves for real
+///   coefficients `x`. This is not the condition number of the complex matrix
+///   `A`: with `n_points ≈ basis_size / 2`, `A` is wide, and its condition
+///   number can understate the error amplification of the fit by orders of
+///   magnitude.
+///
+/// The value bounds how much fitting can amplify relative errors in the values.
 ///
 /// # Parameters
 /// - `s`: Pointer to the sampling object.
@@ -893,13 +909,18 @@ pub extern "C" fn spir_sampling_get_matsus(
 /// # Returns
 /// An integer status code:
 /// - 0 (`SPIR_COMPUTATION_SUCCESS`) on success
-/// - Non-zero error code on failure
+/// - `SPIR_INVALID_ARGUMENT` if `s` or `cond_num` is null; `*cond_num` is not
+///   written
+/// - `SPIR_INTERNAL_ERROR` if an internal error occurs
 ///
 /// # Notes
-/// - A large condition number indicates that the sampling matrix is ill-conditioned,
-///   which may lead to numerical instability in transformations.
-/// - The condition number is the ratio of the largest to smallest singular value
-///   of the sampling matrix.
+/// - A large condition number indicates that the sampling problem is
+///   ill-conditioned, which may lead to numerical instability in fitting.
+/// - `+inf` is stored if the smallest singular value is below 1e-15
+///   (numerically singular matrix).
+/// - The singular value decomposition is the one the fit functions use: it is
+///   computed once per sampling object (shared with its clones), by the first
+///   call to this function or to a fit function, and then reused.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_get_cond_num(
     s: *const spir_sampling,
@@ -912,37 +933,15 @@ pub extern "C" fn spir_sampling_get_cond_num(
 
         let sampling_ref = unsafe { &*s };
 
-        // Calculate condition number from SVD of the sampling matrix
+        // The core reports the condition number of the matrix its fitter
+        // solves with, from the SVD it caches for fitting.
         let condition_number = match sampling_ref.inner() {
-            SamplingType::TauFermionic(tau) => {
-                // For tau sampling, matrix is real
-                let matrix = tau.matrix();
-                compute_condition_number_real(matrix)
-            }
-            SamplingType::TauBosonic(tau) => {
-                // For tau sampling, matrix is real
-                let matrix = tau.matrix();
-                compute_condition_number_real(matrix)
-            }
-            SamplingType::MatsubaraFermionic(matsu) => {
-                // For Matsubara sampling, matrix is complex
-                let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
-            }
-            SamplingType::MatsubaraBosonic(matsu) => {
-                let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
-            }
-            SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => {
-                // For positive-only Matsubara, use the complex matrix
-                // The fitter uses ComplexToRealFitter internally, but we can use the complex matrix
-                let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
-            }
-            SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => {
-                let matrix = matsu.matrix();
-                compute_condition_number_complex(matrix)
-            }
+            SamplingType::TauFermionic(tau) => tau.condition_number(),
+            SamplingType::TauBosonic(tau) => tau.condition_number(),
+            SamplingType::MatsubaraFermionic(matsu) => matsu.condition_number(),
+            SamplingType::MatsubaraBosonic(matsu) => matsu.condition_number(),
+            SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => matsu.condition_number(),
+            SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => matsu.condition_number(),
         };
 
         unsafe {
@@ -952,57 +951,6 @@ pub extern "C" fn spir_sampling_get_cond_num(
     }));
 
     result.unwrap_or(crate::SPIR_INTERNAL_ERROR)
-}
-
-/// Compute condition number from real matrix using SVD
-fn compute_condition_number_real(matrix: &mdarray::DTensor<f64, 2>) -> f64 {
-    use mdarray_linalg::prelude::SVD;
-    use mdarray_linalg::svd::SVDDecomp;
-    use mdarray_linalg_faer::Faer;
-
-    let mut matrix_copy = matrix.clone();
-    let SVDDecomp { s, .. } = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
-
-    let min_dim = s.shape().0.min(s.shape().1);
-    if min_dim == 0 {
-        return 1.0;
-    }
-
-    let max_sv = s[[0, 0]];
-    let min_sv = s[[0, min_dim - 1]];
-
-    if min_sv.abs() < 1e-15 {
-        // Matrix is singular or nearly singular
-        return f64::INFINITY;
-    }
-
-    max_sv / min_sv
-}
-
-/// Compute condition number from complex matrix using SVD
-fn compute_condition_number_complex(matrix: &mdarray::DTensor<num_complex::Complex64, 2>) -> f64 {
-    use mdarray_linalg::prelude::SVD;
-    use mdarray_linalg::svd::SVDDecomp;
-    use mdarray_linalg_faer::Faer;
-
-    let mut matrix_copy = matrix.clone();
-    let SVDDecomp { s, .. } = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
-
-    let min_dim = s.shape().0.min(s.shape().1);
-    if min_dim == 0 {
-        return 1.0;
-    }
-
-    // Singular values are real (stored as Complex, but imaginary part is 0)
-    let max_sv = s[[0, 0]].re;
-    let min_sv = s[[0, min_dim - 1]].re;
-
-    if min_sv.abs() < 1e-15 {
-        // Matrix is singular or nearly singular
-        return f64::INFINITY;
-    }
-
-    max_sv / min_sv
 }
 
 // ============================================================================
