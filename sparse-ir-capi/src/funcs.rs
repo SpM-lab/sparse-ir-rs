@@ -904,7 +904,11 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// - SPIR_INVALID_ARGUMENT if points_capacity is smaller than the number of
 ///   points; `points` is left untouched and `*n_points_total` is set to the
 ///   required number
-/// - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function
+/// - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function, or if its
+///   functions have no definite parity, as those of a basis built on an SVE
+///   from `spir_sve_result_from_matrix` (not centrosymmetric): the default
+///   points are chosen by the parity of a basis function and are not defined
+///   then. Nothing is written.
 ///
 /// # Note
 /// This function is only available for spir_funcs objects representing Matsubara-space basis functions
@@ -923,7 +927,7 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     points: *mut i64,
     n_points_total: *mut libc::c_int,
 ) -> crate::StatusCode {
-    use crate::types::FuncsType;
+    use crate::types::{FuncsType, has_definite_parity};
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -947,6 +951,17 @@ pub extern "C" fn spir_uhat_get_default_matsus(
         let points_vec: Vec<i64> = match inner {
             FuncsType::FTVector(ft_funcs) => {
                 let l_usize = basis_size as usize;
+
+                // The default points need functions of definite parity (#183);
+                // detect their absence here instead of letting the core panic.
+                let parity = match (&ft_funcs.ft_fermionic, &ft_funcs.ft_bosonic) {
+                    (Some(ft), _) => has_definite_parity(ft),
+                    (None, Some(ft)) => has_definite_parity(ft),
+                    (None, None) => true, // rejected below
+                };
+                if !parity {
+                    return SPIR_NOT_SUPPORTED;
+                }
 
                 // Handle Fermionic case
                 // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)

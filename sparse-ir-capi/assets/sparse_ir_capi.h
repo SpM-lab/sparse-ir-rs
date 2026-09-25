@@ -348,6 +348,10 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+ *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+ *   centrosymmetric): the default Matsubara sampling points are chosen by the
+ *   parity of a basis function and are not defined then. Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
 
@@ -368,6 +372,10 @@ StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+ *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+ *   centrosymmetric): the default Matsubara sampling points are chosen by the
+ *   parity of a basis function and are not defined then. Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
 
@@ -522,6 +530,10 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
  *   `basis_size < 0`
+ * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+ *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+ *   centrosymmetric): the default Matsubara sampling points are chosen by the
+ *   parity of a basis function and are not defined then. Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
@@ -561,6 +573,10 @@ StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * * `SPIR_INVALID_ARGUMENT` (-6) if `points_capacity` is smaller than the
  *   number of points; `points` is left untouched and `*n_points_total` is
  *   set to the required number
+ * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+ *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+ *   centrosymmetric): the default Matsubara sampling points are chosen by the
+ *   parity of a basis function and are not defined then. Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
@@ -1132,7 +1148,11 @@ StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * - SPIR_INVALID_ARGUMENT if points_capacity is smaller than the number of
  *   points; `points` is left untouched and `*n_points_total` is set to the
  *   required number
- * - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function
+ * - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function, or if its
+ *   functions have no definite parity, as those of a basis built on an SVE
+ *   from `spir_sve_result_from_matrix` (not centrosymmetric): the default
+ *   points are chosen by the parity of a basis function and are not defined
+ *   then. Nothing is written.
  *
  * # Note
  * This function is only available for spir_funcs objects representing Matsubara-space basis functions
