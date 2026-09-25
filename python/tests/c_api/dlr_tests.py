@@ -22,7 +22,11 @@ from pylibsparseir.constants import SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_B
 
 
 def _spir_basis_new(stat, beta, wmax, epsilon):
-    """Helper function to create basis directly via C API (for testing)."""
+    """Create a basis through the pylibsparseir wrappers (for testing).
+
+    The returned BasisHandle is owned by pylibsparseir: close it with
+    ``close()``; the raw ``spir_basis_release`` refuses owned handles.
+    """
     # Create kernel
     if stat == SPIR_STATISTICS_FERMIONIC:
         kernel = logistic_kernel_new(beta * wmax)
@@ -110,7 +114,7 @@ class TestDLRConstruction:
         np.testing.assert_allclose(poles_reconst, default_poles, rtol=1e-14)
 
         # Cleanup
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
         _lib.spir_basis_release(dlr)
         _lib.spir_basis_release(dlr_with_poles)
 
@@ -172,7 +176,7 @@ class TestDLRConstruction:
             _lib.spir_basis_release(dlr_custom)
 
         # Cleanup
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
 
 class TestDLRTransformations:
@@ -238,7 +242,7 @@ class TestDLRTransformations:
 
         # Cleanup
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
     @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
     def test_dlr_to_ir_conversion_multidim(self, statistics):
@@ -310,7 +314,7 @@ class TestDLRTransformations:
 
         # Cleanup
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
     @pytest.mark.parametrize("statistics", [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC])
     def test_dlr_to_ir_conversion_complex(self, statistics):
@@ -373,7 +377,7 @@ class TestDLRTransformations:
 
         # Cleanup
         _lib.spir_basis_release(dlr)
-        _lib.spir_basis_release(ir_basis)
+        ir_basis.close()
 
 
 class TestDLREdgeCases:
