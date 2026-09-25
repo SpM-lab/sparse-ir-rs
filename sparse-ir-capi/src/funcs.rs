@@ -173,7 +173,10 @@ pub extern "C" fn spir_funcs_deriv(
 /// segment containing nfuncs coefficients (degrees 0 to nfuncs-1).
 ///
 /// # Arguments
-/// * `segments` - Array of segment boundaries (n_segments+1 elements). Must be monotonically increasing.
+/// * `segments` - Array of the `n_segments + 1` segment boundaries: finite and
+///   strictly increasing, with every segment length
+///   `segments[i + 1] - segments[i]` a normal double (finite and at least
+///   `DBL_MIN`)
 /// * `n_segments` - Number of segments (must be >= 1)
 /// * `coeffs` - Array of Legendre coefficients. Layout: contiguous per segment,
 ///              coefficients for segment i are stored at indices [i*nfuncs, (i+1)*nfuncs).
@@ -187,7 +190,7 @@ pub extern "C" fn spir_funcs_deriv(
 /// If `status` is non-NULL, `*status` is set to:
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `segments` or `coeffs` is NULL, `n_segments` or
-///   `nfuncs` < 1, or the segment boundaries are not increasing
+///   `nfuncs` < 1, or `segments` does not meet the conditions above
 /// - SPIR_INVALID_DIMENSION if `n_segments` is `INT_MAX` (the number of knots,
 ///   `n_segments + 1`, must fit in an `int`), or `segments` or `coeffs` is
 ///   too large to be addressed
@@ -265,14 +268,23 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         let segments_slice = unsafe { std::slice::from_raw_parts(segments, n_knots) };
         let knots = segments_slice.to_vec();
 
-        // Verify segments are monotonically increasing
-        for i in 1..knots.len() {
-            if knots[i] <= knots[i - 1] {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
-                }
-                return std::ptr::null_mut();
+        // The boundaries must be finite and strictly increasing, and every
+        // segment length b - a a normal double (#266): a test on `<=` alone
+        // lets NaN through (every comparison with NaN is false), an infinite
+        // boundary or length makes the core's normalization 2 / (b - a) zero,
+        // so that every value would be 0, and a subnormal length makes it
+        // infinite.
+        let valid = knots.iter().all(|x| x.is_finite())
+            && knots.windows(2).all(|w| {
+                let length = w[1] - w[0];
+                length > 0.0 && length.is_normal()
+            });
+        if !valid {
+            // SAFETY: `status` is non-null (checked on entry) and caller-provided.
+            unsafe {
+                *status = SPIR_INVALID_ARGUMENT;
             }
+            return std::ptr::null_mut();
         }
 
         // Create coefficient matrix: data is (nfuncs, n_segments)

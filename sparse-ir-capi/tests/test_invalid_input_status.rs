@@ -1419,3 +1419,95 @@ fn from_piecewise_legendre_accepts_the_smallest_sizes() {
         assert!((values[0] - 1.0).abs() < 1e-14, "f({x}) = {}", values[0]);
     }
 }
+
+// ---------------------------------------------------------------------------
+// spir_funcs_from_piecewise_legendre: segment boundaries (#266)
+// ---------------------------------------------------------------------------
+
+/// Builds one function on `segments` with the constant coefficient 1 on
+/// every segment.
+fn from_piecewise_legendre_constant(segments: &[f64]) -> (StatusCode, *mut spir_funcs) {
+    let n_segments = segments.len() - 1;
+    let coeffs = vec![1.0; n_segments];
+    from_piecewise_legendre_raw(segments, n_segments as i32, &coeffs, 1)
+}
+
+/// Before the fix, the check `knots[i] <= knots[i - 1]` let NaN through
+/// (every comparison with NaN is false), and infinite boundaries passed it:
+/// both were accepted (0). The functions then evaluated, with status 0, to
+/// NaN on a NaN segment, and to 0.0 instead of a positive constant on an
+/// infinite segment. Equal or decreasing boundaries were already rejected
+/// (-6).
+#[test]
+fn from_piecewise_legendre_rejects_non_finite_or_unordered_segments() {
+    let nan = f64::NAN;
+    let inf = f64::INFINITY;
+    for segments in [
+        vec![nan, 1.0],
+        vec![-1.0, nan],
+        vec![nan, 0.0, 1.0],
+        vec![-1.0, nan, 1.0],
+        vec![-1.0, 0.0, nan],
+        vec![nan, nan],
+        vec![-inf, 1.0],
+        vec![-1.0, inf],
+        vec![-inf, inf],
+        vec![-1.0, 0.0, inf],
+        vec![-1.0, 0.0, 0.0, 1.0],
+        vec![1.0, -1.0],
+        vec![-1.0, 1.0, 0.5],
+    ] {
+        let (status, funcs) = from_piecewise_legendre_constant(&segments);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "segments {segments:?}");
+        assert!(funcs.is_null(), "segments {segments:?}");
+    }
+}
+
+/// Before the fix, finite boundaries were accepted (0) even when a segment
+/// length is not a normal double: the length of [-DBL_MAX, DBL_MAX]
+/// overflows, and the function evaluated to 0.0 everywhere; a subnormal
+/// length made every value infinite.
+#[test]
+fn from_piecewise_legendre_rejects_segment_lengths_that_are_not_normal() {
+    let max = f64::MAX;
+    for segments in [
+        vec![-max, max],
+        vec![-0.6 * max, 0.6 * max, max],
+        vec![0.0, f64::from_bits(1)],
+        vec![0.0, 1e-308],
+        vec![-1.0, 0.0, next_down(f64::MIN_POSITIVE)],
+    ] {
+        let (status, funcs) = from_piecewise_legendre_constant(&segments);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "segments {segments:?}");
+        assert!(funcs.is_null(), "segments {segments:?}");
+    }
+}
+
+/// Boundaries one ULP apart, and the shortest (DBL_MIN) and longest (DBL_MAX)
+/// normal segment lengths, are still accepted, and the constant function is
+/// finite and positive at both ends.
+#[test]
+fn from_piecewise_legendre_accepts_the_extreme_valid_segments() {
+    let max = f64::MAX;
+    for segments in [
+        vec![1.0, next_up(1.0)],
+        vec![-1.0, next_up(-1.0), 0.0, 1.0],
+        vec![0.0, f64::MIN_POSITIVE],
+        vec![-max / 2.0, max / 2.0],
+        vec![-1.0, 0.0, max],
+    ] {
+        let (status, funcs) = from_piecewise_legendre_constant(&segments);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "segments {segments:?}");
+        let funcs = Funcs(funcs);
+        let (lo, hi) = (segments[0], segments[segments.len() - 1]);
+        for x in [lo, hi] {
+            let (status, values) = eval(&funcs, x);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "f({x:?}) on {segments:?}");
+            assert!(
+                values[0].is_finite() && values[0] > 0.0,
+                "f({x:?}) = {} on {segments:?}",
+                values[0]
+            );
+        }
+    }
+}

@@ -862,7 +862,10 @@ StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
  * segment containing nfuncs coefficients (degrees 0 to nfuncs-1).
  *
  * # Arguments
- * * `segments` - Array of segment boundaries (n_segments+1 elements). Must be monotonically increasing.
+ * * `segments` - Array of the `n_segments + 1` segment boundaries: finite and
+ *   strictly increasing, with every segment length
+ *   `segments[i + 1] - segments[i]` a normal double (finite and at least
+ *   `DBL_MIN`)
  * * `n_segments` - Number of segments (must be >= 1)
  * * `coeffs` - Array of Legendre coefficients. Layout: contiguous per segment,
  *              coefficients for segment i are stored at indices [i*nfuncs, (i+1)*nfuncs).
@@ -876,7 +879,7 @@ StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
  * If `status` is non-NULL, `*status` is set to:
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `segments` or `coeffs` is NULL, `n_segments` or
- *   `nfuncs` < 1, or the segment boundaries are not increasing
+ *   `nfuncs` < 1, or `segments` does not meet the conditions above
  * - SPIR_INVALID_DIMENSION if `n_segments` is `INT_MAX` (the number of knots,
  *   `n_segments + 1`, must fit in an `int`), or `segments` or `coeffs` is
  *   too large to be addressed
