@@ -119,6 +119,29 @@ The conda build automatically:
 - Cleans up old shared libraries before building
 - Builds platform-specific packages with proper dependencies
 
+## Handle Ownership
+
+Every function in `pylibsparseir.core` that creates a C object returns an
+owning handle instead of a raw ctypes pointer: `KernelHandle`,
+`SVEResultHandle`, `BasisHandle`, `FuncsHandle`, `SamplingHandle`, or
+`GemmBackendHandle` (the default BLAS backend returned by
+`get_default_blas_backend()`).
+
+- A handle is released exactly once with the matching `spir_*_release`: when
+  it becomes unreachable, when `close()` is called (also on leaving a
+  `with handle:` block), or at interpreter exit. Closing it again does nothing.
+- An open handle can be passed directly to any `_lib.spir_*` function and is
+  truthy. A released handle is falsy, and passing it to C raises
+  `ctypes.ArgumentError` instead of handing C a freed pointer.
+- Do not release an owned handle through `_lib.spir_*_release`. Those entry
+  points refuse owned handles with `ctypes.ArgumentError`, because the owner
+  would free them a second time. Handles created directly through `_lib`
+  remain the caller's to release, or can be handed over to an owner, e.g.
+  `FuncsHandle(_lib.spir_funcs_clone(funcs))`.
+- C handles never depend on the handles they were created from
+  (`spir_basis_new` copies the kernel and the SVE result; funcs and samplings
+  own their data), so handles can be released in any order.
+
 ## Performance Notes
 
 ### BLAS Support

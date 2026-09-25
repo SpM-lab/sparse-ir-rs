@@ -2,10 +2,10 @@
 Core functionality for the SparseIR Python bindings.
 """
 
-import atexit
 import os
 import sys
 import ctypes
+import weakref
 from ctypes import c_int, c_double, c_int64, c_size_t, c_bool, POINTER, byref
 from ctypes import CDLL
 import numpy as np
@@ -15,6 +15,8 @@ from .ctypes_wrapper import spir_kernel, spir_sve_result, spir_basis, spir_funcs
 from pylibsparseir.constants import COMPUTATION_SUCCESS, SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR, SPIR_TWORK_FLOAT64, SPIR_TWORK_FLOAT64X2, SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC
 
 __all__ = [
+    "KernelHandle", "SVEResultHandle", "BasisHandle", "FuncsHandle",
+    "SamplingHandle", "GemmBackendHandle",
     "get_default_blas_backend", "release_blas_backend",
     "logistic_kernel_new", "reg_bose_kernel_new",
     "sve_result_new", "sve_result_get_size", "sve_result_truncate", "sve_result_get_svals",
@@ -89,6 +91,188 @@ def _find_library():
     raise RuntimeError(f"Could not find {libname} in {search_paths}")
 
 
+class _OwnedHandle:
+    """Owning reference to one opaque C handle.
+
+    Every pylibsparseir function that creates a C object returns an instance
+    of one of the subclasses below.  The owner calls the matching
+    ``spir_*_release`` exactly once: on the first ``close()``, when the owner
+    becomes unreachable, or at interpreter exit, whichever comes first.  It is
+    also a context manager that closes the handle on exit.
+
+    An open owner can be passed directly to any ``_lib.spir_*`` function
+    (ctypes converts it through ``_as_parameter_``) and is truthy.  Once
+    released it is falsy, and passing it to C raises ``ctypes.ArgumentError``
+    (wrapping a ``ValueError``) instead of handing C a freed pointer.  The raw
+    ``_lib.spir_*_release`` entry points refuse owners with
+    ``ctypes.ArgumentError``, because the owner would free the handle again;
+    call ``close()`` instead.  Do not close a handle while another thread is
+    still using it.
+
+    C handles never depend on the handles they were created from: for example
+    ``spir_basis_new`` copies the kernel and deep-clones the SVE result, and
+    funcs and samplings own their data.  Owners may therefore be closed in any
+    order.
+
+    Calling a subclass directly adopts a raw handle returned by a ``_lib``
+    call: the owner takes over its release.  Do not release an adopted handle
+    through ``_lib`` and do not adopt the same raw handle twice.
+    """
+
+    __slots__ = ("_raw", "_finalizer", "__weakref__")
+
+    # Set by each subclass: the C type name and the ctypes type of the raw
+    # handles that the generated prototypes return for it.
+    _c_type = None
+    _raw_type = None
+
+    def __init__(self, raw):
+        cls = type(self)
+        if raw is None:
+            raise ValueError(f"cannot take ownership of a NULL {cls._c_type} handle")
+        if not isinstance(raw, cls._raw_type):
+            raise TypeError(
+                f"{cls.__name__} takes ownership of a raw {cls._c_type} handle "
+                f"({cls._raw_type.__name__}) returned by _lib, "
+                f"got {type(raw).__name__}")
+        if not raw:
+            raise ValueError(f"cannot take ownership of a NULL {cls._c_type} handle")
+        self._raw = raw
+        # The release function is looked up now, not at exit, and the
+        # finalizer keeps it and the raw pointer alive, so it can run safely
+        # during interpreter shutdown.  It must not reference self.
+        release = getattr(_lib, cls._c_type + "_release")
+        self._finalizer = weakref.finalize(self, release, raw)
+
+    @property
+    def _as_parameter_(self):
+        # ctypes uses this to convert the owner into its raw pointer.
+        if not self._finalizer.alive:
+            raise ValueError(f"{type(self).__name__} has already been released")
+        return self._raw
+
+    @property
+    def closed(self):
+        """True once the handle has been released."""
+        return not self._finalizer.alive
+
+    def close(self):
+        """Release the handle now.  Closing a released handle does nothing."""
+        self._finalizer()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.close()
+
+    def __bool__(self):
+        return self._finalizer.alive
+
+    def __repr__(self):
+        if self.closed:
+            return f"<{type(self).__name__} (released)>"
+        address = ctypes.cast(self._raw, ctypes.c_void_p).value
+        return f"<{type(self).__name__} at 0x{address:x}>"
+
+
+# The generated prototypes map `struct spir_X *` to POINTER(spir_X) (see
+# _normalize_type_string), so raw handles are instances of those types; the
+# GEMM backend is special-cased there to `spir_gemm_backend` itself.
+
+class KernelHandle(_OwnedHandle):
+    """Owned ``spir_kernel`` handle, released with ``spir_kernel_release``."""
+    __slots__ = ()
+    _c_type = "spir_kernel"
+    _raw_type = POINTER(spir_kernel)
+
+
+class SVEResultHandle(_OwnedHandle):
+    """Owned ``spir_sve_result`` handle, released with ``spir_sve_result_release``."""
+    __slots__ = ()
+    _c_type = "spir_sve_result"
+    _raw_type = POINTER(spir_sve_result)
+
+
+class BasisHandle(_OwnedHandle):
+    """Owned ``spir_basis`` handle, released with ``spir_basis_release``."""
+    __slots__ = ()
+    _c_type = "spir_basis"
+    _raw_type = POINTER(spir_basis)
+
+
+class FuncsHandle(_OwnedHandle):
+    """Owned ``spir_funcs`` handle, released with ``spir_funcs_release``."""
+    __slots__ = ()
+    _c_type = "spir_funcs"
+    _raw_type = POINTER(spir_funcs)
+
+
+class SamplingHandle(_OwnedHandle):
+    """Owned ``spir_sampling`` handle, released with ``spir_sampling_release``."""
+    __slots__ = ()
+    _c_type = "spir_sampling"
+    _raw_type = POINTER(spir_sampling)
+
+
+class GemmBackendHandle(_OwnedHandle):
+    """Owned ``spir_gemm_backend`` handle, released with ``spir_gemm_backend_release``."""
+    __slots__ = ()
+    _c_type = "spir_gemm_backend"
+    _raw_type = spir_gemm_backend
+
+
+_HANDLE_TYPES = (KernelHandle, SVEResultHandle, BasisHandle, FuncsHandle,
+                 SamplingHandle, GemmBackendHandle)
+
+
+class _RawReleaseArgument:
+    """``argtypes`` converter for the raw ``_lib.spir_*_release`` entry points.
+
+    Raw handles (created directly through ``_lib``) and ``None`` convert as
+    before.  Owners are refused: releasing an owned handle through the raw
+    entry point would free it a second time when the owner is finalized.
+    """
+
+    _raw_type = None
+    _release_name = None
+
+    @classmethod
+    def from_param(cls, obj):
+        if isinstance(obj, _OwnedHandle):
+            raise TypeError(
+                f"{type(obj).__name__} is owned by pylibsparseir and released "
+                f"automatically; call its close() method instead of "
+                f"{cls._release_name}(), which would free it twice")
+        return cls._raw_type.from_param(obj)
+
+
+def _guard_raw_release_prototypes():
+    """Make each raw ``spir_*_release`` prototype refuse owned handles."""
+    for handle_type in _HANDLE_TYPES:
+        name = handle_type._c_type + "_release"
+        argument = type(f"_{name}_argument", (_RawReleaseArgument,), {
+            "_raw_type": handle_type._raw_type,
+            "_release_name": name,
+        })
+        release = getattr(_lib, name)
+        release.argtypes = [argument]
+        release.restype = None
+
+
+def _adopt_result(handle_type, raw, status, failure):
+    """Take ownership of the handle returned by a C constructor.
+
+    ``failure`` prefixes the error raised when the call did not succeed.
+    """
+    if status != COMPUTATION_SUCCESS:
+        raise RuntimeError(f"{failure}: {status}")
+    if not raw:
+        raise RuntimeError(
+            f"{failure}: C API returned a NULL handle with status {status}")
+    return handle_type(raw)
+
+
 # Load the library
 _blas_backend = None
 try:
@@ -120,6 +304,8 @@ try:
 
     if not _blas_backend:
         raise RuntimeError("Failed to create BLAS backend handle")
+    # Owned like every other handle: released once, at the latest at exit.
+    _blas_backend = GemmBackendHandle(_blas_backend)
 
     if os.environ.get("SPARSEIR_DEBUG", "").lower() in ("1", "true", "yes", "on"):
         print(f"[core.py] Created SciPy BLAS backend handle")
@@ -133,10 +319,13 @@ except Exception as e:
 _default_blas_backend = _blas_backend
 
 def get_default_blas_backend():
-    """Get the default BLAS backend handle (created from SciPy BLAS).
+    """Get the default BLAS backend handle (created from SciPy BLAS at import).
 
     Returns:
-        spir_gemm_backend: The default BLAS backend handle, or None if not available.
+        GemmBackendHandle: The process-wide default backend.  It is owned by
+        pylibsparseir and released at interpreter exit; once it has been
+        released with ``release_blas_backend``, passing it to C raises
+        ``ctypes.ArgumentError``.
     """
     return _default_blas_backend
 
@@ -144,21 +333,16 @@ def release_blas_backend(backend):
     """Release a BLAS backend handle.
 
     Args:
-        backend: The backend handle to release (can be None).
+        backend: A ``GemmBackendHandle`` (such as the default backend), which
+            is closed; releasing it again does nothing.  A raw
+            ``spir_gemm_backend`` pointer created directly through ``_lib`` is
+            released with ``spir_gemm_backend_release`` and must not be
+            released twice.  ``None`` is ignored.
     """
-    if backend:
-        _lib.spir_gemm_backend_release.argtypes = [spir_gemm_backend]
-        _lib.spir_gemm_backend_release.restype = None
+    if isinstance(backend, GemmBackendHandle):
+        backend.close()
+    elif backend:
         _lib.spir_gemm_backend_release(backend)
-
-
-def _cleanup_blas_backend():
-    global _blas_backend
-    if _blas_backend:
-        release_blas_backend(_blas_backend)
-        _blas_backend = None
-
-atexit.register(_cleanup_blas_backend)
 
 
 class c_double_complex(ctypes.Structure):
@@ -260,27 +444,37 @@ def _setup_prototypes():
 
 
 _setup_prototypes()
+_guard_raw_release_prototypes()
 
 # Python wrapper functions
+#
+# Every function below that creates a C object returns an owning handle
+# (KernelHandle, SVEResultHandle, BasisHandle, FuncsHandle or SamplingHandle);
+# see _OwnedHandle for the ownership model.
 
 
 def logistic_kernel_new(lambda_val):
-    """Create a new logistic kernel."""
+    """Create a new logistic kernel.
+
+    Returns:
+        KernelHandle: owned handle, released automatically (or by ``close()``).
+    """
     status = c_int()
     kernel = _lib.spir_logistic_kernel_new(lambda_val, byref(status))
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to create logistic kernel: {status.value}")
-    return kernel
+    return _adopt_result(KernelHandle, kernel, status.value,
+                         "Failed to create logistic kernel")
 
 
 def reg_bose_kernel_new(lambda_val):
-    """Create a new regularized bosonic kernel."""
+    """Create a new regularized bosonic kernel.
+
+    Returns:
+        KernelHandle: owned handle, released automatically (or by ``close()``).
+    """
     status = c_int()
     kernel = _lib.spir_reg_bose_kernel_new(lambda_val, byref(status))
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(
-            f"Failed to create regularized bosonic kernel: {status.value}")
-    return kernel
+    return _adopt_result(KernelHandle, kernel, status.value,
+                         "Failed to create regularized bosonic kernel")
 
 
 def sve_result_new(kernel, epsilon, cutoff=None, lmax=None, n_gauss=None, Twork=None):
@@ -288,6 +482,10 @@ def sve_result_new(kernel, epsilon, cutoff=None, lmax=None, n_gauss=None, Twork=
 
     Note: cutoff parameter is deprecated and ignored (C-API doesn't have it).
     It's kept for backward compatibility but not passed to C-API.
+
+    Returns:
+        SVEResultHandle: owned handle, released automatically (or by
+        ``close()``).  It does not depend on ``kernel``.
     """
     # Validate epsilon
     if epsilon <= 0:
@@ -306,9 +504,8 @@ def sve_result_new(kernel, epsilon, cutoff=None, lmax=None, n_gauss=None, Twork=
     # C-API signature: spir_sve_result_new(kernel, epsilon, lmax, n_gauss, Twork, status)
     sve = _lib.spir_sve_result_new(
         kernel, c_double(epsilon), c_int(lmax), c_int(n_gauss), c_int(Twork), byref(status))
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to create SVE result: {status.value}")
-    return sve
+    return _adopt_result(SVEResultHandle, sve, status.value,
+                         "Failed to create SVE result")
 
 
 def sve_result_get_size(sve):
@@ -320,12 +517,16 @@ def sve_result_get_size(sve):
     return size.value
 
 def sve_result_truncate(sve, epsilon, max_size):
-    """Truncate an SVE result."""
+    """Truncate an SVE result.
+
+    Returns:
+        SVEResultHandle: a new, independently owned handle; ``sve`` itself is
+        left unchanged and stays owned by its caller.
+    """
     status = c_int()
-    sve = _lib.spir_sve_result_truncate(sve, epsilon, max_size, byref(status))
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to truncate SVE result: {status.value}")
-    return sve
+    truncated = _lib.spir_sve_result_truncate(sve, epsilon, max_size, byref(status))
+    return _adopt_result(SVEResultHandle, truncated, status.value,
+                         "Failed to truncate SVE result")
 
 def sve_result_get_svals(sve):
     """Get the singular values from an SVE result."""
@@ -338,14 +539,19 @@ def sve_result_get_svals(sve):
     return svals
 
 def basis_new(statistics, beta, omega_max, epsilon, kernel, sve, max_size):
-    """Create a new basis."""
+    """Create a new basis.
+
+    Returns:
+        BasisHandle: owned handle, released automatically (or by ``close()``).
+        The C basis copies what it needs from ``kernel`` and ``sve``, which
+        may be released independently.
+    """
     status = c_int()
     basis = _lib.spir_basis_new(
         statistics, beta, omega_max, epsilon, kernel, sve, max_size, byref(status)
     )
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to create basis: {status.value}")
-    return basis
+    return _adopt_result(BasisHandle, basis, status.value,
+                         "Failed to create basis")
 
 
 def basis_get_size(basis):
@@ -378,31 +584,39 @@ def basis_get_stats(basis):
 
 
 def basis_get_u(basis):
-    """Get the imaginary-time basis functions."""
+    """Get the imaginary-time basis functions.
+
+    Returns:
+        FuncsHandle: a new owned handle per call, independent of ``basis``.
+    """
     status = c_int()
     funcs = _lib.spir_basis_get_u(basis, byref(status))
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to get u basis functions: {status.value}")
-    return funcs
+    return _adopt_result(FuncsHandle, funcs, status.value,
+                         "Failed to get u basis functions")
 
 
 def basis_get_v(basis):
-    """Get the real-frequency basis functions."""
+    """Get the real-frequency basis functions.
+
+    Returns:
+        FuncsHandle: a new owned handle per call, independent of ``basis``.
+    """
     status = c_int()
     funcs = _lib.spir_basis_get_v(basis, byref(status))
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to get v basis functions: {status.value}")
-    return funcs
+    return _adopt_result(FuncsHandle, funcs, status.value,
+                         "Failed to get v basis functions")
 
 
 def basis_get_uhat(basis):
-    """Get the Matsubara frequency basis functions."""
+    """Get the Matsubara frequency basis functions.
+
+    Returns:
+        FuncsHandle: a new owned handle per call, independent of ``basis``.
+    """
     status = c_int()
     funcs = _lib.spir_basis_get_uhat(basis, byref(status))
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(
-            f"Failed to get uhat basis functions: {status.value}")
-    return funcs
+    return _adopt_result(FuncsHandle, funcs, status.value,
+                         "Failed to get uhat basis functions")
 
 
 def funcs_get_size(funcs):
@@ -588,7 +802,12 @@ def basis_get_default_matsus_ext(basis, basis_size, positive_only, fence=False):
 
 
 def tau_sampling_new(basis, sampling_points=None):
-    """Create a new tau sampling object."""
+    """Create a new tau sampling object.
+
+    Returns:
+        SamplingHandle: owned handle, released automatically (or by
+        ``close()``), independent of ``basis``.
+    """
     if sampling_points is None:
         sampling_points = basis_get_default_tau_sampling_points(basis)
 
@@ -601,10 +820,8 @@ def tau_sampling_new(basis, sampling_points=None):
         sampling_points.ctypes.data_as(POINTER(c_double)),
         byref(status)
     )
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to create tau sampling: {status.value}")
-
-    return sampling
+    return _adopt_result(SamplingHandle, sampling, status.value,
+                         "Failed to create tau sampling")
 
 
 def _statistics_to_c(statistics):
@@ -618,7 +835,12 @@ def _statistics_to_c(statistics):
 
 
 def tau_sampling_new_with_matrix(basis, statistics, sampling_points, matrix):
-    """Create a new tau sampling object with a matrix."""
+    """Create a new tau sampling object with a matrix.
+
+    Returns:
+        SamplingHandle: owned handle, released automatically (or by
+        ``close()``), independent of ``basis``.
+    """
     status = c_int()
     sampling = _lib.spir_tau_sampling_new_with_matrix(
         SPIR_ORDER_ROW_MAJOR,
@@ -629,14 +851,17 @@ def tau_sampling_new_with_matrix(basis, statistics, sampling_points, matrix):
         matrix.ctypes.data_as(POINTER(c_double)),
         byref(status)
     )
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(f"Failed to create tau sampling: {status.value}")
-
-    return sampling
+    return _adopt_result(SamplingHandle, sampling, status.value,
+                         "Failed to create tau sampling")
 
 
 def matsubara_sampling_new(basis, positive_only=False, sampling_points=None):
-    """Create a new Matsubara sampling object."""
+    """Create a new Matsubara sampling object.
+
+    Returns:
+        SamplingHandle: owned handle, released automatically (or by
+        ``close()``), independent of ``basis``.
+    """
     if sampling_points is None:
         sampling_points = basis_get_default_matsubara_sampling_points(
             basis, positive_only)
@@ -650,15 +875,17 @@ def matsubara_sampling_new(basis, positive_only=False, sampling_points=None):
         sampling_points.ctypes.data_as(POINTER(c_int64)),
         byref(status)
     )
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(
-            f"Failed to create Matsubara sampling: {status.value}")
-
-    return sampling
+    return _adopt_result(SamplingHandle, sampling, status.value,
+                         "Failed to create Matsubara sampling")
 
 
 def matsubara_sampling_new_with_matrix(statistics, basis_size, positive_only, sampling_points, matrix):
-    """Create a new Matsubara sampling object with a matrix."""
+    """Create a new Matsubara sampling object with a matrix.
+
+    Returns:
+        SamplingHandle: owned handle, released automatically (or by
+        ``close()``).
+    """
     status = c_int()
     sampling = _lib.spir_matsu_sampling_new_with_matrix(
         SPIR_ORDER_ROW_MAJOR,                           # order
@@ -670,8 +897,5 @@ def matsubara_sampling_new_with_matrix(statistics, basis_size, positive_only, sa
         matrix.ctypes.data_as(POINTER(c_double_complex)),  # matrix
         byref(status)                                   # status
     )
-    if status.value != COMPUTATION_SUCCESS:
-        raise RuntimeError(
-            f"Failed to create Matsubara sampling: {status.value}")
-
-    return sampling
+    return _adopt_result(SamplingHandle, sampling, status.value,
+                         "Failed to create Matsubara sampling")
