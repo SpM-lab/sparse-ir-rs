@@ -476,65 +476,75 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
                                            int *n_points_returned);
 
 /**
- * Get number of default Matsubara sampling points with custom limit (extended version)
+ * Get the number of default Matsubara sampling points for a given basis size
+ * (extended version)
  *
  * # Arguments
  * * `b` - Basis object
- * * `positive_only` - If true, return only positive frequencies
- * * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
- * * `L` - Requested number of sampling points
- * * `num_points_returned` - Pointer to store the computed point count
+ * * `positive_only` - If true, return only non-negative frequencies
+ * * `fence` - If true, add fencing points to improve conditioning
+ * * `basis_size` - Size of the basis the points are chosen for. When sampling
+ *   an augmented basis, pass the augmented size; it may differ from the size
+ *   of `b`.
+ * * `n_points_total` - Pointer to store the number of sampling points
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
- * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or L < 0
+ * * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
+ *   `basis_size < 0`
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
- * Returns the full computed count for `spir_basis_get_default_matsus_ext`
- * with the same parameters. When mitigate is true, fencing may produce more
- * points than requested; the getter truncates the output to the provided
- * buffer size, so this count can exceed what was returned.
+ * The count generally differs from `basis_size`: the parity adjustment,
+ * `fence` and `positive_only` all change it. Pass it as `points_capacity` to
+ * `spir_basis_get_default_matsus_ext` with the same `positive_only`, `fence`
+ * and `basis_size`.
  */
 
 StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
                                                bool positive_only,
-                                               bool mitigate,
-                                               int L,
-                                               int *num_points_returned);
+                                               bool fence,
+                                               int basis_size,
+                                               int *n_points_total);
 
 /**
- * Get default Matsubara sampling points with custom limit (extended version)
+ * Get default Matsubara sampling points for a given basis size (extended
+ * version)
  *
  * # Arguments
  * * `b` - Basis object
- * * `positive_only` - If true, return only positive frequencies
- * * `mitigate` - If true, enable mitigation (fencing) to improve conditioning
- * * `n_points` - Maximum number of points requested
- * * `points` - Pre-allocated array to store Matsubara indices (size >= n_points)
- * * `n_points_returned` - Pointer to store the full computed point count
+ * * `positive_only` - If true, return only non-negative frequencies
+ * * `fence` - If true, add fencing points to improve conditioning
+ * * `basis_size` - Size of the basis the points are chosen for. When sampling
+ *   an augmented basis, pass the augmented size; it may differ from the size
+ *   of `b`.
+ * * `points_capacity` - Number of elements `points` can hold
+ * * `points` - Buffer for the Matsubara indices, or NULL to query the number
+ *   of points only
+ * * `n_points_total` - Pointer to store the number of sampling points
  *
  * # Returns
- * * `SPIR_COMPUTATION_SUCCESS` (0) on success
- * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success, including a count query
+ *   (`points` is NULL, `points_capacity` is ignored)
+ * * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
+ *   `basis_size` or `points_capacity` is negative; nothing is written
+ * * `SPIR_INVALID_ARGUMENT` (-6) if `points_capacity` is smaller than the
+ *   number of points; `points` is left untouched and `*n_points_total` is
+ *   set to the required number
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
- * `points` must hold at least `n_points` elements and is never written
- * beyond that. When `mitigate` is true, fencing can produce more points than
- * requested: the output is truncated to `n_points` elements and
- * `n_points_returned` reports the full computed count, so
- * `n_points_returned > n_points` signals truncation. Call
- * `spir_basis_get_n_default_matsus_ext` with the same parameters to see the
- * full count before choosing the buffer size.
+ * The point set depends only on `positive_only`, `fence` and `basis_size`.
+ * `points_capacity` never changes it, and the output is never truncated.
  */
 
 StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
                                              bool positive_only,
-                                             bool mitigate,
-                                             int n_points,
+                                             bool fence,
+                                             int basis_size,
+                                             int points_capacity,
                                              int64_t *points,
-                                             int *n_points_returned);
+                                             int *n_points_total);
 
 /**
  * Creates a new DLR from an IR basis with default poles
@@ -948,30 +958,41 @@ StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
- * * `l` - Number of requested sampling points
- * * `positive_only` - If true, only positive frequencies are used
- * * `mitigate` - If true, enable mitigation (fencing) to improve conditioning by adding oversampling points
- * * `points` - Pre-allocated array to store the sampling points. The size of the array must be sufficient for the returned points (may exceed L if mitigate is true).
- * * `n_points_returned` - Pointer to store the number of sampling points returned (may exceed L if mitigate is true, or approximately L/2 when positive_only=true).
+ * * `positive_only` - If true, return only non-negative frequencies
+ * * `fence` - If true, add fencing points to improve conditioning
+ * * `basis_size` - Size of the basis the points are chosen for
+ * * `points_capacity` - Number of elements `points` can hold
+ * * `points` - Buffer for the Matsubara indices, or NULL to query the number
+ *   of points only
+ * * `n_points_total` - Pointer to store the number of sampling points
  *
  * # Returns
  * Status code:
- * - SPIR_COMPUTATION_SUCCESS (0) on success
- * - SPIR_INVALID_ARGUMENT if uhat, points, or n_points_returned is null
+ * - SPIR_COMPUTATION_SUCCESS (0) on success, including a count query
+ *   (`points` is NULL, `points_capacity` is ignored)
+ * - SPIR_INVALID_ARGUMENT if uhat or n_points_total is null, or basis_size or
+ *   points_capacity is negative; nothing is written
+ * - SPIR_INVALID_ARGUMENT if points_capacity is smaller than the number of
+ *   points; `points` is left untouched and `*n_points_total` is set to the
+ *   required number
  * - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function
  *
  * # Note
  * This function is only available for spir_funcs objects representing Matsubara-space basis functions
  * The statistics type is automatically detected from the spir_funcs object type
  * The default sampling points are chosen to provide near-optimal conditioning
+ * The number of points generally differs from `basis_size`: the parity
+ * adjustment, `fence` and `positive_only` all change it. The point set never
+ * depends on `points_capacity`, and the output is never truncated.
  */
 
 StatusCode spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
-                                        int l,
                                         bool positive_only,
-                                        bool mitigate,
+                                        bool fence,
+                                        int basis_size,
+                                        int points_capacity,
                                         int64_t *points,
-                                        int *n_points_returned);
+                                        int *n_points_total);
 
 /**
  * Create GEMM backend from Fortran BLAS function pointers (LP64)

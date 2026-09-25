@@ -717,30 +717,41 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 ///
 /// # Arguments
 /// * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
-/// * `l` - Number of requested sampling points
-/// * `positive_only` - If true, only positive frequencies are used
-/// * `mitigate` - If true, enable mitigation (fencing) to improve conditioning by adding oversampling points
-/// * `points` - Pre-allocated array to store the sampling points. The size of the array must be sufficient for the returned points (may exceed L if mitigate is true).
-/// * `n_points_returned` - Pointer to store the number of sampling points returned (may exceed L if mitigate is true, or approximately L/2 when positive_only=true).
+/// * `positive_only` - If true, return only non-negative frequencies
+/// * `fence` - If true, add fencing points to improve conditioning
+/// * `basis_size` - Size of the basis the points are chosen for
+/// * `points_capacity` - Number of elements `points` can hold
+/// * `points` - Buffer for the Matsubara indices, or NULL to query the number
+///   of points only
+/// * `n_points_total` - Pointer to store the number of sampling points
 ///
 /// # Returns
 /// Status code:
-/// - SPIR_COMPUTATION_SUCCESS (0) on success
-/// - SPIR_INVALID_ARGUMENT if uhat, points, or n_points_returned is null
+/// - SPIR_COMPUTATION_SUCCESS (0) on success, including a count query
+///   (`points` is NULL, `points_capacity` is ignored)
+/// - SPIR_INVALID_ARGUMENT if uhat or n_points_total is null, or basis_size or
+///   points_capacity is negative; nothing is written
+/// - SPIR_INVALID_ARGUMENT if points_capacity is smaller than the number of
+///   points; `points` is left untouched and `*n_points_total` is set to the
+///   required number
 /// - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function
 ///
 /// # Note
 /// This function is only available for spir_funcs objects representing Matsubara-space basis functions
 /// The statistics type is automatically detected from the spir_funcs object type
 /// The default sampling points are chosen to provide near-optimal conditioning
+/// The number of points generally differs from `basis_size`: the parity
+/// adjustment, `fence` and `positive_only` all change it. The point set never
+/// depends on `points_capacity`, and the output is never truncated.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_uhat_get_default_matsus(
     uhat: *const spir_funcs,
-    l: libc::c_int,
     positive_only: bool,
-    mitigate: bool,
+    fence: bool,
+    basis_size: libc::c_int,
+    points_capacity: libc::c_int,
     points: *mut i64,
-    n_points_returned: *mut libc::c_int,
+    n_points_total: *mut libc::c_int,
 ) -> crate::StatusCode {
     use crate::types::FuncsType;
     use crate::{
@@ -751,7 +762,11 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     use sparse_ir::traits::{Bosonic, Fermionic};
     use std::panic::catch_unwind;
 
-    if uhat.is_null() || points.is_null() || n_points_returned.is_null() {
+    if uhat.is_null() || n_points_total.is_null() {
+        return SPIR_INVALID_ARGUMENT;
+    }
+
+    if basis_size < 0 || points_capacity < 0 {
         return SPIR_INVALID_ARGUMENT;
     }
 
@@ -761,8 +776,7 @@ pub extern "C" fn spir_uhat_get_default_matsus(
 
         let points_vec: Vec<i64> = match inner {
             FuncsType::FTVector(ft_funcs) => {
-                let fence = mitigate;
-                let l_usize = l as usize;
+                let l_usize = basis_size as usize;
 
                 // Handle Fermionic case
                 // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
@@ -798,9 +812,15 @@ pub extern "C" fn spir_uhat_get_default_matsus(
             _ => return SPIR_NOT_SUPPORTED,
         };
 
-        let n_points = points_vec.len();
-        std::ptr::copy_nonoverlapping(points_vec.as_ptr(), points, n_points);
-        *n_points_returned = n_points as libc::c_int;
+        *n_points_total = points_vec.len() as libc::c_int;
+        if points.is_null() {
+            return SPIR_COMPUTATION_SUCCESS;
+        }
+        if points_vec.len() > points_capacity as usize {
+            return SPIR_INVALID_ARGUMENT;
+        }
+
+        std::ptr::copy_nonoverlapping(points_vec.as_ptr(), points, points_vec.len());
         SPIR_COMPUTATION_SUCCESS
     });
 
@@ -1285,6 +1305,7 @@ mod tests {
     fn test_uhat_get_default_matsus() {
         use crate::basis::*;
         use crate::kernel::*;
+        use crate::{SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED};
 
         // Create a kernel and basis
         let mut kernel_status = SPIR_INTERNAL_ERROR;
@@ -1315,96 +1336,162 @@ mod tests {
         let status = spir_basis_get_size(basis, &mut basis_size);
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
 
-        // Test without mitigation (mitigate = false)
-        {
-            let l = basis_size;
-            let positive_only = false;
-            let mitigate = false;
-            let mut points = vec![0i64; (l + 10) as usize];
-            let mut n_points_returned = 0;
-
+        // Query the count (NULL buffer), then fetch into a buffer of that size.
+        let fetch = |funcs: *const spir_funcs,
+                     positive_only: bool,
+                     fence: bool,
+                     size: libc::c_int|
+         -> Vec<i64> {
+            let mut n_total = -1;
             let status = spir_uhat_get_default_matsus(
-                uhat_funcs,
-                l,
+                funcs,
                 positive_only,
-                mitigate,
-                points.as_mut_ptr(),
-                &mut n_points_returned,
+                fence,
+                size,
+                0,
+                ptr::null_mut(),
+                &mut n_total,
             );
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-            assert!(n_points_returned > 0);
-
-            // Verify points are valid fermionic frequencies (odd integers)
-            for i in 0..(n_points_returned as usize) {
-                assert!(points[i].abs() % 2 == 1);
-            }
-        }
-
-        // Test with mitigation (mitigate = true)
-        {
-            let l = basis_size;
-            let positive_only = false;
-            let mitigate = true;
-            let mut points = vec![0i64; (l + 20) as usize];
-            let mut n_points_returned = 0;
-
+            assert!(n_total > 0);
+            let mut points = vec![0i64; n_total as usize];
+            let mut n_written = -1;
             let status = spir_uhat_get_default_matsus(
-                uhat_funcs,
-                l,
+                funcs,
                 positive_only,
-                mitigate,
+                fence,
+                size,
+                n_total,
                 points.as_mut_ptr(),
-                &mut n_points_returned,
+                &mut n_written,
             );
             assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-            assert!(n_points_returned > 0);
+            assert_eq!(n_written, n_total);
+            points
+        };
 
-            // Verify points are valid fermionic frequencies (odd integers)
-            for i in 0..(n_points_returned as usize) {
-                assert!(points[i].abs() % 2 == 1);
-            }
-        }
+        // Without fencing: valid fermionic frequencies (odd integers)
+        let points = fetch(uhat_funcs, false, false, basis_size);
+        assert!(points.iter().all(|p| p.abs() % 2 == 1));
 
-        // Test positive_only = true with mitigation
+        // With fencing
+        let points = fetch(uhat_funcs, false, true, basis_size);
+        assert!(points.iter().all(|p| p.abs() % 2 == 1));
+
+        // positive_only = true with fencing: positive, odd
+        let points = fetch(uhat_funcs, true, true, basis_size);
+        assert!(points.iter().all(|&p| p > 0 && p % 2 == 1));
+        assert_eq!(*points.last().unwrap(), 15);
+
+        // A buffer one element short is rejected without being written, and
+        // the required count is reported.
         {
-            let l = basis_size;
-            let positive_only = true;
-            let mitigate = true;
-            let mut points = vec![0i64; (l + 20) as usize];
-            let mut n_points_returned = 0;
-
+            let expected = fetch(uhat_funcs, false, true, basis_size);
+            let sentinel = i64::MIN;
+            let mut points = vec![sentinel; expected.len()];
+            let mut n_required = -1;
             let status = spir_uhat_get_default_matsus(
                 uhat_funcs,
-                l,
-                positive_only,
-                mitigate,
+                false,
+                true,
+                basis_size,
+                expected.len() as libc::c_int - 1,
                 points.as_mut_ptr(),
-                &mut n_points_returned,
+                &mut n_required,
             );
-            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
-            assert!(n_points_returned > 0);
-
-            // Verify all points are positive and odd
-            for i in 0..(n_points_returned as usize) {
-                assert!(points[i] > 0);
-                assert!(points[i] % 2 == 1);
-            }
-
-            assert_eq!(points[n_points_returned as usize - 1], 15);
+            assert_eq!(status, SPIR_INVALID_ARGUMENT);
+            assert_eq!(n_required as usize, expected.len());
+            assert!(points.iter().all(|&p| p == sentinel));
         }
 
-        // Test error handling
+        // Invalid arguments are rejected and leave n_points_total untouched.
         {
-            let mut n_points_returned = 0;
+            let mut points = vec![0i64; 64];
+            for (size, capacity) in [(-1, 64), (basis_size, -1)] {
+                let mut n_untouched = -7;
+                let status = spir_uhat_get_default_matsus(
+                    uhat_funcs,
+                    false,
+                    false,
+                    size,
+                    capacity,
+                    points.as_mut_ptr(),
+                    &mut n_untouched,
+                );
+                assert_eq!(status, SPIR_INVALID_ARGUMENT);
+                assert_eq!(n_untouched, -7);
+            }
+            let mut n_untouched = -7;
             let status = spir_uhat_get_default_matsus(
                 ptr::null(),
+                false,
+                false,
                 10,
-                false,
-                false,
-                ptr::null_mut(),
-                &mut n_points_returned,
+                64,
+                points.as_mut_ptr(),
+                &mut n_untouched,
             );
-            assert_ne!(status, SPIR_COMPUTATION_SUCCESS);
+            assert_eq!(status, SPIR_INVALID_ARGUMENT);
+            assert_eq!(n_untouched, -7);
+            let status = spir_uhat_get_default_matsus(
+                uhat_funcs,
+                false,
+                false,
+                10,
+                64,
+                points.as_mut_ptr(),
+                ptr::null_mut(),
+            );
+            assert_eq!(status, SPIR_INVALID_ARGUMENT);
+        }
+
+        // Imaginary-time functions are not Matsubara-space functions.
+        {
+            let mut u_status = SPIR_INTERNAL_ERROR;
+            let u_funcs = unsafe { spir_basis_get_u(basis, &mut u_status) };
+            assert_eq!(u_status, SPIR_COMPUTATION_SUCCESS);
+            let mut points = vec![0i64; 64];
+            let mut n_untouched = -7;
+            let status = spir_uhat_get_default_matsus(
+                u_funcs,
+                false,
+                false,
+                basis_size,
+                64,
+                points.as_mut_ptr(),
+                &mut n_untouched,
+            );
+            assert_eq!(status, SPIR_NOT_SUPPORTED);
+            assert_eq!(n_untouched, -7);
+            unsafe { spir_funcs_release(u_funcs) };
+        }
+
+        // uhat_full gives the same points as the basis-level getter, including
+        // basis sizes larger than the basis (the augmented-basis case).
+        {
+            let mut full_status = SPIR_INTERNAL_ERROR;
+            let uhat_full = unsafe { spir_basis_get_uhat_full(basis, &mut full_status) };
+            assert_eq!(full_status, SPIR_COMPUTATION_SUCCESS);
+            for size in [basis_size, basis_size + 2] {
+                for (positive_only, fence) in [(false, false), (true, false), (false, true)] {
+                    let from_uhat = fetch(uhat_full, positive_only, fence, size);
+                    let mut from_basis = vec![0i64; from_uhat.len()];
+                    let mut n_written = -1;
+                    let status = spir_basis_get_default_matsus_ext(
+                        basis,
+                        positive_only,
+                        fence,
+                        size,
+                        from_basis.len() as libc::c_int,
+                        from_basis.as_mut_ptr(),
+                        &mut n_written,
+                    );
+                    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                    assert_eq!(n_written as usize, from_uhat.len());
+                    assert_eq!(from_basis, from_uhat);
+                }
+            }
+            unsafe { spir_funcs_release(uhat_full) };
         }
 
         unsafe {

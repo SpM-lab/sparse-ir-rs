@@ -215,27 +215,30 @@ function c_spir_basis_get_default_taus_ext( &
 end function
 
 function c_spir_basis_get_n_default_matsus_ext( &
-    & b, positive_only, L, num_points_returned) &
+    & b, positive_only, fence, basis_size, n_points_total) &
     bind(c, name="spir_basis_get_n_default_matsus_ext")
   import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
   logical(c_bool), value :: positive_only
-  integer(c_int), value :: L
-  type(c_ptr), value :: num_points_returned
+  logical(c_bool), value :: fence
+  integer(c_int), value :: basis_size
+  type(c_ptr), value :: n_points_total
   integer(c_int) :: c_spir_basis_get_n_default_matsus_ext
 
 end function
 
 function c_spir_basis_get_default_matsus_ext( &
-    & b, positive_only, mitigate, n_points, points, n_points_returned) &
+    & b, positive_only, fence, basis_size, points_capacity, points, &
+    & n_points_total) &
     bind(c, name="spir_basis_get_default_matsus_ext")
   import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
   logical(c_bool), value :: positive_only
-  logical(c_bool), value :: mitigate
-  integer(c_int), value :: n_points
+  logical(c_bool), value :: fence
+  integer(c_int), value :: basis_size
+  integer(c_int), value :: points_capacity
   type(c_ptr), value :: points
-  type(c_ptr), value :: n_points_returned
+  type(c_ptr), value :: n_points_total
   integer(c_int) :: c_spir_basis_get_default_matsus_ext
 
 end function
@@ -476,15 +479,17 @@ function c_spir_funcs_batch_eval_matsu( &
 end function
 
 function c_spir_uhat_get_default_matsus( &
-    & uhat, l, positive_only, mitigate, points, n_points_returned) &
+    & uhat, positive_only, fence, basis_size, points_capacity, points, &
+    & n_points_total) &
     bind(c, name="spir_uhat_get_default_matsus")
   import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: uhat
-  integer(c_int), value :: l
   logical(c_bool), value :: positive_only
-  logical(c_bool), value :: mitigate
+  logical(c_bool), value :: fence
+  integer(c_int), value :: basis_size
+  integer(c_int), value :: points_capacity
   type(c_ptr), value :: points
-  type(c_ptr), value :: n_points_returned
+  type(c_ptr), value :: n_points_total
   integer(c_int) :: c_spir_uhat_get_default_matsus
 
 end function
