@@ -11,8 +11,9 @@
 //!
 //! integral of K(x, y) rho'(y) dy,
 //!
-//! where ρ'(y) = w(y) ρ(y). The weight function w(y) transforms the original spectral
-//! function ρ(y) into the scaled version ρ'(y) used in the integral equation.
+//! where ρ'(y) = ρ(y)/w(y) and w is the kernel's regularizer (see
+//! `AbstractKernel::regularizer`): it transforms the original spectral function
+//! ρ(y) into the scaled version ρ'(y) used in the integral equation.
 
 use crate::numeric::CustomNumeric;
 use crate::traits::{Statistics, StatisticsType};
@@ -474,9 +475,12 @@ where
 ///
 /// # Properties
 /// - **Centrosymmetric**: K(x, y) = K(-x, -y)
-/// - **ypower = 1**: Spectral function transforms as ρ'(y) = y * ρ(y)
+/// - **ypower = 1**: K(x, y) carries one power of y; in physical units
+///   K(τ, ω) = ω e^{-τω} / (1 - e^{-βω}) acts on ρ(ω)/ω, i.e.
+///   G(τ) = -∫ dω K(τ, ω) ρ(ω)/ω (irbasis paper, Chikano et al., CPC 240, 181
+///   (2019), arXiv:1807.05237, Eqs. (1)-(3))
 /// - **Bosonic only**: Does not support fermionic statistics
-/// - **Weight function**: w(β, ω) = 1/ω for bosonic statistics
+/// - **Regularizer**: w(β, ω) = ω for bosonic statistics (see `regularizer`)
 ///
 /// # Numerical Stability
 /// The expression v / (exp(v) - 1) is evaluated using expm1 for small |v|.
@@ -574,7 +578,7 @@ impl KernelProperties for RegularizedBoseKernel {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 
     fn ypower(&self) -> i32 {
-        1 // Spectral function transforms as ρ'(y) = y * ρ(y)
+        1 // K(x, y) carries one power of y; the kernel acts on ρ(ω)/ω
     }
 
     fn conv_radius(&self) -> f64 {

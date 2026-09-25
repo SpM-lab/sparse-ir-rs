@@ -589,8 +589,9 @@ pub(crate) struct DLRTauFuncs {
 impl DLRTauFuncs {
     fn zero_pole_tau_limit(&self) -> f64 {
         match self.kernel_ypower {
+            // -lim_{ω→0} w(β, ω) e^{-τω} / (1 - e^{-βω}) with w = tanh(βω/2) or ω
             0 => -0.5,
-            1 => -1.0 / (self.beta * self.wmax * self.wmax),
+            1 => -1.0 / self.beta,
             _ => panic!(
                 "DLR tau evaluation does not support kernel ypower = {}",
                 self.kernel_ypower
@@ -667,8 +668,9 @@ pub(crate) struct DLRMatsubaraFuncs {
 impl DLRMatsubaraFuncs {
     fn zero_pole_matsubara_limit(&self) -> f64 {
         match self.kernel_ypower {
+            // lim_{ω→0} w(β, ω) / (0 - ω) at n = 0 with w = tanh(βω/2) or ω
             0 => -0.5 * self.beta,
-            1 => -1.0 / (self.wmax * self.wmax),
+            1 => -1.0,
             _ => panic!(
                 "DLR Matsubara evaluation does not support kernel ypower = {}",
                 self.kernel_ypower

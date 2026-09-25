@@ -379,9 +379,10 @@ fn test_dlr_regularized_bose_with_custom_poles() {
             tau_values[[i, 2]].is_finite(),
             "tau basis value for zero pole must be finite"
         );
+        // -K^B(τ, 0) = -lim ω e^{-τω}/(1 - e^{-βω}) = -1/β
         assert!(
-            (tau_values[[i, 2]] + 1.0 / (beta * wmax * wmax)).abs() < 1e-12,
-            "zero-pole tau basis should match the regularized limit"
+            (tau_values[[i, 2]] + 1.0 / beta).abs() < 1e-12,
+            "zero-pole tau basis should match the regularized limit -1/beta"
         );
     }
 
@@ -394,9 +395,10 @@ fn test_dlr_regularized_bose_with_custom_poles() {
         matsubara_values[[0, 2]].re.is_finite() && matsubara_values[[0, 2]].im.is_finite(),
         "zero-pole Matsubara basis at n=0 must be finite"
     );
+    // ω/(iν - ω) at ν = 0 is -1 for every ω, including the limit ω → 0
     assert!(
-        (matsubara_values[[0, 2]].re + 1.0 / (wmax * wmax)).abs() < 1e-12,
-        "zero-pole Matsubara basis should match the regularized limit"
+        (matsubara_values[[0, 2]].re + 1.0).abs() < 1e-12,
+        "zero-pole Matsubara basis should match the regularized limit -1"
     );
     assert!(
         matsubara_values[[1, 2]].norm() < 1e-12,
@@ -405,6 +407,49 @@ fn test_dlr_regularized_bose_with_custom_poles() {
 
     println!("\n=== RegularizedBoseKernel DLR with Custom Poles ===");
     println!("Successfully created DLR with {} custom poles", poles.len());
+}
+
+#[test]
+fn test_dlr_regularized_bose_basis_functions_match_physical_kernel() {
+    // For a RegularizedBoseKernel basis the DLR functions are u_p(τ) =
+    // -K^B(τ, ω_p) with K^B(τ, ω) = ω e^{-τω}/(1 - e^{-βω}), and
+    // û_p(iν) = ω_p/(iν - ω_p): irbasis paper (Chikano et al., CPC 240, 181
+    // (2019), arXiv:1807.05237) Eqs. (3) and (16). Both are closed forms, so
+    // they must hold to rounding; wmax ≠ 1 exposes any extra power of wmax.
+    let beta = 10.0;
+    let wmax = 2.0;
+    let kernel = RegularizedBoseKernel::new(beta * wmax);
+    let basis =
+        FiniteTempBasis::<RegularizedBoseKernel, Bosonic>::new(kernel, beta, Some(1e-10), None);
+    let poles = vec![-1.5, -0.4, 0.3, 1.8];
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, poles.clone()).unwrap();
+
+    let taus = [0.25, 3.7, 8.9];
+    let tau_values = dlr.evaluate_tau(&taus);
+    for (i, &tau) in taus.iter().enumerate() {
+        for (p, &pole) in poles.iter().enumerate() {
+            let exact = -pole * (-tau * pole).exp() / (1.0 - (-beta * pole).exp());
+            assert!(
+                (tau_values[[i, p]] - exact).abs() <= 1e-13 * exact.abs().max(1.0),
+                "tau={tau}, pole={pole}: u_p = {}, -K^B = {exact}",
+                tau_values[[i, p]]
+            );
+        }
+    }
+
+    let freqs = [0_i64, 2, -6].map(|n| crate::MatsubaraFreq::<Bosonic>::new(n).unwrap());
+    let matsubara_values = dlr.evaluate_matsubara(&freqs);
+    for (i, freq) in freqs.iter().enumerate() {
+        for (p, &pole) in poles.iter().enumerate() {
+            let exact = Complex::new(pole, 0.0) / Complex::new(-pole, freq.value(beta));
+            assert!(
+                (matsubara_values[[i, p]] - exact).norm() <= 1e-13 * exact.norm().max(1.0),
+                "n={}, pole={pole}: uhat_p = {}, pole/(iν - pole) = {exact}",
+                freq.get_n(),
+                matsubara_values[[i, p]]
+            );
+        }
+    }
 }
 
 #[test]

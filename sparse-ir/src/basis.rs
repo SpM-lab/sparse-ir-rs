@@ -262,10 +262,14 @@ where
 
         let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm));
 
-        // Scale singular values
-        // s_scaled = sqrt(β/2 * ωmax) * ωmax^(-ypower) * s_sve
+        // Scale singular values to τ = β(x + 1)/2 and ω = ωmax y. A kernel with
+        // `ypower` carries that power of y = ω/ωmax, so its physical form is
+        // K(τ, ω) = ωmax^ypower K(x, y) and
+        // s_scaled = sqrt(β/2 * ωmax) * ωmax^ypower * s_sve,
+        // e.g. S_l = sqrt(β ωmax³/2) s_l for RegularizedBoseKernel (irbasis
+        // paper, Chikano et al., CPC 240, 181 (2019), arXiv:1807.05237, Eq. (25)).
         let ypower = kernel.ypower();
-        let scale_factor = (beta / 2.0 * omega_max).sqrt() * omega_max.powi(-ypower);
+        let scale_factor = (beta / 2.0 * omega_max).sqrt() * omega_max.powi(ypower);
         let s: Vec<f64> = s_sve.iter().map(|&x| scale_factor * x).collect();
 
         // Construct uhat (Fourier transform of u)

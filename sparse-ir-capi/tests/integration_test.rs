@@ -10,14 +10,15 @@ use sparse_ir_capi::{
     SPIR_INVALID_DIMENSION, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
     SPIR_STATISTICS_FERMIONIC, spir_basis, spir_basis_get_default_matsus,
     spir_basis_get_default_taus, spir_basis_get_n_default_matsus, spir_basis_get_n_default_taus,
-    spir_basis_get_size, spir_basis_get_u, spir_basis_get_uhat, spir_basis_new, spir_basis_release,
-    spir_dlr_get_npoles, spir_dlr_get_poles, spir_dlr_new, spir_dlr2ir_dd, spir_dlr2ir_zz,
-    spir_funcs_eval, spir_funcs_eval_matsu, spir_funcs_release, spir_ir2dlr_dd, spir_ir2dlr_zz,
-    spir_kernel, spir_kernel_release, spir_logistic_kernel_new, spir_matsu_sampling_new,
+    spir_basis_get_size, spir_basis_get_svals, spir_basis_get_u, spir_basis_get_uhat,
+    spir_basis_new, spir_basis_release, spir_dlr_get_npoles, spir_dlr_get_poles, spir_dlr_new,
+    spir_dlr_new_with_poles, spir_dlr2ir_dd, spir_dlr2ir_zz, spir_funcs_eval,
+    spir_funcs_eval_matsu, spir_funcs_release, spir_ir2dlr_dd, spir_ir2dlr_zz, spir_kernel,
+    spir_kernel_release, spir_logistic_kernel_new, spir_matsu_sampling_new,
     spir_reg_bose_kernel_new, spir_sampling, spir_sampling_eval_dd, spir_sampling_eval_dz,
     spir_sampling_eval_zz, spir_sampling_fit_dd, spir_sampling_fit_zd, spir_sampling_fit_zz,
-    spir_sampling_release, spir_sve_result, spir_sve_result_new, spir_sve_result_release,
-    spir_tau_sampling_new,
+    spir_sampling_release, spir_sve_result, spir_sve_result_get_size, spir_sve_result_get_svals,
+    spir_sve_result_new, spir_sve_result_release, spir_tau_sampling_new,
 };
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -804,6 +805,101 @@ fn test_bosonic_dlr_matsubara_sampling_matches_dlr_funcs() {
 
         spir_funcs_release(dlr_uhat);
         spir_sampling_release(matsu_sampling);
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
+
+#[test]
+fn test_regularized_bose_svals_and_dlr_funcs_match_physical_kernel() {
+    // RegularizedBoseKernel is K^B(τ, ω) = ω e^{-τω}/(1 - e^{-βω}) in physical
+    // units (irbasis paper, Chikano et al., CPC 240, 181 (2019),
+    // arXiv:1807.05237, Eq. (3)), so S_l = sqrt(β wmax³/2) s_l (Eq. (25)), the
+    // DLR τ functions are -K^B(τ, ω_p) and the Matsubara functions are
+    // ω_p/(iν - ω_p) (Eq. (16)); the ω_p = 0 limits are -1/β and -δ_{n,0}.
+    // wmax ≠ 1 exposes any extra power of wmax.
+    let beta = 10.0;
+    let wmax = 2.0;
+    let epsilon = 1e-10;
+    let poles = [-1.5, 0.0, 1.8];
+    let k_b = |tau: f64, w: f64| -> f64 {
+        if w == 0.0 {
+            1.0 / beta
+        } else {
+            w * (-tau * w).exp() / (1.0 - (-beta * w).exp())
+        }
+    };
+
+    unsafe {
+        let (kernel, sve, basis) = create_regularized_bose_ir_basis(0, beta, wmax, epsilon);
+
+        let size = get_basis_size(basis) as usize;
+        let mut basis_svals = vec![0.0; size];
+        let status = spir_basis_get_svals(basis, basis_svals.as_mut_ptr());
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut n_sve = 0;
+        let status = spir_sve_result_get_size(sve, &mut n_sve);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut sve_svals = vec![0.0; n_sve as usize];
+        let status = spir_sve_result_get_svals(sve, sve_svals.as_mut_ptr());
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let scale = (beta * wmax.powi(3) / 2.0).sqrt();
+        for l in 0..size {
+            let expected = scale * sve_svals[l];
+            assert!(
+                (basis_svals[l] - expected).abs() <= 1e-14 * expected,
+                "l={l}: S_l = {}, sqrt(beta wmax^3/2) s_l = {expected}",
+                basis_svals[l]
+            );
+        }
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new_with_poles(basis, poles.len() as i32, poles.as_ptr(), &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr_u = spir_basis_get_u(dlr, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr_uhat = spir_basis_get_uhat(dlr, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        for &tau in &[0.25, 3.7, 8.9] {
+            let mut values = vec![0.0; poles.len()];
+            let status = spir_funcs_eval(dlr_u, tau, values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            for (p, &pole) in poles.iter().enumerate() {
+                let exact = -k_b(tau, pole);
+                assert!(
+                    (values[p] - exact).abs() <= 1e-13 * exact.abs().max(1.0),
+                    "tau={tau}, pole={pole}: u_p = {}, -K^B = {exact}",
+                    values[p]
+                );
+            }
+        }
+
+        for n in [0_i64, 2, -6] {
+            let mut values = vec![Complex64::new(0.0, 0.0); poles.len()];
+            let status = spir_funcs_eval_matsu(dlr_uhat, n, values.as_mut_ptr());
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            let iv = Complex64::new(0.0, n as f64 * std::f64::consts::PI / beta);
+            for (p, &pole) in poles.iter().enumerate() {
+                let exact = if pole == 0.0 {
+                    Complex64::new(if n == 0 { -1.0 } else { 0.0 }, 0.0)
+                } else {
+                    Complex64::new(pole, 0.0) / (iv - pole)
+                };
+                assert!(
+                    (values[p] - exact).norm() <= 1e-13 * exact.norm().max(1.0),
+                    "n={n}, pole={pole}: uhat_p = {}, pole/(iν - pole) = {exact}",
+                    values[p]
+                );
+            }
+        }
+
+        spir_funcs_release(dlr_uhat);
+        spir_funcs_release(dlr_u);
         spir_basis_release(dlr);
         spir_basis_release(basis);
         spir_sve_result_release(sve);
