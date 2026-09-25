@@ -256,3 +256,281 @@ fn get_slice_selects_functions_in_the_given_order() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// spir_matsu_sampling_new / spir_matsu_sampling_new_with_matrix (#247)
+// ---------------------------------------------------------------------------
+
+/// The default Matsubara sampling points of `basis`, in ascending order.
+fn default_matsus(basis: *const spir_basis, positive_only: bool) -> Vec<i64> {
+    let mut n = -1;
+    assert_eq!(
+        spir_basis_get_n_default_matsus(basis, positive_only, &mut n),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    let mut points = vec![i64::MIN; n as usize];
+    assert_eq!(
+        spir_basis_get_default_matsus(basis, positive_only, points.as_mut_ptr()),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    assert!(points.windows(2).all(|w| w[0] < w[1]));
+    points
+}
+
+/// `points` with one index moved to the wrong parity; the order is kept.
+fn with_wrong_parity(points: &[i64]) -> Vec<i64> {
+    let mut bad = points.to_vec();
+    let k = bad.len() / 2;
+    // Neighbours of the same parity differ by at least 2, so +1 stays sorted.
+    bad[k] += 1;
+    bad
+}
+
+/// Positive-only `points` whose smallest index is replaced by a negative
+/// index of the right parity; the order is kept.
+fn with_negative_index(points: &[i64], statistics: i32) -> Vec<i64> {
+    let mut bad = points.to_vec();
+    bad[0] = if statistics == SPIR_STATISTICS_FERMIONIC {
+        -1
+    } else {
+        -2
+    };
+    bad
+}
+
+struct Sampling(*mut spir_sampling);
+
+impl Drop for Sampling {
+    fn drop(&mut self) {
+        spir_sampling_release(self.0);
+    }
+}
+
+impl Sampling {
+    fn matsus(&self) -> Vec<i64> {
+        let mut n = -1;
+        assert_eq!(
+            spir_sampling_get_npoints(self.0, &mut n),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        let mut points = vec![i64::MIN; n as usize];
+        assert_eq!(
+            spir_sampling_get_matsus(self.0, points.as_mut_ptr()),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        points
+    }
+}
+
+fn matsu_sampling_new(
+    basis: *const spir_basis,
+    positive_only: bool,
+    points: &[i64],
+) -> (StatusCode, *mut spir_sampling) {
+    let mut status = SPIR_COMPUTATION_SUCCESS - 100;
+    let sampling = spir_matsu_sampling_new(
+        basis,
+        positive_only,
+        points.len() as i32,
+        points.as_ptr(),
+        &mut status,
+    );
+    (status, sampling)
+}
+
+fn matsu_sampling_new_with_matrix(
+    statistics: i32,
+    basis_size: i32,
+    positive_only: bool,
+    points: &[i64],
+    matrix: &[num_complex::Complex64],
+) -> (StatusCode, *mut spir_sampling) {
+    assert_eq!(matrix.len(), points.len() * basis_size as usize);
+    let mut status = SPIR_COMPUTATION_SUCCESS - 100;
+    let sampling = spir_matsu_sampling_new_with_matrix(
+        SPIR_ORDER_ROW_MAJOR,
+        statistics,
+        basis_size,
+        positive_only,
+        points.len() as i32,
+        points.as_ptr(),
+        matrix.as_ptr(),
+        &mut status,
+    );
+    (status, sampling)
+}
+
+/// A dense stand-in sampling matrix; validation must not depend on it.
+fn stand_in_matrix(n_points: usize, basis_size: usize) -> Vec<num_complex::Complex64> {
+    (0..n_points * basis_size)
+        .map(|k| num_complex::Complex64::new(1.0 + k as f64, 0.5))
+        .collect()
+}
+
+/// Before the fix, a parity-invalid index reached
+/// `MatsubaraFreq::new(n).expect(...)` and returned -7.
+#[test]
+fn matsu_sampling_new_rejects_wrong_parity() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            for positive_only in [false, true] {
+                let points = with_wrong_parity(&default_matsus(fx.basis, positive_only));
+                let (status, sampling) = matsu_sampling_new(basis, positive_only, &points);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}, statistics {statistics}, positive_only {positive_only}"
+                );
+                assert!(sampling.is_null());
+            }
+        }
+    }
+}
+
+/// Before the fix, a negative index with positive_only reached the core
+/// `assert!` in `MatsubaraSamplingPositiveOnly::with_sampling_points` (-7).
+#[test]
+fn matsu_sampling_new_rejects_negative_index_with_positive_only() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            let points = with_negative_index(&default_matsus(fx.basis, true), statistics);
+            let (status, sampling) = matsu_sampling_new(basis, true, &points);
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "{name}, statistics {statistics}, points {points:?}"
+            );
+            assert!(sampling.is_null());
+        }
+    }
+}
+
+/// Valid indices still build a sampling object: negative indices on the
+/// full grid, and n = 0 for bosons with positive_only.
+#[test]
+fn matsu_sampling_new_accepts_valid_indices() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            for positive_only in [false, true] {
+                let points = default_matsus(fx.basis, positive_only);
+                if positive_only {
+                    assert!(points.iter().all(|&n| n >= 0));
+                } else {
+                    assert!(points.iter().any(|&n| n < 0));
+                }
+                if statistics == SPIR_STATISTICS_BOSONIC {
+                    assert!(points.contains(&0));
+                }
+                let (status, sampling) = matsu_sampling_new(basis, positive_only, &points);
+                assert_eq!(
+                    status, SPIR_COMPUTATION_SUCCESS,
+                    "{name}, statistics {statistics}, positive_only {positive_only}"
+                );
+                assert!(!sampling.is_null());
+                assert_eq!(Sampling(sampling).matsus(), points);
+            }
+        }
+    }
+}
+
+/// Before the fix, a parity-invalid index returned -7, as in
+/// `spir_matsu_sampling_new`.
+#[test]
+fn matsu_sampling_new_with_matrix_rejects_wrong_parity() {
+    let basis_size = 3;
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for positive_only in [false, true] {
+            let points = with_wrong_parity(&default_matsus(fx.basis, positive_only));
+            let matrix = stand_in_matrix(points.len(), basis_size as usize);
+            let (status, sampling) = matsu_sampling_new_with_matrix(
+                statistics,
+                basis_size,
+                positive_only,
+                &points,
+                &matrix,
+            );
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "statistics {statistics}, positive_only {positive_only}"
+            );
+            assert!(sampling.is_null());
+        }
+    }
+}
+
+/// Before the fix, a negative index with positive_only was accepted (0),
+/// unlike in `spir_matsu_sampling_new`.
+#[test]
+fn matsu_sampling_new_with_matrix_rejects_negative_index_with_positive_only() {
+    let basis_size = 3;
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let points = with_negative_index(&default_matsus(fx.basis, true), statistics);
+        let matrix = stand_in_matrix(points.len(), basis_size as usize);
+        let (status, sampling) =
+            matsu_sampling_new_with_matrix(statistics, basis_size, true, &points, &matrix);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "statistics {statistics}, points {points:?}"
+        );
+        assert!(sampling.is_null());
+    }
+}
+
+/// Unknown statistics were already rejected; keep it so.
+#[test]
+fn matsu_sampling_new_with_matrix_rejects_unknown_statistics() {
+    let points = [1i64, 3];
+    let matrix = stand_in_matrix(points.len(), 2);
+    for statistics in [-1, 2] {
+        for positive_only in [false, true] {
+            let (status, sampling) =
+                matsu_sampling_new_with_matrix(statistics, 2, positive_only, &points, &matrix);
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "statistics {statistics}");
+            assert!(sampling.is_null());
+        }
+    }
+}
+
+/// Valid indices with the basis' own sampling matrix still build a sampling
+/// object that reports the given points.
+#[test]
+fn matsu_sampling_new_with_matrix_accepts_valid_indices() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let uhat = get_funcs(fx.basis, spir_basis_get_uhat);
+        let basis_size = uhat.size();
+        for positive_only in [false, true] {
+            let points = default_matsus(fx.basis, positive_only);
+            let mut matrix = vec![
+                num_complex::Complex64::new(f64::NAN, f64::NAN);
+                points.len() * basis_size as usize
+            ];
+            assert_eq!(
+                spir_funcs_batch_eval_matsu(
+                    uhat.0,
+                    SPIR_ORDER_ROW_MAJOR,
+                    points.len() as i32,
+                    points.as_ptr(),
+                    matrix.as_mut_ptr(),
+                ),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let (status, sampling) = matsu_sampling_new_with_matrix(
+                statistics,
+                basis_size,
+                positive_only,
+                &points,
+                &matrix,
+            );
+            assert_eq!(
+                status, SPIR_COMPUTATION_SUCCESS,
+                "statistics {statistics}, positive_only {positive_only}"
+            );
+            assert!(!sampling.is_null());
+            assert_eq!(Sampling(sampling).matsus(), points);
+        }
+    }
+}

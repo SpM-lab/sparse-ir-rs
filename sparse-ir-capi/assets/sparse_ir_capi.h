@@ -1325,13 +1325,21 @@ struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
  *
  * # Arguments
  * * `b` - Pointer to a finite temperature basis object
- * * `positive_only` - If true, only positive frequencies are used
+ * * `positive_only` - If true, only non-negative frequencies are used
  * * `num_points` - Number of sampling points
- * * `points` - Array of Matsubara frequency indices (n)
+ * * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for a
+ *   fermionic basis, even for a bosonic basis, and non-negative when
+ *   `positive_only` is true
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, an
+ *   index has the wrong parity for the statistics of `b`, or `positive_only`
+ *   is true and an index is negative
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  */
 
 struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
@@ -1374,14 +1382,23 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
  * * `basis_size` - Basis size
- * * `positive_only` - If true, only positive frequencies are used
+ * * `positive_only` - If true, only non-negative frequencies are used
  * * `num_points` - Number of sampling points
- * * `points` - Array of Matsubara frequency indices (n)
+ * * `points` - Array of `num_points` Matsubara indices n (ω = nπ/β): odd for
+ *   fermionic, even for bosonic `statistics`, and non-negative when
+ *   `positive_only` is true
  * * `matrix` - Pre-computed complex matrix (num_points x basis_size)
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
+ *   `basis_size` <= 0, `order` or `statistics` is not one of the constants
+ *   above, an index has the wrong parity for `statistics`, or `positive_only`
+ *   is true and an index is negative
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes
