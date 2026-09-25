@@ -1464,6 +1464,11 @@ StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
  *   point is NaN, infinite or outside [-β, β]
  * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
+ * The points may be in any order, and the sampling object keeps it:
+ * `spir_sampling_get_taus` returns `points` unchanged, and index i along the
+ * sampling-point axis of the evaluate and fit functions refers to
+ * `points[i]`.
+ *
  * # Safety
  * Caller must ensure `b` is valid and `points` has `num_points` elements
  */
@@ -1494,6 +1499,11 @@ struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
  *   index has the wrong parity for the statistics of `b`, or `positive_only`
  *   is true and an index is negative
  * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The points may be in any order, and the sampling object keeps it: they
+ * are not sorted, `spir_sampling_get_matsus` returns `points` unchanged, and
+ * index i along the sampling-point axis of the evaluate and fit functions
+ * refers to `points[i]`.
  */
 
 struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,

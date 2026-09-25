@@ -71,16 +71,18 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     }
 
     /// Create Matsubara sampling with custom sampling points
+    ///
+    /// The points may be in any order, and are kept in the given order:
+    /// [`Self::sampling_points`] returns them unchanged, and index i along the
+    /// sampling-point axis of `evaluate` and `fit` refers to
+    /// `sampling_points[i]`.
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
-        mut sampling_points: Vec<MatsubaraFreq<S>>,
+        sampling_points: Vec<MatsubaraFreq<S>>,
     ) -> Self
     where
         S: 'static,
     {
-        // Sort sampling points
-        sampling_points.sort();
-
         // Evaluate matrix at sampling points
         // Use Basis trait's evaluate_matsubara method
         let matrix = basis.evaluate_matsubara(&sampling_points);
@@ -748,16 +750,21 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     }
 
     /// Create Matsubara sampling with custom positive-only sampling points
+    ///
+    /// The points may be in any order, and are kept in the given order:
+    /// [`Self::sampling_points`] returns them unchanged, and index i along the
+    /// sampling-point axis of `evaluate` and `fit` refers to
+    /// `sampling_points[i]`.
+    ///
+    /// # Panics
+    /// Panics if a sampling point is negative
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
-        mut sampling_points: Vec<MatsubaraFreq<S>>,
+        sampling_points: Vec<MatsubaraFreq<S>>,
     ) -> Self
     where
         S: 'static,
     {
-        // Sort and validate (all n >= 0)
-        sampling_points.sort();
-
         // Validate that all points are non-negative
         assert!(
             sampling_points.iter().all(|f| f.n() >= 0),

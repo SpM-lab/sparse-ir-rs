@@ -1683,3 +1683,68 @@ fn matsu_sampling_new_with_matrix_keeps_the_given_point_order() {
         }
     }
 }
+
+/// `spir_matsu_sampling_new` keeps the points in the given order: it reports
+/// them back unchanged, and value i of the evaluate functions is at
+/// `points[i]`. Before the fix, the core sorted the points, so that
+/// `spir_sampling_get_matsus` returned them sorted and the values came back
+/// in sorted order, not in the caller's.
+#[test]
+fn matsu_sampling_new_keeps_the_given_point_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            let uhat = get_funcs(basis, spir_basis_get_uhat);
+            let coeffs = test_coeffs(uhat.size() as usize);
+            for positive_only in [false, true] {
+                for points in unsorted(&default_matsus(fx.basis, positive_only)) {
+                    let (status, sampling) = matsu_sampling_new(basis, positive_only, &points);
+                    assert_eq!(
+                        status, SPIR_COMPUTATION_SUCCESS,
+                        "{name}, points {points:?}, positive_only {positive_only}"
+                    );
+                    let sampling = Sampling(sampling);
+                    assert_eq!(sampling.matsus(), points, "{name}");
+                    let (status, rows) = batch_eval_matsu(&uhat, SPIR_ORDER_ROW_MAJOR, &points);
+                    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                    assert_rows_times(&rows, &coeffs, &sampling.eval_dz(&coeffs));
+                }
+            }
+        }
+    }
+}
+
+/// `spir_tau_sampling_new` keeps the points in the given order as well (it
+/// always did; before the fix this test passed too).
+#[test]
+fn tau_sampling_new_keeps_the_given_point_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let taus = default_taus(fx.basis);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            let u = get_funcs(basis, spir_basis_get_u);
+            let l = u.size() as usize;
+            let coeffs = test_coeffs(l);
+            for points in unsorted(&taus) {
+                let (status, sampling) = tau_sampling_new(basis, &points);
+                assert_eq!(
+                    status, SPIR_COMPUTATION_SUCCESS,
+                    "{name}, points {points:?}"
+                );
+                let sampling = Sampling(sampling);
+                assert_eq!(sampling.taus(), points, "{name}");
+                let rows = u_rows(&u, &points);
+                let values = sampling.eval_dd(&coeffs);
+                for (i, value) in values.iter().enumerate() {
+                    let terms: Vec<f64> = (0..l).map(|j| rows[i * l + j] * coeffs[j]).collect();
+                    let expected: f64 = terms.iter().sum();
+                    let scale: f64 = terms.iter().map(|t| t.abs()).sum();
+                    assert!(
+                        (value - expected).abs() <= 1e-13 * scale,
+                        "{name}, row {i}: {value} vs {expected}"
+                    );
+                }
+            }
+        }
+    }
+}

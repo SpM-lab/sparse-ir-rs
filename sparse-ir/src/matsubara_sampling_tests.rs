@@ -344,10 +344,15 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
         .fold(0.0f64, f64::max);
 
     println!("MatsubaraSampling roundtrip max error: {:.2e}", max_error);
-    // RegularizedBoseKernel has lower numerical precision due to y=0 singularity
-    // Looser tolerance required
+    // `symmetric_points` are unsorted (0, 2, 4, ..., then -2, -4, ...) and
+    // `giwn_values` follows their order. The bound 2.0 used here passed only
+    // because the sampling sorted its points, so that the values were fitted
+    // at the wrong frequencies (max error 1.66). With the points kept in the
+    // given order, the round trip has the accuracy of the positive-only test
+    // below on the same basis (eps = 1e-4), so it uses the same bound 1e-2,
+    // which still fails for values taken in the wrong order.
     assert!(
-        max_error < 2.0,
+        max_error < 1e-2,
         "RegularizedBose Matsubara roundtrip error too large: {}",
         max_error
     );
@@ -938,4 +943,45 @@ fn test_from_matrix_keeps_the_given_order_fermionic() {
 #[test]
 fn test_from_matrix_keeps_the_given_order_bosonic() {
     check_from_matrix_keeps_the_given_order::<Bosonic>();
+}
+
+/// `with_sampling_points` keeps the points in the given order: it returns
+/// them unchanged from `sampling_points()`, and value i of `evaluate` is at
+/// `sampling_points[i]`. Before the fix, both constructors sorted the points,
+/// so that values fitted in the caller's order were taken at the wrong
+/// frequencies.
+fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>() {
+    let kernel = LogisticKernel::new(10.0);
+    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None);
+    let l = basis.size();
+    let coeffs: Vec<f64> = (0..l).map(|j| 1.0 / (1.0 + j as f64)).collect();
+    let coeffs_z: Vec<Complex<f64>> = coeffs.iter().map(|&c| Complex::new(c, 0.5 * c)).collect();
+
+    let points = unsorted_points(&basis, true);
+    let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
+    assert_eq!(indices(sampling.sampling_points()), indices(&points));
+    assert_rows_times(
+        &uhat_matrix(&basis, &points),
+        &coeffs,
+        &sampling.evaluate(&coeffs),
+    );
+
+    let points = unsorted_points(&basis, false);
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
+    assert_eq!(indices(sampling.sampling_points()), indices(&points));
+    assert_rows_times(
+        &uhat_matrix(&basis, &points),
+        &coeffs_z,
+        &sampling.evaluate(&coeffs_z),
+    );
+}
+
+#[test]
+fn test_with_sampling_points_keeps_the_given_order_fermionic() {
+    check_with_sampling_points_keeps_the_given_order::<Fermionic>();
+}
+
+#[test]
+fn test_with_sampling_points_keeps_the_given_order_bosonic() {
+    check_with_sampling_points_keeps_the_given_order::<Bosonic>();
 }
