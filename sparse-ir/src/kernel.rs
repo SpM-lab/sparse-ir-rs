@@ -500,16 +500,20 @@ impl RegularizedBoseKernel {
     /// Create a new RegularizedBoseKernel
     ///
     /// # Arguments
-    /// * `lambda` - Kernel cutoff Λ (must be non-negative and finite)
+    /// * `lambda` - Kernel cutoff Λ (must be positive and finite)
     ///
     /// # Panics
-    /// Panics if lambda < 0 or lambda is NaN/infinite
+    /// Panics if lambda <= 0 or lambda is NaN/infinite. At Λ = 0 the kernel
+    /// is infinite at y = 0 (K = 1/Λ there), so its SVE does not exist.
     #[deprecated(
         note = "use LogisticKernel, the default kernel for both statistics; RegularizedBoseKernel will be removed in a future release (https://github.com/SpM-lab/sparse-ir-rs/issues/273)"
     )]
     pub fn new(lambda: f64) -> Self {
-        if lambda < 0.0 || !lambda.is_finite() {
-            panic!("Kernel cutoff Λ must be non-negative, got {}", lambda);
+        if !(lambda > 0.0 && lambda.is_finite()) {
+            panic!(
+                "Kernel cutoff Λ must be positive and finite, got {}",
+                lambda
+            );
         }
         Self { lambda }
     }

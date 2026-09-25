@@ -32,6 +32,9 @@ pub enum DlrError {
          (e.g. RegularizedBoseKernel) require bosonic statistics"
     )]
     KernelStatisticsMismatch,
+    /// No poles were given: a DLR needs at least one.
+    #[error("No poles given: a DLR needs at least one pole")]
+    NoPoles,
 }
 
 /// Generic single-pole Green's function at imaginary time τ
@@ -318,7 +321,7 @@ where
     /// # Errors
     /// Returns [`DlrError::KernelStatisticsMismatch`] if the kernel does not
     /// support the requested statistics (e.g. `RegularizedBoseKernel` with
-    /// fermionic statistics).
+    /// fermionic statistics), and [`DlrError::NoPoles`] if `poles` is empty.
     pub fn with_poles<K>(
         basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
         poles: Vec<f64>,
@@ -334,6 +337,12 @@ where
         // combination before computing anything.
         if S::STATISTICS == Statistics::Fermionic && basis.kernel().ypower() == 1 {
             return Err(DlrError::KernelStatisticsMismatch);
+        }
+        // Without poles the fitting matrix has no columns, and its SVD would
+        // transpose [n, 0] arrays, which mdarray 0.7.2 does out of bounds
+        // (https://github.com/fre-hu/mdarray/issues/21).
+        if poles.is_empty() {
+            return Err(DlrError::NoPoles);
         }
 
         let beta = basis.beta();
@@ -480,6 +489,16 @@ where
             basis_size
         );
 
+        if gl.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to convert.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape = crate::sampling::build_output_shape(gl.shape(), dim, self.poles.len());
+            return mdarray::Tensor::zeros(&out_shape[..]);
+        }
+
         // Move target dimension to position 0
         let gl_dim0 = crate::sampling::movedim(gl, dim, 0);
 
@@ -547,6 +566,17 @@ where
             self.poles.len(),
             n_poles
         );
+
+        if g_dlr.is_empty() {
+            // Zero-extent guard: an empty batch has nothing to convert.
+            // Returning early keeps it away from the permuted copies that
+            // mdarray 0.7.2 does out of bounds for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21) and from
+            // zero-size GEMMs.
+            let out_shape =
+                crate::sampling::build_output_shape(g_dlr.shape(), dim, self.fitmat.shape().0);
+            return mdarray::Tensor::zeros(&out_shape[..]);
+        }
 
         // Move target dimension to position 0
         let g_dlr_dim0 = crate::sampling::movedim(g_dlr, dim, 0);

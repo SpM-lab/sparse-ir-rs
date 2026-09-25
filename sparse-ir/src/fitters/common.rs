@@ -30,6 +30,12 @@ use num_complex::Complex;
 /// - `false` = operation not supported for this fitter
 ///
 /// Default implementations return `false` (not supported).
+///
+/// The input has `basis_size` (evaluate) or `n_points` (fit) along `dim`, and
+/// `out` must have the shape of the input with `n_points` (evaluate) or
+/// `basis_size` (fit) along `dim`. A supported operation panics if `dim` is
+/// not an axis of the input or a shape does not match, before writing to
+/// `out`.
 pub trait InplaceFitter {
     /// Number of sampling points
     fn n_points(&self) -> usize;
@@ -154,6 +160,58 @@ pub(crate) fn make_perm_to_front(rank: usize, dim: usize) -> Vec<usize> {
 }
 
 // ============================================================================
+// Shape validation
+// ============================================================================
+
+/// Check the shapes of an N-D evaluate or fit along axis `dim`
+///
+/// The N-D methods of the fitters address the input and `out` as contiguous
+/// matrices through unchecked views and pointer offsets computed from the
+/// shape of the input. So the input must have extent `n_in` along `dim`, and
+/// `out` must have the rank of the input, extent `n_out` along `dim` and the
+/// extent of the input along every other axis. Call this before any unchecked
+/// access or write.
+///
+/// `input` names the input (`coeffs` or `values`) and `n_in`/`n_out` name the
+/// expected extents in the panic messages.
+///
+/// # Panics
+/// Panics, naming the axis and both extents, if `dim` is not an axis of the
+/// input or a shape does not match.
+pub(crate) fn assert_nd_shapes(
+    input: &str,
+    input_dims: &[usize],
+    (n_in_name, n_in): (&str, usize),
+    dim: usize,
+    out_dims: &[usize],
+    (n_out_name, n_out): (&str, usize),
+) {
+    let rank = input_dims.len();
+    assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
+    assert!(
+        out_dims.len() == rank,
+        "out.rank()={} must equal {input}.rank()={rank}",
+        out_dims.len()
+    );
+    assert!(
+        input_dims[dim] == n_in,
+        "{input}.shape().dim({dim})={} must equal {n_in_name}={n_in}",
+        input_dims[dim]
+    );
+    assert!(
+        out_dims[dim] == n_out,
+        "out.shape().dim({dim})={} must equal {n_out_name}={n_out}",
+        out_dims[dim]
+    );
+    for (axis, (&o, &i)) in out_dims.iter().zip(input_dims).enumerate() {
+        assert!(
+            axis == dim || o == i,
+            "out.shape().dim({axis})={o} must equal {input}.shape().dim({axis})={i}"
+        );
+    }
+}
+
+// ============================================================================
 // Strided copy helpers
 // ============================================================================
 
@@ -208,6 +266,20 @@ pub(crate) fn complex_slice_mut_as_real<'a>(
 // SVD structures
 // ============================================================================
 
+/// Transpose of a matrix, as a new dense tensor
+///
+/// Zero-extent guard: mdarray 0.7.2 copies the transposed (strided) view of a
+/// `[n, 0]` matrix out of bounds (https://github.com/fre-hu/mdarray/issues/21),
+/// which the SVD of a matrix with a zero dimension produces. An empty matrix
+/// has nothing to copy.
+fn transposed<T: Clone + Default>(m: &DTensor<T, 2>) -> DTensor<T, 2> {
+    let (rows, cols) = *m.shape();
+    if m.is_empty() {
+        return DTensor::<T, 2>::zeros([cols, rows]);
+    }
+    m.transpose().to_tensor()
+}
+
 /// SVD decomposition for real matrices
 pub(crate) struct RealSVD {
     pub ut: DTensor<f64, 2>, // (min_dim, n_rows) - U^T
@@ -234,8 +306,8 @@ impl RealSVD {
         );
 
         // Create ut and v from u and vt
-        let ut = u.transpose().to_tensor(); // (min_dim, n_rows)
-        let v = vt.transpose().to_tensor(); // (n_cols, min_dim)
+        let ut = transposed(&u); // (min_dim, n_rows)
+        let v = transposed(&vt); // (n_cols, min_dim)
 
         // Verify v.cols() == s.len() (v.shape().1 is the second dimension, which is min_dim)
         assert_eq!(
@@ -260,7 +332,7 @@ pub(crate) struct ComplexSVD {
 impl ComplexSVD {
     pub fn new(u: DTensor<Complex<f64>, 2>, s: Vec<f64>, vt: DTensor<Complex<f64>, 2>) -> Self {
         // Check dimensions
-        let (u_rows, u_cols) = *u.shape();
+        let (_, u_cols) = *u.shape();
         let (vt_rows, _) = *vt.shape();
         let min_dim = s.len();
 
@@ -276,10 +348,8 @@ impl ComplexSVD {
         );
 
         // Create ut (U^H, conjugate transpose) and v from u and vt
-        let ut = DTensor::<Complex<f64>, 2>::from_fn([u_cols, u_rows], |idx| {
-            u[[idx[1], idx[0]]].conj() // conjugate transpose: U^H
-        });
-        let v = vt.transpose().to_tensor(); // (n_cols, min_dim)
+        let ut = transposed(&u).map(|x| x.conj()); // conjugate transpose: U^H
+        let v = transposed(&vt); // (n_cols, min_dim)
 
         // Verify v.cols() == s.len() (v.shape().1 is the second dimension, which is min_dim)
         assert_eq!(

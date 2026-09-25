@@ -625,6 +625,10 @@ pub extern "C" fn spir_basis_get_default_taus(
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+///   centrosymmetric): the default Matsubara sampling points are chosen by the
+///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_n_default_matsus(
@@ -638,6 +642,11 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
+        // The default points need basis functions of definite parity (#183);
+        // detect their absence here instead of letting the core panic.
+        if !basis.has_default_matsubara_sampling_points() {
+            return SPIR_NOT_SUPPORTED;
+        }
         let points = basis.default_matsubara_sampling_points(positive_only);
         *num_points = points.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
@@ -658,6 +667,10 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+///   centrosymmetric): the default Matsubara sampling points are chosen by the
+///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_default_matsus(
@@ -671,6 +684,11 @@ pub extern "C" fn spir_basis_get_default_matsus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
+        // The default points need basis functions of definite parity (#183);
+        // detect their absence here instead of letting the core panic.
+        if !basis.has_default_matsubara_sampling_points() {
+            return SPIR_NOT_SUPPORTED;
+        }
         let matsu_points = basis.default_matsubara_sampling_points(positive_only);
         std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, matsu_points.len());
         SPIR_COMPUTATION_SUCCESS
@@ -1151,6 +1169,10 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
 ///   `basis_size < 0`
+/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+///   centrosymmetric): the default Matsubara sampling points are chosen by the
+///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
@@ -1176,6 +1198,11 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
+        // The default points need basis functions of definite parity (#183);
+        // detect their absence here instead of letting the core panic.
+        if !basis.has_default_matsubara_sampling_points() {
+            return SPIR_NOT_SUPPORTED;
+        }
         let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,
@@ -1213,6 +1240,10 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// * `SPIR_INVALID_ARGUMENT` (-6) if `points_capacity` is smaller than the
 ///   number of points; `points` is left untouched and `*n_points_total` is
 ///   set to the required number
+/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
+///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
+///   centrosymmetric): the default Matsubara sampling points are chosen by the
+///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
@@ -1238,6 +1269,11 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
+        // The default points need basis functions of definite parity (#183);
+        // detect their absence here instead of letting the core panic.
+        if !basis.has_default_matsubara_sampling_points() {
+            return SPIR_NOT_SUPPORTED;
+        }
         let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,

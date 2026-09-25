@@ -614,3 +614,24 @@ fn test_noncentrosymm_kernel_compute() {
     let result4: f64 = kernel.compute(-0.5, -0.5);
     assert!((result3 - result4).abs() > 1e-10); // Should be different (1.0 vs -1.0)
 }
+
+/// Λ = 0 makes the kernel 1/Λ = ∞ at y = 0, so the SVE of the discretized
+/// kernel never converged (compute_sve did not return). `new` rejects it
+/// like a negative or non-finite Λ.
+#[test]
+#[should_panic(expected = "Kernel cutoff Λ must be positive and finite, got 0")]
+fn test_regularized_bose_kernel_rejects_zero_lambda() {
+    RegularizedBoseKernel::new(0.0);
+}
+
+#[test]
+#[should_panic(expected = "Kernel cutoff Λ must be positive and finite, got -1")]
+fn test_regularized_bose_kernel_rejects_negative_lambda() {
+    RegularizedBoseKernel::new(-1.0);
+}
+
+#[test]
+fn test_regularized_bose_kernel_accepts_positive_lambda() {
+    let kernel = RegularizedBoseKernel::new(f64::MIN_POSITIVE);
+    assert_eq!(kernel.lambda, f64::MIN_POSITIVE);
+}

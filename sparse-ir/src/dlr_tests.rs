@@ -1205,3 +1205,61 @@ fn test_dlr_error_display_and_error_trait() {
         DlrError::KernelStatisticsMismatch.to_string()
     );
 }
+
+/// Converting an empty batch gives an empty result of the right shape.
+/// Before the fix `from_ir_nd` and `to_ir_nd` segfaulted in `movedim`
+/// (mdarray#21) for a zero extent before the last axis of a permuted view.
+#[test]
+fn test_dlr_nd_with_empty_batch() {
+    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
+        LogisticKernel::new(10.0),
+        1.0,
+        Some(1e-6),
+        None,
+    );
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
+    let (l, n_poles) = (basis.size(), dlr.poles.len());
+
+    for (batch, dim) in [
+        (vec![0usize], 1),
+        (vec![0], 0),
+        (vec![0, 3], 1),
+        (vec![2, 0], 2),
+    ] {
+        let with_target = |n: usize| {
+            let mut dims = batch.clone();
+            dims.insert(dim, n);
+            dims
+        };
+        let gl = Tensor::<f64, mdarray::DynRank>::zeros(&with_target(l)[..]);
+        let g_dlr = dlr.from_ir_nd::<f64>(None, &gl, dim);
+        assert_eq!(g_dlr.shape().dims(), &with_target(n_poles)[..]);
+        let back = dlr.to_ir_nd::<f64>(None, &g_dlr, dim);
+        assert_eq!(back.shape().dims(), &with_target(l)[..]);
+
+        let gl_z = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&with_target(l)[..]);
+        let g_dlr_z = dlr.from_ir_nd::<Complex<f64>>(None, &gl_z, dim);
+        assert_eq!(g_dlr_z.shape().dims(), &with_target(n_poles)[..]);
+        let back_z = dlr.to_ir_nd::<Complex<f64>>(None, &g_dlr_z, dim);
+        assert_eq!(back_z.shape().dims(), &with_target(l)[..]);
+    }
+}
+
+/// A DLR without poles has no basis functions. Before the fix `with_poles`
+/// panicked with an index out of bounds (evaluating V at no poles); a
+/// sampling built on it would have segfaulted in the SVD (mdarray#21).
+#[test]
+fn test_dlr_with_no_poles_is_an_error() {
+    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
+        LogisticKernel::new(10.0),
+        1.0,
+        Some(1e-6),
+        None,
+    );
+    let result = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&basis, vec![]);
+    assert!(matches!(result, Err(DlrError::NoPoles)));
+    assert_eq!(
+        DlrError::NoPoles.to_string(),
+        "No poles given: a DLR needs at least one pole"
+    );
+}

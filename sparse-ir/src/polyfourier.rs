@@ -728,7 +728,13 @@ fn func_for_part<S: StatisticsType + 'static>(
                 value.re
             }
         } else {
-            panic!("Cannot detect parity");
+            // The singular functions of an SVE that is not centrosymmetric
+            // (e.g. from a general kernel matrix) have no parity (#183).
+            panic!(
+                "Cannot detect parity: default Matsubara sampling points need basis \
+                 functions of definite parity (symm = ±1, from a centrosymmetric SVE), \
+                 got symm = {parity}"
+            );
         }
     })
 }

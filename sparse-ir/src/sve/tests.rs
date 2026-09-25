@@ -736,3 +736,145 @@ fn test_default_cutoff_is_two_machine_epsilon_regularized_bose() {
         TworkType::Float64X2,
     );
 }
+
+/// The public `lambda` field bypasses the Λ > 0 check of
+/// `RegularizedBoseKernel::new`. With Λ = 0 the discretized kernel is
+/// infinite (1/Λ at y = 0); before the fix its SVD iterated forever and
+/// `compute_sve` did not return. Now the TSVD rejects the non-finite matrix.
+#[test]
+#[should_panic(expected = "NonFiniteInput")]
+fn test_compute_sve_rejects_non_finite_kernel_matrix() {
+    let kernel = RegularizedBoseKernel { lambda: 0.0 };
+    compute_sve(kernel, 1e-6, None, None, TworkType::Float64);
+}
+
+/// Assert that `truncated` holds exactly the first `n` singular values and
+/// functions of `full`. Both come from the same even/odd SVDs, so they agree
+/// exactly.
+fn assert_leading_part_of(truncated: &SVEResult, full: &SVEResult, n: usize) {
+    assert_eq!(truncated.s, full.s[..n].to_vec());
+    assert_eq!(truncated.u.get_polys().len(), n);
+    assert_eq!(truncated.v.get_polys().len(), n);
+    for l in 0..n {
+        let (u, u_full) = (&truncated.u.get_polys()[l], &full.u.get_polys()[l]);
+        let (v, v_full) = (&truncated.v.get_polys()[l], &full.v.get_polys()[l]);
+        assert_eq!((u.l, u.symm), (u_full.l, u_full.symm));
+        for x in [-1.0, -0.3, 0.0, 0.7, 1.0] {
+            assert_eq!(u.evaluate(x), u_full.evaluate(x), "u[{l}]({x})");
+            assert_eq!(v.evaluate(x), v_full.evaluate(x), "v[{l}]({x})");
+        }
+    }
+}
+
+/// Truncating the SVE to its largest singular value empties the odd block
+/// (the largest singular value is even). Before the fix the odd block was
+/// wrapped in a `PiecewiseLegendrePolyVector`, which cannot be empty:
+/// `compute_sve` panicked with "Cannot create empty
+/// PiecewiseLegendrePolyVector" for `max_num_svals = Some(1)` and for
+/// `cutoff = Some(1.0)`.
+fn check_sve_truncated_to_one<K>(kernel: K, epsilon: f64, twork: TworkType)
+where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+{
+    let full = compute_sve(kernel.clone(), epsilon, None, None, twork);
+    assert!(full.s.len() >= 4, "SVE too small: {}", full.s.len());
+    for (cutoff, max_num_svals) in [(None, Some(1)), (Some(1.0), None)] {
+        let sve = compute_sve(kernel.clone(), epsilon, cutoff, max_num_svals, twork);
+        assert_leading_part_of(&sve, &full, 1);
+        assert_eq!(
+            sve.u.get_polys()[0].symm,
+            1,
+            "the largest singular value is even"
+        );
+    }
+    // Two singular values keep one of each parity, as before the fix
+    let sve = compute_sve(kernel, epsilon, None, Some(2), twork);
+    assert_leading_part_of(&sve, &full, 2);
+}
+
+#[test]
+fn test_compute_sve_truncated_to_one_singular_value_logistic() {
+    check_sve_truncated_to_one(LogisticKernel::new(10.0), 1e-6, TworkType::Float64);
+    check_sve_truncated_to_one(LogisticKernel::new(10.0), 1e-10, TworkType::Float64X2);
+}
+
+#[test]
+fn test_compute_sve_truncated_to_one_singular_value_regularized_bose() {
+    check_sve_truncated_to_one(RegularizedBoseKernel::new(10.0), 1e-6, TworkType::Float64);
+    check_sve_truncated_to_one(
+        RegularizedBoseKernel::new(10.0),
+        1e-10,
+        TworkType::Float64X2,
+    );
+}
+
+/// Until #285, `FiniteTempBasis::new` truncated the SVE to `max_size`, so
+/// `Some(1)` hit the same panic (and `spir_basis_new(max_size = 1)` returned
+/// SPIR_INTERNAL_ERROR). It now truncates only the basis; a basis of size 1
+/// must still be the leading part of the full basis.
+#[test]
+fn test_basis_with_max_size_one() {
+    use crate::basis::FiniteTempBasis;
+    use crate::traits::{Bosonic, Fermionic};
+
+    fn check<S: StatisticsType + 'static>() {
+        let (beta, kernel) = (10.0, LogisticKernel::new(10.0));
+        let full = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), None);
+        let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), Some(1));
+        assert_eq!(basis.size(), 1);
+        assert_eq!(basis.s(), &full.s()[..1]);
+        for tau in [0.0, 0.3 * beta, beta] {
+            assert_eq!(basis.u()[0].evaluate(tau), full.u()[0].evaluate(tau));
+        }
+        for omega in [-1.0, 0.2, 1.0] {
+            assert_eq!(basis.v()[0].evaluate(omega), full.v()[0].evaluate(omega));
+        }
+    }
+    check::<Fermionic>();
+    check::<Bosonic>();
+}
+
+/// `merge_results` accepts an empty block and renumbers `l` in the merged
+/// result. A `PiecewiseLegendrePolyVector` built with `new` cannot be
+/// empty; the public field allows it, and truncation can produce one.
+#[test]
+fn test_merge_results_with_an_empty_block() {
+    let even = extend_to_full_domain(
+        vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
+        SymmetryType::Even,
+        1.0,
+    );
+    let odd = extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd, 1.0);
+    let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
+    let block = |polys: &Vec<PiecewiseLegendrePoly>, s: Vec<f64>| {
+        (
+            PiecewiseLegendrePolyVector::new(polys.clone()),
+            s,
+            PiecewiseLegendrePolyVector::new(polys.clone()),
+        )
+    };
+
+    let merged = merge_results(
+        block(&even, vec![1.0, 0.1]),
+        (empty(), vec![], empty()),
+        1e-10,
+    );
+    assert_eq!(merged.s, vec![1.0, 0.1]);
+    let merged = merge_results((empty(), vec![], empty()), block(&odd, vec![0.5]), 1e-10);
+    assert_eq!(merged.s, vec![0.5]);
+    assert_eq!(merged.u.get_polys()[0].symm, -1);
+    for (i, u) in merged.u.get_polys().iter().enumerate() {
+        assert_eq!(u.l, i as i32);
+    }
+}
+
+#[test]
+#[should_panic(expected = "no singular values")]
+fn test_merge_results_rejects_two_empty_blocks() {
+    let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
+    merge_results(
+        (empty(), vec![], empty()),
+        (empty(), vec![], empty()),
+        1e-10,
+    );
+}

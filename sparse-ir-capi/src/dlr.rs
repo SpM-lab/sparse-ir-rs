@@ -25,6 +25,8 @@ fn dlr_error_status(err: &DlrError) -> StatusCode {
     match err {
         DlrError::InsufficientDefaultPoles { .. } => SPIR_INVALID_ARGUMENT,
         DlrError::KernelStatisticsMismatch => SPIR_NOT_SUPPORTED,
+        // `spir_dlr_new_with_poles` rejects npoles <= 0 before this is reached
+        DlrError::NoPoles => SPIR_INVALID_ARGUMENT,
     }
 }
 

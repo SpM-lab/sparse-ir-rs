@@ -474,3 +474,19 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
     check_asymptotic_branch_matches_exact(&basis);
     check_uhat_high_frequency_tail(&basis);
 }
+
+/// Functions without a parity (symm = 0, as from `compute_sve_general`) have
+/// no default Matsubara sampling points, and the panic says why (#183). The
+/// C API reports SPIR_NOT_SUPPORTED before reaching it.
+#[test]
+#[should_panic(expected = "need basis functions of definite parity")]
+fn test_default_matsubara_points_need_functions_of_definite_parity() {
+    use crate::sve::{TworkType, compute_sve_general};
+
+    let kernel = LogisticKernel::new(10.0);
+    let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
+    assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None);
+    basis.default_matsubara_sampling_points(false);
+}
