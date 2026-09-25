@@ -1,14 +1,17 @@
 //! Tests for piecewise Legendre polynomial Fourier transform implementations
 
+use crate::basis::FiniteTempBasis;
 use crate::freq::{BosonicFreq, FermionicFreq};
+use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel};
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::polyfourier::{
     BosonicPiecewiseLegendreFT, FermionicPiecewiseLegendreFT, FermionicPiecewiseLegendreFTVector,
     PiecewiseLegendreFT,
 };
 use crate::special_functions::spherical_bessel_j;
-use crate::traits::{Bosonic, Fermionic, Statistics};
+use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 use mdarray::tensor;
+use num_complex::Complex64;
 
 #[test]
 fn test_fermionic_ft_creation() {
@@ -266,4 +269,206 @@ fn test_constant_polynomial_fourier_transform() {
             }
         }
     }
+}
+
+// ===== Asymptotic branch of uhat (|n| >= n_asymp); regression tests for #265 =====
+
+/// Smallest Matsubara index `n >= n_min` of the parity `zeta` (1: fermions,
+/// 0: bosons).
+fn matsubara_index_at_or_above(n_min: i64, zeta: i64) -> i64 {
+    if (n_min - zeta).rem_euclid(2) == 0 {
+        n_min
+    } else {
+        n_min + 1
+    }
+}
+
+/// Relative tolerance for the agreement between the asymptotic branch (`giw`)
+/// and the exact transform (`compute_unl_inner`) of the same basis function.
+///
+/// Error model: `giw` sums the complete endpoint expansion (one term per
+/// Legendre order; all higher derivatives of the piecewise polynomial vanish),
+/// so it differs from the exact transform only by the jumps of the
+/// piecewise-Legendre representation at interior knots, plus f64 rounding.
+/// For the functions #265 did not affect (l = 0, 3 mod 4) this difference was
+/// measured before the fix at <= 1.3e-8 relative for LogisticKernel up to
+/// Lambda = 1e3, and at <= 6.1e-10 for RegularizedBoseKernel at Lambda = 10.
+/// (For RegularizedBoseKernel the agreement degrades away from Lambda = 10,
+/// for reasons unrelated to #265: 5e-7 at Lambda = 100 and above 1e-2 at
+/// Lambda <= 3. That kernel is therefore checked at Lambda = 10 only.)
+/// A wrong parity in the moments instead puts the asymptotic value on the
+/// other complex axis: uhat_l(n) is purely real or purely imaginary,
+/// depending on the parity of u_l and on the statistics, so the relative
+/// error is then at least 1.
+const ASYMPTOTIC_VS_EXACT_RTOL: f64 = 1e-6;
+
+/// Evaluate both branches of `PiecewiseLegendreFT::evaluate` -- the exact
+/// transform and the asymptotic series -- at the same frequencies on both
+/// sides of the switch point `n_asymp`, for every basis function, and require
+/// them to agree.
+fn check_asymptotic_branch_matches_exact<K, S>(basis: &FiniteTempBasis<K, S>)
+where
+    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    S: StatisticsType,
+{
+    // #265 hit exactly l = 1, 2 (mod 4): make sure every residue occurs twice.
+    assert!(
+        basis.size() >= 8,
+        "basis too small: size = {}",
+        basis.size()
+    );
+
+    let uhat = basis.uhat();
+    let n_asymp = uhat.n_asymp();
+    assert_eq!(n_asymp, basis.kernel().conv_radius());
+    let zeta = uhat[0].zeta();
+    // First index on the asymptotic branch; n0 - 2 is the last exact one.
+    let n0 = matsubara_index_at_or_above(n_asymp.ceil() as i64, zeta);
+    let ns = [
+        n0 - 4,
+        n0 - 2,
+        n0,
+        n0 + 2,
+        matsubara_index_at_or_above(2 * n0, zeta),
+        matsubara_index_at_or_above(10 * n0, zeta),
+        -n0,
+        -(n0 + 2),
+    ];
+
+    let mut failures = Vec::new();
+    let mut max_rel_err = 0.0_f64;
+    for l in 0..basis.size() {
+        let ft = &uhat[l];
+        assert_eq!(
+            ft.evaluate_at_n(n0 - 2),
+            ft.compute_unl_inner(&ft.poly, n0 - 2)
+        );
+        assert_eq!(ft.evaluate_at_n(n0), ft.giw(n0));
+        for &n in &ns {
+            let exact = ft.compute_unl_inner(&ft.poly, n);
+            let asymptotic = ft.giw(n);
+            let rel_err = (asymptotic - exact).norm() / exact.norm();
+            max_rel_err = max_rel_err.max(rel_err);
+            if !(rel_err <= ASYMPTOTIC_VS_EXACT_RTOL) {
+                failures.push((l, n, rel_err));
+            }
+        }
+    }
+    let mut failing_l: Vec<usize> = failures.iter().map(|&(l, _, _)| l).collect();
+    failing_l.dedup();
+    assert!(
+        failures.is_empty(),
+        "{:?}, Lambda = {}, beta = {}, size = {}: asymptotic uhat deviates from the exact \
+         transform by more than {:e} (relative) near n_asymp = {} for l = {:?}; \
+         max relative error = {:.3e}; first failure (l, n, rel_err) = {:?}",
+        S::STATISTICS,
+        basis.lambda(),
+        basis.beta(),
+        basis.size(),
+        ASYMPTOTIC_VS_EXACT_RTOL,
+        n_asymp,
+        failing_l,
+        max_rel_err,
+        failures.first()
+    );
+}
+
+/// Check the 1/nu tail of uhat against the imaginary-time basis functions.
+///
+/// Integrating by parts, i nu_n uhat_l(n) = L0 - L1 / (i nu_n) + O(nu_n^-2) with
+/// nu_n = pi n / beta, L0 = (-1)^n u_l(beta) - u_l(0) and
+/// L1 = (-1)^n u_l'(beta) - u_l'(0), where (-1)^n is -1 for fermions and +1 for
+/// bosons. At the frequencies used here the remainder is dominated by the L1
+/// term, so |i nu_n uhat_l(n) - L0| <= 2 (|u_l'(0)| + |u_l'(beta)|) / |nu_n|,
+/// plus a rounding floor. With the parity defect of #265 the limit came out as
+/// (-1)^n u_l(beta) + u_l(0) instead, an error of 2 |u_l(beta)|.
+fn check_uhat_high_frequency_tail<K, S>(basis: &FiniteTempBasis<K, S>)
+where
+    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    S: StatisticsType,
+{
+    let beta = basis.beta();
+    let u = basis.u();
+    let uhat = basis.uhat();
+    let zeta = uhat[0].zeta();
+    let sign_n = if zeta == 1 { -1.0 } else { 1.0 }; // (-1)^n
+    let ns = [
+        matsubara_index_at_or_above(1_000_000, zeta),
+        matsubara_index_at_or_above(100_000_000, zeta),
+    ];
+
+    let mut failing_l = Vec::new();
+    let mut max_err_over_tol = 0.0_f64;
+    for l in 0..basis.size() {
+        let (u_0, u_beta) = (u[l].evaluate(0.0), u[l].evaluate(beta));
+        let du = u[l].deriv(1);
+        let (du_0, du_beta) = (du.evaluate(0.0), du.evaluate(beta));
+        let limit = Complex64::new(sign_n * u_beta - u_0, 0.0);
+        for n in ns.into_iter().flat_map(|n| [n, -n]) {
+            assert!(n.unsigned_abs() as f64 >= uhat.n_asymp());
+            let nu = std::f64::consts::PI * n as f64 / beta;
+            let scaled = Complex64::new(0.0, nu) * uhat[l].evaluate_at_n(n);
+            let tol =
+                2.0 * (du_0.abs() + du_beta.abs()) / nu.abs() + 1e-12 * (u_0.abs() + u_beta.abs());
+            let err = (scaled - limit).norm();
+            max_err_over_tol = max_err_over_tol.max(err / tol);
+            if !(err <= tol) {
+                failing_l.push(l);
+            }
+        }
+    }
+    failing_l.dedup();
+    assert!(
+        failing_l.is_empty(),
+        "{:?}, Lambda = {}, beta = {}, size = {}: i nu_n uhat_l(n) does not approach \
+         (-1)^n u_l(beta) - u_l(0) for l = {:?}; max error / tolerance = {:.3e}",
+        S::STATISTICS,
+        basis.lambda(),
+        beta,
+        basis.size(),
+        failing_l,
+        max_err_over_tol
+    );
+}
+
+#[test]
+fn test_uhat_asymptotic_branch_logistic_fermionic() {
+    // The parameters of the #265 report (beta = 10, wmax = 1, eps = 1e-10;
+    // the SVE runs in Df64), then a larger Lambda with an f64 SVE.
+    for (lambda, beta, epsilon) in [(10.0, 10.0, 1e-10), (1e3, 100.0, 1e-6)] {
+        let basis = FiniteTempBasis::<_, Fermionic>::new(
+            LogisticKernel::new(lambda),
+            beta,
+            Some(epsilon),
+            None,
+        );
+        check_asymptotic_branch_matches_exact(&basis);
+        check_uhat_high_frequency_tail(&basis);
+    }
+}
+
+#[test]
+fn test_uhat_asymptotic_branch_logistic_bosonic() {
+    for (lambda, beta, epsilon) in [(10.0, 10.0, 1e-10), (1e3, 100.0, 1e-6)] {
+        let basis = FiniteTempBasis::<_, Bosonic>::new(
+            LogisticKernel::new(lambda),
+            beta,
+            Some(epsilon),
+            None,
+        );
+        check_asymptotic_branch_matches_exact(&basis);
+        check_uhat_high_frequency_tail(&basis);
+    }
+}
+
+#[test]
+fn test_uhat_asymptotic_branch_regularized_bose() {
+    let basis = FiniteTempBasis::<_, Bosonic>::new(
+        RegularizedBoseKernel::new(10.0),
+        10.0,
+        Some(1e-10),
+        None,
+    );
+    check_asymptotic_branch_matches_exact(&basis);
+    check_uhat_high_frequency_tail(&basis);
 }

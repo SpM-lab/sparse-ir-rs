@@ -130,6 +130,12 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 
     /// Compute power moments for asymptotic expansion
+    ///
+    /// Integration by parts gives moments that combine the derivatives of the
+    /// function at x = 1 and at x = -1. Only those at x = 1 (`deriv_x1`) are
+    /// used; the ones at x = -1 follow from the parity `(-1)^l`. `l` must
+    /// therefore be the index of the singular function in its SVE result (see
+    /// `PiecewiseLegendrePoly::l`), not its index within an even or odd block.
     fn power_moments(deriv_x1: &[f64], l: i32) -> Vec<f64> {
         let statsign = match S::STATISTICS {
             Statistics::Fermionic => -1.0,
