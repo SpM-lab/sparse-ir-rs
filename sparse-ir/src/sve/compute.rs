@@ -102,9 +102,26 @@ where
 
 /// Main SVE computation function for general kernels (centrosymmetric or non-centrosymmetric)
 ///
-/// Automatically chooses the appropriate SVE strategy based on kernel properties.
-/// For centrosymmetric kernels, uses CentrosymmSVE for efficiency.
-/// For non-centrosymmetric kernels, uses NonCentrosymmSVE.
+/// Discretizes the kernel on its full domain `[-xmax, xmax] × [-ymax, ymax]`
+/// with [`NonCentrosymmSVE`], which only requires [`AbstractKernel`].
+///
+/// Centrosymmetric kernels are expanded correctly as well: their half-domain
+/// [`SVEHints`] segments are mirrored onto the full domain, so the singular
+/// values agree with [`compute_sve`] up to rounding. The even/odd block
+/// structure is not exploited, however: the SVD is taken of one matrix with
+/// twice as many rows and columns as each block used by [`compute_sve`]
+/// (asymptotically about four times the work), the singular functions carry no
+/// parity tag, and the singular functions of (nearly) degenerate singular
+/// values may mix the even and odd sectors. For kernels implementing
+/// [`CentrosymmKernel`], such as [`LogisticKernel`](crate::kernel::LogisticKernel)
+/// and [`RegularizedBoseKernel`](crate::kernel::RegularizedBoseKernel), prefer
+/// [`compute_sve`].
+///
+/// This function cannot select [`CentrosymmSVE`] by itself even when
+/// [`AbstractKernel::is_centrosymmetric`] returns true: that strategy needs
+/// the reduced kernels of [`CentrosymmKernel::compute_reduced`], and a
+/// `K: AbstractKernel` bound cannot be refined to `K: CentrosymmKernel`
+/// without trait specialization, which stable Rust does not provide.
 ///
 /// # Arguments
 ///
@@ -217,7 +234,7 @@ where
     K: AbstractKernel + KernelProperties + Clone + 'static,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    // 1. Determine SVE strategy based on kernel symmetry
+    // 1. Determine SVE strategy (full-domain NonCentrosymmSVE)
     let sve = determine_sve_general::<T, K>(kernel, epsilon);
 
     // 2. Compute matrices
@@ -258,24 +275,19 @@ where
     Box::new(CentrosymmSVE::new(kernel, epsilon))
 }
 
-/// Determine the appropriate SVE strategy for general kernels
+/// Determine the SVE strategy for general kernels
 ///
-/// Automatically chooses between CentrosymmSVE and NonCentrosymmSVE
-/// based on kernel symmetry.
+/// Always uses [`NonCentrosymmSVE`], which handles centrosymmetric kernels by
+/// mirroring their half-domain hint segments onto the full domain.
+/// [`CentrosymmSVE`] would require `K: CentrosymmKernel`, which cannot be
+/// recovered from the `K: AbstractKernel` bound (see [`compute_sve_general`]).
 fn determine_sve_general<T, K>(kernel: K, epsilon: f64) -> Box<dyn SVEStrategy<T>>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
     K: AbstractKernel + KernelProperties + Clone + 'static,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    if kernel.is_centrosymmetric() {
-        // Try to use CentrosymmSVE if kernel implements CentrosymmKernel
-        // For now, we'll use NonCentrosymmSVE as a fallback
-        // In practice, centrosymmetric kernels should implement CentrosymmKernel
-        Box::new(NonCentrosymmSVE::new(kernel, epsilon))
-    } else {
-        Box::new(NonCentrosymmSVE::new(kernel, epsilon))
-    }
+    Box::new(NonCentrosymmSVE::new(kernel, epsilon))
 }
 
 /// Truncate SVD results based on cutoff and maximum size
