@@ -1,15 +1,15 @@
 //! Error type of the public API
 //!
-//! The fallible public functions of the crate return [`Error`]. Each variant
-//! carries the values that caused it, so that its message locates the
-//! problem. [`Error::kind`] sorts the variants into the categories that the C
-//! API reports as status codes.
+//! The public functions of this crate that return a `Result` use [`Error`]
+//! as the error type. Each variant carries the values that caused it, so
+//! that its message locates the problem. [`Error::kind`] sorts the variants
+//! into the categories that the C API reports as status codes.
 
 use crate::traits::Statistics;
 
 /// Error returned by the fallible public functions of this crate
 ///
-/// More variants may be added in minor releases. To handle a category of
+/// More variants may be added without a major version bump. To handle a category of
 /// errors rather than one variant, match on [`Error::kind`].
 ///
 /// Errors compare equal when all their fields do. An error that holds a NaN
@@ -85,6 +85,9 @@ pub enum Error {
 ///
 /// Each category corresponds to one failure status code of the C API, shown
 /// in parentheses.
+///
+/// Unlike [`Error`], this enum is exhaustive: a new category would need a new
+/// C status code, so adding one is a breaking change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ErrorKind {
     /// An argument has an invalid value (`SPIR_INVALID_ARGUMENT`).

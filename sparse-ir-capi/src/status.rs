@@ -29,7 +29,7 @@ fn status_of_kind(kind: ErrorKind) -> StatusCode {
 #[cfg(test)]
 mod tests {
     // The status codes, `StatusCode`, `Error` and `ErrorKind` come from the
-    // imports of the parent module (Step 3).
+    // imports of the parent module.
     use super::*;
     use crate::SPIR_COMPUTATION_SUCCESS;
     use sparse_ir::Statistics;
@@ -62,6 +62,9 @@ mod tests {
     }
 
     /// The status of one error of every variant that the core returns
+    ///
+    /// Extend it with every variant added to `sparse_ir::Error` (the core's
+    /// `error_tests.rs` fails to compile until its own table is extended).
     #[test]
     fn test_status_of_every_variant() {
         let table = [

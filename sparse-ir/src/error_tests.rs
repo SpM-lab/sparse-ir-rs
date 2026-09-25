@@ -93,3 +93,31 @@ fn test_error_boxes_and_downcasts() {
         Some(&Error::EmptyInput { name: "poles" })
     );
 }
+
+/// Position of each variant in `every_variant`. The match has no wildcard
+/// arm, so adding a variant to `Error` fails to compile here: give it the
+/// next number, raise `VARIANT_COUNT`, and add it to `every_variant` and to
+/// the table of `sparse-ir-capi/src/status.rs`.
+fn variant_number(err: &Error) -> usize {
+    match err {
+        Error::InvalidParameter { .. } => 0,
+        Error::InvalidMatsubaraIndex { .. } => 1,
+        Error::EmptyInput { .. } => 2,
+        Error::NonFiniteInput { .. } => 3,
+        Error::KernelStatisticsMismatch => 4,
+        Error::InsufficientDefaultPoles { .. } => 5,
+        Error::DecompositionFailed { .. } => 6,
+    }
+}
+
+const VARIANT_COUNT: usize = 7;
+
+#[test]
+fn test_every_variant_lists_each_variant_once() {
+    let mut numbers: Vec<usize> = every_variant()
+        .iter()
+        .map(|(err, _, _)| variant_number(err))
+        .collect();
+    numbers.sort();
+    assert_eq!(numbers, (0..VARIANT_COUNT).collect::<Vec<_>>());
+}
