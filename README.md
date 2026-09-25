@@ -16,7 +16,7 @@ Most end users should start from the ecosystem documentation / tutorials and use
 
 | Resource | Description |
 |----------|-------------|
-| **[Python/Julia Tutorials](https://spm-lab.github.io/sparse-ir-tutorial/)** | Interactive tutorials with Jupyter notebooks |
+| **[Python/Julia Tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/)** | Interactive tutorials with Jupyter notebooks |
 | **[Rust API: sparse-ir (docs.rs)](https://docs.rs/sparse-ir)** | Core Rust crate API documentation |
 | **[Rust API: sparse-ir-capi (docs.rs)](https://docs.rs/sparse-ir-capi)** | C-API Rust crate API documentation |
 
