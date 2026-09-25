@@ -6,16 +6,18 @@
 use num_complex::Complex64;
 use rstest::rstest;
 use sparse_ir_capi::{
-    SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
-    spir_basis, spir_basis_get_default_matsus, spir_basis_get_default_taus,
-    spir_basis_get_n_default_matsus, spir_basis_get_n_default_taus, spir_basis_get_size,
-    spir_basis_get_u, spir_basis_get_uhat, spir_basis_new, spir_basis_release, spir_dlr_get_npoles,
-    spir_dlr_get_poles, spir_dlr_new, spir_dlr2ir_dd, spir_funcs_eval, spir_funcs_eval_matsu,
-    spir_funcs_release, spir_ir2dlr_dd, spir_kernel, spir_kernel_release, spir_logistic_kernel_new,
-    spir_matsu_sampling_new, spir_reg_bose_kernel_new, spir_sampling_eval_dd,
-    spir_sampling_eval_dz, spir_sampling_eval_zz, spir_sampling_fit_dd, spir_sampling_fit_zd,
-    spir_sampling_fit_zz, spir_sampling_release, spir_sve_result, spir_sve_result_new,
-    spir_sve_result_release, spir_tau_sampling_new,
+    SPIR_COMPUTATION_SUCCESS, SPIR_INPUT_DIMENSION_MISMATCH, SPIR_INTERNAL_ERROR,
+    SPIR_INVALID_DIMENSION, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
+    SPIR_STATISTICS_FERMIONIC, spir_basis, spir_basis_get_default_matsus,
+    spir_basis_get_default_taus, spir_basis_get_n_default_matsus, spir_basis_get_n_default_taus,
+    spir_basis_get_size, spir_basis_get_u, spir_basis_get_uhat, spir_basis_new, spir_basis_release,
+    spir_dlr_get_npoles, spir_dlr_get_poles, spir_dlr_new, spir_dlr2ir_dd, spir_dlr2ir_zz,
+    spir_funcs_eval, spir_funcs_eval_matsu, spir_funcs_release, spir_ir2dlr_dd, spir_ir2dlr_zz,
+    spir_kernel, spir_kernel_release, spir_logistic_kernel_new, spir_matsu_sampling_new,
+    spir_reg_bose_kernel_new, spir_sampling, spir_sampling_eval_dd, spir_sampling_eval_dz,
+    spir_sampling_eval_zz, spir_sampling_fit_dd, spir_sampling_fit_zd, spir_sampling_fit_zz,
+    spir_sampling_release, spir_sve_result, spir_sve_result_new, spir_sve_result_release,
+    spir_tau_sampling_new,
 };
 use std::sync::{Arc, Barrier};
 use std::thread;
@@ -1225,4 +1227,440 @@ fn test_concurrent_matsubara_fit_zd_positive_only_is_thread_safe() {
         spir_sve_result_release(sve);
         spir_kernel_release(kernel);
     }
+}
+
+// ============================================================================
+// Validation of `input_dims` (SpM-lab/sparse-ir-rs#245)
+// ============================================================================
+
+/// Written to output buffers before each call and checked afterwards.
+const OUT_SENTINEL: f64 = -12345.0;
+
+/// Output elements past a valid result; they must never be written.
+const OUT_SLACK: usize = 64;
+
+/// Malformed `(input_dims, target_dim, order)` triples for an entry point whose
+/// target axis must hold `n_in` elements. Each must be rejected with
+/// `SPIR_INVALID_DIMENSION` before `input` is read or `out` is written. Before
+/// the fix these crashed the process (SIGSEGV, or an allocation-failure abort)
+/// or returned `SPIR_INTERNAL_ERROR` / `SPIR_INPUT_DIMENSION_MISMATCH`.
+fn malformed_input_dims(n_in: i32) -> Vec<(Vec<i32>, i32, i32)> {
+    let rm = SPIR_ORDER_ROW_MAJOR;
+    let cm = SPIR_ORDER_COLUMN_MAJOR;
+    vec![
+        // Negative extent on a non-target axis, in both memory orders.
+        (vec![n_in, -1], 0, rm),
+        (vec![n_in, -1], 0, cm),
+        (vec![3, n_in, -2], 1, rm),
+        (vec![n_in, i32::MIN], 0, rm),
+        // Negative extent on the target axis.
+        (vec![-1, 2], 0, rm),
+        (vec![2, -1], 1, cm),
+        // Zero-length axes, on non-target and target axes.
+        (vec![n_in, 0], 0, rm),
+        (vec![n_in, 0], 0, cm),
+        (vec![0, n_in, 3], 1, rm),
+        (vec![0, 2], 0, rm),
+        // The element count overflows `usize`.
+        (vec![n_in, i32::MAX, i32::MAX, i32::MAX], 0, rm),
+        // The element count fits in `usize`, but the array would span more than
+        // `isize::MAX` bytes.
+        (vec![n_in, 1 << 30, (3 << 29) / n_in], 0, rm),
+    ]
+}
+
+/// Check that an `input_dims` entry point rejects every malformed shape with
+/// `SPIR_INVALID_DIMENSION` and leaves `out` untouched, returns
+/// `SPIR_INPUT_DIMENSION_MISMATCH` for a well-formed shape with the wrong target
+/// extent (when `check_mismatch`), and still accepts well-formed batched shapes
+/// in both memory orders, writing exactly the result elements.
+///
+/// `call(input_dims, target_dim, order, out)` must pass an input buffer holding
+/// at least `2 * n_in` elements; `out` holds `2 * n_out + OUT_SLACK` elements.
+fn check_input_dims_validation<T: Copy + PartialEq + std::fmt::Debug>(
+    name: &str,
+    n_in: i32,
+    n_out: i32,
+    sentinel: T,
+    check_mismatch: bool,
+    call: impl Fn(&[i32], i32, i32, &mut [T]) -> i32,
+) {
+    let n_result = 2 * n_out as usize;
+    let out_len = n_result + OUT_SLACK;
+
+    for (dims, target_dim, order) in malformed_input_dims(n_in) {
+        let mut out = vec![sentinel; out_len];
+        let status = call(&dims, target_dim, order, &mut out);
+        assert_eq!(
+            status, SPIR_INVALID_DIMENSION,
+            "{name}: input_dims={dims:?}, target_dim={target_dim}, order={order}"
+        );
+        assert!(
+            out.iter().all(|&x| x == sentinel),
+            "{name}: output written for rejected input_dims={dims:?}"
+        );
+    }
+
+    if check_mismatch {
+        let dims = vec![n_in + 1, 2];
+        let mut out = vec![sentinel; out_len];
+        let status = call(&dims, 0, SPIR_ORDER_ROW_MAJOR, &mut out);
+        assert_eq!(
+            status, SPIR_INPUT_DIMENSION_MISMATCH,
+            "{name}: input_dims={dims:?}"
+        );
+        assert!(
+            out.iter().all(|&x| x == sentinel),
+            "{name}: output written for mismatched input_dims={dims:?}"
+        );
+    }
+
+    for (dims, target_dim, order) in [
+        (vec![n_in, 2], 0, SPIR_ORDER_ROW_MAJOR),
+        (vec![2, n_in], 1, SPIR_ORDER_ROW_MAJOR),
+        (vec![n_in, 2], 0, SPIR_ORDER_COLUMN_MAJOR),
+        (vec![2, n_in], 1, SPIR_ORDER_COLUMN_MAJOR),
+    ] {
+        let mut out = vec![sentinel; out_len];
+        let status = call(&dims, target_dim, order, &mut out);
+        assert_eq!(
+            status, SPIR_COMPUTATION_SUCCESS,
+            "{name}: input_dims={dims:?}, target_dim={target_dim}, order={order}"
+        );
+        assert!(
+            out[..n_result].iter().all(|&x| x != sentinel),
+            "{name}: result not fully written for input_dims={dims:?}"
+        );
+        assert!(
+            out[n_result..].iter().all(|&x| x == sentinel),
+            "{name}: wrote past the result for input_dims={dims:?}"
+        );
+    }
+}
+
+/// A fermionic IR basis with default tau and Matsubara samplings and a DLR.
+struct InputDimsFixture {
+    kernel: *mut spir_kernel,
+    sve: *mut spir_sve_result,
+    basis: *mut spir_basis,
+    tau: *mut spir_sampling,
+    matsu: *mut spir_sampling,
+    dlr: *mut spir_basis,
+    basis_size: i32,
+    n_tau: i32,
+    n_matsu: i32,
+    n_poles: i32,
+}
+
+impl InputDimsFixture {
+    fn new() -> Self {
+        let (kernel, sve, basis) = create_ir_basis(SPIR_STATISTICS_FERMIONIC, 10.0, 1.0, 1e-6);
+        let basis_size = get_basis_size(basis);
+
+        let taus = get_default_tau_points(basis);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let tau = spir_tau_sampling_new(basis, taus.len() as i32, taus.as_ptr(), &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let matsus = get_default_matsubara_points(basis, false);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let matsu = spir_matsu_sampling_new(
+            basis,
+            false,
+            matsus.len() as i32,
+            matsus.as_ptr(),
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new(basis, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut n_poles = 0;
+        assert_eq!(
+            spir_dlr_get_npoles(dlr, &mut n_poles),
+            SPIR_COMPUTATION_SUCCESS
+        );
+
+        Self {
+            kernel,
+            sve,
+            basis,
+            tau,
+            matsu,
+            dlr,
+            basis_size,
+            n_tau: taus.len() as i32,
+            n_matsu: matsus.len() as i32,
+            n_poles,
+        }
+    }
+}
+
+impl Drop for InputDimsFixture {
+    fn drop(&mut self) {
+        spir_basis_release(self.dlr);
+        spir_sampling_release(self.matsu);
+        spir_sampling_release(self.tau);
+        spir_basis_release(self.basis);
+        spir_sve_result_release(self.sve);
+        spir_kernel_release(self.kernel);
+    }
+}
+
+fn complex_sentinel() -> Complex64 {
+    Complex64::new(OUT_SENTINEL, OUT_SENTINEL)
+}
+
+#[test]
+fn test_sampling_eval_dd_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![1.0; 2 * fx.basis_size as usize];
+    check_input_dims_validation(
+        "spir_sampling_eval_dd",
+        fx.basis_size,
+        fx.n_tau,
+        OUT_SENTINEL,
+        true,
+        |dims, target_dim, order, out| {
+            spir_sampling_eval_dd(
+                fx.tau,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_sampling_eval_dz_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![1.0; 2 * fx.basis_size as usize];
+    check_input_dims_validation(
+        "spir_sampling_eval_dz",
+        fx.basis_size,
+        fx.n_matsu,
+        complex_sentinel(),
+        true,
+        |dims, target_dim, order, out| {
+            spir_sampling_eval_dz(
+                fx.matsu,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_sampling_eval_zz_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![Complex64::new(1.0, 0.5); 2 * fx.basis_size as usize];
+    check_input_dims_validation(
+        "spir_sampling_eval_zz",
+        fx.basis_size,
+        fx.n_matsu,
+        complex_sentinel(),
+        true,
+        |dims, target_dim, order, out| {
+            spir_sampling_eval_zz(
+                fx.matsu,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_sampling_fit_dd_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![1.0; 2 * fx.n_tau as usize];
+    check_input_dims_validation(
+        "spir_sampling_fit_dd",
+        fx.n_tau,
+        fx.basis_size,
+        OUT_SENTINEL,
+        true,
+        |dims, target_dim, order, out| {
+            spir_sampling_fit_dd(
+                fx.tau,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_sampling_fit_zz_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![Complex64::new(1.0, 0.5); 2 * fx.n_matsu as usize];
+    check_input_dims_validation(
+        "spir_sampling_fit_zz",
+        fx.n_matsu,
+        fx.basis_size,
+        complex_sentinel(),
+        true,
+        |dims, target_dim, order, out| {
+            spir_sampling_fit_zz(
+                fx.matsu,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_sampling_fit_zd_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![Complex64::new(1.0, 0.5); 2 * fx.n_matsu as usize];
+    check_input_dims_validation(
+        "spir_sampling_fit_zd",
+        fx.n_matsu,
+        fx.basis_size,
+        OUT_SENTINEL,
+        true,
+        |dims, target_dim, order, out| {
+            spir_sampling_fit_zd(
+                fx.matsu,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+// The DLR conversions cannot check the target extent at the boundary (the IR
+// basis size of a DLR is not exposed by the core), so `check_mismatch` is off.
+
+#[test]
+fn test_ir2dlr_dd_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![1.0; 2 * fx.basis_size as usize];
+    check_input_dims_validation(
+        "spir_ir2dlr_dd",
+        fx.basis_size,
+        fx.n_poles,
+        OUT_SENTINEL,
+        false,
+        |dims, target_dim, order, out| {
+            spir_ir2dlr_dd(
+                fx.dlr,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_ir2dlr_zz_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![Complex64::new(1.0, 0.5); 2 * fx.basis_size as usize];
+    check_input_dims_validation(
+        "spir_ir2dlr_zz",
+        fx.basis_size,
+        fx.n_poles,
+        complex_sentinel(),
+        false,
+        |dims, target_dim, order, out| {
+            spir_ir2dlr_zz(
+                fx.dlr,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_dlr2ir_dd_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![1.0; 2 * fx.n_poles as usize];
+    check_input_dims_validation(
+        "spir_dlr2ir_dd",
+        fx.n_poles,
+        fx.basis_size,
+        OUT_SENTINEL,
+        false,
+        |dims, target_dim, order, out| {
+            spir_dlr2ir_dd(
+                fx.dlr,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
+}
+
+#[test]
+fn test_dlr2ir_zz_validates_input_dims() {
+    let fx = InputDimsFixture::new();
+    let input = vec![Complex64::new(1.0, 0.5); 2 * fx.n_poles as usize];
+    check_input_dims_validation(
+        "spir_dlr2ir_zz",
+        fx.n_poles,
+        fx.basis_size,
+        complex_sentinel(),
+        false,
+        |dims, target_dim, order, out| {
+            spir_dlr2ir_zz(
+                fx.dlr,
+                std::ptr::null(),
+                order,
+                dims.len() as i32,
+                dims.as_ptr(),
+                target_dim,
+                input.as_ptr(),
+                out.as_mut_ptr(),
+            )
+        },
+    );
 }

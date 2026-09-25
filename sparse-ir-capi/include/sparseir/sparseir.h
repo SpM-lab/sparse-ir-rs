@@ -619,13 +619,22 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  * * `dlr` - Pointer to a DLR basis object
  * * `order` - Memory layout order
  * * `ndim` - Number of dimensions
- * * `input_dims` - Array of input dimensions
+ * * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
  * * `target_dim` - Dimension to transform
  * * `input` - IR coefficients
  * * `out` - Output DLR coefficients
  *
  * # Returns
- * Status code
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input array is too large to be addressed
+ * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+ *   `input_dims[target_dim]` is not the IR basis size
+ *
+ * `input_dims` is validated before `input` or `out` is accessed.
  *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
@@ -647,13 +656,22 @@ StatusCode spir_ir2dlr_dd(const struct spir_basis *dlr,
  * * `dlr` - Pointer to a DLR basis object
  * * `order` - Memory layout order
  * * `ndim` - Number of dimensions
- * * `input_dims` - Array of input dimensions
+ * * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
  * * `target_dim` - Dimension to transform
  * * `input` - Complex IR coefficients
  * * `out` - Output complex DLR coefficients
  *
  * # Returns
- * Status code
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input array is too large to be addressed
+ * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+ *   `input_dims[target_dim]` is not the IR basis size
+ *
+ * `input_dims` is validated before `input` or `out` is accessed.
  *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
@@ -675,13 +693,22 @@ StatusCode spir_ir2dlr_zz(const struct spir_basis *dlr,
  * * `dlr` - Pointer to a DLR basis object
  * * `order` - Memory layout order
  * * `ndim` - Number of dimensions
- * * `input_dims` - Array of input dimensions
+ * * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
  * * `target_dim` - Dimension to transform
  * * `input` - DLR coefficients
  * * `out` - Output IR coefficients
  *
  * # Returns
- * Status code
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input array is too large to be addressed
+ * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+ *   `input_dims[target_dim]` is not the number of poles
+ *
+ * `input_dims` is validated before `input` or `out` is accessed.
  *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
@@ -703,13 +730,22 @@ StatusCode spir_dlr2ir_dd(const struct spir_basis *dlr,
  * * `dlr` - Pointer to a DLR basis object
  * * `order` - Memory layout order
  * * `ndim` - Number of dimensions
- * * `input_dims` - Array of input dimensions
+ * * `input_dims` - Array of `ndim` input dimensions, each of which must be positive
  * * `target_dim` - Dimension to transform
  * * `input` - Complex DLR coefficients
  * * `out` - Output complex IR coefficients
  *
  * # Returns
- * Status code
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input array is too large to be addressed
+ * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
+ *   `input_dims[target_dim]` is not the number of poles
+ *
+ * `input_dims` is validated before `input` or `out` is accessed.
  *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
@@ -1478,7 +1514,7 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  * * `s` - Pointer to the sampling object
  * * `order` - Memory layout order (`SPIR_ORDER_ROW_MAJOR` or `SPIR_ORDER_COLUMN_MAJOR`)
  * * `ndim` - Number of dimensions in the input/output arrays
- * * `input_dims` - Array of dimension sizes
+ * * `input_dims` - Array of `ndim` dimension sizes, each of which must be positive
  * * `target_dim` - Target dimension for the transformation (0-based)
  * * `input` - Input array of basis coefficients
  * * `out` - Output array for the evaluated values at sampling points
@@ -1487,7 +1523,15 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  *
  * An integer status code:
  * - `0` (`SPIR_COMPUTATION_SUCCESS`) on success
- * - A non-zero error code on failure
+ * - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input or output array is too large to be addressed
+ * - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the basis size
+ * - `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+ * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+ *
+ * All shape arguments are validated before `input` or `out` is accessed.
  *
  * # Notes
  *
@@ -1518,7 +1562,20 @@ StatusCode spir_sampling_eval_dd(const struct spir_sampling *s,
  * Evaluate basis coefficients at sampling points (double → complex)
  *
  * For Matsubara sampling: transforms real IR coefficients to complex values.
- * Zero-copy implementation.
+ * Zero-copy implementation. Arguments are as for [`spir_sampling_eval_dd`].
+ *
+ * # Returns
+ *
+ * - `SPIR_COMPUTATION_SUCCESS` on success
+ * - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input or output array is too large to be addressed
+ * - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the basis size
+ * - `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+ * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+ *
+ * All shape arguments are validated before `input` or `out` is accessed.
  */
 
 StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
@@ -1534,7 +1591,20 @@ StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
  * Evaluate basis coefficients at sampling points (complex → complex)
  *
  * For Matsubara sampling: transforms complex coefficients to complex values.
- * Zero-copy implementation.
+ * Zero-copy implementation. Arguments are as for [`spir_sampling_eval_dd`].
+ *
+ * # Returns
+ *
+ * - `SPIR_COMPUTATION_SUCCESS` on success
+ * - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input or output array is too large to be addressed
+ * - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the basis size
+ * - `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+ * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+ *
+ * All shape arguments are validated before `input` or `out` is accessed.
  */
 
 StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
@@ -1559,7 +1629,7 @@ StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
  * * `backend` - Pointer to the GEMM backend (can be null to use default)
  * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `ndim` - Number of dimensions in the input/output arrays
- * * `input_dims` - Array of dimension sizes
+ * * `input_dims` - Array of `ndim` dimension sizes, each of which must be positive
  * * `target_dim` - Target dimension for the transformation (0-based)
  * * `input` - Input array of values at sampling points
  * * `out` - Output array for the fitted basis coefficients
@@ -1568,7 +1638,16 @@ StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
  *
  * An integer status code:
  * * `0` (SPIR_COMPUTATION_SUCCESS) on success
- * * A non-zero error code on failure
+ * * `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   number of sampling points
+ * * `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
+ *
+ * All shape arguments are validated before `input` or `out` is accessed.
  *
  * # Notes
  *
@@ -1599,6 +1678,20 @@ StatusCode spir_sampling_fit_dd(const struct spir_sampling *s,
  * For more details, see [`spir_sampling_fit_dd`]
  * Zero-copy implementation for Tau and Matsubara (full).
  * MatsubaraPositiveOnly requires intermediate storage for real→complex conversion.
+ *
+ * # Returns
+ *
+ * * `SPIR_COMPUTATION_SUCCESS` on success
+ * * `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   number of sampling points
+ * * `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
+ *
+ * All shape arguments are validated before `input` or `out` is accessed.
  */
 
 StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
@@ -1636,7 +1729,7 @@ StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
  * * `backend` - Pointer to the GEMM backend (can be null to use default)
  * * `order` - Memory layout order (SPIR_ORDER_COLUMN_MAJOR or SPIR_ORDER_ROW_MAJOR)
  * * `ndim` - Number of dimensions in the input/output arrays
- * * `input_dims` - Array of dimension sizes
+ * * `input_dims` - Array of `ndim` dimension sizes, each of which must be positive
  * * `target_dim` - Target dimension for the transformation (0-based)
  * * `input` - Input array (complex)
  * * `out` - Output array (real)
@@ -1644,8 +1737,16 @@ StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
  * # Returns
  *
  * - `SPIR_COMPUTATION_SUCCESS` on success
+ * - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+ *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+ * - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+ *   or the input or output array is too large to be addressed
+ * - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   number of sampling points
  * - `SPIR_NOT_SUPPORTED` if the sampling type doesn't support this operation
- * - Other error codes on failure
+ * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+ *
+ * All shape arguments are validated before `input` or `out` is accessed.
  *
  * # See also
  *
@@ -1704,7 +1805,10 @@ StatusCode spir_sampling_fit_zd(const struct spir_sampling *s,
  * # Note
  * Parameters `lmax` and `n_gauss` are accepted for libsparseir compatibility but
  * currently ignored. The Rust implementation automatically determines optimal values.
- * The cutoff is automatically set to 2*sqrt(machine_epsilon) internally.
+ * The singular value truncation cutoff is automatically set to 2 * machine epsilon
+ * of the working precision (about 4.44e-16 for Float64 and 4.93e-32 for Float64x2),
+ * as in libsparseir: singular values smaller than this cutoff times the largest
+ * singular value are discarded.
  */
 
 struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
