@@ -736,3 +736,14 @@ fn test_default_cutoff_is_two_machine_epsilon_regularized_bose() {
         TworkType::Float64X2,
     );
 }
+
+/// The public `lambda` field bypasses the Λ > 0 check of
+/// `RegularizedBoseKernel::new`. With Λ = 0 the discretized kernel is
+/// infinite (1/Λ at y = 0); before the fix its SVD iterated forever and
+/// `compute_sve` did not return. Now the TSVD rejects the non-finite matrix.
+#[test]
+#[should_panic(expected = "NonFiniteInput")]
+fn test_compute_sve_rejects_non_finite_kernel_matrix() {
+    let kernel = RegularizedBoseKernel { lambda: 0.0 };
+    compute_sve(kernel, 1e-6, None, None, TworkType::Float64);
+}

@@ -2006,21 +2006,35 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * based on whether K_low is provided.
  *
  * # Arguments
- * * `K_high` - High part of the kernel matrix (required, size: nx * ny)
- * * `K_low` - Low part of the kernel matrix (optional, nullptr for double precision)
+ * * `K_high` - High part of the kernel matrix (required, size: nx * ny,
+ *   finite entries)
+ * * `K_low` - Low part of the kernel matrix (optional, nullptr for double
+ *   precision; finite entries)
  * * `nx` - Number of rows in the matrix
  * * `ny` - Number of columns in the matrix
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
- * * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+ * * `segments_x` - X-direction segments (array of boundary points, size:
+ *   n_segments_x + 1, finite and strictly increasing)
  * * `n_segments_x` - Number of segments in x direction (boundary points - 1)
- * * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+ * * `segments_y` - Y-direction segments (array of boundary points, size:
+ *   n_segments_y + 1, finite and strictly increasing)
  * * `n_segments_y` - Number of segments in y direction (boundary points - 1)
  * * `n_gauss` - Number of Gauss points per segment
  * * `epsilon` - Target accuracy
  * * `status` - Pointer to store status code
  *
  * # Returns
- * Pointer to SVE result on success, nullptr on failure
+ * Pointer to SVE result on success, nullptr on failure. If `status` is
+ * non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
+ *   a size is less than 1, `epsilon` is not positive and finite, an entry of
+ *   `K_high` or `K_low` is NaN or infinite, or the segments are not finite
+ *   and strictly increasing
+ * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The arrays are validated before the SVE is computed.
  */
 
 struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
@@ -2046,23 +2060,40 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * based on whether K_low is provided.
  *
  * # Arguments
- * * `K_even_high` - High part of the even-symmetry kernel matrix (required, size: nx * ny)
- * * `K_even_low` - Low part of the even-symmetry kernel matrix (optional, nullptr for double precision)
- * * `K_odd_high` - High part of the odd-symmetry kernel matrix (required, size: nx * ny)
- * * `K_odd_low` - Low part of the odd-symmetry kernel matrix (optional, nullptr for double precision)
+ * * `K_even_high` - High part of the even-symmetry kernel matrix (required,
+ *   size: nx * ny, finite entries)
+ * * `K_even_low` - Low part of the even-symmetry kernel matrix (optional,
+ *   nullptr for double precision; finite entries)
+ * * `K_odd_high` - High part of the odd-symmetry kernel matrix (required,
+ *   size: nx * ny, finite entries)
+ * * `K_odd_low` - Low part of the odd-symmetry kernel matrix (optional,
+ *   nullptr for double precision; finite entries)
  * * `nx` - Number of rows in the matrix
  * * `ny` - Number of columns in the matrix
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
- * * `segments_x` - X-direction segments (array of boundary points, size: n_segments_x + 1)
+ * * `segments_x` - X-direction segments (array of boundary points, size:
+ *   n_segments_x + 1, finite and strictly increasing)
  * * `n_segments_x` - Number of segments in x direction (boundary points - 1)
- * * `segments_y` - Y-direction segments (array of boundary points, size: n_segments_y + 1)
+ * * `segments_y` - Y-direction segments (array of boundary points, size:
+ *   n_segments_y + 1, finite and strictly increasing)
  * * `n_segments_y` - Number of segments in y direction (boundary points - 1)
  * * `n_gauss` - Number of Gauss points per segment
  * * `epsilon` - Target accuracy
  * * `status` - Pointer to store status code
  *
  * # Returns
- * Pointer to SVE result on success, nullptr on failure
+ * Pointer to SVE result on success, nullptr on failure. If `status` is
+ * non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
+ *   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
+ *   and finite, an entry of a matrix that is read is NaN or infinite, or the
+ *   segments are not finite and strictly increasing
+ * - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The low parts are read only if both are non-NULL. The arrays are validated
+ * before the SVE is computed.
  */
 
 struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double *K_even_high,

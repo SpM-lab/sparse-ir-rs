@@ -43,6 +43,63 @@ pub enum TSVDError {
     EmptyMatrix,
     #[error("Invalid tolerance: {0}")]
     InvalidTolerance(String),
+    /// A matrix entry is NaN or infinite. The SVD iteration cannot converge
+    /// on such a matrix.
+    #[error("Matrix entry ({row}, {col}) is not finite: {value}")]
+    NonFiniteInput {
+        /// Row of the first non-finite entry in column-major order
+        row: usize,
+        /// Column of that entry
+        col: usize,
+        /// Its value, converted to `f64`
+        value: f64,
+    },
+    /// The SVD iteration did not converge within its iteration limit
+    #[error("SVD did not converge within {max_iterations} iterations")]
+    NotConverged {
+        /// The iteration limit that was reached
+        max_iterations: usize,
+    },
+}
+
+/// Maximum number of implicit-shift QR sweeps per singular value in the SVD
+///
+/// nalgebra's `try_svd` iterates until convergence when its `max_niter` is 0,
+/// and a NaN or an infinity never converges: the SVD then loops forever. The
+/// limit turns non-convergence into [`TSVDError::NotConverged`]. The SVDs of
+/// the SVE matrices of the logistic and regularized Bose kernels (Λ from 1 to
+/// 1e5, f64 and Df64) converge within 1.4 sweeps per singular value; LAPACK's
+/// `dbdsqr` allows `MAXITR = 6` sweeps per singular value (the bound is
+/// convention-matched with it, no code is derived from it). 30 leaves a wide
+/// margin and still bounds the work on a matrix that does not converge.
+const SVD_MAX_SWEEPS_PER_SINGULAR_VALUE: usize = 30;
+
+/// Iteration limit of the SVD of an `nrows × ncols` matrix
+fn svd_max_sweeps(nrows: usize, ncols: usize) -> usize {
+    // Never 0, which nalgebra reads as "no limit"
+    SVD_MAX_SWEEPS_PER_SINGULAR_VALUE * nrows.min(ncols).max(1)
+}
+
+/// Reject a matrix with a NaN or infinite entry
+///
+/// Reports the first such entry in column-major (storage) order.
+fn check_finite<T>(matrix: &DMatrix<T>) -> Result<(), TSVDError>
+where
+    T: ComplexField + ToPrimitive + Copy,
+{
+    for col in 0..matrix.ncols() {
+        for row in 0..matrix.nrows() {
+            let value = matrix[(row, col)];
+            if !value.is_finite() {
+                return Err(TSVDError::NonFiniteInput {
+                    row,
+                    col,
+                    value: ToPrimitive::to_f64(&value).unwrap_or(f64::NAN),
+                });
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Get appropriate epsilon value for SVD convergence based on type
@@ -67,21 +124,19 @@ fn get_epsilon_for_svd<T: RealField + Copy>() -> T {
     }
 }
 
-/// Perform SVD decomposition using nalgebra with sorted singular values
+/// Full SVD by nalgebra's implicit-shift QR iteration, stopped after
+/// `max_niter` sweeps
 ///
-/// Note: This computes ALL singular values, not a truncated SVD.
-/// The truncation happens after SVD computation based on rtol.
-///
-/// # Arguments
-/// * `matrix` - Input matrix (m × n)
-/// * `rtol` - Relative tolerance for rank determination (used for rank calculation, not SVD convergence)
-///
-/// # Returns
-/// * `SVDResult` - Truncated SVD result with U, S, V matrices and rank
-pub fn svd_decompose<T>(matrix: &DMatrix<T>, rtol: f64) -> SVDResult<T>
+/// The singular values are sorted in descending order. `max_niter` must be
+/// positive (nalgebra reads 0 as "no limit"). The matrix must not be empty.
+fn bounded_svd<T>(
+    matrix: &DMatrix<T>,
+    max_niter: usize,
+) -> Result<nalgebra::SVD<T, nalgebra::Dyn, nalgebra::Dyn>, TSVDError>
 where
-    T: ComplexField + RealField + Copy + nalgebra::RealField + ToPrimitive,
+    T: ComplexField + RealField + Copy,
 {
+    debug_assert!(max_niter > 0, "max_niter = 0 would not bound the SVD");
     // Use type-appropriate epsilon for SVD convergence
     // For f64: f64::EPSILON (約 2.22e-16)
     // For Df64: Df64::EPSILON (約 2.465e-32)
@@ -91,11 +146,25 @@ where
 
     // Perform FULL SVD decomposition with explicit epsilon
     // try_svd automatically sorts singular values in descending order
-    // max_niter = 0 means iterate indefinitely until convergence
-    let svd = matrix
+    matrix
         .clone()
-        .try_svd(true, true, eps, 0)
-        .expect("SVD computation failed");
+        .try_svd(true, true, eps, max_niter)
+        .ok_or(TSVDError::NotConverged {
+            max_iterations: max_niter,
+        })
+}
+
+/// [`svd_decompose`] returning an error instead of panicking
+fn try_svd_decompose<T>(matrix: &DMatrix<T>, rtol: f64) -> Result<SVDResult<T>, TSVDError>
+where
+    T: ComplexField + RealField + Copy + nalgebra::RealField + ToPrimitive,
+{
+    if matrix.is_empty() {
+        return Err(TSVDError::EmptyMatrix);
+    }
+    // A non-finite entry would exhaust the iteration limit; reject it early.
+    check_finite(matrix)?;
+    let svd = bounded_svd(matrix, svd_max_sweeps(matrix.nrows(), matrix.ncols()))?;
 
     // Extract U, S, V matrices (already sorted by nalgebra)
     let u_matrix = svd.u.unwrap();
@@ -111,7 +180,30 @@ where
     let s = DVector::from(s_vector.rows(0, rank));
     let v = DMatrix::from(v_t_matrix.rows(0, rank).transpose());
 
-    SVDResult { u, s, v, rank }
+    Ok(SVDResult { u, s, v, rank })
+}
+
+/// Perform SVD decomposition using nalgebra with sorted singular values
+///
+/// Note: This computes ALL singular values, not a truncated SVD.
+/// The truncation happens after SVD computation based on rtol.
+///
+/// # Arguments
+/// * `matrix` - Input matrix (m × n)
+/// * `rtol` - Relative tolerance for rank determination (used for rank calculation, not SVD convergence)
+///
+/// # Returns
+/// * `SVDResult` - Truncated SVD result with U, S, V matrices and rank
+///
+/// # Panics
+/// Panics if the matrix is empty, has a NaN or infinite entry, or the SVD
+/// iteration does not converge within its iteration limit
+/// ([`TSVDError`] describes each case). [`tsvd`] reports these as errors.
+pub fn svd_decompose<T>(matrix: &DMatrix<T>, rtol: f64) -> SVDResult<T>
+where
+    T: ComplexField + RealField + Copy + nalgebra::RealField + ToPrimitive,
+{
+    try_svd_decompose(matrix, rtol).unwrap_or_else(|err| panic!("SVD computation failed: {err}"))
 }
 
 /// Calculate effective rank from sorted singular values
@@ -200,6 +292,14 @@ where
 ///
 /// # Returns
 /// * `SVDResult` - Truncated SVD result
+///
+/// # Errors
+/// * [`TSVDError::EmptyMatrix`] if the matrix has no rows or no columns
+/// * [`TSVDError::InvalidTolerance`] unless `0 < config.rtol < 1` (a NaN
+///   tolerance is rejected)
+/// * [`TSVDError::NonFiniteInput`] if an entry of the matrix, or of its R
+///   factor, is NaN or infinite
+/// * [`TSVDError::NotConverged`] if the SVD iteration does not converge
 pub fn tsvd<T>(matrix: &DMatrix<T>, config: TSVDConfig<T>) -> Result<SVDResult<T>, TSVDError>
 where
     T: ComplexField
@@ -216,12 +316,17 @@ where
         return Err(TSVDError::EmptyMatrix);
     }
 
-    if config.rtol <= Zero::zero() || config.rtol >= One::one() {
+    // Written so that a NaN tolerance fails the check too
+    if !(config.rtol > Zero::zero() && config.rtol < One::one()) {
         return Err(TSVDError::InvalidTolerance(format!(
             "Tolerance must be in (0, 1), got {:?}",
             config.rtol
         )));
     }
+
+    // The SVD iteration never converges on a NaN or an infinity (it looped
+    // forever before the iteration limit of `bounded_svd`).
+    check_finite(matrix)?;
 
     // Step 1: Apply QR decomposition to A using nalgebra with early termination
     // Convert config.rtol (T) to T::RealField for QR decomposition
@@ -253,7 +358,8 @@ where
     // Use rtol directly as T
     let rtol_t = config.rtol;
     let rtol_f64 = rtol_t.to_f64();
-    let svd_result = svd_decompose(&r_truncated, rtol_f64);
+    // Also checks R: the QR of a finite matrix can still overflow
+    let svd_result = try_svd_decompose(&r_truncated, rtol_f64)?;
 
     if svd_result.rank == 0 {
         // Matrix has zero rank
@@ -310,6 +416,10 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
 /// Compute SVD for DTensor using nalgebra-based TSVD
 ///
 /// Supports both f64 and Df64 types. Uses nalgebra TSVD backend for both.
+///
+/// # Panics
+/// Panics if [`tsvd`] fails, e.g. if the matrix is empty or has a NaN or
+/// infinite entry, or if `T` is neither `f64` nor `Df64`.
 pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
     matrix: &DTensor<T, 2>,
 ) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
@@ -415,6 +525,77 @@ mod tests {
         let result = tsvd_f64(&matrix, 1e-12);
 
         assert!(matches!(result, Err(TSVDError::EmptyMatrix)));
+    }
+
+    /// A 4 x 4 matrix of full rank with `bad` at (1, 2)
+    fn matrix_with_entry(bad: f64) -> DMatrix<f64> {
+        DMatrix::<f64>::from_fn(4, 4, |i, j| {
+            if (i, j) == (1, 2) {
+                bad
+            } else {
+                1.0 / (1.0 + i as f64 + j as f64) + if i == j { 1.0 } else { 0.0 }
+            }
+        })
+    }
+
+    fn assert_non_finite_at_1_2<T>(result: Result<SVDResult<T>, TSVDError>, bad: f64) {
+        match result {
+            Err(TSVDError::NonFiniteInput { row, col, value }) => {
+                assert_eq!((row, col), (1, 2));
+                assert!(value.is_nan() == bad.is_nan() && (bad.is_nan() || value == bad));
+            }
+            Err(other) => panic!("expected NonFiniteInput, got {other:?}"),
+            Ok(_) => panic!("expected NonFiniteInput, got Ok"),
+        }
+    }
+
+    /// Before the fix, `tsvd` passed `max_niter = 0` (unbounded) to nalgebra's
+    /// `try_svd`, which never converges on a NaN or an infinity: these calls
+    /// did not return.
+    #[test]
+    fn test_tsvd_rejects_non_finite_input() {
+        for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let matrix = matrix_with_entry(bad);
+            assert_non_finite_at_1_2(tsvd_f64(&matrix, 1e-12), bad);
+            assert_non_finite_at_1_2(tsvd_df64_from_f64(&matrix, 1e-28), bad);
+            let matrix_df64 = matrix.map(Df64::from);
+            assert_non_finite_at_1_2(tsvd_df64(&matrix_df64, Df64::from(1e-28)), bad);
+        }
+    }
+
+    /// A NaN tolerance passed the `rtol <= 0 || rtol >= 1` check before the
+    /// fix and gave a silent rank-0 result.
+    #[test]
+    fn test_tsvd_rejects_nan_tolerance() {
+        let matrix = matrix_with_entry(0.5);
+        assert!(matches!(
+            tsvd_f64(&matrix, f64::NAN),
+            Err(TSVDError::InvalidTolerance(_))
+        ));
+    }
+
+    /// Non-convergence of the SVD iteration is reported as an error. A NaN
+    /// never converges, so it exhausts any iteration limit; `bounded_svd`
+    /// does not check finiteness itself.
+    #[test]
+    fn test_bounded_svd_reports_non_convergence() {
+        let matrix = matrix_with_entry(f64::NAN);
+        assert!(matches!(
+            bounded_svd(&matrix, 50),
+            Err(TSVDError::NotConverged { max_iterations: 50 })
+        ));
+
+        // The limit used for real matrices is ample for a finite one.
+        let finite = matrix_with_entry(0.5);
+        let svd = bounded_svd(&finite, svd_max_sweeps(4, 4)).unwrap();
+        let reconstructed = svd.recompose().unwrap();
+        assert!((reconstructed - &finite).norm() < 1e-14 * finite.norm());
+    }
+
+    #[test]
+    #[should_panic(expected = "is not finite")]
+    fn test_svd_decompose_panics_on_non_finite_input() {
+        svd_decompose(&matrix_with_entry(f64::INFINITY), 1e-12);
     }
 
     /// Create Hilbert matrix of size n x n with generic type
