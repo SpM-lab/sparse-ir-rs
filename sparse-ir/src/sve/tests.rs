@@ -1,11 +1,11 @@
 //! Tests for SVE module functions
 
-use super::utils::extend_to_full_domain;
+use super::utils::{extend_to_full_domain, merge_results};
 use super::{TworkType, compute_sve};
 use crate::kernel::{
     CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel, SymmetryType,
 };
-use crate::poly::PiecewiseLegendrePoly;
+use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use mdarray::DTensor;
 
 /// Create a simple polynomial on positive domain [0, 1]
@@ -350,4 +350,95 @@ fn test_sve_decomposition_regularized_bose_kernel() {
     //1e-12,
     //1e-5  // Use fixed absolute tolerance for very small values
     //);
+}
+
+/// Polynomial on [0, 1] with Legendre coefficients `(c, 1)`, i.e.
+/// `sqrt(2) * (c + 2x - 1)`, carrying `l = k` as `svd_to_polynomials` does for
+/// column `k` of one even/odd SVD block.
+fn half_domain_poly(c: f64, k: i32) -> PiecewiseLegendrePoly {
+    let data = DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { c } else { 1.0 });
+    PiecewiseLegendrePoly::new(data, vec![0.0, 1.0], k, Some(vec![1.0]), 0)
+}
+
+/// `merge_results` must renumber `l` from the index within the even or odd
+/// block to the position in the merged result (#265).
+#[test]
+fn test_merge_results_assigns_global_index() {
+    let even = extend_to_full_domain(
+        vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
+        SymmetryType::Even,
+        1.0,
+    );
+    let odd = extend_to_full_domain(
+        vec![half_domain_poly(3.0, 0), half_domain_poly(4.0, 1)],
+        SymmetryType::Odd,
+        1.0,
+    );
+    // Interlacing singular values, as for a totally positive kernel.
+    let merged = merge_results(
+        (
+            PiecewiseLegendrePolyVector::new(even.clone()),
+            vec![1.0, 0.1],
+            PiecewiseLegendrePolyVector::new(even),
+        ),
+        (
+            PiecewiseLegendrePolyVector::new(odd.clone()),
+            vec![0.5, 0.05],
+            PiecewiseLegendrePolyVector::new(odd),
+        ),
+        1e-10,
+    );
+
+    assert_eq!(merged.s, vec![1.0, 0.5, 0.1, 0.05]);
+    // The extension divides by sqrt(2), so f(1) = c + 1 identifies the source
+    // polynomial: even 0, odd 0, even 1, odd 1.
+    let expected_value_at_1 = [2.0, 4.0, 3.0, 5.0];
+    for (i, (u, v)) in merged
+        .u
+        .get_polys()
+        .iter()
+        .zip(merged.v.get_polys())
+        .enumerate()
+    {
+        let parity = if i % 2 == 0 { 1 } else { -1 };
+        assert_eq!(u.l, i as i32, "u[{i}].l");
+        assert_eq!(v.l, i as i32, "v[{i}].l");
+        assert_eq!(u.symm, parity, "u[{i}].symm");
+        assert_eq!(v.symm, parity, "v[{i}].symm");
+        assert!((u.evaluate(1.0) - expected_value_at_1[i]).abs() < 1e-14);
+        assert!((v.evaluate(1.0) - expected_value_at_1[i]).abs() < 1e-14);
+    }
+}
+
+/// In a computed SVE, `l` is the index of the singular function and, since the
+/// even and odd singular values interlace, `(-1)^l` is its parity -- the
+/// relation the asymptotic expansion of uhat relies on (#265).
+#[test]
+fn test_compute_sve_global_index_matches_parity() {
+    let results = [
+        compute_sve(
+            LogisticKernel::new(10.0),
+            1e-10,
+            None,
+            None,
+            TworkType::Auto,
+        ),
+        compute_sve(
+            RegularizedBoseKernel::new(10.0),
+            1e-10,
+            None,
+            None,
+            TworkType::Auto,
+        ),
+    ];
+    for sve in &results {
+        assert!(sve.s.len() >= 8, "SVE too small: {}", sve.s.len());
+        for (i, (u, v)) in sve.u.get_polys().iter().zip(sve.v.get_polys()).enumerate() {
+            let parity = if i % 2 == 0 { 1 } else { -1 };
+            assert_eq!(u.l, i as i32, "u[{i}].l");
+            assert_eq!(v.l, i as i32, "v[{i}].l");
+            assert_eq!(u.symm, parity, "u[{i}].symm");
+            assert_eq!(v.symm, parity, "v[{i}].symm");
+        }
+    }
 }

@@ -20,7 +20,15 @@ pub struct PiecewiseLegendrePoly {
     pub data: mdarray::DTensor<f64, 2>,
     /// Symmetry parameter
     pub symm: i32,
-    /// Polynomial parameter (used in power moments calculation)
+    /// Index of this function in the sequence of singular functions it belongs
+    /// to (0-based, in order of non-increasing singular value)
+    ///
+    /// SVE results set it to the position of the function in the result, and
+    /// `PiecewiseLegendrePolyVector::from_3d_data` to the position in the
+    /// vector. `PiecewiseLegendreFT` takes the parity `(-1)^l` of the function
+    /// from it for the asymptotic expansion used at |n| >= n_asymp. For the
+    /// centrosymmetric kernels of this crate the even and odd singular
+    /// functions interlace, so that parity equals `symm`.
     pub l: i32,
     /// Segment midpoints
     pub xm: Vec<f64>,

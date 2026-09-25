@@ -63,7 +63,8 @@ pub fn remove_weights<T: CustomNumeric>(
 ///
 /// # Returns
 ///
-/// Polynomials extended to full domain [-xmax, xmax]
+/// Polynomials extended to full domain [-xmax, xmax], with `symm` set from
+/// `symmetry` and `l` kept unchanged
 ///
 /// # Mathematical Background
 ///
@@ -161,7 +162,9 @@ pub fn extend_to_full_domain(
 ///
 /// # Returns
 ///
-/// Vector of piecewise Legendre polynomials
+/// Vector of piecewise Legendre polynomials. The `k`-th polynomial has `l = k`,
+/// its column in `u_or_v`; for a centrosymmetric SVE that is the index within
+/// the even or odd block, which `merge_results` renumbers.
 pub fn svd_to_polynomials<T: CustomNumeric>(
     u_or_v: &DTensor<T, 2>,
     segments: &[T],
@@ -323,7 +326,9 @@ fn canonicalize_signs(
 ///
 /// # Returns
 ///
-/// Merged SVEResult with singular values sorted in decreasing order
+/// Merged SVEResult with singular values sorted in decreasing order. The `l`
+/// of each returned polynomial is its position in this merged result, not
+/// its index within the even or odd block.
 pub fn merge_results(
     result_even: (
         PiecewiseLegendrePolyVector,
@@ -359,21 +364,35 @@ pub fn merge_results(
         s_b.partial_cmp(&s_a).unwrap_or(std::cmp::Ordering::Equal)
     });
 
-    // Build sorted arrays
+    // Build sorted arrays.
+    //
+    // Each polynomial still carries `l = idx`, its column in the even or odd
+    // SVD block (see `svd_to_polynomials`). Renumber it to its position in the
+    // merged result, so that `l` is the index of the singular function for
+    // every SVE result (convention-matched with SparseIR.jl v1
+    // `postprocess(::CentrosymmSVE)`, which sets `l = i - 1` after sorting).
+    // `PiecewiseLegendreFT` takes the parity (-1)^l from it; that equals
+    // `symm` because the even and odd singular values interlace.
     let mut u_polys = Vec::new();
     let mut v_polys = Vec::new();
     let mut s_sorted = Vec::new();
 
-    for (idx, is_even) in indices {
-        if is_even {
-            u_polys.push(u_even.get_polys()[idx].clone());
-            v_polys.push(v_even.get_polys()[idx].clone());
-            s_sorted.push(s_even[idx]);
+    for (l, (idx, is_even)) in indices.into_iter().enumerate() {
+        let (u_block, s_block, v_block) = if is_even {
+            (&u_even, &s_even, &v_even)
         } else {
-            u_polys.push(u_odd.get_polys()[idx].clone());
-            v_polys.push(v_odd.get_polys()[idx].clone());
-            s_sorted.push(s_odd[idx]);
-        }
+            (&u_odd, &s_odd, &v_odd)
+        };
+        let l = l as i32;
+        u_polys.push(PiecewiseLegendrePoly {
+            l,
+            ..u_block.get_polys()[idx].clone()
+        });
+        v_polys.push(PiecewiseLegendrePoly {
+            l,
+            ..v_block.get_polys()[idx].clone()
+        });
+        s_sorted.push(s_block[idx]);
     }
 
     // Canonicalize signs: ensure u[l](1) > 0
