@@ -34,6 +34,15 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libopenblas-dev pkg-config
 
+      # The repository's cargo config also applies to the published wheels,
+      # conda packages and C libraries, so it must not select a CPU (#288).
+      - name: Check that the cargo config sets no CPU-specific flags
+        run: |
+          if grep -rnE '^[^#]*target-(cpu|feature)' .cargo/; then
+            echo "::error::.cargo/ must not set target-cpu or target-feature (#288)"
+            exit 1
+          fi
+
       - name: Build (all targets, default features)
         run: cargo build --all-targets --release --locked
 

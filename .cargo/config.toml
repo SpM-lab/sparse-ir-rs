@@ -1,9 +1,9 @@
-# Cargo configuration for native CPU optimizations
-# This enables CPU-specific optimizations for better performance
-
-[build]
-# Enable native CPU optimizations for release builds
-# This allows the compiler to use CPU-specific instructions (e.g., AVX, SSE, etc.)
-rustflags = ["-C", "target-cpu=native"]
-
-
+# Cargo configuration for builds inside this repository
+#
+# Do not set CPU-specific codegen flags such as `-C target-cpu=native` here.
+# This file applies to every build in the repository, including the published
+# Python wheels, conda packages and C libraries, which must run on any CPU of
+# their target (#288). To tune a local build for the machine it runs on, set
+# the flag in the environment instead:
+#
+#     RUSTFLAGS="-C target-cpu=native" cargo build --release

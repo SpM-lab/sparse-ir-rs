@@ -87,7 +87,10 @@ where
         &self.kernel
     }
 
-    /// Get the SVE result
+    /// Get the SVE result the basis was built from
+    ///
+    /// It is not truncated to the basis size: a basis limited by `max_size`
+    /// or `epsilon` keeps all singular functions of the SVE.
     pub fn sve_result(&self) -> &Arc<SVEResult> {
         &self.sve_result
     }
@@ -123,6 +126,10 @@ where
     }
 
     /// Get the full uhat (before truncation)
+    ///
+    /// Holds the Matsubara transforms of all singular functions of
+    /// [`sve_result`](Self::sve_result), not only of the `size()` basis
+    /// functions; the default Matsubara sampling points use them.
     pub fn uhat_full(&self) -> &Arc<PiecewiseLegendreFTVector<S>> {
         &self.uhat_full
     }
@@ -180,24 +187,47 @@ where
     /// * `kernel` - Kernel implementing `KernelProperties + CentrosymmKernel`
     /// * `beta` - Inverse temperature (β > 0)
     /// * `epsilon` - Accuracy parameter (optional, defaults to NaN for auto)
-    /// * `max_size` - Maximum number of basis functions (optional)
+    /// * `max_size` - Maximum number of basis functions (optional). It limits
+    ///   the basis, not the SVE: the SVE is computed and kept in full, as in
+    ///   [`from_sve_result`](Self::from_sve_result) with an untruncated SVE.
+    ///   The default sampling points and [`accuracy`](Self::accuracy) of the
+    ///   basis use the singular functions beyond it.
     ///
     /// # Returns
     ///
     /// A new FiniteTempBasis
+    ///
+    /// # Panics
+    ///
+    /// Panics if `beta` is not positive or `max_size` is `Some(0)`.
     pub fn new(kernel: K, beta: f64, epsilon: Option<f64>, max_size: Option<usize>) -> Self {
         // Validate inputs
         if beta <= 0.0 {
             panic!("Inverse temperature beta must be positive, got {}", beta);
         }
+        if max_size == Some(0) {
+            panic!("max_size must be positive, got 0");
+        }
 
-        // Compute SVE
+        // Compute the SVE without a size limit; `from_sve_result` truncates
+        // only the basis to `max_size`. The default sampling points of a basis
+        // of size L are the roots of u_L (tau) and v_L (omega) and the sign
+        // changes of uhat_L or uhat_{L+1} (Matsubara), and its accuracy is
+        // s_L / s_0. An SVE truncated to `max_size` functions lacks them, and
+        // the point selection would fall back to the extrema of the last
+        // function (issue #285).
+        //
+        // Convention-matched with SparseIR.jl 1.1.4 (src/basis.jl,
+        // `FiniteTempBasis(statistics, β, ωmax, ε; max_size, kernel,
+        // sve_result=SVEResult(kernel; ε))`): its default SVE takes no `lmax`,
+        // and `part(sve_result; ε, max_size)` truncates the basis only. No
+        // code was ported.
         let epsilon_value = epsilon.unwrap_or(f64::NAN);
         let sve_result = compute_sve(
             kernel.clone(),
             epsilon_value,
             None, // cutoff
-            max_size,
+            None, // no limit on the number of singular values
             TworkType::Auto,
         );
 
@@ -208,6 +238,11 @@ where
     ///
     /// This is useful when you want to reuse the same SVE computation
     /// for both fermionic and bosonic bases.
+    ///
+    /// `max_size` (and `epsilon`) truncate the basis functions and singular
+    /// values only. `sve_result` is kept as given: the default sampling points
+    /// and [`accuracy`](Self::accuracy) use its singular functions beyond the
+    /// basis, so pass an untruncated SVE to get the points of SparseIR.jl.
     pub fn from_sve_result(
         kernel: K,
         beta: f64,

@@ -60,7 +60,10 @@ pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
 /// * `epsilon` - Accuracy target (must be > 0)
 /// * `k` - Kernel object (required; its Λ must equal beta * omega_max)
 /// * `sve` - Pre-computed SVE result (can be NULL, will compute if needed)
-/// * `max_size` - Maximum basis size (-1 for no limit)
+/// * `max_size` - Maximum basis size (-1 for no limit). It truncates the basis,
+///   not the SVE (also when `sve` is NULL and the SVE is computed here): the
+///   default sampling points and `spir_basis_get_uhat_full` use the SVE
+///   functions beyond the basis
 /// * `status` - Pointer to store status code
 ///
 /// # Returns
@@ -1612,6 +1615,137 @@ mod tests {
             spir_basis_release(basis);
             spir_kernel_release(kernel);
         }
+    }
+
+    /// Issue #285: with `sve == NULL`, `spir_basis_new` computes the SVE
+    /// itself, and `max_size` must truncate only the basis, as when the caller
+    /// passes the untruncated SVE. Both paths must give the same `uhat_full`
+    /// and default sampling points, and the Matsubara points of SparseIR.jl.
+    #[test]
+    fn test_basis_new_max_size_keeps_untruncated_sve() {
+        let (beta, omega_max, epsilon, max_size) = (10.0, 1.0, 1e-10, 7);
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(beta * omega_max, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, -1, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut n_sve = 0;
+        assert_eq!(
+            spir_sve_result_get_size(sve, &mut n_sve),
+            SPIR_COMPUTATION_SUCCESS
+        );
+
+        let new_basis = |sve: *const spir_sve_result| {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new(
+                SPIR_STATISTICS_FERMIONIC,
+                beta,
+                omega_max,
+                epsilon,
+                kernel,
+                sve,
+                max_size,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            basis
+        };
+        let computed = new_basis(ptr::null());
+        let provided = new_basis(sve);
+
+        let size = |b: *const spir_basis| {
+            let mut n = 0;
+            assert_eq!(spir_basis_get_size(b, &mut n), SPIR_COMPUTATION_SUCCESS);
+            n
+        };
+        let uhat_full_size = |b: *const spir_basis| {
+            let mut status = SPIR_INTERNAL_ERROR;
+            // SAFETY: `b` is one of the two live handles returned by
+            // `spir_basis_new` above, released only at the end of the test.
+            let funcs = unsafe { spir_basis_get_uhat_full(b, &mut status) };
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            let mut n = 0;
+            assert_eq!(spir_funcs_get_size(funcs, &mut n), SPIR_COMPUTATION_SUCCESS);
+            spir_funcs_release(funcs);
+            n
+        };
+        let matsus = |b: *const spir_basis, positive_only: bool| {
+            let mut n = 0;
+            assert_eq!(
+                spir_basis_get_n_default_matsus(b, positive_only, &mut n),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut points = vec![0i64; n as usize];
+            assert_eq!(
+                spir_basis_get_default_matsus(b, positive_only, points.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            points
+        };
+        let taus = |b: *const spir_basis| {
+            let mut n = 0;
+            assert_eq!(
+                spir_basis_get_n_default_taus(b, &mut n),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut points = vec![0.0; n as usize];
+            assert_eq!(
+                spir_basis_get_default_taus(b, points.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            points
+        };
+        let ws = |b: *const spir_basis| {
+            let mut n = 0;
+            assert_eq!(
+                spir_basis_get_n_default_ws(b, &mut n),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut points = vec![0.0; n as usize];
+            assert_eq!(
+                spir_basis_get_default_ws(b, points.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            points
+        };
+
+        assert_eq!(size(computed), max_size);
+        assert_eq!(size(provided), max_size);
+        // The untruncated SVE of Λ = 10, ε = 1e-10 has 31 functions.
+        assert!(n_sve > max_size + 1, "SVE size {n_sve}");
+        assert_eq!(uhat_full_size(computed), n_sve);
+        assert_eq!(uhat_full_size(provided), n_sve);
+
+        // SparseIR.jl 1.1.4: default_matsubara_sampling_points of
+        // FiniteTempBasis(Fermionic(), 10.0, 1.0, 1e-10; max_size=7), see
+        // sparse-ir/tests/basis_max_size.rs. Before the fix, the NULL-SVE path
+        // gave 6 points, [-19, -5, -1, 1, 5, 19].
+        let expected_all: &[i64] = &[-15, -5, -3, -1, 1, 3, 5, 15];
+        let expected_positive: &[i64] = &[1, 3, 5, 15];
+        for b in [computed, provided] {
+            assert_eq!(matsus(b, false), expected_all);
+            assert_eq!(matsus(b, true), expected_positive);
+        }
+
+        // Both paths compute the SVE with the same arguments, so the points
+        // agree to rounding; 1e-12 of the interval allows a threaded BLAS to
+        // sum in a different order. Before the fix they differed by up to
+        // 0.43 (tau) and 0.096 (omega).
+        let close = |a: &[f64], b: &[f64], scale: f64| {
+            a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-12 * scale)
+        };
+        let (taus_c, taus_p) = (taus(computed), taus(provided));
+        assert_eq!(taus_c.len(), max_size as usize);
+        assert!(close(&taus_c, &taus_p, beta), "{taus_c:?} vs {taus_p:?}");
+        let (ws_c, ws_p) = (ws(computed), ws(provided));
+        assert_eq!(ws_c.len(), max_size as usize);
+        assert!(close(&ws_c, &ws_p, omega_max), "{ws_c:?} vs {ws_p:?}");
+
+        spir_basis_release(computed);
+        spir_basis_release(provided);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
     }
 
     #[test]
