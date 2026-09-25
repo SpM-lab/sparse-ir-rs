@@ -6,9 +6,13 @@ use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gaus
 use crate::numeric::CustomNumeric;
 use crate::poly::PiecewiseLegendrePolyVector;
 use mdarray::DTensor;
+use std::fmt::Debug;
 
 use super::result::SVEResult;
-use super::utils::{extend_to_full_domain, merge_results, remove_weights, svd_to_polynomials};
+use super::utils::{
+    canonicalize_signs, extend_to_full_domain, merge_results, mirror_segments_to_full_domain,
+    remove_weights, svd_to_polynomials,
+};
 
 /// Trait for SVE computation strategies
 pub trait SVEStrategy<T: CustomNumeric> {
@@ -268,11 +272,71 @@ where
     }
 }
 
+/// SVE hints of a kernel expressed on its full domain `[-xmax, xmax] × [-ymax, ymax]`
+///
+/// [`SVEHints`] reports the segments of a centrosymmetric kernel on the
+/// half-domain `[0, xmax] × [0, ymax]` only, which is what [`CentrosymmSVE`]
+/// discretizes. [`NonCentrosymmSVE`] discretizes the full domain, so for a
+/// centrosymmetric kernel this wrapper mirrors the half-domain segments onto
+/// the full domain; the segments of other kernels already cover the full
+/// domain and are passed through unchanged.
+#[derive(Debug, Clone)]
+struct FullDomainHints<H> {
+    inner: H,
+    /// Whether `inner` reports half-domain segments (centrosymmetric kernel)
+    half_domain: bool,
+}
+
+impl<H> FullDomainHints<H> {
+    fn full_domain<T: CustomNumeric>(&self, segments: Vec<T>) -> Vec<T> {
+        if self.half_domain {
+            mirror_segments_to_full_domain(&segments)
+        } else {
+            segments
+        }
+    }
+}
+
+impl<T, H> SVEHints<T> for FullDomainHints<H>
+where
+    T: Copy + Debug + Send + Sync + CustomNumeric,
+    H: SVEHints<T>,
+{
+    fn segments_x(&self) -> Vec<T> {
+        self.full_domain(self.inner.segments_x())
+    }
+
+    fn segments_y(&self) -> Vec<T> {
+        self.full_domain(self.inner.segments_y())
+    }
+
+    fn nsvals(&self) -> usize {
+        self.inner.nsvals()
+    }
+
+    fn ngauss(&self) -> usize {
+        self.inner.ngauss()
+    }
+}
+
 /// Non-centrosymmetric SVE computation
 ///
-/// This strategy works with non-centrosymmetric kernels by directly computing
-/// the kernel matrix over the full domain [-xmax, xmax] × [-ymax, ymax].
-/// No symmetry exploitation is performed.
+/// This strategy computes the kernel matrix directly over the full domain
+/// [-xmax, xmax] × [-ymax, ymax]. No symmetry exploitation is performed, so it
+/// works for any kernel.
+///
+/// Centrosymmetric kernels are also expanded correctly: their [`SVEHints`]
+/// segments cover only the half-domain `[0, xmax]` and are mirrored onto the
+/// full domain before discretization. The singular values then agree with
+/// [`CentrosymmSVE`] up to rounding, but the SVD is taken of a single matrix
+/// with twice as many rows and columns as each even/odd block, and the
+/// singular functions carry no parity tag.
+///
+/// The SVD sign gauge is fixed by demanding `u_l(xmax) >= 0`, as
+/// [`CentrosymmSVE`] does and as libsparseir's `SamplingSVE::postprocess`
+/// does via `canonicalize` (convention-matched with
+/// `backend/cxx/include/sparseir/impl/sve_impl.ipp`, libsparseir commit
+/// 4bc58ea).
 #[allow(dead_code)]
 pub struct NonCentrosymmSVE<T, K>
 where
@@ -281,7 +345,7 @@ where
 {
     kernel: K,
     epsilon: f64,
-    hints: K::SVEHintsType<T>,
+    hints: FullDomainHints<K::SVEHintsType<T>>,
     n_gauss: usize,
 
     // Geometric information (full domain [-xmax, xmax])
@@ -302,7 +366,12 @@ where
 {
     /// Create a new NonCentrosymmSVE
     pub fn new(kernel: K, epsilon: f64) -> Self {
-        let hints = kernel.sve_hints::<T>(epsilon);
+        // SVEHints are half-domain for centrosymmetric kernels; this strategy
+        // needs the full domain (issue #246).
+        let hints = FullDomainHints {
+            inner: kernel.sve_hints::<T>(epsilon),
+            half_domain: kernel.is_centrosymmetric(),
+        };
 
         // Get segments for full domain [-xmax, xmax]
         let segments_x = hints.segments_x();
@@ -374,7 +443,9 @@ where
             .sampling_sve
             .postprocess_single(&u_list[0], &s_list[0], &v_list[0]);
 
-        // No domain extension needed - already on full domain
+        // No domain extension needed - already on full domain. Fix the sign
+        // gauge u_l(xmax) >= 0 as CentrosymmSVE does in merge_results.
+        let (u_polys, v_polys) = canonicalize_signs(u_polys, v_polys, self.kernel.xmax());
         SVEResult::new(u_polys, s, v_polys, self.epsilon)
     }
 }

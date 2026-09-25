@@ -18,8 +18,8 @@ use std::sync::Arc;
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
 use crate::utils::{
-    MemoryOrder, build_output_dims, convert_dims_for_row_major, create_dview_from_ptr,
-    create_dviewmut_from_ptr, read_tensor_nd,
+    MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd,
+    validate_transform_dims,
 };
 use crate::{
     SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC,
@@ -921,7 +921,7 @@ pub extern "C" fn spir_sampling_get_cond_num(
 /// * `s` - Pointer to the sampling object
 /// * `order` - Memory layout order (`SPIR_ORDER_ROW_MAJOR` or `SPIR_ORDER_COLUMN_MAJOR`)
 /// * `ndim` - Number of dimensions in the input/output arrays
-/// * `input_dims` - Array of dimension sizes
+/// * `input_dims` - Array of `ndim` dimension sizes, each of which must be positive
 /// * `target_dim` - Target dimension for the transformation (0-based)
 /// * `input` - Input array of basis coefficients
 /// * `out` - Output array for the evaluated values at sampling points
@@ -930,7 +930,15 @@ pub extern "C" fn spir_sampling_get_cond_num(
 ///
 /// An integer status code:
 /// - `0` (`SPIR_COMPUTATION_SUCCESS`) on success
-/// - A non-zero error code on failure
+/// - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input or output array is too large to be addressed
+/// - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the basis size
+/// - `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+/// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+///
+/// All shape arguments are validated before `input` or `out` is accessed.
 ///
 /// # Notes
 ///
@@ -973,30 +981,30 @@ pub extern "C" fn spir_sampling_eval_dd(
         };
 
         let sampling_ref = unsafe { &*s };
-        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
-
-        // Convert dimensions for row-major processing
-        // For column-major, this reverses dims and adjusts target_dim
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
-
-        // Validate that input dimension matches basis size
         let sampling_inner = sampling_ref.inner();
-        let expected_basis_size = sampling_inner.basis_size();
-        if row_major_dims[row_major_target_dim] != expected_basis_size {
-            return crate::SPIR_INPUT_DIMENSION_MISMATCH;
-        }
 
-        // Build output dimensions
-        let n_points = sampling_inner.n_points();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, n_points);
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
+        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
+        // Validate every extent before any view is built over `input` or `out`.
+        // For column-major, this also reverses dims and adjusts target_dim.
+        let dims = match validate_transform_dims::<f64, f64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            sampling_inner.basis_size(),
+            sampling_inner.n_points(),
+        ) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
-        // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        // Create zero-copy views directly over the caller's buffers.
+        // SAFETY: `validate_transform_dims` proved that both shapes have
+        // addressable sizes; the caller guarantees that `input` and `out` hold
+        // that many elements.
+        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
+        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1006,7 +1014,7 @@ pub extern "C" fn spir_sampling_eval_dd(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            dims.target_dim,
             &mut output_view,
         ) {
             return SPIR_NOT_SUPPORTED;
@@ -1021,7 +1029,20 @@ pub extern "C" fn spir_sampling_eval_dd(
 /// Evaluate basis coefficients at sampling points (double → complex)
 ///
 /// For Matsubara sampling: transforms real IR coefficients to complex values.
-/// Zero-copy implementation.
+/// Zero-copy implementation. Arguments are as for [`spir_sampling_eval_dd`].
+///
+/// # Returns
+///
+/// - `SPIR_COMPUTATION_SUCCESS` on success
+/// - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input or output array is too large to be addressed
+/// - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the basis size
+/// - `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+/// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+///
+/// All shape arguments are validated before `input` or `out` is accessed.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_eval_dz(
     s: *const spir_sampling,
@@ -1049,29 +1070,30 @@ pub extern "C" fn spir_sampling_eval_dz(
         };
 
         let sampling_ref = unsafe { &*s };
-        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
-
-        // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
-
-        // Validate that input dimension matches basis size
         let sampling_inner = sampling_ref.inner();
-        let expected_basis_size = sampling_inner.basis_size();
-        if row_major_dims[row_major_target_dim] != expected_basis_size {
-            return crate::SPIR_INPUT_DIMENSION_MISMATCH;
-        }
 
-        // Build output dimensions
-        let n_points = sampling_inner.n_points();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, n_points);
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
+        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
+        // Validate every extent before any view is built over `input` or `out`.
+        // For column-major, this also reverses dims and adjusts target_dim.
+        let dims = match validate_transform_dims::<f64, Complex64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            sampling_inner.basis_size(),
+            sampling_inner.n_points(),
+        ) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
-        // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        // Create zero-copy views directly over the caller's buffers.
+        // SAFETY: `validate_transform_dims` proved that both shapes have
+        // addressable sizes; the caller guarantees that `input` and `out` hold
+        // that many elements.
+        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
+        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1081,7 +1103,7 @@ pub extern "C" fn spir_sampling_eval_dz(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            dims.target_dim,
             &mut output_view,
         ) {
             return SPIR_NOT_SUPPORTED;
@@ -1096,7 +1118,20 @@ pub extern "C" fn spir_sampling_eval_dz(
 /// Evaluate basis coefficients at sampling points (complex → complex)
 ///
 /// For Matsubara sampling: transforms complex coefficients to complex values.
-/// Zero-copy implementation.
+/// Zero-copy implementation. Arguments are as for [`spir_sampling_eval_dd`].
+///
+/// # Returns
+///
+/// - `SPIR_COMPUTATION_SUCCESS` on success
+/// - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input or output array is too large to be addressed
+/// - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the basis size
+/// - `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+/// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+///
+/// All shape arguments are validated before `input` or `out` is accessed.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_eval_zz(
     s: *const spir_sampling,
@@ -1123,29 +1158,30 @@ pub extern "C" fn spir_sampling_eval_zz(
         };
 
         let sampling_ref = unsafe { &*s };
-        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
-
-        // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
-
-        // Validate that input dimension matches basis size
         let sampling_inner = sampling_ref.inner();
-        let expected_basis_size = sampling_inner.basis_size();
-        if row_major_dims[row_major_target_dim] != expected_basis_size {
-            return crate::SPIR_INPUT_DIMENSION_MISMATCH;
-        }
 
-        // Build output dimensions
-        let n_points = sampling_inner.n_points();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, n_points);
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
+        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
+        // Validate every extent before any view is built over `input` or `out`.
+        // For column-major, this also reverses dims and adjusts target_dim.
+        let dims = match validate_transform_dims::<Complex64, Complex64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            sampling_inner.basis_size(),
+            sampling_inner.n_points(),
+        ) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
-        // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        // Create zero-copy views directly over the caller's buffers.
+        // SAFETY: `validate_transform_dims` proved that both shapes have
+        // addressable sizes; the caller guarantees that `input` and `out` hold
+        // that many elements.
+        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
+        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1155,7 +1191,7 @@ pub extern "C" fn spir_sampling_eval_zz(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            dims.target_dim,
             &mut output_view,
         ) {
             return SPIR_NOT_SUPPORTED;
@@ -1183,7 +1219,7 @@ pub extern "C" fn spir_sampling_eval_zz(
 /// * `backend` - Pointer to the GEMM backend (can be null to use default)
 /// * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `ndim` - Number of dimensions in the input/output arrays
-/// * `input_dims` - Array of dimension sizes
+/// * `input_dims` - Array of `ndim` dimension sizes, each of which must be positive
 /// * `target_dim` - Target dimension for the transformation (0-based)
 /// * `input` - Input array of values at sampling points
 /// * `out` - Output array for the fitted basis coefficients
@@ -1192,7 +1228,16 @@ pub extern "C" fn spir_sampling_eval_zz(
 ///
 /// An integer status code:
 /// * `0` (SPIR_COMPUTATION_SUCCESS) on success
-/// * A non-zero error code on failure
+/// * `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   number of sampling points
+/// * `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
+///
+/// All shape arguments are validated before `input` or `out` is accessed.
 ///
 /// # Notes
 ///
@@ -1232,29 +1277,30 @@ pub extern "C" fn spir_sampling_fit_dd(
         };
 
         let sampling_ref = unsafe { &*s };
-        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
-
-        // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
-
-        // Validate that input dimension matches n_points
         let sampling_inner = sampling_ref.inner();
-        let expected_n_points = sampling_inner.n_points();
-        if row_major_dims[row_major_target_dim] != expected_n_points {
-            return crate::SPIR_INPUT_DIMENSION_MISMATCH;
-        }
 
-        // Build output dimensions (replace n_points with basis_size)
-        let basis_size = sampling_inner.basis_size();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, basis_size);
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
+        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
+        // Validate every extent before any view is built over `input` or `out`.
+        // For column-major, this also reverses dims and adjusts target_dim.
+        let dims = match validate_transform_dims::<f64, f64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            sampling_inner.n_points(),
+            sampling_inner.basis_size(),
+        ) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
-        // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        // Create zero-copy views directly over the caller's buffers.
+        // SAFETY: `validate_transform_dims` proved that both shapes have
+        // addressable sizes; the caller guarantees that `input` and `out` hold
+        // that many elements.
+        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
+        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1264,7 +1310,7 @@ pub extern "C" fn spir_sampling_fit_dd(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            dims.target_dim,
             &mut output_view,
         ) {
             return SPIR_NOT_SUPPORTED;
@@ -1281,6 +1327,20 @@ pub extern "C" fn spir_sampling_fit_dd(
 /// For more details, see [`spir_sampling_fit_dd`]
 /// Zero-copy implementation for Tau and Matsubara (full).
 /// MatsubaraPositiveOnly requires intermediate storage for real→complex conversion.
+///
+/// # Returns
+///
+/// * `SPIR_COMPUTATION_SUCCESS` on success
+/// * `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   number of sampling points
+/// * `SPIR_NOT_SUPPORTED` if the sampling type does not support this operation
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
+///
+/// All shape arguments are validated before `input` or `out` is accessed.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_fit_zz(
     s: *const spir_sampling,
@@ -1307,29 +1367,30 @@ pub extern "C" fn spir_sampling_fit_zz(
         };
 
         let sampling_ref = unsafe { &*s };
-        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
-
-        // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
-
-        // Validate that input dimension matches n_points
         let sampling_inner = sampling_ref.inner();
-        let expected_n_points = sampling_inner.n_points();
-        if row_major_dims[row_major_target_dim] != expected_n_points {
-            return crate::SPIR_INPUT_DIMENSION_MISMATCH;
-        }
 
-        // Build output dimensions (replace n_points with basis_size)
-        let basis_size = sampling_inner.basis_size();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, basis_size);
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
+        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
+        // Validate every extent before any view is built over `input` or `out`.
+        // For column-major, this also reverses dims and adjusts target_dim.
+        let dims = match validate_transform_dims::<Complex64, Complex64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            sampling_inner.n_points(),
+            sampling_inner.basis_size(),
+        ) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
-        // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        // Create zero-copy views directly over the caller's buffers.
+        // SAFETY: `validate_transform_dims` proved that both shapes have
+        // addressable sizes; the caller guarantees that `input` and `out` hold
+        // that many elements.
+        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
+        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1339,7 +1400,7 @@ pub extern "C" fn spir_sampling_fit_zz(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            dims.target_dim,
             &mut output_view,
         ) {
             return SPIR_NOT_SUPPORTED;
@@ -1376,7 +1437,7 @@ pub extern "C" fn spir_sampling_fit_zz(
 /// * `backend` - Pointer to the GEMM backend (can be null to use default)
 /// * `order` - Memory layout order (SPIR_ORDER_COLUMN_MAJOR or SPIR_ORDER_ROW_MAJOR)
 /// * `ndim` - Number of dimensions in the input/output arrays
-/// * `input_dims` - Array of dimension sizes
+/// * `input_dims` - Array of `ndim` dimension sizes, each of which must be positive
 /// * `target_dim` - Target dimension for the transformation (0-based)
 /// * `input` - Input array (complex)
 /// * `out` - Output array (real)
@@ -1384,8 +1445,16 @@ pub extern "C" fn spir_sampling_fit_zz(
 /// # Returns
 ///
 /// - `SPIR_COMPUTATION_SUCCESS` on success
+/// - `SPIR_INVALID_ARGUMENT` if `s`, `input_dims`, `input` or `out` is null,
+///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
+/// - `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
+///   or the input or output array is too large to be addressed
+/// - `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   number of sampling points
 /// - `SPIR_NOT_SUPPORTED` if the sampling type doesn't support this operation
-/// - Other error codes on failure
+/// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
+///
+/// All shape arguments are validated before `input` or `out` is accessed.
 ///
 /// # See also
 ///
@@ -1417,29 +1486,30 @@ pub extern "C" fn spir_sampling_fit_zd(
         };
 
         let sampling_ref = unsafe { &*s };
-        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
-        let orig_dims: Vec<usize> = dims_slice.iter().map(|&d| d as usize).collect();
-
-        // Convert dimensions for row-major processing
-        let (row_major_dims, row_major_target_dim) =
-            convert_dims_for_row_major(&orig_dims, target_dim as usize, mem_order);
-
-        // Create input view directly from buffer (zero-copy)
-        let input_view = unsafe { create_dview_from_ptr(input, &row_major_dims) };
-
-        // Validate that input dimension matches n_points
         let sampling_inner = sampling_ref.inner();
-        let expected_n_points = sampling_inner.n_points();
-        if row_major_dims[row_major_target_dim] != expected_n_points {
-            return crate::SPIR_INPUT_DIMENSION_MISMATCH;
-        }
 
-        // Build output dimensions (replace n_points with basis_size)
-        let basis_size = sampling_inner.basis_size();
-        let out_dims = build_output_dims(&row_major_dims, row_major_target_dim, basis_size);
+        // SAFETY: `input_dims` is non-null and `ndim > 0` (checked above); the
+        // caller guarantees that it points to `ndim` readable elements.
+        let dims_slice = unsafe { std::slice::from_raw_parts(input_dims, ndim as usize) };
+        // Validate every extent before any view is built over `input` or `out`.
+        // For column-major, this also reverses dims and adjusts target_dim.
+        let dims = match validate_transform_dims::<Complex64, f64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            sampling_inner.n_points(),
+            sampling_inner.basis_size(),
+        ) {
+            Ok(dims) => dims,
+            Err(code) => return code,
+        };
 
-        // Create output view directly from buffer (zero-copy)
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &out_dims) };
+        // Create zero-copy views directly over the caller's buffers.
+        // SAFETY: `validate_transform_dims` proved that both shapes have
+        // addressable sizes; the caller guarantees that `input` and `out` hold
+        // that many elements.
+        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
+        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1452,7 +1522,7 @@ pub extern "C" fn spir_sampling_fit_zd(
             sampling_inner,
             backend_handle,
             &input_view,
-            row_major_target_dim,
+            dims.target_dim,
             &mut output_view,
         ) {
             return SPIR_NOT_SUPPORTED;

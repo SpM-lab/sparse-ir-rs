@@ -9,29 +9,17 @@ use super::result::SVEResult;
 use super::strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use super::types::{SVDStrategy, TworkType, safe_epsilon};
 
-/// Main SVE computation function for centrosymmetric kernels
+/// Default relative cutoff for singular value truncation: `2 * T::epsilon()`
 ///
-/// Automatically chooses the appropriate SVE strategy based on kernel properties
-/// and working precision based on epsilon.
-///
-/// # Arguments
-///
-/// * `kernel` - The centrosymmetric kernel to expand
-/// * `epsilon` - Required accuracy
-/// * `cutoff` - Relative tolerance for singular value truncation
-/// * `max_num_svals` - Maximum number of singular values to keep
-/// * `twork` - Working precision type (Auto for automatic selection)
-///
-/// # Returns
-///
-/// SVEResult containing singular functions and values
-///
-/// # FPU State Warning
-///
-/// This function checks for dangerous FPU settings (Flush-to-Zero and Denormals-Are-Zero)
-/// that can cause incorrect results. If detected, it temporarily corrects the FPU state
-/// and prints a warning. If you see this warning, add `-fp-model precise` flag when
-/// compiling with Intel Fortran.
+/// This is `2^-51` (about 4.44e-16) for `f64` and `2^-104` (about 4.93e-32)
+/// for `Df64`. Both SVE paths use it when `cutoff` is `None`.
+/// Convention-matched with libsparseir, whose `pre_postprocess` in
+/// `backend/cxx/include/sparseir/impl/sve_impl.ipp` (commit 4bc58ea) uses
+/// `T(2) * std::numeric_limits<T>::epsilon()` when the cutoff is NaN.
+fn default_cutoff<T: CustomNumeric>() -> T {
+    T::from_f64_unchecked(2.0) * T::epsilon()
+}
+
 /// Release unused memory back to the OS.
 ///
 /// SVE computation allocates large temporary buffers for SVD.
@@ -62,6 +50,35 @@ fn release_unused_memory() {
     }
 }
 
+/// Main SVE computation function for centrosymmetric kernels
+///
+/// Automatically chooses the appropriate SVE strategy based on kernel properties
+/// and working precision based on epsilon.
+///
+/// # Arguments
+///
+/// * `kernel` - The centrosymmetric kernel to expand
+/// * `epsilon` - Required accuracy
+/// * `cutoff` - Relative tolerance for singular value truncation: singular
+///   values smaller than `cutoff` times the largest singular value are
+///   discarded. `None` selects `2 * machine epsilon` of the working precision,
+///   about 4.44e-16 for Float64 and 4.93e-32 for Float64X2 (the libsparseir
+///   default). The SVD of each even/odd block already discards singular values
+///   below `2 * machine epsilon` times that block's largest singular value, so
+///   a smaller `cutoff` has little effect.
+/// * `max_num_svals` - Maximum number of singular values to keep
+/// * `twork` - Working precision type (Auto for automatic selection)
+///
+/// # Returns
+///
+/// SVEResult containing singular functions and values
+///
+/// # FPU State Warning
+///
+/// This function checks for dangerous FPU settings (Flush-to-Zero and Denormals-Are-Zero)
+/// that can cause incorrect results. If detected, it temporarily corrects the FPU state
+/// and prints a warning. If you see this warning, add `-fp-model precise` flag when
+/// compiling with Intel Fortran.
 pub fn compute_sve<K>(
     kernel: K,
     epsilon: f64,
@@ -102,15 +119,38 @@ where
 
 /// Main SVE computation function for general kernels (centrosymmetric or non-centrosymmetric)
 ///
-/// Automatically chooses the appropriate SVE strategy based on kernel properties.
-/// For centrosymmetric kernels, uses CentrosymmSVE for efficiency.
-/// For non-centrosymmetric kernels, uses NonCentrosymmSVE.
+/// Discretizes the kernel on its full domain `[-xmax, xmax] × [-ymax, ymax]`
+/// with [`NonCentrosymmSVE`], which only requires [`AbstractKernel`].
+///
+/// Centrosymmetric kernels are expanded correctly as well: their half-domain
+/// [`SVEHints`] segments are mirrored onto the full domain, so the singular
+/// values agree with [`compute_sve`] up to rounding. The even/odd block
+/// structure is not exploited, however: the SVD is taken of one matrix with
+/// twice as many rows and columns as each block used by [`compute_sve`]
+/// (asymptotically about four times the work), the singular functions carry no
+/// parity tag, and the singular functions of (nearly) degenerate singular
+/// values may mix the even and odd sectors. For kernels implementing
+/// [`CentrosymmKernel`], such as [`LogisticKernel`](crate::kernel::LogisticKernel)
+/// and [`RegularizedBoseKernel`](crate::kernel::RegularizedBoseKernel), prefer
+/// [`compute_sve`].
+///
+/// This function cannot select [`CentrosymmSVE`] by itself even when
+/// [`AbstractKernel::is_centrosymmetric`] returns true: that strategy needs
+/// the reduced kernels of [`CentrosymmKernel::compute_reduced`], and a
+/// `K: AbstractKernel` bound cannot be refined to `K: CentrosymmKernel`
+/// without trait specialization, which stable Rust does not provide.
 ///
 /// # Arguments
 ///
 /// * `kernel` - The kernel to expand (can be centrosymmetric or non-centrosymmetric)
 /// * `epsilon` - Required accuracy
-/// * `cutoff` - Relative tolerance for singular value truncation
+/// * `cutoff` - Relative tolerance for singular value truncation: singular
+///   values smaller than `cutoff` times the largest singular value are
+///   discarded. `None` selects `2 * machine epsilon` of the working precision,
+///   about 4.44e-16 for Float64 and 4.93e-32 for Float64X2, as in
+///   [`compute_sve`]. The SVD of the full-domain matrix already discards
+///   singular values below `2 * machine epsilon` times the largest one, so a
+///   smaller `cutoff` has no effect.
 /// * `max_num_svals` - Maximum number of singular values to keep
 /// * `twork` - Working precision type (Auto for automatic selection)
 ///
@@ -195,10 +235,8 @@ where
         v_list.push(v);
     }
 
-    // 4. Truncate based on cutoff
-    // Default cutoff is 2.0 * T::epsilon() which adapts to the precision type (f64 or Df64)
-    let default_cutoff = T::from_f64_unchecked(2.0) * T::epsilon();
-    let rtol_t = cutoff.unwrap_or(default_cutoff);
+    // 4. Truncate based on cutoff (default: 2 * T::epsilon(), see default_cutoff)
+    let rtol_t = cutoff.unwrap_or_else(default_cutoff::<T>);
     let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
 
     // 5. Post-process to create SVEResult
@@ -217,7 +255,7 @@ where
     K: AbstractKernel + KernelProperties + Clone + 'static,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    // 1. Determine SVE strategy based on kernel symmetry
+    // 1. Determine SVE strategy (full-domain NonCentrosymmSVE)
     let sve = determine_sve_general::<T, K>(kernel, epsilon);
 
     // 2. Compute matrices
@@ -235,9 +273,8 @@ where
         v_list.push(v);
     }
 
-    // 4. Truncate based on cutoff
-    // Default cutoff is T::epsilon() which adapts to the precision type (f64 or Df64)
-    let rtol_t = cutoff.unwrap_or_else(T::epsilon);
+    // 4. Truncate based on cutoff (default: 2 * T::epsilon(), see default_cutoff)
+    let rtol_t = cutoff.unwrap_or_else(default_cutoff::<T>);
     let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
 
     // 5. Post-process to create SVEResult
@@ -258,24 +295,19 @@ where
     Box::new(CentrosymmSVE::new(kernel, epsilon))
 }
 
-/// Determine the appropriate SVE strategy for general kernels
+/// Determine the SVE strategy for general kernels
 ///
-/// Automatically chooses between CentrosymmSVE and NonCentrosymmSVE
-/// based on kernel symmetry.
+/// Always uses [`NonCentrosymmSVE`], which handles centrosymmetric kernels by
+/// mirroring their half-domain hint segments onto the full domain.
+/// [`CentrosymmSVE`] would require `K: CentrosymmKernel`, which cannot be
+/// recovered from the `K: AbstractKernel` bound (see [`compute_sve_general`]).
 fn determine_sve_general<T, K>(kernel: K, epsilon: f64) -> Box<dyn SVEStrategy<T>>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
     K: AbstractKernel + KernelProperties + Clone + 'static,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    if kernel.is_centrosymmetric() {
-        // Try to use CentrosymmSVE if kernel implements CentrosymmKernel
-        // For now, we'll use NonCentrosymmSVE as a fallback
-        // In practice, centrosymmetric kernels should implement CentrosymmKernel
-        Box::new(NonCentrosymmSVE::new(kernel, epsilon))
-    } else {
-        Box::new(NonCentrosymmSVE::new(kernel, epsilon))
-    }
+    Box::new(NonCentrosymmSVE::new(kernel, epsilon))
 }
 
 /// Truncate SVD results based on cutoff and maximum size
@@ -378,6 +410,18 @@ pub fn truncate<T: CustomNumeric>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The default cutoff is exactly `2 * machine epsilon` of each working
+    /// precision (issue #249); `Df64` epsilon is `f64::EPSILON^2 / 2 = 2^-105`.
+    #[test]
+    fn test_default_cutoff_is_two_machine_epsilon() {
+        assert_eq!(default_cutoff::<f64>(), 2.0 * f64::EPSILON);
+        assert_eq!(default_cutoff::<f64>(), 2f64.powi(-51));
+
+        let df64 = default_cutoff::<crate::Df64>();
+        assert_eq!(df64, crate::Df64::from(2f64.powi(-104)));
+        assert_eq!((df64.hi(), df64.lo()), (2f64.powi(-104), 0.0));
+    }
 
     #[test]
     fn test_truncate_by_rtol() {
