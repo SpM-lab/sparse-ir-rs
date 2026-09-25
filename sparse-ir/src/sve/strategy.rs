@@ -10,8 +10,8 @@ use std::fmt::Debug;
 
 use super::result::SVEResult;
 use super::utils::{
-    canonicalize_signs, extend_to_full_domain, merge_results, mirror_segments_to_full_domain,
-    remove_weights, svd_to_polynomials,
+    SvdBlock, canonicalize_signs, extend_to_full_domain, merge_blocks,
+    mirror_segments_to_full_domain, remove_weights, svd_to_polynomials,
 };
 
 /// Trait for SVE computation strategies
@@ -81,6 +81,11 @@ where
     ///
     /// This converts SVD results to piecewise Legendre polynomials
     /// on the domain specified by segments (e.g., [0, xmax] for reduced kernels).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the SVD result has no singular values: a
+    /// [`PiecewiseLegendrePolyVector`] cannot be empty.
     pub fn postprocess_single(
         &self,
         u: &DTensor<T, 2>,
@@ -91,6 +96,17 @@ where
         Vec<f64>,
         PiecewiseLegendrePolyVector,
     ) {
+        let (u_polys, s, v_polys) = self.postprocess_block(u, s, v);
+        (
+            PiecewiseLegendrePolyVector::new(u_polys),
+            s,
+            PiecewiseLegendrePolyVector::new(v_polys),
+        )
+    }
+
+    /// [`Self::postprocess_single`] returning plain vectors, which may be
+    /// empty
+    fn postprocess_block(&self, u: &DTensor<T, 2>, s: &[T], v: &DTensor<T, 2>) -> SvdBlock {
         // 1. Remove weights
         // Both U and V have rows corresponding to Gauss points, so is_row=true for both
         let u_unweighted = remove_weights(u, self.gauss_x.w.as_slice(), true);
@@ -112,11 +128,7 @@ where
         );
 
         // Note: No domain extension here - that's the caller's responsibility
-        (
-            PiecewiseLegendrePolyVector::new(u_polys),
-            s.iter().map(|&x| x.to_f64()).collect(),
-            PiecewiseLegendrePolyVector::new(v_polys),
-        )
+        (u_polys, s.iter().map(|&x| x.to_f64()).collect(), v_polys)
     }
 }
 
@@ -208,30 +220,14 @@ where
     }
 
     /// Extend polynomials from [0, xmax] to [-xmax, xmax]
-    fn extend_result_to_full_domain(
-        &self,
-        result: (
-            PiecewiseLegendrePolyVector,
-            Vec<f64>,
-            PiecewiseLegendrePolyVector,
-        ),
-        symmetry: SymmetryType,
-    ) -> (
-        PiecewiseLegendrePolyVector,
-        Vec<f64>,
-        PiecewiseLegendrePolyVector,
-    ) {
+    fn extend_result_to_full_domain(&self, result: SvdBlock, symmetry: SymmetryType) -> SvdBlock {
         let (u, s, v) = result;
 
         // Extend u and v from [0, xmax] to [-xmax, xmax]
-        let u_full = extend_to_full_domain(u.get_polys().to_vec(), symmetry, self.kernel.xmax());
-        let v_full = extend_to_full_domain(v.get_polys().to_vec(), symmetry, self.kernel.ymax());
+        let u_full = extend_to_full_domain(u, symmetry, self.kernel.xmax());
+        let v_full = extend_to_full_domain(v, symmetry, self.kernel.ymax());
 
-        (
-            PiecewiseLegendrePolyVector::new(u_full),
-            s,
-            PiecewiseLegendrePolyVector::new(v_full),
-        )
+        (u_full, s, v_full)
     }
 }
 
@@ -255,20 +251,23 @@ where
         s_list: Vec<Vec<T>>,
         v_list: Vec<DTensor<T, 2>>,
     ) -> SVEResult {
-        // Process even and odd results using SamplingSVE (which doesn't know about symmetry)
+        // Process even and odd results using SamplingSVE (which doesn't know
+        // about symmetry). Keep plain vectors until the merge: truncation can
+        // empty a block (keeping only the largest singular value empties the
+        // odd one), and a PiecewiseLegendrePolyVector cannot be empty.
         let result_even = self
             .sampling_sve
-            .postprocess_single(&u_list[0], &s_list[0], &v_list[0]);
+            .postprocess_block(&u_list[0], &s_list[0], &v_list[0]);
         let result_odd = self
             .sampling_sve
-            .postprocess_single(&u_list[1], &s_list[1], &v_list[1]);
+            .postprocess_block(&u_list[1], &s_list[1], &v_list[1]);
 
         // Now extend to full domain (this is where symmetry comes in)
         let result_even_full = self.extend_result_to_full_domain(result_even, SymmetryType::Even);
         let result_odd_full = self.extend_result_to_full_domain(result_odd, SymmetryType::Odd);
 
-        // Merge the results
-        merge_results(result_even_full, result_odd_full, self.epsilon)
+        // Merge the results (at least one singular value is kept)
+        merge_blocks(result_even_full, result_odd_full, self.epsilon)
     }
 }
 

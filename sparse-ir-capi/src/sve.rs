@@ -971,17 +971,12 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         let u_odd_full = extend_to_full_domain(u_odd_polys, SymmetryType::Odd, xmax);
         let v_odd_full = extend_to_full_domain(v_odd_polys, SymmetryType::Odd, ymax);
 
-        // Merge even and odd results
-        let result_even = (
-            PiecewiseLegendrePolyVector::new(u_even_full),
-            s_even,
-            PiecewiseLegendrePolyVector::new(v_even_full),
-        );
-        let result_odd = (
-            PiecewiseLegendrePolyVector::new(u_odd_full),
-            s_odd,
-            PiecewiseLegendrePolyVector::new(v_odd_full),
-        );
+        // Merge even and odd results. A block of rank 0 (e.g. the odd part of a
+        // kernel that is even in y) has no functions: `merge_results` accepts
+        // empty blocks, but `PiecewiseLegendrePolyVector::new` would panic.
+        let block = |polyvec| PiecewiseLegendrePolyVector { polyvec };
+        let result_even = (block(u_even_full), s_even, block(v_even_full));
+        let result_odd = (block(u_odd_full), s_odd, block(v_odd_full));
 
         let sve_result = merge_results(result_even, result_odd, epsilon);
 
@@ -2019,5 +2014,44 @@ mod tests {
             assert_eq!(status, SPIR_INVALID_ARGUMENT, "segments {segs:?}");
             assert!(sve.is_null());
         }
+    }
+
+    fn singular_values(sve: *const spir_sve_result) -> Vec<f64> {
+        let mut size = 0;
+        assert_eq!(
+            spir_sve_result_get_size(sve, &mut size),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        let mut svals = vec![0.0; size as usize];
+        assert_eq!(
+            spir_sve_result_get_svals(sve, svals.as_mut_ptr()),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        svals
+    }
+
+    /// A block of rank 0, such as the odd part of a kernel that is even in y,
+    /// leaves no singular functions of that parity. Before the fix the empty
+    /// block was wrapped in a `PiecewiseLegendrePolyVector`, which cannot be
+    /// empty, and the call failed with SPIR_INTERNAL_ERROR.
+    #[test]
+    fn test_sve_result_from_matrix_centrosymmetric_with_a_zero_block() {
+        let m = logistic_kernel_matrices();
+        let zeros = vec![0.0; m.odd.len()];
+
+        let (status, both) = sve_from_reduced_matrices(&m, &m.even, &m.odd, None, &m.segs_x);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let (status, even_only) = sve_from_reduced_matrices(&m, &m.even, &zeros, None, &m.segs_x);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!(!even_only.is_null());
+
+        // The even block is decomposed as before; for this kernel the even
+        // and odd singular values interlace, so the even ones are s_0, s_2, ...
+        let (s_both, s_even) = (singular_values(both), singular_values(even_only));
+        let expected: Vec<f64> = s_both.iter().step_by(2).copied().collect();
+        assert_eq!(s_even, expected);
+
+        spir_sve_result_release(both);
+        spir_sve_result_release(even_only);
     }
 }

@@ -325,7 +325,20 @@ pub(crate) fn canonicalize_signs(
     )
 }
 
+/// Singular functions and values of one SVD block: `(u, s, v)`
+///
+/// Plain vectors, unlike [`PiecewiseLegendrePolyVector`], can be empty.
+pub(crate) type SvdBlock = (
+    Vec<PiecewiseLegendrePoly>,
+    Vec<f64>,
+    Vec<PiecewiseLegendrePoly>,
+);
+
 /// Merge even and odd SVE results
+///
+/// Either block may be empty (a `PiecewiseLegendrePolyVector` built through
+/// its public field): truncating an SVE can remove all singular values of one
+/// parity.
 ///
 /// # Arguments
 ///
@@ -338,6 +351,11 @@ pub(crate) fn canonicalize_signs(
 /// Merged SVEResult with singular values sorted in decreasing order. The `l`
 /// of each returned polynomial is its position in this merged result, not
 /// its index within the even or odd block.
+///
+/// # Panics
+///
+/// Panics if both blocks are empty: an SVE result has at least one singular
+/// value.
 pub fn merge_results(
     result_even: (
         PiecewiseLegendrePolyVector,
@@ -351,10 +369,38 @@ pub fn merge_results(
     ),
     epsilon: f64,
 ) -> crate::sve::SVEResult {
+    let (u_even, s_even, v_even) = result_even;
+    let (u_odd, s_odd, v_odd) = result_odd;
+    merge_blocks(
+        (u_even.polyvec, s_even, v_even.polyvec),
+        (u_odd.polyvec, s_odd, v_odd.polyvec),
+        epsilon,
+    )
+}
+
+/// [`merge_results`] on plain vectors
+///
+/// The SVE strategy keeps each block in plain vectors until this merge, so
+/// that a block emptied by truncation is merged like any other: keeping only
+/// the largest singular value (`max_num_svals = Some(1)`, or `cutoff =
+/// Some(1.0)`) leaves the odd block empty.
+///
+/// # Panics
+///
+/// Panics if both blocks are empty.
+pub(crate) fn merge_blocks(
+    result_even: SvdBlock,
+    result_odd: SvdBlock,
+    epsilon: f64,
+) -> crate::sve::SVEResult {
     use crate::sve::SVEResult;
 
     let (u_even, s_even, v_even) = result_even;
     let (u_odd, s_odd, v_odd) = result_odd;
+    assert!(
+        !(s_even.is_empty() && s_odd.is_empty()),
+        "SVE has no singular values: both the even and the odd block are empty"
+    );
 
     // Debug output
     // Create indices with symmetry info
@@ -395,16 +441,17 @@ pub fn merge_results(
         let l = l as i32;
         u_polys.push(PiecewiseLegendrePoly {
             l,
-            ..u_block.get_polys()[idx].clone()
+            ..u_block[idx].clone()
         });
         v_polys.push(PiecewiseLegendrePoly {
             l,
-            ..v_block.get_polys()[idx].clone()
+            ..v_block[idx].clone()
         });
         s_sorted.push(s_block[idx]);
     }
 
-    // Canonicalize signs: ensure u[l](1) > 0
+    // Canonicalize signs: ensure u[l](1) > 0. The merged vectors are not
+    // empty (checked above).
     let (canonical_u, canonical_v) = canonicalize_signs(
         PiecewiseLegendrePolyVector::new(u_polys),
         PiecewiseLegendrePolyVector::new(v_polys),
