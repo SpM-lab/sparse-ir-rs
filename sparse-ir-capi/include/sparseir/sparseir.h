@@ -865,7 +865,10 @@ StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
  * segment containing nfuncs coefficients (degrees 0 to nfuncs-1).
  *
  * # Arguments
- * * `segments` - Array of segment boundaries (n_segments+1 elements). Must be monotonically increasing.
+ * * `segments` - Array of the `n_segments + 1` segment boundaries: finite and
+ *   strictly increasing, with every segment length
+ *   `segments[i + 1] - segments[i]` a normal double (finite and at least
+ *   `DBL_MIN`)
  * * `n_segments` - Number of segments (must be >= 1)
  * * `coeffs` - Array of Legendre coefficients. Layout: contiguous per segment,
  *              coefficients for segment i are stored at indices [i*nfuncs, (i+1)*nfuncs).
@@ -875,7 +878,18 @@ StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created funcs object, or NULL if creation fails
+ * Pointer to the newly created funcs object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `segments` or `coeffs` is NULL, `n_segments` or
+ *   `nfuncs` < 1, or `segments` does not meet the conditions above
+ * - SPIR_INVALID_DIMENSION if `n_segments` is `INT_MAX` (the number of knots,
+ *   `n_segments + 1`, must fit in an `int`), or `segments` or `coeffs` is
+ *   too large to be addressed
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * Nothing is written when `status` is NULL. The sizes are validated before
+ * `segments` or `coeffs` is read.
  *
  * # Note
  * The function creates a single piecewise Legendre polynomial function.
@@ -1024,7 +1038,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `order` - Memory layout: 0 for row-major, 1 for column-major
+ * * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+ *   SPIR_ORDER_COLUMN_MAJOR (1)
  * * `num_points` - Number of evaluation points
  * * `xs` - Array of points to evaluate at, in the units and domain of `x` in
  *   `spir_funcs_eval`
@@ -1034,7 +1049,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * Status code:
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `funcs`, `xs` or `out` is NULL, `num_points` <= 0,
- *   or any point is NaN, infinite or outside the domain; `out` is not written
+ *   `order` is not one of the constants above, or any point is NaN, infinite
+ *   or outside the domain; `out` is not written
  * - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
  * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
@@ -1055,7 +1071,8 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `order` - Memory layout: 0 for row-major, 1 for column-major
+ * * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+ *   SPIR_ORDER_COLUMN_MAJOR (1)
  * * `num_freqs` - Number of Matsubara frequencies
  * * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β): odd for
  *   fermionic, even for bosonic functions
@@ -1065,8 +1082,8 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  * Status code:
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `funcs`, `ns` or `out` is NULL, `num_freqs` <= 0,
- *   or any index has the wrong parity for the statistics of `funcs`; `out` is
- *   not written
+ *   `order` is not one of the constants above, or any index has the wrong
+ *   parity for the statistics of `funcs`; `out` is not written
  * - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
  * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
@@ -1450,6 +1467,11 @@ StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
  *   point is NaN, infinite or outside [-β, β]
  * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
+ * The points may be in any order, and the sampling object keeps it:
+ * `spir_sampling_get_taus` returns `points` unchanged, and index i along the
+ * sampling-point axis of the evaluate and fit functions refers to
+ * `points[i]`.
+ *
  * # Safety
  * Caller must ensure `b` is valid and `points` has `num_points` elements
  */
@@ -1480,6 +1502,11 @@ struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
  *   index has the wrong parity for the statistics of `b`, or `positive_only`
  *   is true and an index is negative
  * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The points may be in any order, and the sampling object keeps it: they
+ * are not sorted, `spir_sampling_get_matsus` returns `points` unchanged, and
+ * index i along the sampling-point axis of the evaluate and fit functions
+ * refers to `points[i]`.
  */
 
 struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
@@ -1492,16 +1519,35 @@ struct spir_sampling *spir_matsu_sampling_new(const struct spir_basis *b,
  * Creates a new tau sampling object with custom sampling points and pre-computed matrix
  *
  * # Arguments
- * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `order` - Memory layout of `matrix` (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
- * * `basis_size` - Basis size
- * * `num_points` - Number of sampling points
- * * `points` - Array of sampling points in imaginary time (τ)
- * * `matrix` - Pre-computed matrix for the sampling points (num_points x basis_size)
+ * * `basis_size` - Basis size (the number of columns of `matrix`)
+ * * `num_points` - Number of sampling points (the number of rows of `matrix`)
+ * * `points` - Array of `num_points` finite sampling points in imaginary time
+ *   (τ), one per row of `matrix`. Without β the domain [-β, β] of
+ *   `spir_tau_sampling_new` cannot be checked here: any finite value is
+ *   accepted and reported back by `spir_sampling_get_taus`
+ * * `matrix` - Pre-computed `num_points × basis_size` sampling matrix in
+ *   `order`, with finite entries
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
+ *   `basis_size` <= 0, `order` or `statistics` is not one of the constants
+ *   above, a point is NaN or infinite, or an entry of `matrix` is NaN or
+ *   infinite
+ * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The scalar arguments are validated before `points` or `matrix` is read.
+ *
+ * The points may be in any order, and the sampling object keeps it:
+ * `spir_sampling_get_taus` returns `points` unchanged, and index i along the
+ * sampling-point axis of the evaluate and fit functions refers to
+ * `points[i]`, the point of row i of `matrix`.
  *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes
@@ -1519,16 +1565,17 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  * Creates a new Matsubara sampling object with custom sampling points and pre-computed matrix
  *
  * # Arguments
- * * `order` - Memory layout order (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
+ * * `order` - Memory layout of `matrix` (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `statistics` - Statistics type (SPIR_STATISTICS_FERMIONIC or SPIR_STATISTICS_BOSONIC)
- * * `basis_size` - Basis size
+ * * `basis_size` - Basis size (the number of columns of `matrix`)
  * * `positive_only` - If true, only non-negative frequencies are used; the IR
  *   coefficients are then real, i.e. G(-iν) = conj(G(iν))
- * * `num_points` - Number of sampling points
+ * * `num_points` - Number of sampling points (the number of rows of `matrix`)
  * * `points` - Array of `num_points` reduced Matsubara frequencies n
  *   (iν = iπn/β): odd for fermionic, even for bosonic `statistics`, and
  *   non-negative when `positive_only` is true
- * * `matrix` - Pre-computed complex matrix (num_points x basis_size)
+ * * `matrix` - Pre-computed complex `num_points × basis_size` sampling matrix
+ *   in `order`, with finite real and imaginary parts
  * * `status` - Pointer to store the status code
  *
  * # Returns
@@ -1537,9 +1584,19 @@ struct spir_sampling *spir_tau_sampling_new_with_matrix(int order,
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `points` or `matrix` is NULL, `num_points` or
  *   `basis_size` <= 0, `order` or `statistics` is not one of the constants
- *   above, an index has the wrong parity for `statistics`, or `positive_only`
- *   is true and an index is negative
+ *   above, an index has the wrong parity for `statistics`, `positive_only`
+ *   is true and an index is negative, or an entry of `matrix` has a NaN or
+ *   infinite part
+ * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The scalar arguments are validated before `points` or `matrix` is read,
+ * and the indices before `matrix` is read.
+ *
+ * The points may be in any order, and the sampling object keeps it:
+ * `spir_sampling_get_matsus` returns `points` unchanged, and index i along
+ * the sampling-point axis of the evaluate and fit functions refers to
+ * `points[i]`, the point of row i of `matrix`.
  *
  * # Safety
  * Caller must ensure `points` and `matrix` have correct sizes

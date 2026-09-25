@@ -1,6 +1,7 @@
-//! Known-invalid input must come back from the C API as `SPIR_INVALID_ARGUMENT`,
-//! with a null handle or untouched output, instead of reaching a Rust panic
-//! that the boundary reports as `SPIR_INTERNAL_ERROR`.
+//! Known-invalid input must come back from the C API as `SPIR_INVALID_ARGUMENT`
+//! (`SPIR_INVALID_DIMENSION` for an array too large to be addressed), with a
+//! null handle or untouched output, instead of reaching a Rust panic that the
+//! boundary reports as `SPIR_INTERNAL_ERROR`, or a crash.
 //!
 //! Each test states the status the library returned before the fix.
 
@@ -319,6 +320,65 @@ impl Sampling {
             SPIR_COMPUTATION_SUCCESS
         );
         points
+    }
+
+    fn npoints(&self) -> usize {
+        let mut n = -1;
+        assert_eq!(
+            spir_sampling_get_npoints(self.0, &mut n),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        n as usize
+    }
+
+    fn taus(&self) -> Vec<f64> {
+        let mut points = vec![f64::NAN; self.npoints()];
+        assert_eq!(
+            spir_sampling_get_taus(self.0, points.as_mut_ptr()),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        points
+    }
+
+    /// Values at the sampling points of the real coefficients `coeffs`.
+    fn eval_dd(&self, coeffs: &[f64]) -> Vec<f64> {
+        let dims = [coeffs.len() as i32];
+        let mut out = vec![f64::NAN; self.npoints()];
+        assert_eq!(
+            spir_sampling_eval_dd(
+                self.0,
+                ptr::null(),
+                SPIR_ORDER_ROW_MAJOR,
+                1,
+                dims.as_ptr(),
+                0,
+                coeffs.as_ptr(),
+                out.as_mut_ptr(),
+            ),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        out
+    }
+
+    /// Values at the sampling points of the real coefficients `coeffs`, for
+    /// a Matsubara sampling.
+    fn eval_dz(&self, coeffs: &[f64]) -> Vec<num_complex::Complex64> {
+        let dims = [coeffs.len() as i32];
+        let mut out = vec![num_complex::Complex64::new(f64::NAN, f64::NAN); self.npoints()];
+        assert_eq!(
+            spir_sampling_eval_dz(
+                self.0,
+                ptr::null(),
+                SPIR_ORDER_ROW_MAJOR,
+                1,
+                dims.as_ptr(),
+                0,
+                coeffs.as_ptr(),
+                out.as_mut_ptr(),
+            ),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        out
     }
 }
 
@@ -944,6 +1004,747 @@ fn tau_sampling_new_accepts_the_closed_domain() {
                 SPIR_COMPUTATION_SUCCESS
             );
             assert_eq!(got, points, "{name}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spir_tau_sampling_new_with_matrix / spir_matsu_sampling_new_with_matrix:
+// shape and entries of the matrix (#245)
+// ---------------------------------------------------------------------------
+
+/// Calls `spir_tau_sampling_new_with_matrix` with an explicit shape, which
+/// need not match the buffers: the shape must be rejected before either
+/// buffer is read.
+fn tau_sampling_new_with_matrix_raw(
+    order: i32,
+    statistics: i32,
+    basis_size: i32,
+    num_points: i32,
+    points: &[f64],
+    matrix: &[f64],
+) -> (StatusCode, *mut spir_sampling) {
+    let mut status = SPIR_COMPUTATION_SUCCESS - 100;
+    let sampling = spir_tau_sampling_new_with_matrix(
+        order,
+        statistics,
+        basis_size,
+        num_points,
+        points.as_ptr(),
+        matrix.as_ptr(),
+        &mut status,
+    );
+    (status, sampling)
+}
+
+/// As [`tau_sampling_new_with_matrix_raw`] for `spir_matsu_sampling_new_with_matrix`.
+fn matsu_sampling_new_with_matrix_raw(
+    order: i32,
+    statistics: i32,
+    basis_size: i32,
+    positive_only: bool,
+    num_points: i32,
+    points: &[i64],
+    matrix: &[num_complex::Complex64],
+) -> (StatusCode, *mut spir_sampling) {
+    let mut status = SPIR_COMPUTATION_SUCCESS - 100;
+    let sampling = spir_matsu_sampling_new_with_matrix(
+        order,
+        statistics,
+        basis_size,
+        positive_only,
+        num_points,
+        points.as_ptr(),
+        matrix.as_ptr(),
+        &mut status,
+    );
+    (status, sampling)
+}
+
+/// `[num_points, basis_size]` shapes of a matrix whose byte size exceeds
+/// `isize::MAX` for elements of `elem_size` bytes, although both extents fit
+/// in a `c_int`. No buffer of such a size can exist.
+fn unaddressable_matrix_shapes(elem_size: usize) -> Vec<(i32, i32)> {
+    let shapes = match elem_size {
+        // 2^60 f64 = 2^63 bytes
+        8 => vec![(i32::MAX, i32::MAX), (1 << 30, 1 << 30)],
+        // 2^59 Complex64 = 2^63 bytes
+        16 => vec![(i32::MAX, i32::MAX), (1 << 30, 1 << 29), (1 << 29, 1 << 30)],
+        _ => unreachable!(),
+    };
+    for &(n, l) in &shapes {
+        let bytes = (n as u128) * (l as u128) * elem_size as u128;
+        assert!(bytes > isize::MAX as u128, "({n}, {l})");
+    }
+    shapes
+}
+
+/// Before the fix, the shape was never checked: the points were read at the
+/// claimed length (a segfault for these small buffers), and a matrix of more
+/// than `isize::MAX` bytes was then viewed as a slice.
+#[test]
+fn tau_sampling_new_with_matrix_rejects_unaddressable_matrix() {
+    let points = [0.25, 0.5, 0.75];
+    let matrix = [1.0; 9];
+    for (num_points, basis_size) in unaddressable_matrix_shapes(8) {
+        for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+            for statistics in STATISTICS {
+                let (status, sampling) = tau_sampling_new_with_matrix_raw(
+                    order, statistics, basis_size, num_points, &points, &matrix,
+                );
+                assert_eq!(
+                    status, SPIR_INVALID_DIMENSION,
+                    "shape [{num_points}, {basis_size}], order {order}"
+                );
+                assert!(sampling.is_null());
+            }
+        }
+    }
+}
+
+/// As for τ; the Matsubara indices were read before the shape (a segfault).
+#[test]
+fn matsu_sampling_new_with_matrix_rejects_unaddressable_matrix() {
+    let points = [1i64, 3, 5];
+    let matrix = stand_in_matrix(points.len(), 3);
+    for (num_points, basis_size) in unaddressable_matrix_shapes(16) {
+        for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+            for positive_only in [false, true] {
+                let (status, sampling) = matsu_sampling_new_with_matrix_raw(
+                    order,
+                    SPIR_STATISTICS_FERMIONIC,
+                    basis_size,
+                    positive_only,
+                    num_points,
+                    &points,
+                    &matrix,
+                );
+                assert_eq!(
+                    status, SPIR_INVALID_DIMENSION,
+                    "shape [{num_points}, {basis_size}], order {order}"
+                );
+                assert!(sampling.is_null());
+            }
+        }
+    }
+}
+
+/// A zero or negative extent was already SPIR_INVALID_ARGUMENT; keep it so.
+#[test]
+fn with_matrix_rejects_non_positive_extents() {
+    let taus = [0.25, 0.5, 0.75];
+    let tau_matrix = [1.0; 9];
+    let matsus = [1i64, 3, 5];
+    let matsu_matrix = stand_in_matrix(3, 3);
+    for (num_points, basis_size) in [(0, 3), (3, 0), (-1, 3), (3, -1), (i32::MIN, i32::MIN)] {
+        let (status, sampling) = tau_sampling_new_with_matrix_raw(
+            SPIR_ORDER_ROW_MAJOR,
+            SPIR_STATISTICS_FERMIONIC,
+            basis_size,
+            num_points,
+            &taus,
+            &tau_matrix,
+        );
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "[{num_points}, {basis_size}]"
+        );
+        assert!(sampling.is_null());
+        let (status, sampling) = matsu_sampling_new_with_matrix_raw(
+            SPIR_ORDER_ROW_MAJOR,
+            SPIR_STATISTICS_FERMIONIC,
+            basis_size,
+            false,
+            num_points,
+            &matsus,
+            &matsu_matrix,
+        );
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "[{num_points}, {basis_size}]"
+        );
+        assert!(sampling.is_null());
+    }
+}
+
+/// Unknown statistics or memory order were already rejected; keep it so.
+#[test]
+fn tau_sampling_new_with_matrix_rejects_unknown_constants() {
+    let points = [0.25, 0.5];
+    let matrix = [1.0, 0.0, 0.0, 1.0];
+    for (order, statistics) in [
+        (SPIR_ORDER_ROW_MAJOR, -1),
+        (SPIR_ORDER_ROW_MAJOR, 2),
+        (-1, SPIR_STATISTICS_FERMIONIC),
+        (2, SPIR_STATISTICS_BOSONIC),
+    ] {
+        let (status, sampling) =
+            tau_sampling_new_with_matrix_raw(order, statistics, 2, 2, &points, &matrix);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "order {order}, statistics {statistics}"
+        );
+        assert!(sampling.is_null());
+    }
+}
+
+/// Real entries that are not finite.
+const NON_FINITE: [f64; 3] = [f64::NAN, f64::INFINITY, f64::NEG_INFINITY];
+
+/// Before the fix, a NaN or infinite entry was accepted (0); the fit then
+/// factorized a non-finite matrix.
+#[test]
+fn tau_sampling_new_with_matrix_rejects_non_finite_entries() {
+    let (n, l) = (3usize, 2usize);
+    let points = [0.25, 0.5, 0.75];
+    for bad in NON_FINITE {
+        for k in [0, n * l / 2, n * l - 1] {
+            let mut matrix: Vec<f64> = (0..n * l).map(|k| 1.0 + k as f64).collect();
+            matrix[k] = bad;
+            for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+                let (status, sampling) = tau_sampling_new_with_matrix_raw(
+                    order,
+                    SPIR_STATISTICS_FERMIONIC,
+                    l as i32,
+                    n as i32,
+                    &points,
+                    &matrix,
+                );
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "entry {k} = {bad:?}, order {order}"
+                );
+                assert!(sampling.is_null());
+            }
+        }
+    }
+}
+
+/// As for τ, in either part of a complex entry.
+#[test]
+fn matsu_sampling_new_with_matrix_rejects_non_finite_entries() {
+    let (n, l) = (3usize, 2usize);
+    let points = [-1i64, 1, 3];
+    for bad in NON_FINITE {
+        for k in [0, n * l / 2, n * l - 1] {
+            for bad_entry in [
+                num_complex::Complex64::new(bad, 0.5),
+                num_complex::Complex64::new(0.5, bad),
+            ] {
+                let mut matrix = stand_in_matrix(n, l);
+                matrix[k] = bad_entry;
+                for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+                    let (status, sampling) = matsu_sampling_new_with_matrix_raw(
+                        order,
+                        SPIR_STATISTICS_FERMIONIC,
+                        l as i32,
+                        false,
+                        n as i32,
+                        &points,
+                        &matrix,
+                    );
+                    assert_eq!(
+                        status, SPIR_INVALID_ARGUMENT,
+                        "entry {k} = {bad_entry:?}, order {order}"
+                    );
+                    assert!(sampling.is_null());
+                }
+            }
+        }
+    }
+}
+
+/// `n × l` values of `u` at `taus`, row-major (`[point][function]`).
+fn u_rows(u: &Funcs, taus: &[f64]) -> Vec<f64> {
+    let (status, rows) = batch_eval(u, SPIR_ORDER_ROW_MAJOR, taus);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    rows
+}
+
+/// `a` (`n × l`, row-major) in column-major order.
+fn to_column_major<T: Copy>(a: &[T], n: usize, l: usize) -> Vec<T> {
+    (0..n * l).map(|k| a[(k % n) * l + k / n]).collect()
+}
+
+/// A valid matrix still builds a sampling object in both memory orders; it
+/// keeps the points and evaluates with the given matrix.
+#[test]
+fn tau_sampling_new_with_matrix_accepts_a_valid_matrix() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let u = get_funcs(fx.basis, spir_basis_get_u);
+        let l = u.size() as usize;
+        let taus = default_taus(fx.basis);
+        let n = taus.len();
+        let rows = u_rows(&u, &taus);
+        let coeffs: Vec<f64> = (0..l).map(|i| 1.0 / (1.0 + i as f64)).collect();
+        for (order, matrix) in [
+            (SPIR_ORDER_ROW_MAJOR, rows.clone()),
+            (SPIR_ORDER_COLUMN_MAJOR, to_column_major(&rows, n, l)),
+        ] {
+            let (status, sampling) = tau_sampling_new_with_matrix_raw(
+                order, statistics, l as i32, n as i32, &taus, &matrix,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "order {order}");
+            let sampling = Sampling(sampling);
+            assert_eq!(sampling.taus(), taus);
+
+            let values = sampling.eval_dd(&coeffs);
+            for i in 0..n {
+                let expected: f64 = (0..l).map(|j| rows[i * l + j] * coeffs[j]).sum();
+                let scale: f64 = (0..l).map(|j| (rows[i * l + j] * coeffs[j]).abs()).sum();
+                assert!(
+                    (values[i] - expected).abs() <= 1e-13 * scale,
+                    "row {i}: {} vs {expected}, order {order}",
+                    values[i]
+                );
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spir_tau_sampling_new_with_matrix: sampling points (#266)
+// ---------------------------------------------------------------------------
+
+/// A `n × l` stand-in for a real sampling matrix; the points are only labels.
+fn stand_in_real_matrix(n: usize, l: usize) -> Vec<f64> {
+    (0..n * l).map(|k| 1.0 + (k * k) as f64).collect()
+}
+
+/// Before the fix, a NaN or infinite point was accepted (0) and reported
+/// back by `spir_sampling_get_taus`.
+#[test]
+fn tau_sampling_new_with_matrix_rejects_non_finite_points() {
+    let (n, l) = (3usize, 2usize);
+    let matrix = stand_in_real_matrix(n, l);
+    for bad in NON_FINITE {
+        for k in 0..n {
+            let mut points = vec![0.25, 0.5, 0.75];
+            points[k] = bad;
+            for statistics in STATISTICS {
+                let (status, sampling) = tau_sampling_new_with_matrix_raw(
+                    SPIR_ORDER_ROW_MAJOR,
+                    statistics,
+                    l as i32,
+                    n as i32,
+                    &points,
+                    &matrix,
+                );
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "points {points:?}, statistics {statistics}"
+                );
+                assert!(sampling.is_null());
+            }
+        }
+    }
+}
+
+/// Without β the τ domain cannot be checked: any finite point is accepted,
+/// kept in the given order and reported back unchanged (documented).
+#[test]
+fn tau_sampling_new_with_matrix_does_not_check_the_tau_domain() {
+    let (n, l) = (4usize, 2usize);
+    let matrix = stand_in_real_matrix(n, l);
+    let points = vec![1e300, -7.5, -0.0, f64::MIN_POSITIVE];
+    let (status, sampling) = tau_sampling_new_with_matrix_raw(
+        SPIR_ORDER_ROW_MAJOR,
+        SPIR_STATISTICS_FERMIONIC,
+        l as i32,
+        n as i32,
+        &points,
+        &matrix,
+    );
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let got = Sampling(sampling).taus();
+    assert_eq!(got.len(), n);
+    for (g, p) in got.iter().zip(&points) {
+        assert_eq!(g.to_bits(), p.to_bits(), "{got:?} vs {points:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spir_funcs_from_piecewise_legendre: array sizes (#245)
+// ---------------------------------------------------------------------------
+
+/// Calls `spir_funcs_from_piecewise_legendre` with explicit sizes, which need
+/// not match the buffers: an invalid size must be rejected before either
+/// buffer is read.
+fn from_piecewise_legendre_raw(
+    segments: &[f64],
+    n_segments: i32,
+    coeffs: &[f64],
+    nfuncs: i32,
+) -> (StatusCode, *mut spir_funcs) {
+    let mut status = SPIR_COMPUTATION_SUCCESS - 100;
+    let funcs = spir_funcs_from_piecewise_legendre(
+        segments.as_ptr(),
+        n_segments,
+        coeffs.as_ptr(),
+        nfuncs,
+        0,
+        &mut status,
+    );
+    (status, funcs)
+}
+
+/// Before the fix, `n_segments + 1` and `n_segments * nfuncs` were computed
+/// in `c_int` and the segments were read before any size check: with
+/// `n_segments = INT_MAX` the knot count wrapped to a negative `c_int`, and
+/// the segments were read at the wrapped length, which is undefined behavior
+/// (seen as -7, from a capacity-overflow panic); for 2^30 segments they were
+/// read past these small buffers (a segfault).
+#[test]
+fn from_piecewise_legendre_rejects_sizes_that_overflow() {
+    let segments = [-1.0, 0.0, 1.0];
+    let coeffs = [1.0; 4];
+    // A knot count of 2^31, which `spir_funcs_get_n_knots` cannot report,
+    // then 2^62 - 2^32 + 1 and 2^60 coefficients, more than isize::MAX bytes.
+    for (n_segments, nfuncs) in [(i32::MAX, 1), (i32::MAX, i32::MAX), (1 << 30, 1 << 30)] {
+        let (status, funcs) = from_piecewise_legendre_raw(&segments, n_segments, &coeffs, nfuncs);
+        assert_eq!(
+            status, SPIR_INVALID_DIMENSION,
+            "n_segments {n_segments}, nfuncs {nfuncs}"
+        );
+        assert!(funcs.is_null());
+    }
+}
+
+/// Sizes below 1 were already SPIR_INVALID_ARGUMENT; keep it so.
+#[test]
+fn from_piecewise_legendre_rejects_sizes_below_one() {
+    let segments = [-1.0, 0.0, 1.0];
+    let coeffs = [1.0; 4];
+    for (n_segments, nfuncs) in [(0, 1), (1, 0), (-1, 1), (1, -1), (i32::MIN, i32::MIN)] {
+        let (status, funcs) = from_piecewise_legendre_raw(&segments, n_segments, &coeffs, nfuncs);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "n_segments {n_segments}, nfuncs {nfuncs}"
+        );
+        assert!(funcs.is_null());
+    }
+}
+
+/// The smallest sizes, one segment with one coefficient, still build the
+/// constant function: P_0 normalized on [-1, 1] is 1/sqrt(2) * sqrt(2) = 1.
+#[test]
+fn from_piecewise_legendre_accepts_the_smallest_sizes() {
+    let (status, funcs) = from_piecewise_legendre_raw(&[-1.0, 1.0], 1, &[1.0], 1);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let funcs = Funcs(funcs);
+    assert_eq!(funcs.size(), 1);
+    for x in [-1.0, 0.25, 1.0] {
+        let (status, values) = eval(&funcs, x);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!((values[0] - 1.0).abs() < 1e-14, "f({x}) = {}", values[0]);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spir_funcs_from_piecewise_legendre: segment boundaries (#266)
+// ---------------------------------------------------------------------------
+
+/// Builds one function on `segments` with the constant coefficient 1 on
+/// every segment.
+fn from_piecewise_legendre_constant(segments: &[f64]) -> (StatusCode, *mut spir_funcs) {
+    let n_segments = segments.len() - 1;
+    let coeffs = vec![1.0; n_segments];
+    from_piecewise_legendre_raw(segments, n_segments as i32, &coeffs, 1)
+}
+
+/// Before the fix, the check `knots[i] <= knots[i - 1]` let NaN through
+/// (every comparison with NaN is false), and infinite boundaries passed it:
+/// both were accepted (0). The functions then evaluated, with status 0, to
+/// NaN on a NaN segment, and to 0.0 instead of a positive constant on an
+/// infinite segment. Equal or decreasing boundaries were already rejected
+/// (-6).
+#[test]
+fn from_piecewise_legendre_rejects_non_finite_or_unordered_segments() {
+    let nan = f64::NAN;
+    let inf = f64::INFINITY;
+    for segments in [
+        vec![nan, 1.0],
+        vec![-1.0, nan],
+        vec![nan, 0.0, 1.0],
+        vec![-1.0, nan, 1.0],
+        vec![-1.0, 0.0, nan],
+        vec![nan, nan],
+        vec![-inf, 1.0],
+        vec![-1.0, inf],
+        vec![-inf, inf],
+        vec![-1.0, 0.0, inf],
+        vec![-1.0, 0.0, 0.0, 1.0],
+        vec![1.0, -1.0],
+        vec![-1.0, 1.0, 0.5],
+    ] {
+        let (status, funcs) = from_piecewise_legendre_constant(&segments);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "segments {segments:?}");
+        assert!(funcs.is_null(), "segments {segments:?}");
+    }
+}
+
+/// Before the fix, finite boundaries were accepted (0) even when a segment
+/// length is not a normal double: the length of [-DBL_MAX, DBL_MAX]
+/// overflows, and the function evaluated to 0.0 everywhere; a subnormal
+/// length made every value infinite.
+#[test]
+fn from_piecewise_legendre_rejects_segment_lengths_that_are_not_normal() {
+    let max = f64::MAX;
+    for segments in [
+        vec![-max, max],
+        vec![-0.6 * max, 0.6 * max, max],
+        vec![0.0, f64::from_bits(1)],
+        vec![0.0, 1e-308],
+        vec![-1.0, 0.0, next_down(f64::MIN_POSITIVE)],
+    ] {
+        let (status, funcs) = from_piecewise_legendre_constant(&segments);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "segments {segments:?}");
+        assert!(funcs.is_null(), "segments {segments:?}");
+    }
+}
+
+/// Boundaries one ULP apart, and the shortest (DBL_MIN) and longest (DBL_MAX)
+/// normal segment lengths, are still accepted, and the constant function is
+/// finite and positive at both ends.
+#[test]
+fn from_piecewise_legendre_accepts_the_extreme_valid_segments() {
+    let max = f64::MAX;
+    for segments in [
+        vec![1.0, next_up(1.0)],
+        vec![-1.0, next_up(-1.0), 0.0, 1.0],
+        vec![0.0, f64::MIN_POSITIVE],
+        vec![-max / 2.0, max / 2.0],
+        vec![-1.0, 0.0, max],
+    ] {
+        let (status, funcs) = from_piecewise_legendre_constant(&segments);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "segments {segments:?}");
+        let funcs = Funcs(funcs);
+        let (lo, hi) = (segments[0], segments[segments.len() - 1]);
+        for x in [lo, hi] {
+            let (status, values) = eval(&funcs, x);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "f({x:?}) on {segments:?}");
+            assert!(
+                values[0].is_finite() && values[0] > 0.0,
+                "f({x:?}) = {} on {segments:?}",
+                values[0]
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spir_funcs_batch_eval / spir_funcs_batch_eval_matsu: memory order (#266)
+// ---------------------------------------------------------------------------
+
+/// Values of `order` that are neither SPIR_ORDER_ROW_MAJOR nor
+/// SPIR_ORDER_COLUMN_MAJOR.
+const UNKNOWN_ORDERS: [i32; 4] = [-1, 2, i32::MIN, i32::MAX];
+
+/// Before the fix, every `order` other than 0 was taken as column-major: the
+/// call succeeded (0) and wrote a column-major result.
+#[test]
+fn batch_eval_rejects_unknown_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, funcs, (lo, hi)) in continuous_function_sets(&fx) {
+            let xs = points_inside(lo, hi);
+            for order in UNKNOWN_ORDERS {
+                let (status, out) = batch_eval(&funcs, order, &xs);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}, order {order}, statistics {statistics}"
+                );
+                assert!(out.iter().all(|&v| v == OUT_SENTINEL), "{name}");
+            }
+        }
+    }
+}
+
+/// As for `spir_funcs_batch_eval`. Both valid orders still give the same
+/// values, as transposes of each other.
+#[test]
+fn batch_eval_matsu_rejects_unknown_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let (_, ns) = matsubara_indices(statistics);
+        for (name, funcs) in matsubara_function_sets(&fx) {
+            for order in UNKNOWN_ORDERS {
+                let (status, out) = batch_eval_matsu(&funcs, order, &ns);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}, order {order}, statistics {statistics}"
+                );
+                assert!(out.iter().all(|&z| z == OUT_SENTINEL_Z), "{name}");
+            }
+
+            let n_funcs = funcs.size() as usize;
+            let (status, row_major) = batch_eval_matsu(&funcs, SPIR_ORDER_ROW_MAJOR, &ns);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name}");
+            let (status, col_major) = batch_eval_matsu(&funcs, SPIR_ORDER_COLUMN_MAJOR, &ns);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name}");
+            for i in 0..ns.len() {
+                for l in 0..n_funcs {
+                    assert_eq!(
+                        row_major[i * n_funcs + l],
+                        col_major[l * ns.len() + i],
+                        "{name}, n = {}, l = {l}",
+                        ns[i]
+                    );
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Order of the sampling points (#266)
+// ---------------------------------------------------------------------------
+
+/// `sorted` reversed, and reordered so that it is neither sorted nor
+/// reverse-sorted (every other point, then the rest in reverse). For the
+/// bosonic defaults neither puts n = 0 first.
+fn unsorted<T: Copy + PartialOrd + std::fmt::Debug>(sorted: &[T]) -> Vec<Vec<T>> {
+    assert!(sorted.len() >= 3 && sorted.windows(2).all(|w| w[0] < w[1]));
+    let reversed: Vec<T> = sorted.iter().rev().copied().collect();
+    let mut shuffled: Vec<T> = sorted.iter().step_by(2).copied().collect();
+    shuffled.extend(sorted.iter().skip(1).step_by(2).rev());
+    assert!(!shuffled.windows(2).all(|w| w[0] <= w[1]), "{shuffled:?}");
+    assert!(!shuffled.windows(2).all(|w| w[0] >= w[1]), "{shuffled:?}");
+    vec![reversed, shuffled]
+}
+
+/// Coefficients with distinct values, so that a permutation of the points
+/// shows in the values.
+fn test_coeffs(l: usize) -> Vec<f64> {
+    (0..l).map(|j| 1.0 / (1.0 + j as f64)).collect()
+}
+
+/// Checks that `values[i]` is row i of the row-major `n × l` matrix `rows`
+/// times `coeffs`, to rounding.
+fn assert_rows_times(
+    rows: &[num_complex::Complex64],
+    coeffs: &[f64],
+    values: &[num_complex::Complex64],
+) {
+    let l = coeffs.len();
+    assert_eq!(rows.len(), values.len() * l);
+    for (i, value) in values.iter().enumerate() {
+        let terms: Vec<num_complex::Complex64> =
+            (0..l).map(|j| rows[i * l + j] * coeffs[j]).collect();
+        let expected: num_complex::Complex64 = terms.iter().sum();
+        let scale: f64 = terms.iter().map(|t| t.norm()).sum();
+        assert!(
+            (value - expected).norm() <= 1e-13 * scale,
+            "row {i}: {value} vs {expected}"
+        );
+    }
+}
+
+/// `spir_matsu_sampling_new_with_matrix` takes the points in any order and
+/// keeps it: it reports them back unchanged, and row i of the matrix, of
+/// the values and of the fit data belongs to `points[i]`. Before the fix, a
+/// `debug_assert!` in the core rejected unsorted points in debug builds only
+/// (-7); release builds accepted them (0).
+#[test]
+fn matsu_sampling_new_with_matrix_keeps_the_given_point_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let uhat = get_funcs(fx.basis, spir_basis_get_uhat);
+        let l = uhat.size() as usize;
+        let coeffs = test_coeffs(l);
+        for positive_only in [false, true] {
+            for points in unsorted(&default_matsus(fx.basis, positive_only)) {
+                let n = points.len();
+                let (status, rows) = batch_eval_matsu(&uhat, SPIR_ORDER_ROW_MAJOR, &points);
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                for (order, matrix) in [
+                    (SPIR_ORDER_ROW_MAJOR, rows.clone()),
+                    (SPIR_ORDER_COLUMN_MAJOR, to_column_major(&rows, n, l)),
+                ] {
+                    let (status, sampling) = matsu_sampling_new_with_matrix_raw(
+                        order,
+                        statistics,
+                        l as i32,
+                        positive_only,
+                        n as i32,
+                        &points,
+                        &matrix,
+                    );
+                    assert_eq!(
+                        status, SPIR_COMPUTATION_SUCCESS,
+                        "points {points:?}, order {order}, positive_only {positive_only}"
+                    );
+                    let sampling = Sampling(sampling);
+                    assert_eq!(sampling.matsus(), points);
+                    assert_rows_times(&rows, &coeffs, &sampling.eval_dz(&coeffs));
+                }
+            }
+        }
+    }
+}
+
+/// `spir_matsu_sampling_new` keeps the points in the given order: it reports
+/// them back unchanged, and value i of the evaluate functions is at
+/// `points[i]`. Before the fix, the core sorted the points, so that
+/// `spir_sampling_get_matsus` returned them sorted and the values came back
+/// in sorted order, not in the caller's.
+#[test]
+fn matsu_sampling_new_keeps_the_given_point_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            let uhat = get_funcs(basis, spir_basis_get_uhat);
+            let coeffs = test_coeffs(uhat.size() as usize);
+            for positive_only in [false, true] {
+                for points in unsorted(&default_matsus(fx.basis, positive_only)) {
+                    let (status, sampling) = matsu_sampling_new(basis, positive_only, &points);
+                    assert_eq!(
+                        status, SPIR_COMPUTATION_SUCCESS,
+                        "{name}, points {points:?}, positive_only {positive_only}"
+                    );
+                    let sampling = Sampling(sampling);
+                    assert_eq!(sampling.matsus(), points, "{name}");
+                    let (status, rows) = batch_eval_matsu(&uhat, SPIR_ORDER_ROW_MAJOR, &points);
+                    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                    assert_rows_times(&rows, &coeffs, &sampling.eval_dz(&coeffs));
+                }
+            }
+        }
+    }
+}
+
+/// `spir_tau_sampling_new` keeps the points in the given order as well (it
+/// always did; before the fix this test passed too).
+#[test]
+fn tau_sampling_new_keeps_the_given_point_order() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let taus = default_taus(fx.basis);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            let u = get_funcs(basis, spir_basis_get_u);
+            let l = u.size() as usize;
+            let coeffs = test_coeffs(l);
+            for points in unsorted(&taus) {
+                let (status, sampling) = tau_sampling_new(basis, &points);
+                assert_eq!(
+                    status, SPIR_COMPUTATION_SUCCESS,
+                    "{name}, points {points:?}"
+                );
+                let sampling = Sampling(sampling);
+                assert_eq!(sampling.taus(), points, "{name}");
+                let rows = u_rows(&u, &points);
+                let values = sampling.eval_dd(&coeffs);
+                for (i, value) in values.iter().enumerate() {
+                    let terms: Vec<f64> = (0..l).map(|j| rows[i * l + j] * coeffs[j]).collect();
+                    let expected: f64 = terms.iter().sum();
+                    let scale: f64 = terms.iter().map(|t| t.abs()).sum();
+                    assert!(
+                        (value - expected).abs() <= 1e-13 * scale,
+                        "{name}, row {i}: {value} vs {expected}"
+                    );
+                }
+            }
         }
     }
 }

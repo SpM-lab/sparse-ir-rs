@@ -3,6 +3,7 @@
 //! This module provides C-compatible functions for working with basis functions.
 
 use crate::types::spir_funcs;
+use crate::utils::MemoryOrder;
 use sparse_ir::traits::Statistics;
 use std::sync::Arc;
 
@@ -173,7 +174,10 @@ pub extern "C" fn spir_funcs_deriv(
 /// segment containing nfuncs coefficients (degrees 0 to nfuncs-1).
 ///
 /// # Arguments
-/// * `segments` - Array of segment boundaries (n_segments+1 elements). Must be monotonically increasing.
+/// * `segments` - Array of the `n_segments + 1` segment boundaries: finite and
+///   strictly increasing, with every segment length
+///   `segments[i + 1] - segments[i]` a normal double (finite and at least
+///   `DBL_MIN`)
 /// * `n_segments` - Number of segments (must be >= 1)
 /// * `coeffs` - Array of Legendre coefficients. Layout: contiguous per segment,
 ///              coefficients for segment i are stored at indices [i*nfuncs, (i+1)*nfuncs).
@@ -183,7 +187,18 @@ pub extern "C" fn spir_funcs_deriv(
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to the newly created funcs object, or NULL if creation fails
+/// Pointer to the newly created funcs object, or NULL if creation fails.
+/// If `status` is non-NULL, `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `segments` or `coeffs` is NULL, `n_segments` or
+///   `nfuncs` < 1, or `segments` does not meet the conditions above
+/// - SPIR_INVALID_DIMENSION if `n_segments` is `INT_MAX` (the number of knots,
+///   `n_segments + 1`, must fit in an `int`), or `segments` or `coeffs` is
+///   too large to be addressed
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// Nothing is written when `status` is NULL. The sizes are validated before
+/// `segments` or `coeffs` is read.
 ///
 /// # Note
 /// The function creates a single piecewise Legendre polynomial function.
@@ -197,7 +212,11 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
     _order: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
-    use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
+    use crate::utils::validate_dims;
+    use crate::{
+        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT,
+        SPIR_INVALID_DIMENSION,
+    };
     use sparse_ir::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
     use std::panic::catch_unwind;
     use std::sync::Arc;
@@ -220,32 +239,66 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         return std::ptr::null_mut();
     }
 
+    // Validate both array sizes before either array is read (#245). The knot
+    // count `n_segments + 1` must fit in the `c_int` that
+    // `spir_funcs_get_n_knots` reports; the coefficient count
+    // `n_segments * nfuncs` need not, and is computed in `usize`.
+    let sizes = n_segments
+        .checked_add(1)
+        .ok_or(SPIR_INVALID_DIMENSION)
+        .and_then(|n_knots| validate_dims::<f64>(&[n_knots]))
+        .and_then(|knots_dims| {
+            let dims = validate_dims::<f64>(&[n_segments, nfuncs])?;
+            Ok((dims[0], dims[1], knots_dims[0]))
+        });
+    let (n_segments_usize, nfuncs_usize, n_knots) = match sizes {
+        Ok(sizes) => sizes,
+        Err(code) => {
+            // SAFETY: `status` is non-null (checked above) and caller-provided.
+            unsafe {
+                *status = code;
+            }
+            return std::ptr::null_mut();
+        }
+    };
+
     let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // Convert segments to Vec
-        let segments_slice =
-            unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        // SAFETY: `segments` is non-null (checked above) and `validate_dims`
+        // proved that `n_knots` f64 are addressable; the caller guarantees that
+        // `segments` holds `n_segments + 1` elements.
+        let segments_slice = unsafe { std::slice::from_raw_parts(segments, n_knots) };
         let knots = segments_slice.to_vec();
 
-        // Verify segments are monotonically increasing
-        for i in 1..knots.len() {
-            if knots[i] <= knots[i - 1] {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
-                }
-                return std::ptr::null_mut();
+        // The boundaries must be finite and strictly increasing, and every
+        // segment length b - a a normal double (#266): a test on `<=` alone
+        // lets NaN through (every comparison with NaN is false), an infinite
+        // boundary or length makes the core's normalization 2 / (b - a) zero,
+        // so that every value would be 0, and a subnormal length makes it
+        // infinite.
+        let valid = knots.iter().all(|x| x.is_finite())
+            && knots.windows(2).all(|w| {
+                let length = w[1] - w[0];
+                length > 0.0 && length.is_normal()
+            });
+        if !valid {
+            // SAFETY: `status` is non-null (checked on entry) and caller-provided.
+            unsafe {
+                *status = SPIR_INVALID_ARGUMENT;
             }
+            return std::ptr::null_mut();
         }
 
         // Create coefficient matrix: data is (nfuncs, n_segments)
         // Each column represents one segment's coefficients
-        let n_segments_usize = n_segments as usize;
-        let nfuncs_usize = nfuncs as usize;
         let mut data = mdarray::DTensor::<f64, 2>::zeros([nfuncs_usize, n_segments_usize]);
 
         // Copy coefficients from C array
         // Layout: coeffs[seg * nfuncs + deg]
+        // SAFETY: `coeffs` is non-null (checked above) and `validate_dims`
+        // proved that `n_segments * nfuncs` f64 are addressable; the caller
+        // guarantees that `coeffs` holds that many elements.
         let coeffs_slice =
-            unsafe { std::slice::from_raw_parts(coeffs, (n_segments * nfuncs) as usize) };
+            unsafe { std::slice::from_raw_parts(coeffs, n_segments_usize * nfuncs_usize) };
         for seg in 0..n_segments_usize {
             for deg in 0..nfuncs_usize {
                 data[[deg, seg]] = coeffs_slice[seg * nfuncs_usize + deg];
@@ -636,7 +689,8 @@ pub extern "C" fn spir_funcs_eval_matsu(
 ///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
-/// * `order` - Memory layout: 0 for row-major, 1 for column-major
+/// * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+///   SPIR_ORDER_COLUMN_MAJOR (1)
 /// * `num_points` - Number of evaluation points
 /// * `xs` - Array of points to evaluate at, in the units and domain of `x` in
 ///   `spir_funcs_eval`
@@ -646,7 +700,8 @@ pub extern "C" fn spir_funcs_eval_matsu(
 /// Status code:
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `funcs`, `xs` or `out` is NULL, `num_points` <= 0,
-///   or any point is NaN, infinite or outside the domain; `out` is not written
+///   `order` is not one of the constants above, or any point is NaN, infinite
+///   or outside the domain; `out` is not written
 /// - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
@@ -671,6 +726,10 @@ pub extern "C" fn spir_funcs_batch_eval(
     if funcs.is_null() || xs.is_null() || out.is_null() || num_points <= 0 {
         return SPIR_INVALID_ARGUMENT;
     }
+    // Reject an unknown order: every value but 0 used to mean column-major (#266).
+    let Ok(order) = MemoryOrder::from_c_int(order) else {
+        return SPIR_INVALID_ARGUMENT;
+    };
 
     // SAFETY: the pointers are non-null and `num_points` > 0 (checked above);
     // the caller guarantees a live handle, `num_points` readable points and
@@ -693,18 +752,21 @@ pub extern "C" fn spir_funcs_batch_eval(
                 let n_funcs = result_matrix.len();
                 let n_points = num_points as usize;
 
-                if order == 0 {
-                    // Row-major: out[point][func]
-                    for i in 0..n_points {
-                        for j in 0..n_funcs {
-                            *out.add(i * n_funcs + j) = result_matrix[j][i];
+                match order {
+                    MemoryOrder::RowMajor => {
+                        // Row-major: out[point][func]
+                        for i in 0..n_points {
+                            for j in 0..n_funcs {
+                                *out.add(i * n_funcs + j) = result_matrix[j][i];
+                            }
                         }
                     }
-                } else {
-                    // Column-major: out[func][point]
-                    for j in 0..n_funcs {
-                        for i in 0..n_points {
-                            *out.add(j * n_points + i) = result_matrix[j][i];
+                    MemoryOrder::ColumnMajor => {
+                        // Column-major: out[func][point]
+                        for j in 0..n_funcs {
+                            for i in 0..n_points {
+                                *out.add(j * n_points + i) = result_matrix[j][i];
+                            }
                         }
                     }
                 }
@@ -721,7 +783,8 @@ pub extern "C" fn spir_funcs_batch_eval(
 ///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
-/// * `order` - Memory layout: 0 for row-major, 1 for column-major
+/// * `order` - Memory layout of `out`: SPIR_ORDER_ROW_MAJOR (0) or
+///   SPIR_ORDER_COLUMN_MAJOR (1)
 /// * `num_freqs` - Number of Matsubara frequencies
 /// * `ns` - Array of reduced Matsubara frequencies n (iν = iπn/β): odd for
 ///   fermionic, even for bosonic functions
@@ -731,8 +794,8 @@ pub extern "C" fn spir_funcs_batch_eval(
 /// Status code:
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `funcs`, `ns` or `out` is NULL, `num_freqs` <= 0,
-///   or any index has the wrong parity for the statistics of `funcs`; `out` is
-///   not written
+///   `order` is not one of the constants above, or any index has the wrong
+///   parity for the statistics of `funcs`; `out` is not written
 /// - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
@@ -757,6 +820,10 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
     if funcs.is_null() || ns.is_null() || out.is_null() || num_freqs <= 0 {
         return SPIR_INVALID_ARGUMENT;
     }
+    // Reject an unknown order: every value but 0 used to mean column-major (#266).
+    let Ok(order) = MemoryOrder::from_c_int(order) else {
+        return SPIR_INVALID_ARGUMENT;
+    };
 
     // SAFETY: the pointers are non-null and `num_freqs` > 0 (checked above);
     // the caller guarantees a live handle, `num_freqs` readable indices and
@@ -779,18 +846,21 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
                 let n_funcs = result_matrix.len();
                 let n_freqs = num_freqs as usize;
 
-                if order == 0 {
-                    // Row-major: out[freq][func]
-                    for i in 0..n_freqs {
-                        for j in 0..n_funcs {
-                            *out.add(i * n_funcs + j) = result_matrix[j][i];
+                match order {
+                    MemoryOrder::RowMajor => {
+                        // Row-major: out[freq][func]
+                        for i in 0..n_freqs {
+                            for j in 0..n_funcs {
+                                *out.add(i * n_funcs + j) = result_matrix[j][i];
+                            }
                         }
                     }
-                } else {
-                    // Column-major: out[func][freq]
-                    for j in 0..n_funcs {
-                        for i in 0..n_freqs {
-                            *out.add(j * n_freqs + i) = result_matrix[j][i];
+                    MemoryOrder::ColumnMajor => {
+                        // Column-major: out[func][freq]
+                        for j in 0..n_funcs {
+                            for i in 0..n_freqs {
+                                *out.add(j * n_freqs + i) = result_matrix[j][i];
+                            }
                         }
                     }
                 }
