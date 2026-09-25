@@ -146,6 +146,7 @@ With `system-blas`, the default GEMM backend becomes BLAS at compile time. Regar
 
 ```bash
 cargo test --all-targets --release   # recommended for speed
+cargo test -p sparse-ir --doc --release   # doctests (not included in --all-targets)
 ```
 
 #### C++ integration tests
@@ -190,30 +191,38 @@ Check version consistency across the workspace:
 python3 check_version.py
 ```
 
-This script reads the canonical version from `[workspace.package]` in `Cargo.toml` and warns if Julia (`julia/build_tarballs.jl`) or Python (`python/pyproject.toml`) versions don't match.
+This script reads the canonical version from `[workspace.package]` in `Cargo.toml` and
+
+- fails if the Python bindings version (`python/pyproject.toml`) doesn't match;
+- fails if a `sparse-ir` / `sparse-ir-capi` dependency snippet in a README (`README.md` or `*/README.md`, e.g. the install snippets in [`sparse-ir/README.md`](sparse-ir/README.md)) pins a different version (placeholders such as `X.Y.Z` are ignored);
+- warns if the Julia version (`julia/build_tarballs.jl`) doesn't match, because it is updated only after the crates are published.
 
 #### Releasing a new version
 
-The release process is done in **two stages** because Julia bindings depend on the published crates.io version:
+The release process is done in **two stages** because Julia bindings depend on the published crates.io version. In the commands below, replace `X.Y.Z` with the version being released.
 
 **Stage 1: Rust + Python version bump**
 
 1. Update the version in `Cargo.toml`:
    ```toml
    [workspace.package]
-   version = "0.8.3"  # Update this
+   version = "X.Y.Z"  # Update this
    
    [workspace.dependencies]
-   sparse-ir = { version = "0.8.3", path = "sparse-ir" }  # And this
+   sparse-ir = { version = "X.Y.Z", path = "sparse-ir" }  # And this
    ```
 
 2. Update the Python bindings version in `python/pyproject.toml`:
    ```toml
    [project]
-   version = "0.8.3"  # Update this
+   version = "X.Y.Z"  # Update this
    ```
 
-3. Verify version consistency and test publishing (dry run):
+3. Update the install snippets in `sparse-ir/README.md` (`sparse-ir = "X.Y.Z"` and
+   `sparse-ir = { version = "X.Y.Z", features = ["system-blas"] }`). This README is packaged
+   with the crate and rendered on crates.io, so `check_version.py` fails until it matches.
+
+4. Verify version consistency and test publishing (dry run):
    ```bash
    python3 check_version.py
    cargo publish -p sparse-ir --dry-run
@@ -223,44 +232,44 @@ The release process is done in **two stages** because Julia bindings depend on t
    succeeds after that `sparse-ir` version is visible on crates.io. The manual release workflow
    handles that ordering automatically.
 
-4. Create a PR for the version bump:
+5. Create a PR for the version bump:
    ```bash
-   git checkout -b release/v0.8.3
-   git add Cargo.toml python/pyproject.toml
-   git commit -m "chore: bump version to 0.8.3"
-   git push origin release/v0.8.3
+   git checkout -b release/vX.Y.Z
+   git add Cargo.toml python/pyproject.toml sparse-ir/README.md
+   git commit -m "chore: bump version to X.Y.Z"
+   git push origin release/vX.Y.Z
    ```
    Then create a PR on GitHub and get it reviewed.
 
-5. After the PR is merged, start the manual Rust release workflow:
+6. After the PR is merged, start the manual Rust release workflow:
    ```bash
    gh workflow run manual-release.yml \
      -f release_ref=main \
-     -f expected_version=0.8.3 \
+     -f expected_version=X.Y.Z \
      -f confirm_publish=true
    ```
 
-6. Watch the workflow:
+7. Watch the workflow:
    ```bash
    RUN_ID=$(gh run list --workflow manual-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
    gh run watch "$RUN_ID"
    ```
 
-   The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `v0.8.3`.
+   The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `vX.Y.Z`.
 
-7. The manual Rust release workflow updates the `libsparseir` Yggdrasil branch from the new release tag. After that workflow succeeds, dispatch the standalone PyPI workflow from the release tag. The upload job is defined directly in this workflow because PyPI Trusted Publishing does not support reusable workflow jobs:
+8. The manual Rust release workflow updates the `libsparseir` Yggdrasil branch from the new release tag. After that workflow succeeds, dispatch the standalone PyPI workflow from the release tag. The upload job is defined directly in this workflow because PyPI Trusted Publishing does not support reusable workflow jobs:
    ```bash
    RUN_ID=$(gh run list --workflow manual-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')
    gh run watch "$RUN_ID"
-   gh workflow run PublishPyPI.yml --ref v0.8.3
+   gh workflow run PublishPyPI.yml --ref vX.Y.Z
    PYPI_RUN_ID=$(gh run list --workflow PublishPyPI.yml --limit 1 --json databaseId --jq '.[0].databaseId')
    gh run watch "$PYPI_RUN_ID"
-   curl -fsSL "https://pypi.org/pypi/pylibsparseir/0.8.3/json" >/dev/null
+   curl -fsSL "https://pypi.org/pypi/pylibsparseir/X.Y.Z/json" >/dev/null
    ```
 
    If the Python publish needs to be retried after the tag already exists, rerun the same workflow from the release tag:
    ```bash
-   gh workflow run PublishPyPI.yml --ref v0.8.3
+   gh workflow run PublishPyPI.yml --ref vX.Y.Z
    ```
 
    If the Yggdrasil update leg needs to be retried independently after the tag already exists, rerun `.github/workflows/publish-libsparseir.yml` manually:
@@ -279,7 +288,7 @@ After the new version is published to crates.io and available:
 
 1. Update `julia/build_tarballs.jl` using the update script:
    ```bash
-   julia julia/update_build_tarballs.jl v0.8.3
+   julia julia/update_build_tarballs.jl vX.Y.Z
    ```
    
    This script automatically:
@@ -294,10 +303,10 @@ After the new version is published to crates.io and available:
 
 3. Create a PR for the Julia version bump:
    ```bash
-   git checkout -b update-julia-v0.8.3
+   git checkout -b update-julia-vX.Y.Z
    git add julia/build_tarballs.jl
-   git commit -m "chore: bump Julia bindings version to 0.8.3"
-   git push origin update-julia-v0.8.3
+   git commit -m "chore: bump Julia bindings version to X.Y.Z"
+   git push origin update-julia-vX.Y.Z
    ```
    Then create a PR on GitHub and get it reviewed.
 

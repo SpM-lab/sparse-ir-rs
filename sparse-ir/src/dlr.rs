@@ -39,20 +39,27 @@ pub enum DlrError {
 /// * `S` - Statistics type (Fermionic or Bosonic)
 ///
 /// # Arguments
-/// * `tau` - Imaginary time (can be outside [0, β))
+/// * `tau` - Imaginary time τ ∈ [-β, β]; τ < 0 is mapped to [0, β] by
+///   (anti-)periodicity (see [`fermionic_single_pole`] and [`bosonic_single_pole`])
 /// * `omega` - Pole position (real frequency)
 /// * `beta` - Inverse temperature
 ///
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
-/// # Example
-/// ```ignore
-/// use sparse_ir::traits::Fermionic;
-/// let g_f = gtau_single_pole::<Fermionic>(0.5, 5.0, 1.0);
+/// # Panics
+/// Panics if `tau` is outside [-β, β]
 ///
-/// use sparse_ir::traits::Bosonic;
+/// # Example
+/// ```
+/// use sparse_ir::traits::{Bosonic, Fermionic};
+/// use sparse_ir::{bosonic_single_pole, fermionic_single_pole, gtau_single_pole};
+///
+/// let g_f = gtau_single_pole::<Fermionic>(0.5, 5.0, 1.0);
+/// assert_eq!(g_f, fermionic_single_pole(0.5, 5.0, 1.0));
+///
 /// let g_b = gtau_single_pole::<Bosonic>(0.5, 5.0, 1.0);
+/// assert_eq!(g_b, bosonic_single_pole(0.5, 5.0, 1.0));
 /// ```
 pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f64 {
     match S::STATISTICS {
@@ -65,24 +72,36 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 ///
 /// Evaluates G(τ) = -exp(-ω×τ) / (1 + exp(-β×ω)) for a single pole at frequency ω.
 ///
-/// Supports extended τ ranges with anti-periodic boundary conditions:
+/// Supports negative τ with anti-periodic boundary conditions:
 /// - G(τ + β) = -G(τ) (fermionic anti-periodicity)
-/// - Valid for τ ∈ [-β, β]; panics outside this range
+/// - Valid for τ ∈ [-β, β]; τ is normalized with
+///   [`normalize_tau`](crate::taufuncs::normalize_tau)
 ///
 /// # Arguments
-/// * `tau` - Imaginary time (can be outside [0, β))
+/// * `tau` - Imaginary time τ ∈ [-β, β]
 /// * `omega` - Pole position (real frequency)
 /// * `beta` - Inverse temperature
 ///
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
+/// # Panics
+/// Panics if `tau` is outside [-β, β]
+///
 /// # Example
-/// ```ignore
+/// ```
+/// use sparse_ir::fermionic_single_pole;
+///
 /// let beta = 1.0;
 /// let omega = 5.0;
 /// let tau = 0.5 * beta;
 /// let g = fermionic_single_pole(tau, omega, beta);
+///
+/// let expected = -(-omega * tau).exp() / (1.0 + (-beta * omega).exp());
+/// assert!((g - expected).abs() < 1e-15);
+///
+/// // Anti-periodicity: G(τ - β) = -G(τ)
+/// assert!((fermionic_single_pole(tau - beta, omega, beta) + g).abs() < 1e-15);
 /// ```
 pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     use crate::taufuncs::normalize_tau;
@@ -112,9 +131,10 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// and positive for ω < 0, the same sign convention as [`fermionic_single_pole`]
 /// and the bosonic τ functions of [`DiscreteLehmannRepresentation`].
 ///
-/// Supports extended τ ranges with periodic boundary conditions:
+/// Supports negative τ with periodic boundary conditions:
 /// - G(τ + β) = G(τ) (bosonic periodicity)
-/// - Valid for τ ∈ [-β, β]; panics outside this range
+/// - Valid for τ ∈ [-β, β]; τ is normalized with
+///   [`normalize_tau`](crate::taufuncs::normalize_tau)
 ///
 /// ω = 0 is a genuine pole of the Bose factor, so the result is infinite there:
 /// `-inf` for `omega = +0.0` (the ω → 0⁺ limit) and `+inf` for `omega = -0.0`.
@@ -122,12 +142,15 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// regularized limit instead.
 ///
 /// # Arguments
-/// * `tau` - Imaginary time in [-β, β]
+/// * `tau` - Imaginary time τ ∈ [-β, β]
 /// * `omega` - Pole position (real frequency)
 /// * `beta` - Inverse temperature
 ///
 /// # Returns
 /// Real-valued Green's function G(τ)
+///
+/// # Panics
+/// Panics if `tau` is outside [-β, β]
 ///
 /// # Example
 /// ```
@@ -141,6 +164,9 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// let expected = -(-omega * tau).exp() / (1.0 - (-beta * omega).exp());
 /// assert!((g - expected).abs() <= 1e-14 * expected.abs());
 /// assert!(g < 0.0);
+///
+/// // Periodicity: G(τ - β) = G(τ)
+/// assert!((bosonic_single_pole(tau - beta, omega, beta) - g).abs() < 1e-15);
 /// ```
 pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     use crate::taufuncs::normalize_tau;
@@ -661,7 +687,7 @@ where
             let pole = self.poles[idx[1]];
             let pole_weight = self.pole_weights[idx[1]];
 
-            // iν = i * π * (2n + ζ) / β
+            // iν = i * n * π / β, with n = freq.n() (odd for fermions, even for bosons)
             let iv = freq.value_imaginary(self.beta);
 
             // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight`

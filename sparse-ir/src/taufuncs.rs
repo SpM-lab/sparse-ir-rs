@@ -46,7 +46,7 @@ fn is_odd_period(tau: f64, beta: f64) -> bool {
 ///
 /// # Boundary Interpretation
 /// * `β` is interpreted as `β-` (left limit at β): `tau == beta` stays in normal range
-/// * `-β` wraps to 0 for bosons, or to β with sign flip for fermions
+/// * `-β` wraps to 0, with a sign flip for fermions
 /// * `-0.0` (negative zero) is treated as being in the odd period for fermions
 ///
 /// # Special Cases
@@ -61,9 +61,9 @@ fn is_odd_period(tau: f64, beta: f64) -> bool {
 /// * `tau ∈ [-β, 0)` → wraps to [0, β] with `sign = 1.0`
 ///
 /// # Examples
-/// ```ignore
-/// use crate::taufuncs::normalize_tau;
-/// use crate::traits::Fermionic;
+/// ```
+/// use sparse_ir::taufuncs::normalize_tau;
+/// use sparse_ir::traits::{Bosonic, Fermionic};
 ///
 /// // Normal negative value
 /// let (tau_norm, sign) = normalize_tau::<Fermionic>(-0.3, 1.0);
@@ -74,6 +74,10 @@ fn is_odd_period(tau: f64, beta: f64) -> bool {
 /// let (tau_norm, sign) = normalize_tau::<Fermionic>(-0.0, 1.0);
 /// assert!((tau_norm - 1.0).abs() < 1e-14);
 /// assert_eq!(sign, -1.0);
+///
+/// // -β wraps to 0 (with a sign flip for fermions only)
+/// assert_eq!(normalize_tau::<Fermionic>(-1.0, 1.0), (0.0, -1.0));
+/// assert_eq!(normalize_tau::<Bosonic>(-1.0, 1.0), (0.0, 1.0));
 /// ```
 pub fn normalize_tau<S: StatisticsType>(tau: f64, beta: f64) -> (f64, f64) {
     // Normalize τ ∈ [-β, β] to [0, β]

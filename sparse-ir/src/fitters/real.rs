@@ -15,19 +15,35 @@ use super::common::{RealSVD, compute_real_svd, condition_number_from_singular_va
 /// Solves: min ||A * coeffs - values||^2
 /// where A, coeffs, values are all real
 ///
-/// # Example
-/// ```ignore
-/// let matrix = DTensor::from_fn([10, 5], |idx| ...);
-/// let fitter = RealMatrixFitter::new(matrix);
-///
-/// let coeffs = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-/// let values = fitter.evaluate(&coeffs);
-/// let fitted_coeffs = fitter.fit(&values);
-/// ```
-/// Fitter for real matrix: A ∈ R^{n×m}
-///
 /// This type is thread-safe and can be shared across threads.
 /// The SVD decomposition is computed lazily on first use.
+///
+/// # Example
+///
+/// This type is crate-private. [`TauSampling::from_matrix`](crate::TauSampling::from_matrix)
+/// wraps a `RealMatrixFitter` around the given matrix, and its `evaluate` and
+/// `fit` forward to the fitter, so the example goes through that public API.
+///
+/// ```
+/// use sparse_ir::{DTensor, Fermionic, TauSampling};
+/// use std::f64::consts::PI;
+///
+/// // A 10x5 matrix with orthogonal columns (DCT-II), so the fit is well conditioned
+/// let (n, m) = (10, 5);
+/// let matrix = DTensor::<f64, 2>::from_fn([n, m], |idx| {
+///     (PI * (idx[0] as f64 + 0.5) * idx[1] as f64 / n as f64).cos()
+/// });
+/// // The τ points only label the rows here; the matrix is given explicitly
+/// let tau: Vec<f64> = (0..n).map(|i| (i as f64 + 0.5) / n as f64).collect();
+/// let sampling = TauSampling::<Fermionic>::from_matrix(tau, matrix);
+///
+/// let coeffs = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+/// let values = sampling.evaluate(&coeffs); // values = A * coeffs
+/// let fitted_coeffs = sampling.fit(&values); // least-squares solution
+/// for (c, f) in coeffs.iter().zip(&fitted_coeffs) {
+///     assert!((c - f).abs() < 1e-12);
+/// }
+/// ```
 pub(crate) struct RealMatrixFitter {
     pub matrix: DTensor<f64, 2>, // (n_points, basis_size)
     svd: OnceLock<RealSVD>,

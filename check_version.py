@@ -4,12 +4,31 @@ Check version consistency across the workspace.
 
 This script:
 1. Reads the canonical version from [workspace.package] in Cargo.toml
-2. Warns if Julia (build_tarballs.jl) or Python (pyproject.toml) versions don't match
+2. Fails if the Python (pyproject.toml) version doesn't match
+3. Fails if a sparse-ir / sparse-ir-capi dependency snippet in a README
+   (README.md or */README.md) pins a different version
+4. Warns if the Julia (build_tarballs.jl) version doesn't match
 """
 
 import re
 import sys
 from pathlib import Path
+
+# Crates whose install snippets must advertise the workspace version.
+README_CRATES = ("sparse-ir", "sparse-ir-capi")
+
+# A Cargo dependency declaration of one of README_CRATES, in either form:
+#   sparse-ir = "0.9.0"
+#   sparse-ir = { version = "0.9.0", features = ["system-blas"] }
+README_DEPENDENCY_PATTERN = re.compile(
+    r"^[ \t]*(?P<crate>" + "|".join(map(re.escape, README_CRATES)) + r")"
+    r'[ \t]*=[ \t]*(?:"(?P<plain>[^"]*)"|\{(?P<table>[^}]*)\})',
+    re.MULTILINE,
+)
+
+# Only numeric versions are checked; placeholders such as "X.Y.Z" in the
+# release instructions are skipped.
+NUMERIC_VERSION_PATTERN = re.compile(r"^\d+\.\d+\.\d+")
 
 
 def extract_workspace_version(cargo_toml_path: Path) -> str | None:
@@ -101,6 +120,37 @@ def extract_python_version(pyproject_path: Path) -> str | None:
     return version_match.group(1)
 
 
+def extract_readme_dependency_versions(
+    readme_path: Path,
+) -> list[tuple[int, str, str]]:
+    """Extract (line, crate, version) of sparse-ir dependency snippets in a README"""
+    try:
+        content = readme_path.read_text(encoding="utf-8")
+    except Exception as e:
+        print(f"Warning: Error reading {readme_path}: {e}", file=sys.stderr)
+        return []
+
+    snippets = []
+    for match in README_DEPENDENCY_PATTERN.finditer(content):
+        if match.group("plain") is not None:
+            version = match.group("plain")
+        else:
+            version_match = re.search(
+                r'\bversion\s*=\s*"([^"]*)"', match.group("table")
+            )
+            if not version_match:
+                continue  # e.g. a path-only dependency
+            version = version_match.group(1)
+
+        if not NUMERIC_VERSION_PATTERN.match(version):
+            continue  # placeholder such as "X.Y.Z"
+
+        line = content.count("\n", 0, match.start("crate")) + 1
+        snippets.append((line, match.group("crate"), version))
+
+    return snippets
+
+
 def main() -> int:
     """Main function to check version consistency"""
     script_dir = Path(__file__).parent
@@ -129,6 +179,29 @@ def main() -> int:
             print(f"  ✓ Python version matches: {python_version}")
     else:
         print(f"  - Python bindings not found (skipped)")
+
+    # Check README install snippets (error if mismatch). The crate README is
+    # packaged into the published crate and rendered on crates.io, so it must
+    # be bumped in the same release PR as Cargo.toml, before publishing.
+    readme_paths = [script_dir / "README.md", *sorted(script_dir.glob("*/README.md"))]
+    readme_snippets = []
+    for readme_path in readme_paths:
+        if not readme_path.is_file():
+            continue
+        relative_path = readme_path.relative_to(script_dir).as_posix()
+        for line, crate, version in extract_readme_dependency_versions(readme_path):
+            readme_snippets.append((f"{relative_path}:{line}", crate, version))
+    readme_mismatches = [
+        f"  README ({location}): {crate} {version} != {workspace_version}"
+        for location, crate, version in readme_snippets
+        if version != workspace_version
+    ]
+    if not readme_snippets:
+        print("  - README install snippets not found (skipped)")
+    elif readme_mismatches:
+        errors.extend(readme_mismatches)
+    else:
+        print(f"  ✓ README install snippets match: {len(readme_snippets)} snippet(s)")
 
     # Check Julia version (warning only)
     julia_version = extract_julia_version(julia_build_tarballs)

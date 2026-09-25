@@ -107,7 +107,8 @@ run `cargo fmt --all -- --check` on commit
 (`.cargo-husky/hooks/pre-commit`); if formatting fails, run
 `cargo fmt --all` before committing.
 
-Version consistency across Rust/Python/Julia metadata is checked with:
+Version consistency across Rust/Python/Julia metadata and README install
+snippets is checked with:
 
 ```bash
 python3 check_version.py
@@ -150,7 +151,9 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
 
 - `rust.yml` — `rust-default` (faer backend) and `rust-system-blas` jobs run
   `cargo build`/`cargo test --all-targets --release --locked` for the
-  workspace and for `sparse-ir --features system-blas` respectively; a
+  workspace and for `sparse-ir --features system-blas` respectively, plus
+  `cargo test -p sparse-ir --doc --release --locked` (with the same features)
+  because `--all-targets` does not run doctests; a
   `header-sync` job checks the two C headers described above stay in sync
   with cbindgen output.
 - `rust_capi.yml` — builds and tests `sparse-ir-capi` in release mode
@@ -418,8 +421,9 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
 - Keep `[workspace.package].version` and
   `[workspace.dependencies].sparse-ir.version` in `Cargo.toml` synchronized.
 - Before a Rust release or release pull request, align
-  `python/pyproject.toml` `[project].version` with the workspace version and run
-  `python3 check_version.py`.
+  `python/pyproject.toml` `[project].version` and the `sparse-ir/README.md`
+  install snippets with the workspace version and run
+  `python3 check_version.py`, which fails on either mismatch.
 - Publish `sparse-ir` before `sparse-ir-capi`, and push the `vX.Y.Z` tag only
   after both intended crates are successfully published to crates.io.
 - Update downstream Julia version metadata only after the corresponding crates
