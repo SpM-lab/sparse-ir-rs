@@ -872,7 +872,18 @@ StatusCode spir_dlr2ir_zz(const struct spir_basis *dlr,
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created funcs object, or NULL if creation fails
+ * Pointer to the newly created funcs object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `segments` or `coeffs` is NULL, `n_segments` or
+ *   `nfuncs` < 1, or the segment boundaries are not increasing
+ * - SPIR_INVALID_DIMENSION if `n_segments` is `INT_MAX` (the number of knots,
+ *   `n_segments + 1`, must fit in an `int`), or `segments` or `coeffs` is
+ *   too large to be addressed
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * Nothing is written when `status` is NULL. The sizes are validated before
+ * `segments` or `coeffs` is read.
  *
  * # Note
  * The function creates a single piecewise Legendre polynomial function.

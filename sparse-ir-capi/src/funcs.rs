@@ -183,7 +183,18 @@ pub extern "C" fn spir_funcs_deriv(
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to the newly created funcs object, or NULL if creation fails
+/// Pointer to the newly created funcs object, or NULL if creation fails.
+/// If `status` is non-NULL, `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `segments` or `coeffs` is NULL, `n_segments` or
+///   `nfuncs` < 1, or the segment boundaries are not increasing
+/// - SPIR_INVALID_DIMENSION if `n_segments` is `INT_MAX` (the number of knots,
+///   `n_segments + 1`, must fit in an `int`), or `segments` or `coeffs` is
+///   too large to be addressed
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// Nothing is written when `status` is NULL. The sizes are validated before
+/// `segments` or `coeffs` is read.
 ///
 /// # Note
 /// The function creates a single piecewise Legendre polynomial function.
@@ -197,7 +208,11 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
     _order: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
-    use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
+    use crate::utils::validate_dims;
+    use crate::{
+        SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT,
+        SPIR_INVALID_DIMENSION,
+    };
     use sparse_ir::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
     use std::panic::catch_unwind;
     use std::sync::Arc;
@@ -220,10 +235,34 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         return std::ptr::null_mut();
     }
 
+    // Validate both array sizes before either array is read (#245). The knot
+    // count `n_segments + 1` must fit in the `c_int` that
+    // `spir_funcs_get_n_knots` reports; the coefficient count
+    // `n_segments * nfuncs` need not, and is computed in `usize`.
+    let sizes = n_segments
+        .checked_add(1)
+        .ok_or(SPIR_INVALID_DIMENSION)
+        .and_then(|n_knots| validate_dims::<f64>(&[n_knots]))
+        .and_then(|knots_dims| {
+            let dims = validate_dims::<f64>(&[n_segments, nfuncs])?;
+            Ok((dims[0], dims[1], knots_dims[0]))
+        });
+    let (n_segments_usize, nfuncs_usize, n_knots) = match sizes {
+        Ok(sizes) => sizes,
+        Err(code) => {
+            // SAFETY: `status` is non-null (checked above) and caller-provided.
+            unsafe {
+                *status = code;
+            }
+            return std::ptr::null_mut();
+        }
+    };
+
     let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
-        // Convert segments to Vec
-        let segments_slice =
-            unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        // SAFETY: `segments` is non-null (checked above) and `validate_dims`
+        // proved that `n_knots` f64 are addressable; the caller guarantees that
+        // `segments` holds `n_segments + 1` elements.
+        let segments_slice = unsafe { std::slice::from_raw_parts(segments, n_knots) };
         let knots = segments_slice.to_vec();
 
         // Verify segments are monotonically increasing
@@ -238,14 +277,15 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
 
         // Create coefficient matrix: data is (nfuncs, n_segments)
         // Each column represents one segment's coefficients
-        let n_segments_usize = n_segments as usize;
-        let nfuncs_usize = nfuncs as usize;
         let mut data = mdarray::DTensor::<f64, 2>::zeros([nfuncs_usize, n_segments_usize]);
 
         // Copy coefficients from C array
         // Layout: coeffs[seg * nfuncs + deg]
+        // SAFETY: `coeffs` is non-null (checked above) and `validate_dims`
+        // proved that `n_segments * nfuncs` f64 are addressable; the caller
+        // guarantees that `coeffs` holds that many elements.
         let coeffs_slice =
-            unsafe { std::slice::from_raw_parts(coeffs, (n_segments * nfuncs) as usize) };
+            unsafe { std::slice::from_raw_parts(coeffs, n_segments_usize * nfuncs_usize) };
         for seg in 0..n_segments_usize {
             for deg in 0..nfuncs_usize {
                 data[[deg, seg]] = coeffs_slice[seg * nfuncs_usize + deg];

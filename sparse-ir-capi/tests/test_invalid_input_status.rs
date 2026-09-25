@@ -1342,3 +1342,80 @@ fn tau_sampling_new_with_matrix_does_not_check_the_tau_domain() {
         assert_eq!(g.to_bits(), p.to_bits(), "{got:?} vs {points:?}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// spir_funcs_from_piecewise_legendre: array sizes (#245)
+// ---------------------------------------------------------------------------
+
+/// Calls `spir_funcs_from_piecewise_legendre` with explicit sizes, which need
+/// not match the buffers: an invalid size must be rejected before either
+/// buffer is read.
+fn from_piecewise_legendre_raw(
+    segments: &[f64],
+    n_segments: i32,
+    coeffs: &[f64],
+    nfuncs: i32,
+) -> (StatusCode, *mut spir_funcs) {
+    let mut status = SPIR_COMPUTATION_SUCCESS - 100;
+    let funcs = spir_funcs_from_piecewise_legendre(
+        segments.as_ptr(),
+        n_segments,
+        coeffs.as_ptr(),
+        nfuncs,
+        0,
+        &mut status,
+    );
+    (status, funcs)
+}
+
+/// Before the fix, `n_segments + 1` and `n_segments * nfuncs` were computed
+/// in `c_int` and the segments were read before any size check: with
+/// `n_segments = INT_MAX` the knot count wrapped to a negative `c_int`, and
+/// the segments were read at the wrapped length, which is undefined behavior
+/// (seen as -7, from a capacity-overflow panic); for 2^30 segments they were
+/// read past these small buffers (a segfault).
+#[test]
+fn from_piecewise_legendre_rejects_sizes_that_overflow() {
+    let segments = [-1.0, 0.0, 1.0];
+    let coeffs = [1.0; 4];
+    // A knot count of 2^31, which `spir_funcs_get_n_knots` cannot report,
+    // then 2^62 - 2^32 + 1 and 2^60 coefficients, more than isize::MAX bytes.
+    for (n_segments, nfuncs) in [(i32::MAX, 1), (i32::MAX, i32::MAX), (1 << 30, 1 << 30)] {
+        let (status, funcs) = from_piecewise_legendre_raw(&segments, n_segments, &coeffs, nfuncs);
+        assert_eq!(
+            status, SPIR_INVALID_DIMENSION,
+            "n_segments {n_segments}, nfuncs {nfuncs}"
+        );
+        assert!(funcs.is_null());
+    }
+}
+
+/// Sizes below 1 were already SPIR_INVALID_ARGUMENT; keep it so.
+#[test]
+fn from_piecewise_legendre_rejects_sizes_below_one() {
+    let segments = [-1.0, 0.0, 1.0];
+    let coeffs = [1.0; 4];
+    for (n_segments, nfuncs) in [(0, 1), (1, 0), (-1, 1), (1, -1), (i32::MIN, i32::MIN)] {
+        let (status, funcs) = from_piecewise_legendre_raw(&segments, n_segments, &coeffs, nfuncs);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "n_segments {n_segments}, nfuncs {nfuncs}"
+        );
+        assert!(funcs.is_null());
+    }
+}
+
+/// The smallest sizes, one segment with one coefficient, still build the
+/// constant function: P_0 normalized on [-1, 1] is 1/sqrt(2) * sqrt(2) = 1.
+#[test]
+fn from_piecewise_legendre_accepts_the_smallest_sizes() {
+    let (status, funcs) = from_piecewise_legendre_raw(&[-1.0, 1.0], 1, &[1.0], 1);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let funcs = Funcs(funcs);
+    assert_eq!(funcs.size(), 1);
+    for x in [-1.0, 0.25, 1.0] {
+        let (status, values) = eval(&funcs, x);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert!((values[0] - 1.0).abs() < 1e-14, "f({x}) = {}", values[0]);
+    }
+}
