@@ -6,6 +6,18 @@ use crate::types::spir_funcs;
 use sparse_ir::traits::Statistics;
 use std::sync::Arc;
 
+/// Whether `n` is a Matsubara index of the statistics: odd for fermions and
+/// even for bosons, the rule of `MatsubaraFreq::new`.
+fn is_matsubara_index(n: i64, statistics: Statistics) -> bool {
+    use sparse_ir::freq::MatsubaraFreq;
+    use sparse_ir::traits::{Bosonic, Fermionic};
+
+    match statistics {
+        Statistics::Fermionic => MatsubaraFreq::<Fermionic>::new(n).is_ok(),
+        Statistics::Bosonic => MatsubaraFreq::<Bosonic>::new(n).is_ok(),
+    }
+}
+
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_funcs_release(funcs: *mut spir_funcs) {
@@ -495,13 +507,28 @@ pub extern "C" fn spir_funcs_get_knots(
 
 /// Evaluate functions at a single point (continuous functions only)
 ///
+/// The valid points depend on the functions:
+/// - τ functions (`u` of an IR or DLR basis, and their slices and
+///   derivatives): τ ∈ [-β, β]. A negative τ is folded onto [0, β] by the
+///   (anti)periodicity: u(τ) = -u(τ + β) for fermions and u(τ) = u(τ + β) for
+///   bosons. τ = β is read as β⁻, τ = -β as -β⁺ (folded onto 0⁺), and
+///   τ = -0.0 as 0⁻ (folded onto β⁻).
+/// - ω functions (`v` of an IR basis, and functions from
+///   `spir_funcs_from_piecewise_legendre`): ω from the first to the last knot
+///   (see `spir_funcs_get_knots`), i.e. ω ∈ [-ωmax, ωmax] for `v`.
+///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
-/// * `x` - Point to evaluate at (tau coordinate in [-1, 1])
+/// * `x` - Point to evaluate at: τ or ω in the domain above
 /// * `out` - Pre-allocated array to store function values
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+/// Status code:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `funcs` or `out` is NULL, or `x` is NaN,
+///   infinite or outside the domain; `out` is not written
+/// - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
 /// # Safety
 /// The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
@@ -511,6 +538,7 @@ pub extern "C" fn spir_funcs_eval(
     x: f64,
     out: *mut f64,
 ) -> crate::StatusCode {
+    use crate::types::is_in_domain;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -520,8 +548,18 @@ pub extern "C" fn spir_funcs_eval(
         return SPIR_INVALID_ARGUMENT;
     }
 
+    // SAFETY: `funcs` and `out` are non-null (checked above); the caller
+    // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
+        // Check the point before evaluating: the core panics outside the
+        // domain and passes NaN through (#266).
+        let Some(domain) = f.continuous_domain() else {
+            return SPIR_NOT_SUPPORTED;
+        };
+        if !is_in_domain(x, domain) {
+            return SPIR_INVALID_ARGUMENT;
+        }
         match f.eval_continuous(x) {
             Some(values) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
@@ -538,11 +576,17 @@ pub extern "C" fn spir_funcs_eval(
 ///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
-/// * `n` - Matsubara frequency index
+/// * `n` - Matsubara index n (ω = nπ/β): odd for fermionic, even for bosonic
+///   functions
 /// * `out` - Pre-allocated array to store complex function values
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type)
+/// Status code:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `funcs` or `out` is NULL, or `n` has the wrong
+///   parity for the statistics of `funcs`; `out` is not written
+/// - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
 /// # Safety
 /// The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
@@ -562,8 +606,18 @@ pub extern "C" fn spir_funcs_eval_matsu(
         return SPIR_INVALID_ARGUMENT;
     }
 
+    // SAFETY: `funcs` and `out` are non-null (checked above); the caller
+    // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
+        // A wrong-parity index is invalid input, not an unsupported
+        // operation (#266).
+        let Some(statistics) = f.matsubara_statistics() else {
+            return SPIR_NOT_SUPPORTED;
+        };
+        if !is_matsubara_index(n, statistics) {
+            return SPIR_INVALID_ARGUMENT;
+        }
         match f.eval_matsubara(n) {
             Some(values) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
@@ -578,6 +632,8 @@ pub extern "C" fn spir_funcs_eval_matsu(
 
 /// Batch evaluate functions at multiple points (continuous functions only)
 ///
+/// Every point must lie in the domain described for `spir_funcs_eval`.
+///
 /// # Arguments
 /// * `funcs` - Pointer to the funcs object
 /// * `order` - Memory layout: 0 for row-major, 1 for column-major
@@ -586,7 +642,12 @@ pub extern "C" fn spir_funcs_eval_matsu(
 /// * `out` - Pre-allocated array to store results
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+/// Status code:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `funcs`, `xs` or `out` is NULL, `num_points` <= 0,
+///   or any point is NaN, infinite or outside the domain; `out` is not written
+/// - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
 /// # Safety
 /// - `xs` must have size >= `num_points`
@@ -600,6 +661,7 @@ pub extern "C" fn spir_funcs_batch_eval(
     xs: *const f64,
     out: *mut f64,
 ) -> crate::StatusCode {
+    use crate::types::is_in_domain;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -609,9 +671,20 @@ pub extern "C" fn spir_funcs_batch_eval(
         return SPIR_INVALID_ARGUMENT;
     }
 
+    // SAFETY: the pointers are non-null and `num_points` > 0 (checked above);
+    // the caller guarantees a live handle, `num_points` readable points and
+    // room for `num_points * spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
         let xs_slice = std::slice::from_raw_parts(xs, num_points as usize);
+
+        // Check every point before evaluating any (#266).
+        let Some(domain) = f.continuous_domain() else {
+            return SPIR_NOT_SUPPORTED;
+        };
+        if !xs_slice.iter().all(|&x| is_in_domain(x, domain)) {
+            return SPIR_INVALID_ARGUMENT;
+        }
 
         match f.batch_eval_continuous(xs_slice) {
             Some(result_matrix) => {
@@ -649,11 +722,18 @@ pub extern "C" fn spir_funcs_batch_eval(
 /// * `funcs` - Pointer to the funcs object
 /// * `order` - Memory layout: 0 for row-major, 1 for column-major
 /// * `num_freqs` - Number of Matsubara frequencies
-/// * `ns` - Array of Matsubara frequency indices
+/// * `ns` - Array of Matsubara indices n (ω = nπ/β): odd for fermionic, even
+///   for bosonic functions
 /// * `out` - Pre-allocated array to store complex results
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type)
+/// Status code:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `funcs`, `ns` or `out` is NULL, `num_freqs` <= 0,
+///   or any index has the wrong parity for the statistics of `funcs`; `out` is
+///   not written
+/// - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
 /// # Safety
 /// - `ns` must have size >= `num_freqs`
@@ -677,9 +757,20 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
         return SPIR_INVALID_ARGUMENT;
     }
 
+    // SAFETY: the pointers are non-null and `num_freqs` > 0 (checked above);
+    // the caller guarantees a live handle, `num_freqs` readable indices and
+    // room for `num_freqs * spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
         let ns_slice = std::slice::from_raw_parts(ns, num_freqs as usize);
+
+        // Check every index before evaluating any (#266).
+        let Some(statistics) = f.matsubara_statistics() else {
+            return SPIR_NOT_SUPPORTED;
+        };
+        if !ns_slice.iter().all(|&n| is_matsubara_index(n, statistics)) {
+            return SPIR_INVALID_ARGUMENT;
+        }
 
         match f.batch_eval_matsubara(ns_slice) {
             Some(result_matrix) => {

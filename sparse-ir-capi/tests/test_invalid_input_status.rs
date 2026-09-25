@@ -534,3 +534,416 @@ fn matsu_sampling_new_with_matrix_accepts_valid_indices() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// spir_funcs_eval / spir_funcs_batch_eval, spir_funcs_eval_matsu /
+// spir_funcs_batch_eval_matsu and spir_tau_sampling_new (#266)
+// ---------------------------------------------------------------------------
+
+/// The next representable value above `x` (finite `x`).
+fn next_up(x: f64) -> f64 {
+    if x == 0.0 {
+        f64::from_bits(1)
+    } else if x > 0.0 {
+        f64::from_bits(x.to_bits() + 1)
+    } else {
+        f64::from_bits(x.to_bits() - 1)
+    }
+}
+
+/// The next representable value below `x` (finite `x`).
+fn next_down(x: f64) -> f64 {
+    -next_up(-x)
+}
+
+const OUT_SENTINEL: f64 = -12345.5;
+
+fn knots(funcs: &Funcs) -> Vec<f64> {
+    let mut n = -1;
+    assert_eq!(
+        spir_funcs_get_n_knots(funcs.0, &mut n),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    let mut knots = vec![f64::NAN; n as usize];
+    assert_eq!(
+        spir_funcs_get_knots(funcs.0, knots.as_mut_ptr()),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    knots
+}
+
+/// Two functions on the segments [0.5, 1] and [1, 2], built from Legendre
+/// coefficients; their domain differs from [-beta, beta] of their handle.
+fn piecewise_funcs() -> Funcs {
+    let segments = [0.5, 1.0, 2.0];
+    let coeffs = [1.0, 0.5, -0.25, 2.0];
+    let mut status = SPIR_INTERNAL_ERROR;
+    let funcs = spir_funcs_from_piecewise_legendre(
+        segments.as_ptr(),
+        2,
+        coeffs.as_ptr(),
+        2,
+        0,
+        &mut status,
+    );
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    Funcs(funcs)
+}
+
+/// Every τ- or ω-domain function set with its closed domain.
+fn continuous_function_sets(fx: &Fixture) -> Vec<(&'static str, Funcs, (f64, f64))> {
+    let u = get_funcs(fx.basis, spir_basis_get_u);
+    let mut status = SPIR_INTERNAL_ERROR;
+    let du = Funcs(spir_funcs_deriv(u.0, 1, &mut status));
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let v = get_funcs(fx.basis, spir_basis_get_v);
+    // omega_max = lambda / beta is exact for this setup.
+    let v_knots = knots(&v);
+    assert_eq!((v_knots[0], v_knots[v_knots.len() - 1]), (-WMAX, WMAX));
+    vec![
+        ("u", u, (-BETA, BETA)),
+        ("u'", du, (-BETA, BETA)),
+        ("v", v, (-WMAX, WMAX)),
+        ("dlr u", get_funcs(fx.dlr, spir_basis_get_u), (-BETA, BETA)),
+        ("piecewise", piecewise_funcs(), (0.5, 2.0)),
+    ]
+}
+
+/// Points just outside, far outside and not on the real line.
+fn points_outside(lo: f64, hi: f64) -> Vec<f64> {
+    vec![
+        next_up(hi),
+        next_down(lo),
+        hi + 0.5,
+        lo - 0.5,
+        2.0 * hi - lo,
+        f64::NAN,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+    ]
+}
+
+/// The domain endpoints, its midpoint and both zeros when they lie inside.
+fn points_inside(lo: f64, hi: f64) -> Vec<f64> {
+    let mut points = vec![lo, hi, 0.5 * (lo + hi)];
+    if lo <= 0.0 && 0.0 <= hi {
+        points.extend([0.0, -0.0]);
+    }
+    points
+}
+
+fn eval(funcs: &Funcs, x: f64) -> (StatusCode, Vec<f64>) {
+    let mut out = vec![OUT_SENTINEL; funcs.size() as usize];
+    let status = spir_funcs_eval(funcs.0, x, out.as_mut_ptr());
+    (status, out)
+}
+
+fn batch_eval(funcs: &Funcs, order: i32, xs: &[f64]) -> (StatusCode, Vec<f64>) {
+    let mut out = vec![OUT_SENTINEL; funcs.size() as usize * xs.len()];
+    let status = spir_funcs_batch_eval(
+        funcs.0,
+        order,
+        xs.len() as i32,
+        xs.as_ptr(),
+        out.as_mut_ptr(),
+    );
+    (status, out)
+}
+
+/// Before the fix, a point outside the domain panicked in `normalize_tau`
+/// or `PiecewiseLegendrePoly::split` (-7), and NaN was accepted (0) with NaN
+/// values.
+#[test]
+fn eval_rejects_points_outside_the_domain() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, funcs, (lo, hi)) in continuous_function_sets(&fx) {
+            for x in points_outside(lo, hi) {
+                let (status, out) = eval(&funcs, x);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}({x:?}), domain [{lo}, {hi}], statistics {statistics}"
+                );
+                assert!(out.iter().all(|&v| v == OUT_SENTINEL), "{name}({x:?})");
+            }
+        }
+    }
+}
+
+/// Before the fix, one invalid point in a batch panicked (-7) or, for NaN,
+/// was accepted (0).
+#[test]
+fn batch_eval_rejects_any_point_outside_the_domain() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, funcs, (lo, hi)) in continuous_function_sets(&fx) {
+            for x in points_outside(lo, hi) {
+                let xs = [lo, 0.5 * (lo + hi), x, hi];
+                for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+                    let (status, out) = batch_eval(&funcs, order, &xs);
+                    assert_eq!(
+                        status, SPIR_INVALID_ARGUMENT,
+                        "{name} at {xs:?}, statistics {statistics}"
+                    );
+                    assert!(out.iter().all(|&v| v == OUT_SENTINEL), "{name}");
+                }
+            }
+        }
+    }
+}
+
+/// The endpoints stay valid, and a batch gives the single-point values.
+#[test]
+fn eval_accepts_the_closed_domain() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        for (name, funcs, (lo, hi)) in continuous_function_sets(&fx) {
+            let xs = points_inside(lo, hi);
+            let n_funcs = funcs.size() as usize;
+            let (status, row_major) = batch_eval(&funcs, SPIR_ORDER_ROW_MAJOR, &xs);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name} at {xs:?}");
+            let (status, col_major) = batch_eval(&funcs, SPIR_ORDER_COLUMN_MAJOR, &xs);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name} at {xs:?}");
+            for (i, &x) in xs.iter().enumerate() {
+                let (status, values) = eval(&funcs, x);
+                assert_eq!(
+                    status, SPIR_COMPUTATION_SUCCESS,
+                    "{name}({x:?}), statistics {statistics}"
+                );
+                assert!(values.iter().all(|v| v.is_finite()), "{name}({x:?})");
+                assert!(values.iter().any(|&v| v != 0.0), "{name}({x:?})");
+                for (l, &value) in values.iter().enumerate() {
+                    assert_eq!(row_major[i * n_funcs + l], value, "{name}({x:?})");
+                    assert_eq!(col_major[l * xs.len() + i], value, "{name}({x:?})");
+                }
+            }
+        }
+    }
+}
+
+/// Negative τ follows the (anti)periodicity: -beta folds onto 0 and -0.0
+/// onto beta, with a sign flip for fermions only.
+#[test]
+fn eval_folds_negative_tau_with_the_statistics_sign() {
+    for statistics in STATISTICS {
+        let sign = if statistics == SPIR_STATISTICS_FERMIONIC {
+            -1.0
+        } else {
+            1.0
+        };
+        let fx = Fixture::new(statistics);
+        for (name, funcs) in [
+            ("u", get_funcs(fx.basis, spir_basis_get_u)),
+            ("dlr u", get_funcs(fx.dlr, spir_basis_get_u)),
+        ] {
+            for (x, folded) in [(-BETA, 0.0), (-0.0, BETA)] {
+                let (status, values) = eval(&funcs, x);
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name}({x:?})");
+                let (status, expected) = eval(&funcs, folded);
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name}({folded:?})");
+                for (value, expected) in values.iter().zip(&expected) {
+                    assert_eq!(
+                        *value,
+                        sign * expected,
+                        "{name}({x:?}), statistics {statistics}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Matsubara functions still report SPIR_NOT_SUPPORTED for a real argument,
+/// whatever its value, and τ functions for a Matsubara index.
+#[test]
+fn eval_on_the_wrong_function_type_is_not_supported() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let uhat = get_funcs(fx.basis, spir_basis_get_uhat);
+        for x in [0.5, f64::NAN, 1.5] {
+            assert_eq!(eval(&uhat, x).0, SPIR_NOT_SUPPORTED, "uhat({x:?})");
+            assert_eq!(
+                batch_eval(&uhat, SPIR_ORDER_ROW_MAJOR, &[x]).0,
+                SPIR_NOT_SUPPORTED
+            );
+        }
+        let u = get_funcs(fx.basis, spir_basis_get_u);
+        for n in [0, 1, 2] {
+            assert_eq!(eval_matsu(&u, n).0, SPIR_NOT_SUPPORTED, "u(n = {n})");
+            assert_eq!(
+                batch_eval_matsu(&u, SPIR_ORDER_ROW_MAJOR, &[n]).0,
+                SPIR_NOT_SUPPORTED
+            );
+        }
+    }
+}
+
+const OUT_SENTINEL_Z: num_complex::Complex64 = num_complex::Complex64::new(-12345.5, 678.25);
+
+fn eval_matsu(funcs: &Funcs, n: i64) -> (StatusCode, Vec<num_complex::Complex64>) {
+    let mut out = vec![OUT_SENTINEL_Z; funcs.size() as usize];
+    let status = spir_funcs_eval_matsu(funcs.0, n, out.as_mut_ptr());
+    (status, out)
+}
+
+fn batch_eval_matsu(
+    funcs: &Funcs,
+    order: i32,
+    ns: &[i64],
+) -> (StatusCode, Vec<num_complex::Complex64>) {
+    let mut out = vec![OUT_SENTINEL_Z; funcs.size() as usize * ns.len()];
+    let status = spir_funcs_batch_eval_matsu(
+        funcs.0,
+        order,
+        ns.len() as i32,
+        ns.as_ptr(),
+        out.as_mut_ptr(),
+    );
+    (status, out)
+}
+
+fn matsubara_function_sets(fx: &Fixture) -> Vec<(&'static str, Funcs)> {
+    vec![
+        ("uhat", get_funcs(fx.basis, spir_basis_get_uhat)),
+        ("uhat_full", get_funcs(fx.basis, spir_basis_get_uhat_full)),
+        ("dlr uhat", get_funcs(fx.dlr, spir_basis_get_uhat)),
+    ]
+}
+
+/// Indices of the wrong parity, and valid ones, for the statistics.
+fn matsubara_indices(statistics: i32) -> (Vec<i64>, Vec<i64>) {
+    if statistics == SPIR_STATISTICS_FERMIONIC {
+        (vec![0, 2, -2, i64::MIN], vec![1, -1, 3, -3])
+    } else {
+        (vec![1, -1, 3, i64::MAX], vec![0, 2, -2, 4])
+    }
+}
+
+/// Before the fix, an index of the wrong parity was reported as
+/// SPIR_NOT_SUPPORTED (-5), as if the functions were not Matsubara functions.
+#[test]
+fn eval_matsu_rejects_wrong_parity() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let (invalid, valid) = matsubara_indices(statistics);
+        for (name, funcs) in matsubara_function_sets(&fx) {
+            for &n in &invalid {
+                let (status, out) = eval_matsu(&funcs, n);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}(n = {n}), statistics {statistics}"
+                );
+                assert!(out.iter().all(|&z| z == OUT_SENTINEL_Z));
+
+                let ns = [valid[0], n, valid[1]];
+                for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+                    let (status, out) = batch_eval_matsu(&funcs, order, &ns);
+                    assert_eq!(
+                        status, SPIR_INVALID_ARGUMENT,
+                        "{name} at {ns:?}, statistics {statistics}"
+                    );
+                    assert!(out.iter().all(|&z| z == OUT_SENTINEL_Z));
+                }
+            }
+        }
+    }
+}
+
+/// Valid indices, negative ones and n = 0 for bosons included, still
+/// evaluate, and a batch gives the single-index values.
+#[test]
+fn eval_matsu_accepts_valid_indices() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let (_, valid) = matsubara_indices(statistics);
+        for (name, funcs) in matsubara_function_sets(&fx) {
+            let n_funcs = funcs.size() as usize;
+            let (status, batch) = batch_eval_matsu(&funcs, SPIR_ORDER_ROW_MAJOR, &valid);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS, "{name} at {valid:?}");
+            for (i, &n) in valid.iter().enumerate() {
+                let (status, values) = eval_matsu(&funcs, n);
+                assert_eq!(
+                    status, SPIR_COMPUTATION_SUCCESS,
+                    "{name}(n = {n}), statistics {statistics}"
+                );
+                assert!(values.iter().any(|z| z.norm() > 0.0), "{name}(n = {n})");
+                assert_eq!(&batch[i * n_funcs..(i + 1) * n_funcs], &values[..]);
+            }
+        }
+    }
+}
+
+fn default_taus(basis: *const spir_basis) -> Vec<f64> {
+    let mut n = -1;
+    assert_eq!(
+        spir_basis_get_n_default_taus(basis, &mut n),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    let mut points = vec![f64::NAN; n as usize];
+    assert_eq!(
+        spir_basis_get_default_taus(basis, points.as_mut_ptr()),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    points
+}
+
+fn tau_sampling_new(basis: *const spir_basis, points: &[f64]) -> (StatusCode, *mut spir_sampling) {
+    let mut status = SPIR_COMPUTATION_SUCCESS - 100;
+    let sampling = spir_tau_sampling_new(basis, points.len() as i32, points.as_ptr(), &mut status);
+    (status, sampling)
+}
+
+/// Before the fix, a point outside [-beta, beta], NaN or an infinity reached
+/// the `assert!` in `TauSampling::with_sampling_points` (-7).
+#[test]
+fn tau_sampling_new_rejects_points_outside_the_domain() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let taus = default_taus(fx.basis);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            // 1.1666666666666665 is the point reported in #266.
+            let mut outside = points_outside(-BETA, BETA);
+            outside.push(1.1666666666666665);
+            for x in outside {
+                let mut points = taus.clone();
+                points[taus.len() / 2] = x;
+                let (status, sampling) = tau_sampling_new(basis, &points);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "{name}, point {x:?}, statistics {statistics}"
+                );
+                assert!(sampling.is_null());
+            }
+        }
+    }
+}
+
+/// The endpoints and both zeros stay valid sampling points.
+#[test]
+fn tau_sampling_new_accepts_the_closed_domain() {
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let mut points = default_taus(fx.basis);
+        points.extend([-BETA, -0.0, 0.0, BETA]);
+        for (name, basis) in [("ir", fx.basis), ("dlr", fx.dlr)] {
+            let (status, sampling) = tau_sampling_new(basis, &points);
+            assert_eq!(
+                status, SPIR_COMPUTATION_SUCCESS,
+                "{name}, statistics {statistics}"
+            );
+            assert!(!sampling.is_null());
+            let sampling = Sampling(sampling);
+            let mut n = -1;
+            assert_eq!(
+                spir_sampling_get_npoints(sampling.0, &mut n),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut got = vec![f64::NAN; n as usize];
+            assert_eq!(
+                spir_sampling_get_taus(sampling.0, got.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            assert_eq!(got, points, "{name}");
+        }
+    }
+}

@@ -16,7 +16,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
-use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
+use crate::types::{BasisType, SamplingType, is_in_domain, spir_basis, spir_sampling, tau_domain};
 use crate::utils::{
     MemoryOrder, build_output_dims, convert_dims_for_row_major, create_dview_from_ptr,
     create_dviewmut_from_ptr, read_tensor_nd,
@@ -99,11 +99,18 @@ pub extern "C" fn spir_sampling_is_assigned(obj: *const spir_sampling) -> i32 {
 /// # Arguments
 /// * `b` - Pointer to a finite temperature basis object
 /// * `num_points` - Number of sampling points
-/// * `points` - Array of sampling points in imaginary time (τ)
+/// * `points` - Array of `num_points` sampling points τ ∈ [-β, β], with β the
+///   inverse temperature of `b`; a negative τ is folded onto [0, β] as in
+///   `spir_funcs_eval`
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to the newly created sampling object, or NULL if creation fails
+/// Pointer to the newly created sampling object, or NULL if creation fails.
+/// If `status` is non-NULL, `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, or a
+///   point is NaN, infinite or outside [-β, β]
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 ///
 /// # Safety
 /// Caller must ensure `b` is valid and `points` has `num_points` elements
@@ -125,6 +132,13 @@ pub extern "C" fn spir_tau_sampling_new(
 
         let basis_ref = unsafe { &*b };
         let points_slice = unsafe { std::slice::from_raw_parts(points, num_points as usize) };
+
+        // Check every point before building the sampling object: the core
+        // asserts τ ∈ [-β, β] (#266).
+        let domain = tau_domain(basis_ref.beta());
+        if !points_slice.iter().all(|&tau| is_in_domain(tau, domain)) {
+            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
+        }
 
         // Convert points to Vec
         let tau_points: Vec<f64> = points_slice.to_vec();

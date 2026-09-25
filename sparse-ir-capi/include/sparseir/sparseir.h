@@ -874,13 +874,28 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
 /**
  * Evaluate functions at a single point (continuous functions only)
  *
+ * The valid points depend on the functions:
+ * - τ functions (`u` of an IR or DLR basis, and their slices and
+ *   derivatives): τ ∈ [-β, β]. A negative τ is folded onto [0, β] by the
+ *   (anti)periodicity: u(τ) = -u(τ + β) for fermions and u(τ) = u(τ + β) for
+ *   bosons. τ = β is read as β⁻, τ = -β as -β⁺ (folded onto 0⁺), and
+ *   τ = -0.0 as 0⁻ (folded onto β⁻).
+ * - ω functions (`v` of an IR basis, and functions from
+ *   `spir_funcs_from_piecewise_legendre`): ω from the first to the last knot
+ *   (see `spir_funcs_get_knots`), i.e. ω ∈ [-ωmax, ωmax] for `v`.
+ *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `x` - Point to evaluate at (tau coordinate in [-1, 1])
+ * * `x` - Point to evaluate at: τ or ω in the domain above
  * * `out` - Pre-allocated array to store function values
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs` or `out` is NULL, or `x` is NaN,
+ *   infinite or outside the domain; `out` is not written
+ * - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
@@ -892,11 +907,17 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
- * * `n` - Matsubara frequency index
+ * * `n` - Matsubara index n (ω = nπ/β): odd for fermionic, even for bosonic
+ *   functions
  * * `out` - Pre-allocated array to store complex function values
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs` or `out` is NULL, or `n` has the wrong
+ *   parity for the statistics of `funcs`; `out` is not written
+ * - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * The caller must ensure that `out` has size >= `spir_funcs_get_size(funcs)`
@@ -907,6 +928,8 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
 /**
  * Batch evaluate functions at multiple points (continuous functions only)
  *
+ * Every point must lie in the domain described for `spir_funcs_eval`.
+ *
  * # Arguments
  * * `funcs` - Pointer to the funcs object
  * * `order` - Memory layout: 0 for row-major, 1 for column-major
@@ -915,7 +938,12 @@ struct spir_funcs *spir_funcs_get_slice(const struct spir_funcs *funcs,
  * * `out` - Pre-allocated array to store results
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not continuous)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs`, `xs` or `out` is NULL, `num_points` <= 0,
+ *   or any point is NaN, infinite or outside the domain; `out` is not written
+ * - SPIR_NOT_SUPPORTED if `funcs` holds Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * - `xs` must have size >= `num_points`
@@ -936,11 +964,18 @@ StatusCode spir_funcs_batch_eval(const struct spir_funcs *funcs,
  * * `funcs` - Pointer to the funcs object
  * * `order` - Memory layout: 0 for row-major, 1 for column-major
  * * `num_freqs` - Number of Matsubara frequencies
- * * `ns` - Array of Matsubara frequency indices
+ * * `ns` - Array of Matsubara indices n (ω = nπ/β): odd for fermionic, even
+ *   for bosonic functions
  * * `out` - Pre-allocated array to store complex results
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success, SPIR_NOT_SUPPORTED if not Matsubara type)
+ * Status code:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs`, `ns` or `out` is NULL, `num_freqs` <= 0,
+ *   or any index has the wrong parity for the statistics of `funcs`; `out` is
+ *   not written
+ * - SPIR_NOT_SUPPORTED if `funcs` does not hold Matsubara-frequency functions
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * - `ns` must have size >= `num_freqs`
@@ -1305,11 +1340,18 @@ StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
  * # Arguments
  * * `b` - Pointer to a finite temperature basis object
  * * `num_points` - Number of sampling points
- * * `points` - Array of sampling points in imaginary time (τ)
+ * * `points` - Array of `num_points` sampling points τ ∈ [-β, β], with β the
+ *   inverse temperature of `b`; a negative τ is folded onto [0, β] as in
+ *   `spir_funcs_eval`
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to the newly created sampling object, or NULL if creation fails
+ * Pointer to the newly created sampling object, or NULL if creation fails.
+ * If `status` is non-NULL, `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `b` or `points` is NULL, `num_points` <= 0, or a
+ *   point is NaN, infinite or outside [-β, β]
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  *
  * # Safety
  * Caller must ensure `b` is valid and `points` has `num_points` elements
