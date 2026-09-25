@@ -808,8 +808,10 @@ fn test_compute_sve_truncated_to_one_singular_value_regularized_bose() {
     );
 }
 
-/// `FiniteTempBasis::new` truncates the SVE to `max_size`, so `Some(1)` hit
-/// the same panic; so did `spir_basis_new(max_size = 1)` in the C API.
+/// Until #285, `FiniteTempBasis::new` truncated the SVE to `max_size`, so
+/// `Some(1)` hit the same panic (and `spir_basis_new(max_size = 1)` returned
+/// SPIR_INTERNAL_ERROR). It now truncates only the basis; a basis of size 1
+/// must still be the leading part of the full basis.
 #[test]
 fn test_basis_with_max_size_one() {
     use crate::basis::FiniteTempBasis;

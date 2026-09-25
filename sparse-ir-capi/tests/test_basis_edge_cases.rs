@@ -42,10 +42,12 @@ fn singular_values(basis: *const spir_basis) -> Vec<f64> {
     svals
 }
 
-/// `max_size = 1` truncates the SVE to its largest singular value, which is
-/// even, so the odd block of the SVE is empty. Before the fix the empty block
-/// made the core panic and `spir_basis_new` returned SPIR_INTERNAL_ERROR (-7)
-/// with a NULL basis.
+/// Until #285, `max_size = 1` truncated the SVE to its largest singular
+/// value, which is even, so the odd block of the SVE was empty. The empty
+/// block made the core panic and `spir_basis_new` returned
+/// SPIR_INTERNAL_ERROR (-7) with a NULL basis. The SVE is now kept in full
+/// and only the basis is truncated; the SVE truncation itself is tested in
+/// the core (`compute_sve` with `max_num_svals = Some(1)`).
 #[test]
 fn basis_new_accepts_max_size_one() {
     let mut status = SPIR_INTERNAL_ERROR;
