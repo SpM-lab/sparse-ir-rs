@@ -301,17 +301,30 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
 
 /// Extract a subset of functions by indices
 ///
+/// The new object holds the selected functions in the order given by
+/// `indices`, for every function type (τ, ω, Matsubara and DLR functions).
+///
 /// # Arguments
 /// * `funcs` - Pointer to the source funcs object
-/// * `nslice` - Number of functions to select (length of indices array)
-/// * `indices` - Array of indices specifying which functions to include
+/// * `nslice` - Number of functions to select (length of `indices`), at least 1
+/// * `indices` - Array of `nslice` distinct 0-based indices, each in
+///   `[0, size)` where `size` is given by `spir_funcs_get_size(funcs)`
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Pointer to a new funcs object containing only the selected functions, or null on error
+/// Pointer to a new funcs object containing only the selected functions, or
+/// NULL on error. `*status` is set to:
+/// - SPIR_COMPUTATION_SUCCESS (0) on success
+/// - SPIR_INVALID_ARGUMENT if `funcs` or `indices` is NULL, if `nslice` < 1
+///   (an empty selection is rejected for every function type), or if an index
+///   is negative, not less than `size`, or repeated
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// Nothing is written when `status` is NULL.
 ///
 /// # Safety
-/// The caller must ensure that `funcs` and `indices` are valid pointers.
+/// The caller must ensure that `funcs` and `indices` are valid pointers and
+/// that `indices` holds at least `nslice` elements.
 /// The returned pointer must be freed with `spir_funcs_release()`.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_funcs_get_slice(
@@ -322,16 +335,14 @@ pub extern "C" fn spir_funcs_get_slice(
 ) -> *mut spir_funcs {
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
 
-    if funcs.is_null() || indices.is_null() || status.is_null() {
-        if !status.is_null() {
-            unsafe {
-                *status = SPIR_INVALID_ARGUMENT;
-            }
-        }
+    if status.is_null() {
         return std::ptr::null_mut();
     }
 
-    if nslice < 0 {
+    // An empty selection is rejected for every function type: the τ/ω
+    // containers cannot be empty, and all types must agree (#269).
+    if funcs.is_null() || indices.is_null() || nslice < 1 {
+        // SAFETY: `status` is non-null (checked above) and caller-provided.
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -339,45 +350,43 @@ pub extern "C" fn spir_funcs_get_slice(
     }
 
     let result = std::panic::catch_unwind(|| {
+        // SAFETY: `funcs` and `indices` are non-null (checked above); the
+        // caller guarantees a live handle and `nslice` >= 1 readable indices.
         let funcs_ref = unsafe { &*funcs };
-
-        // Convert C indices to Rust Vec<usize>
+        let size = funcs_ref.size();
         let indices_slice = unsafe { std::slice::from_raw_parts(indices, nslice as usize) };
-        let mut rust_indices = Vec::with_capacity(nslice as usize);
 
+        // Validate every index before building anything: in range and not
+        // repeated (libsparseir rejects repeated indices as well).
+        let mut selected = vec![false; size];
+        let mut rust_indices = Vec::with_capacity(indices_slice.len());
         for &i in indices_slice {
-            if i < 0 {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
+            match usize::try_from(i) {
+                Ok(idx) if idx < size && !selected[idx] => {
+                    selected[idx] = true;
+                    rust_indices.push(idx);
                 }
-                return std::ptr::null_mut();
+                _ => return Err(SPIR_INVALID_ARGUMENT),
             }
-            rust_indices.push(i as usize);
         }
 
-        // Get the slice
-        match funcs_ref.get_slice(&rust_indices) {
-            Some(sliced_funcs) => {
-                unsafe {
-                    *status = SPIR_COMPUTATION_SUCCESS;
-                }
-                Box::into_raw(Box::new(sliced_funcs))
-            }
-            None => {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
-                }
-                std::ptr::null_mut()
-            }
-        }
+        // The indices are valid, so a missing slice is an internal inconsistency.
+        let sliced_funcs = funcs_ref
+            .get_slice(&rust_indices)
+            .ok_or(SPIR_INTERNAL_ERROR)?;
+        Ok(Box::into_raw(Box::new(sliced_funcs)))
     });
 
-    result.unwrap_or_else(|_| {
-        unsafe {
-            *status = SPIR_INTERNAL_ERROR;
-        }
-        std::ptr::null_mut()
-    })
+    let (ptr, code) = match result {
+        Ok(Ok(ptr)) => (ptr, SPIR_COMPUTATION_SUCCESS),
+        Ok(Err(code)) => (std::ptr::null_mut(), code),
+        Err(_) => (std::ptr::null_mut(), SPIR_INTERNAL_ERROR),
+    };
+    // SAFETY: `status` is non-null (checked on entry) and caller-provided.
+    unsafe {
+        *status = code;
+    }
+    ptr
 }
 
 /// Gets the number of basis functions

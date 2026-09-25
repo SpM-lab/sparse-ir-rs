@@ -800,17 +800,30 @@ struct spir_funcs *spir_funcs_from_piecewise_legendre(const double *segments,
 /**
  * Extract a subset of functions by indices
  *
+ * The new object holds the selected functions in the order given by
+ * `indices`, for every function type (τ, ω, Matsubara and DLR functions).
+ *
  * # Arguments
  * * `funcs` - Pointer to the source funcs object
- * * `nslice` - Number of functions to select (length of indices array)
- * * `indices` - Array of indices specifying which functions to include
+ * * `nslice` - Number of functions to select (length of `indices`), at least 1
+ * * `indices` - Array of `nslice` distinct 0-based indices, each in
+ *   `[0, size)` where `size` is given by `spir_funcs_get_size(funcs)`
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Pointer to a new funcs object containing only the selected functions, or null on error
+ * Pointer to a new funcs object containing only the selected functions, or
+ * NULL on error. `*status` is set to:
+ * - SPIR_COMPUTATION_SUCCESS (0) on success
+ * - SPIR_INVALID_ARGUMENT if `funcs` or `indices` is NULL, if `nslice` < 1
+ *   (an empty selection is rejected for every function type), or if an index
+ *   is negative, not less than `size`, or repeated
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * Nothing is written when `status` is NULL.
  *
  * # Safety
- * The caller must ensure that `funcs` and `indices` are valid pointers.
+ * The caller must ensure that `funcs` and `indices` are valid pointers and
+ * that `indices` holds at least `nslice` elements.
  * The returned pointer must be freed with `spir_funcs_release()`.
  */
 
