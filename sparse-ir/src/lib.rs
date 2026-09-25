@@ -51,8 +51,8 @@ pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
 pub use basis_trait::Basis;
 pub use debug::is_debug_enabled;
 pub use dlr::{
-    DiscreteLehmannRepresentation, DlrError, bosonic_single_pole, fermionic_single_pole,
-    giwn_single_pole, gtau_single_pole,
+    DiscreteLehmannRepresentation, bosonic_single_pole, fermionic_single_pole, giwn_single_pole,
+    gtau_single_pole,
 };
 pub use error::{Error, ErrorKind};
 pub use fitters::InplaceFitter;
