@@ -83,7 +83,7 @@ pub use sve::{
 };
 pub use traits::{Bosonic, Fermionic, Statistics, StatisticsMarker, StatisticsType};
 pub use tsvd::{
-    SVDResult, TSVDConfig, TSVDError, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
+    SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
 };
 
 // Re-export external dependencies for convenience
