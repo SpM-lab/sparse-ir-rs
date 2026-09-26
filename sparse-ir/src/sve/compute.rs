@@ -260,7 +260,7 @@ where
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     // 1. Determine SVE strategy (automatically chooses CentrosymmSVE for centrosymmetric kernels)
-    let sve = determine_sve::<T, K>(kernel, epsilon);
+    let sve = determine_sve::<T, K>(kernel, epsilon)?;
 
     // 2. Compute matrices
     let matrices = sve.matrices();
@@ -298,7 +298,7 @@ where
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     // 1. Determine SVE strategy (full-domain NonCentrosymmSVE)
-    let sve = determine_sve_general::<T, K>(kernel, epsilon);
+    let sve = determine_sve_general::<T, K>(kernel, epsilon)?;
 
     // 2. Compute matrices
     let matrices = sve.matrices();
@@ -327,14 +327,14 @@ where
 ///
 /// For centrosymmetric kernels, uses CentrosymmSVE for efficient computation
 /// by exploiting even/odd symmetry.
-fn determine_sve<T, K>(kernel: K, epsilon: f64) -> Box<dyn SVEStrategy<T>>
+fn determine_sve<T, K>(kernel: K, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
     K: CentrosymmKernel + KernelProperties + Clone + 'static,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     // CentrosymmKernel trait implies centrosymmetric
-    Box::new(CentrosymmSVE::new(kernel, epsilon))
+    Ok(Box::new(CentrosymmSVE::new(kernel, epsilon)?))
 }
 
 /// Determine the SVE strategy for general kernels
@@ -343,13 +343,13 @@ where
 /// mirroring their half-domain hint segments onto the full domain.
 /// [`CentrosymmSVE`] would require `K: CentrosymmKernel`, which cannot be
 /// recovered from the `K: AbstractKernel` bound (see [`compute_sve_general`]).
-fn determine_sve_general<T, K>(kernel: K, epsilon: f64) -> Box<dyn SVEStrategy<T>>
+fn determine_sve_general<T, K>(kernel: K, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
     K: AbstractKernel + KernelProperties + Clone + 'static,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    Box::new(NonCentrosymmSVE::new(kernel, epsilon))
+    Ok(Box::new(NonCentrosymmSVE::new(kernel, epsilon)?))
 }
 
 /// Truncate SVD results based on cutoff and maximum size

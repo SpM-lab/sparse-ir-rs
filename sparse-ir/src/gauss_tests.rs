@@ -11,7 +11,7 @@ fn test_rule_constructor() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::new(x.clone(), w.clone(), -1.0, 1.0);
+    let rule = Rule::new(x.clone(), w.clone(), -1.0, 1.0).unwrap();
     assert_eq!(rule.x, x);
     assert_eq!(rule.w, w);
     assert_eq!(rule.a, -1.0);
@@ -23,7 +23,7 @@ fn test_rule_from_vectors() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::from_vectors(x.clone(), w.clone(), -1.0, 1.0);
+    let rule = Rule::from_vectors(x.clone(), w.clone(), -1.0, 1.0).unwrap();
     assert_eq!(rule.x, x);
     assert_eq!(rule.w, w);
 }
@@ -42,7 +42,7 @@ fn test_rule_validation() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::new(x, w, -1.0, 1.0);
+    let rule = Rule::new(x, w, -1.0, 1.0).unwrap();
     assert!(rule.validate());
 }
 
@@ -74,7 +74,7 @@ fn test_rule_scale() {
     let x = vec![0.0, 1.0];
     let w = vec![1.0, 1.0];
 
-    let rule = Rule::new(x, w, -1.0, 1.0);
+    let rule = Rule::new(x, w, -1.0, 1.0).unwrap();
     let scaled = rule.scale(2.0);
 
     assert_eq!(scaled.w[0], 2.0);
@@ -84,7 +84,7 @@ fn test_rule_scale() {
 #[test]
 fn test_rule_piecewise() {
     let edges = vec![-4.0, -1.0, 1.0, 3.0];
-    let rule = legendre::<f64>(20).piecewise(&edges);
+    let rule = legendre::<f64>(20).piecewise(&edges).unwrap();
 
     assert!(rule.validate());
     assert_eq!(rule.a, -4.0);
@@ -128,8 +128,8 @@ fn test_rule_constructor_with_defaults() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule1 = Rule::new(x.clone(), w.clone(), -1.0, 1.0);
-    let rule2 = Rule::new(x, w, -1.0, 1.0);
+    let rule1 = Rule::new(x.clone(), w.clone(), -1.0, 1.0).unwrap();
+    let rule2 = Rule::new(x, w, -1.0, 1.0).unwrap();
 
     assert_eq!(rule1.a, rule2.a);
     assert_eq!(rule1.b, rule2.b);
@@ -166,7 +166,7 @@ fn test_join_functionality() {
 fn test_piecewise_like_cpp() {
     // Test piecewise functionality like C++ test
     let edges = vec![-4.0, -1.0, 1.0, 3.0];
-    let rule = legendre::<f64>(20).piecewise(&edges);
+    let rule = legendre::<f64>(20).piecewise(&edges).unwrap();
 
     assert!(rule.validate());
     assert_eq!(rule.a, -4.0);
@@ -241,7 +241,7 @@ fn test_rule_custom_methods() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::new_custom(x.clone(), w.clone(), -1.0, 1.0);
+    let rule = Rule::new_custom(x.clone(), w.clone(), -1.0, 1.0).unwrap();
     assert!(rule.validate_custom());
 
     let reseated = rule.reseat_custom(-2.0, 0.0);
@@ -261,7 +261,7 @@ fn test_rule_twofloat_methods() {
     let x_tf = vec![Df64::from(0.0), Df64::from(1.0)];
     let w_tf = vec![Df64::from(0.5), Df64::from(0.5)];
 
-    let rule_tf = Rule::new_twofloat(x_tf, w_tf, Df64::from(-1.0), Df64::from(1.0));
+    let rule_tf = Rule::new_twofloat(x_tf, w_tf, Df64::from(-1.0), Df64::from(1.0)).unwrap();
     assert!(rule_tf.validate_twofloat());
 }
 
@@ -954,7 +954,7 @@ fn test_large_legendre_rule_high_precision() {
 #[test]
 fn test_piecewise_high_precision() {
     let edges = vec![-4.0, -1.0, 1.0, 3.0];
-    let rule = legendre_custom::<f64>(20).piecewise(&edges);
+    let rule = legendre_custom::<f64>(20).piecewise(&edges).unwrap();
 
     assert!(rule.validate_custom());
     assert_eq!(rule.a, -4.0);
@@ -977,4 +977,75 @@ fn test_piecewise_high_precision() {
         "Sum of weights should be 7.0, got {}",
         weight_sum
     );
+}
+
+/// The rule constructors reject x and w of different lengths, and piecewise
+/// rejects fewer than 2 edges, non-finite edges and non-increasing edges or
+/// segment lengths that overflow. Before the change these panicked (NaN
+/// edges in the sort of the points), or gave infinite or NaN points.
+#[test]
+fn test_rule_constructors_check_their_input() {
+    use crate::error::Error;
+
+    let invalid = |name: &'static str, value: &str, reason: &str| Error::InvalidParameter {
+        name,
+        value: value.to_string(),
+        reason: reason.to_string(),
+    };
+    let lengths = invalid("w", "1 weights", "must have one weight per point (2)");
+    assert_eq!(
+        Rule::new(vec![0.0, 1.0], vec![1.0], -1.0, 1.0).unwrap_err(),
+        lengths
+    );
+    assert_eq!(
+        Rule::from_vectors(vec![0.0, 1.0], vec![1.0], -1.0, 1.0).unwrap_err(),
+        lengths
+    );
+    assert_eq!(
+        Rule::new_custom(vec![0.0, 1.0], vec![1.0], -1.0, 1.0).unwrap_err(),
+        lengths
+    );
+    let dd = |x: f64| Df64::from(x);
+    assert_eq!(
+        Rule::new_twofloat(vec![dd(0.0), dd(1.0)], vec![dd(1.0)], dd(-1.0), dd(1.0)).unwrap_err(),
+        lengths
+    );
+
+    let rule = legendre::<f64>(3);
+    assert_eq!(
+        rule.piecewise(&[0.0]).unwrap_err(),
+        invalid("edges", "1 edges", "must have at least 2 entries")
+    );
+    assert_eq!(
+        rule.piecewise(&[0.0, f64::NAN, 1.0]).unwrap_err(),
+        invalid("edges", "NaN at index 1", "must be finite")
+    );
+    assert_eq!(
+        rule.piecewise(&[0.0, 1.0, 1.0]).unwrap_err(),
+        invalid(
+            "edges",
+            "1.0 after 1.0 at index 2",
+            "must be strictly increasing, with finite segment lengths"
+        )
+    );
+    for edges in [
+        vec![0.0, f64::INFINITY],
+        vec![-1e308, 1e308],
+        vec![1.0, -1.0],
+    ] {
+        let err = rule.piecewise(&edges).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidParameter { name: "edges", .. }),
+            "{edges:?}: {err:?}"
+        );
+    }
+    let rule_dd = legendre::<Df64>(3);
+    let err = rule_dd.piecewise(&[dd(-1e308), dd(1e308)]).unwrap_err();
+    assert!(
+        matches!(err, Error::InvalidParameter { name: "edges", .. }),
+        "{err:?}"
+    );
+
+    // Valid input is unchanged
+    assert_eq!(rule.piecewise(&[-1.0, 1.0]).unwrap().x, rule.x);
 }

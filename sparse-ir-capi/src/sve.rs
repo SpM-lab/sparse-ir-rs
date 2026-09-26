@@ -567,8 +567,12 @@ pub extern "C" fn spir_sve_result_from_matrix(
             let segs_y_dd: Vec<Df64> = segs_y_slice.iter().map(|&y| Df64::from(y)).collect();
 
             // Create piecewise Gauss rules
-            let gauss_x_dd = rule_base_dd.piecewise(&segs_x_dd);
-            let gauss_y_dd = rule_base_dd.piecewise(&segs_y_dd);
+            let gauss_x_dd = rule_base_dd
+                .piecewise(&segs_x_dd)
+                .map_err(|e| status_from(&e))?;
+            let gauss_y_dd = rule_base_dd
+                .piecewise(&segs_y_dd)
+                .map_err(|e| status_from(&e))?;
 
             // Convert matrix from C array to DTensor
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
@@ -681,8 +685,12 @@ pub extern "C" fn spir_sve_result_from_matrix(
             let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
             let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
             let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
-            let gauss_x = gauss_rule_f64.piecewise(&segs_x_f64);
-            let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
+            let gauss_x = gauss_rule_f64
+                .piecewise(&segs_x_f64)
+                .map_err(|e| status_from(&e))?;
+            let gauss_y = gauss_rule_f64
+                .piecewise(&segs_y_f64)
+                .map_err(|e| status_from(&e))?;
 
             // Compute SVD
             let (u, s, v) = compute_svd_dtensor(&matrix).map_err(|e| status_from(&e))?;
@@ -899,8 +907,12 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
 
         // Reconstruct Gauss rules for weight removal (reduced domain [0, xmax] x [0, ymax])
-        let gauss_x = gauss_rule_f64.piecewise(&segs_x_f64);
-        let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
+        let gauss_x = gauss_rule_f64
+            .piecewise(&segs_x_f64)
+            .map_err(|e| status_from(&e))?;
+        let gauss_y = gauss_rule_f64
+            .piecewise(&segs_y_f64)
+            .map_err(|e| status_from(&e))?;
 
         // Helper function to convert matrix and compute SVD
         let compute_svd_for_symmetry = |k_high_slice: &[f64],
@@ -1618,8 +1630,8 @@ mod tests {
 
         // Create Gauss rules for reduced domain [0, xmax] x [0, ymax]
         let gauss_rule = legendre::<f64>(n_gauss);
-        let gauss_x_reduced = gauss_rule.piecewise(&segments_x);
-        let gauss_y_reduced = gauss_rule.piecewise(&segments_y);
+        let gauss_x_reduced = gauss_rule.piecewise(&segments_x).unwrap();
+        let gauss_y_reduced = gauss_rule.piecewise(&segments_y).unwrap();
 
         // Compute even and odd matrices (reduced domain)
         let discretized_even = matrix_from_gauss_with_segments(
@@ -1658,8 +1670,8 @@ mod tests {
         }
 
         // Create Gauss rules for full domain
-        let gauss_x_full = gauss_rule.piecewise(&segments_x_full);
-        let gauss_y_full = gauss_rule.piecewise(&segments_y_full);
+        let gauss_x_full = gauss_rule.piecewise(&segments_x_full).unwrap();
+        let gauss_y_full = gauss_rule.piecewise(&segments_y_full).unwrap();
 
         // Compute full domain matrix
         let discretized_full =
@@ -1833,7 +1845,10 @@ mod tests {
         let hints = kernel.sve_hints::<f64>(MATRICES_EPSILON);
         let (segs_x, segs_y) = (hints.segments_x(), hints.segments_y());
         let rule = legendre::<f64>(hints.ngauss());
-        let (gauss_x, gauss_y) = (rule.piecewise(&segs_x), rule.piecewise(&segs_y));
+        let (gauss_x, gauss_y) = (
+            rule.piecewise(&segs_x).unwrap(),
+            rule.piecewise(&segs_y).unwrap(),
+        );
         let reduced = |symmetry| {
             matrix_from_gauss_with_segments(&kernel, &gauss_x, &gauss_y, symmetry, &hints)
                 .apply_weights_for_sve()
@@ -1848,8 +1863,8 @@ mod tests {
         let (segs_x_full, segs_y_full) = (mirror(&segs_x), mirror(&segs_y));
         let full = matrix_from_gauss_noncentrosymmetric(
             &kernel,
-            &rule.piecewise(&segs_x_full),
-            &rule.piecewise(&segs_y_full),
+            &rule.piecewise(&segs_x_full).unwrap(),
+            &rule.piecewise(&segs_y_full).unwrap(),
             &hints,
         )
         .apply_weights_for_sve();

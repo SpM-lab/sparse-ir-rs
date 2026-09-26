@@ -107,8 +107,8 @@ fn logistic_full_domain_matrix() -> FullDomainMatrix {
     let rule = legendre::<f64>(hints.ngauss());
     let matrix = matrix_from_gauss_noncentrosymmetric(
         &kernel,
-        &rule.piecewise(&segs_x),
-        &rule.piecewise(&segs_y),
+        &rule.piecewise(&segs_x).unwrap(),
+        &rule.piecewise(&segs_y).unwrap(),
         &hints,
     )
     .apply_weights_for_sve();

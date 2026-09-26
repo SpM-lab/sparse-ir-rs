@@ -889,7 +889,7 @@ fn check_single_pole_fourier_pair<S: StatisticsType>() {
         let edges: Vec<f64> = (0..=n_segments)
             .map(|k| beta * k as f64 / n_segments as f64)
             .collect();
-        let quad = rule.piecewise(&edges);
+        let quad = rule.piecewise(&edges).unwrap();
         let gtau: Vec<f64> = quad
             .x
             .iter()

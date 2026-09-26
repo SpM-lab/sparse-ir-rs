@@ -456,8 +456,8 @@ fn test_regularized_bose_kernel_discretized_matrix_y0() {
 
     // Create composite Gauss rules
     let rule = crate::gauss::legendre_generic::<f64>(n_gauss);
-    let gauss_x = rule.piecewise(&segments_x);
-    let gauss_y = rule.piecewise(&segments_y);
+    let gauss_x = rule.piecewise(&segments_x).unwrap();
+    let gauss_y = rule.piecewise(&segments_y).unwrap();
 
     // Compute discretized kernel matrix for even symmetry
     let discretized =

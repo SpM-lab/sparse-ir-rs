@@ -408,6 +408,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
     w: *mut f64,
     status: *mut crate::StatusCode,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
     use sparse_ir::legendre;
     use std::panic::catch_unwind;
@@ -453,10 +454,21 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
             rule_dd.w.iter().map(|&w| w.to_f64()).collect(),
             rule_dd.a.to_f64(),
             rule_dd.b.to_f64(),
-        );
+        )
+        .expect("a Gauss-Legendre rule has one weight per point");
 
-        // Create piecewise rule
-        let piecewise_rule = rule.piecewise(&segs_vec);
+        // Create piecewise rule; the core rejects NaN or infinite boundaries
+        // and segment lengths that overflow, which the check above lets through
+        let piecewise_rule = match rule.piecewise(&segs_vec) {
+            Ok(rule) => rule,
+            Err(e) => {
+                let code = status_from(&e);
+                unsafe {
+                    *status = code;
+                }
+                return code;
+            }
+        };
 
         // Copy to output arrays
         for i in 0..piecewise_rule.x.len() {
@@ -516,6 +528,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
     w_low: *mut f64,
     status: *mut crate::StatusCode,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
     use sparse_ir::legendre;
     use std::panic::catch_unwind;
@@ -565,8 +578,18 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
         // Generate base rule with DDouble precision
         let rule_dd = legendre::<sparse_ir::Df64>(n as usize);
 
-        // Create piecewise rule
-        let piecewise_rule = rule_dd.piecewise(&segs_vec);
+        // Create piecewise rule; the core rejects NaN or infinite boundaries
+        // and segment lengths that overflow, which the check above lets through
+        let piecewise_rule = match rule_dd.piecewise(&segs_vec) {
+            Ok(rule) => rule,
+            Err(e) => {
+                let code = status_from(&e);
+                unsafe {
+                    *status = code;
+                }
+                return code;
+            }
+        };
 
         // Extract high and low parts
         for i in 0..piecewise_rule.x.len() {

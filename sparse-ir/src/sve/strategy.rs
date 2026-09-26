@@ -179,7 +179,12 @@ where
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new CentrosymmSVE
-    pub fn new(kernel: K, epsilon: f64) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidParameter`] if the SVE hints of the kernel give
+    /// segments that are not finite and strictly increasing
+    pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
         let hints = kernel.sve_hints::<T>(epsilon);
 
         // Get segments for positive domain [0, xmax]
@@ -189,8 +194,8 @@ where
 
         // Create composite Gauss rules
         let rule = legendre_generic::<T>(n_gauss);
-        let gauss_x = rule.piecewise(&segments_x);
-        let gauss_y = rule.piecewise(&segments_y);
+        let gauss_x = rule.piecewise(&segments_x)?;
+        let gauss_y = rule.piecewise(&segments_y)?;
 
         // Create the general SVE processor
         let sampling_sve = SamplingSVE::new(
@@ -202,7 +207,7 @@ where
             n_gauss,
         );
 
-        Self {
+        Ok(Self {
             kernel,
             epsilon,
             hints,
@@ -212,7 +217,7 @@ where
             gauss_x,
             gauss_y,
             sampling_sve,
-        }
+        })
     }
 
     /// Compute reduced kernel matrix for given symmetry
@@ -382,7 +387,12 @@ where
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new NonCentrosymmSVE
-    pub fn new(kernel: K, epsilon: f64) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidParameter`] if the SVE hints of the kernel give
+    /// segments that are not finite and strictly increasing
+    pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
         // SVEHints are half-domain for centrosymmetric kernels; this strategy
         // needs the full domain (issue #246).
         let hints = FullDomainHints {
@@ -397,8 +407,8 @@ where
 
         // Create composite Gauss rules for full domain
         let rule = legendre_generic::<T>(n_gauss);
-        let gauss_x = rule.piecewise(&segments_x);
-        let gauss_y = rule.piecewise(&segments_y);
+        let gauss_x = rule.piecewise(&segments_x)?;
+        let gauss_y = rule.piecewise(&segments_y)?;
 
         // Create the general SVE processor
         let sampling_sve = SamplingSVE::new(
@@ -410,7 +420,7 @@ where
             n_gauss,
         );
 
-        Self {
+        Ok(Self {
             kernel,
             epsilon,
             hints,
@@ -420,7 +430,7 @@ where
             gauss_x,
             gauss_y,
             sampling_sve,
-        }
+        })
     }
 
     /// Compute kernel matrix for non-centrosymmetric kernel
