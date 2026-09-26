@@ -597,3 +597,42 @@ fn test_evaluate_at_n_rejects_the_wrong_parity() {
     assert!(ft.evaluate_at_ns(&[1, 2]).is_err());
     assert_eq!(ft.evaluate_at_ns(&[1, -1]).unwrap().len(), 2);
 }
+
+/// Functions without a definite parity (symm = 0) have no default Matsubara
+/// sampling points: the sign changes and extrema that choose them are
+/// NotSupported, for the free functions (which panicked) and the methods
+/// (which used the real part), with both statistics (#183).
+#[test]
+fn test_sign_changes_of_functions_without_parity_are_not_supported() {
+    use crate::error::Error;
+    use crate::freq::MatsubaraFreq;
+    use crate::polyfourier::{find_extrema, sign_changes};
+
+    let poly =
+        PiecewiseLegendrePoly::new(tensor![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 0).unwrap();
+    let not_supported = |r: Result<Vec<i64>, Error>| {
+        let err = r.unwrap_err();
+        assert!(
+            matches!(&err, Error::NotSupported { what } if what.contains("got symm = 0")),
+            "{err:?}"
+        );
+    };
+    let ns =
+        |v: Vec<MatsubaraFreq<Fermionic>>| -> Vec<i64> { v.into_iter().map(|f| f.n()).collect() };
+    let ft = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None).unwrap();
+    for positive_only in [false, true] {
+        not_supported(sign_changes(&ft, positive_only).map(ns));
+        not_supported(find_extrema(&ft, positive_only).map(ns));
+        not_supported(ft.sign_changes(positive_only).map(ns));
+        not_supported(ft.find_extrema(positive_only).map(ns));
+    }
+    let nb =
+        |v: Vec<MatsubaraFreq<Bosonic>>| -> Vec<i64> { v.into_iter().map(|f| f.n()).collect() };
+    let ft = BosonicPiecewiseLegendreFT::new(poly, Bosonic, None).unwrap();
+    for positive_only in [false, true] {
+        not_supported(sign_changes(&ft, positive_only).map(nb));
+        not_supported(find_extrema(&ft, positive_only).map(nb));
+        not_supported(ft.sign_changes(positive_only).map(nb));
+        not_supported(ft.find_extrema(positive_only).map(nb));
+    }
+}

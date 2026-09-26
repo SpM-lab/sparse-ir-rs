@@ -574,3 +574,38 @@ fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
         }
     }
 }
+
+/// default_matsubara_sampling_points_impl, which the C API calls with a
+/// Matsubara-space spir_funcs, returns NotSupported for functions without a
+/// definite parity (#183) and EmptyInput for no functions (it panicked on
+/// `len() - 1`).
+#[test]
+fn test_default_matsubara_points_impl_errors() {
+    use crate::polyfourier::PiecewiseLegendreFTVector;
+    use crate::sve::compute_sve_general;
+
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
+            .unwrap();
+    for (fence, positive_only) in [(false, false), (true, true)] {
+        let err =
+            FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
+                basis.uhat_full(),
+                basis.size(),
+                fence,
+                positive_only,
+            )
+            .unwrap_err();
+        assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+    }
+    let empty = PiecewiseLegendreFTVector::<Fermionic>::new();
+    assert_eq!(
+        FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
+            &empty, 4, false, false
+        )
+        .unwrap_err(),
+        Error::EmptyInput { name: "uhat_full" }
+    );
+}

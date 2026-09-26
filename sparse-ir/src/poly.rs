@@ -115,7 +115,8 @@ impl PiecewiseLegendrePoly {
     ///
     /// `data` holds the Legendre coefficients, one column per segment; the
     /// `nsegments + 1` knots bound the segments. `delta_x` (the segment
-    /// widths) is computed from the knots when `None`.
+    /// widths) is computed from the knots when `None`. `symm` is the parity of
+    /// the polynomial: 1 (even), -1 (odd) or 0 (no definite parity).
     ///
     /// # Errors
     ///
@@ -127,6 +128,7 @@ impl PiecewiseLegendrePoly {
     ///   lengths); or if `delta_x` does not have one entry per segment or
     ///   differs from the knot spacing `e` by more than
     ///   `max(1e-10 * |e|, 8 * f64::EPSILON * max(|knots[i]|, |knots[i + 1]|))`
+    /// * [`Error::InvalidParameter`] if `symm` is not -1, 0 or 1
     pub fn new(
         data: mdarray::DTensor<f64, 2>,
         knots: Vec<f64>,
@@ -145,6 +147,13 @@ impl PiecewiseLegendrePoly {
         let delta_x =
             delta_x.unwrap_or_else(|| (1..knots.len()).map(|i| knots[i] - knots[i - 1]).collect());
         check_delta_x(&delta_x, &knots)?;
+        if !matches!(symm, -1..=1) {
+            return Err(Error::InvalidParameter {
+                name: "symm",
+                value: symm.to_string(),
+                reason: "must be -1, 0 or 1".to_string(),
+            });
+        }
 
         // Compute segment midpoints
         let xm: Vec<f64> = (0..nsegments)

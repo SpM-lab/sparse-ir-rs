@@ -220,12 +220,15 @@ where
             );
         }
         let fence = mitigate;
+        // Returns Result in the next task of part 3b; until then the error of
+        // a basis without parity panics as before (#183).
         let freqs = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
             n_points,
             fence,
             positive_only,
-        );
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
         freqs.into_iter().map(|f| f.n()).collect()
     }
 
@@ -492,12 +495,15 @@ where
             );
         }
         let fence = false;
+        // Returns Result in the next task of part 3b; until then the error of
+        // a basis without parity panics as before (#183).
         let points = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
             self.size(),
             fence,
             positive_only,
-        );
+        )
+        .unwrap_or_else(|e| panic!("{e}"));
         let basis_size = self.size();
         // For positive_only=true, we need 2*n_sampling_points >= basis_size
         // For positive_only=false, we need n_sampling_points >= basis_size
@@ -596,18 +602,33 @@ where
         *omega_n = omega_n_set.into_iter().collect();
     }
 
+    /// Default Matsubara sampling points for a basis of size `l` from the
+    /// Matsubara basis functions `uhat_full`: the sign changes of
+    /// `uhat_full[l]` (after the parity adjustment of `l`), or the extrema of
+    /// the last function when `uhat_full` has no function `l`; bosonic sets
+    /// always include n = 0. `fence` adds points near the outer frequencies.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `uhat_full` is empty
+    /// * [`Error::NotSupported`] if the functions have no definite parity
+    ///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
     pub fn default_matsubara_sampling_points_impl(
         uhat_full: &PiecewiseLegendreFTVector<S>,
         l: usize,
         fence: bool,
         positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>>
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
     where
         S: StatisticsType + 'static,
     {
         use crate::freq::MatsubaraFreq;
         use crate::polyfourier::{find_extrema, sign_changes};
         use std::collections::BTreeSet;
+
+        if uhat_full.is_empty() {
+            return Err(Error::EmptyInput { name: "uhat_full" });
+        }
 
         let mut l_requested = l;
 
@@ -620,9 +641,9 @@ where
 
         // Choose sign_changes or find_extrema based on l_requested
         let mut omega_n = if l_requested < uhat_full.len() {
-            sign_changes(&uhat_full[l_requested], positive_only)
+            sign_changes(&uhat_full[l_requested], positive_only)?
         } else {
-            find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)
+            find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)?
         };
 
         // For bosons, include zero frequency explicitly to prevent conditioning issues
@@ -655,7 +676,7 @@ where
             Self::fence_matsubara_sampling(&mut omega_n, positive_only);
         }
 
-        omega_n
+        Ok(omega_n)
     }
     /// Get default omega (real frequency) sampling points
     ///

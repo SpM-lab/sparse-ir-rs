@@ -918,6 +918,7 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     points: *mut i64,
     n_points_total: *mut libc::c_int,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::types::{FuncsType, has_definite_parity};
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
@@ -957,12 +958,15 @@ pub extern "C" fn spir_uhat_get_default_matsus(
                 // Handle Fermionic case
                 // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
                 if let Some(ref ft_fermionic) = ft_funcs.ft_fermionic {
-                    let matsubara_points = FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
+                    let matsubara_points = match FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
                         ft_fermionic,
                         l_usize,
                         fence,
                         positive_only,
-                    );
+                    ) {
+                        Ok(points) => points,
+                        Err(e) => return status_from(&e),
+                    };
                     matsubara_points
                         .iter()
                         .map(|freq| freq.into_i64())
@@ -971,12 +975,15 @@ pub extern "C" fn spir_uhat_get_default_matsus(
                 // Handle Bosonic case
                 // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
                 else if let Some(ref ft_bosonic) = ft_funcs.ft_bosonic {
-                    let matsubara_points = FiniteTempBasis::<LogisticKernel, Bosonic>::default_matsubara_sampling_points_impl(
+                    let matsubara_points = match FiniteTempBasis::<LogisticKernel, Bosonic>::default_matsubara_sampling_points_impl(
                         ft_bosonic,
                         l_usize,
                         fence,
                         positive_only,
-                    );
+                    ) {
+                        Ok(points) => points,
+                        Err(e) => return status_from(&e),
+                    };
                     matsubara_points
                         .iter()
                         .map(|freq| freq.into_i64())

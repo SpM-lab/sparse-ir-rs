@@ -1399,3 +1399,31 @@ fn test_new_checks_delta_x_relative_to_the_segment_length() {
         "{err:?}"
     );
 }
+
+/// `new` accepts only the symmetries -1, 0 and 1. Other values passed and
+/// made the default Matsubara sampling points panic later (#183).
+#[test]
+fn test_new_rejects_symm_other_than_minus_one_zero_or_one() {
+    use crate::error::Error;
+
+    for symm in [-1, 0, 1] {
+        PiecewiseLegendrePoly::new(tensor![[1.0]], vec![-1.0, 1.0], 0, None, symm).unwrap();
+    }
+    for symm in [2, -2, i32::MAX] {
+        assert_eq!(
+            PiecewiseLegendrePoly::new(tensor![[1.0]], vec![-1.0, 1.0], 0, None, symm).unwrap_err(),
+            Error::InvalidParameter {
+                name: "symm",
+                value: symm.to_string(),
+                reason: "must be -1, 0 or 1".to_string(),
+            }
+        );
+    }
+    let data3d = mdarray::DTensor::<f64, 3>::from_elem([1, 1, 2], 1.0);
+    let err = PiecewiseLegendrePolyVector::from_3d_data(data3d, vec![-1.0, 1.0], Some(vec![0, 3]))
+        .unwrap_err();
+    assert!(
+        matches!(err, Error::InvalidParameter { name: "symm", .. }),
+        "{err:?}"
+    );
+}
