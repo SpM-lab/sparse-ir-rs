@@ -839,9 +839,10 @@ mod tests {
         assert!(s.len() > TRUNCATED_BASIS_SIZE);
         let v0 = v.get_polys()[0].clone();
         SVEResult::new(
-            PiecewiseLegendrePolyVector::new(u.get_polys()[..TRUNCATED_BASIS_SIZE].to_vec()),
+            PiecewiseLegendrePolyVector::new(u.get_polys()[..TRUNCATED_BASIS_SIZE].to_vec())
+                .unwrap(),
             s[..TRUNCATED_BASIS_SIZE].to_vec(),
-            PiecewiseLegendrePolyVector::new(vec![v0; TRUNCATED_BASIS_SIZE]),
+            PiecewiseLegendrePolyVector::new(vec![v0; TRUNCATED_BASIS_SIZE]).unwrap(),
             epsilon,
         )
         .unwrap()

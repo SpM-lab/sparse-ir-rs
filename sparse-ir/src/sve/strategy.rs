@@ -87,10 +87,10 @@ where
     /// This converts SVD results to piecewise Legendre polynomials
     /// on the domain specified by segments (e.g., [0, xmax] for reduced kernels).
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the SVD result has no singular values: a
-    /// [`PiecewiseLegendrePolyVector`] cannot be empty.
+    /// The errors of [`svd_to_polynomials`], and [`Error::EmptyInput`] if the
+    /// SVD result has no singular values
     pub fn postprocess_single(
         &self,
         u: &DTensor<T, 2>,
@@ -106,9 +106,9 @@ where
     > {
         let (u_polys, s, v_polys) = self.postprocess_block(u, s, v)?;
         Ok((
-            PiecewiseLegendrePolyVector::new(u_polys),
+            PiecewiseLegendrePolyVector::new(u_polys)?,
             s,
-            PiecewiseLegendrePolyVector::new(v_polys),
+            PiecewiseLegendrePolyVector::new(v_polys)?,
         ))
     }
 

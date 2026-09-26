@@ -496,7 +496,7 @@ fn test_polynomial_vector_creation() {
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
     let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0).unwrap();
 
-    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
     assert_eq!(vector.size(), 2);
     assert_eq!(vector.get_polyorder(), 2);
@@ -511,7 +511,7 @@ fn test_vector_evaluation() {
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
     let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0).unwrap();
 
-    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
     let results = vector.evaluate_at(0.5);
     assert_eq!(results.len(), 2);
@@ -544,7 +544,7 @@ fn test_vector_3d_construction() {
     let knots = vec![0.0, 1.0, 2.0]; // 2 segments need 3 knots
     let symm = vec![0, 1];
 
-    let vector = PiecewiseLegendrePolyVector::from_3d_data(data3d, knots, Some(symm));
+    let vector = PiecewiseLegendrePolyVector::from_3d_data(data3d, knots, Some(symm)).unwrap();
 
     assert_eq!(vector.size(), 2);
     assert_eq!(vector.get_polyorder(), 3);
@@ -567,7 +567,7 @@ fn test_vector_slicing() {
     let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, 0).unwrap();
     let poly3 = PiecewiseLegendrePoly::new(data3, knots, 2, None, 0).unwrap();
 
-    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2, poly3]);
+    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2, poly3]).unwrap();
 
     // Test single slice
     let single_slice = vector.slice_single(1);
@@ -575,7 +575,7 @@ fn test_vector_slicing() {
     assert_eq!(single_slice.unwrap().size(), 1);
 
     // Test multi slice
-    let multi_slice = vector.slice_multi(&[0, 2]);
+    let multi_slice = vector.slice_multi(&[0, 2]).unwrap();
     assert_eq!(multi_slice.size(), 2);
 
     // Test evaluation of slice
@@ -593,7 +593,7 @@ fn test_vector_accessors() {
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
     let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, 0).unwrap();
 
-    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
     // Test accessor methods
     assert_eq!(vector.xmin(), 0.0);
@@ -617,7 +617,7 @@ fn test_vector_roots() {
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
     let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0).unwrap();
 
-    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
     let roots = vector.roots(None);
     println!("Vector roots: {:?}", roots);
@@ -832,7 +832,8 @@ fn test_high_order_polynomial_vector() {
 
     // Create polynomial vector
     let vector =
-        PiecewiseLegendrePolyVector::new(vec![poly1.clone(), poly2.clone(), poly3.clone()]);
+        PiecewiseLegendrePolyVector::new(vec![poly1.clone(), poly2.clone(), poly3.clone()])
+            .unwrap();
 
     // Test basic properties
     assert_eq!(vector.size(), 3);
@@ -954,7 +955,7 @@ fn test_rescale_domain_vector() {
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 1).unwrap(); // symm=1
     let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, -1).unwrap(); // symm=-1
 
-    let polyvec = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let polyvec = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
     // Rescale to [0, β] where β=2.0
     let beta = 2.0;
@@ -992,7 +993,7 @@ fn test_scale_data_vector() {
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
     let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0).unwrap();
 
-    let polyvec = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let polyvec = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
     // Evaluate before scaling
     let val1_before = polyvec.get_polys()[0].evaluate(0.0);
@@ -1180,7 +1181,7 @@ fn test_deriv_updates_polyorder() {
     // The derivatives at a point still use the order of the polynomial.
     assert_eq!(poly.derivs(0.5).len(), 3);
 
-    let vector = PiecewiseLegendrePolyVector::new(vec![d1.clone(), d1]);
+    let vector = PiecewiseLegendrePolyVector::new(vec![d1.clone(), d1]).unwrap();
     let shape = *vector.get_data().shape();
     assert_eq!((shape.0, shape.1, shape.2), (2, 2, 2));
 }
@@ -1211,7 +1212,7 @@ fn test_negated_equals_new_with_negated_data() {
 fn test_vector_rescale_domain_checks_new_symm() {
     use crate::error::Error;
     let poly = PiecewiseLegendrePoly::new(tensor![[1.0]], vec![-1.0, 1.0], 0, None, 1).unwrap();
-    let vector = PiecewiseLegendrePolyVector::new(vec![poly.clone(), poly]);
+    let vector = PiecewiseLegendrePolyVector::new(vec![poly.clone(), poly]).unwrap();
     let err = vector
         .rescale_domain(vec![0.0, 2.0], None, Some(vec![1]))
         .unwrap_err();
@@ -1223,4 +1224,85 @@ fn test_vector_rescale_domain_checks_new_symm() {
             reason: "must have one entry per polynomial (2)".to_string(),
         }
     );
+}
+
+/// The vector constructors reject empty input, inconsistent polynomials and
+/// invalid indices with typed errors. Before the change `new` panicked on an
+/// empty vector, `from_3d_data` returned an empty vector or panicked on a
+/// symm of the wrong length, and `slice_multi` panicked on an invalid index
+/// and returned an empty vector for no index.
+#[test]
+fn test_vector_constructors_check_their_input() {
+    use crate::error::Error;
+    use mdarray::DTensor;
+
+    let on = |knots: Vec<f64>, rows: usize| {
+        let data = DTensor::<f64, 2>::from_elem([rows, knots.len() - 1], 1.0);
+        PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap()
+    };
+    let inconsistent = |i: usize| Error::InvalidParameter {
+        name: "polyvec",
+        value: format!("polynomial {i}"),
+        reason: "must have the knots and the data shape of polynomial 0".to_string(),
+    };
+
+    assert_eq!(
+        PiecewiseLegendrePolyVector::new(vec![]).unwrap_err(),
+        Error::EmptyInput { name: "polyvec" }
+    );
+    let a = on(vec![0.0, 1.0, 2.0], 2);
+    assert_eq!(
+        PiecewiseLegendrePolyVector::new(vec![a.clone(), on(vec![0.0, 0.5, 2.0], 2)]).unwrap_err(),
+        inconsistent(1)
+    );
+    assert_eq!(
+        PiecewiseLegendrePolyVector::new(vec![a.clone(), a.clone(), on(vec![0.0, 1.0, 2.0], 3)])
+            .unwrap_err(),
+        inconsistent(2)
+    );
+
+    let data3d = DTensor::<f64, 3>::from_elem([2, 2, 0], 1.0);
+    assert_eq!(
+        PiecewiseLegendrePolyVector::from_3d_data(data3d, vec![0.0, 1.0, 2.0], None).unwrap_err(),
+        Error::EmptyInput { name: "data3d" }
+    );
+    let data3d = DTensor::<f64, 3>::from_elem([2, 2, 3], 1.0);
+    assert_eq!(
+        PiecewiseLegendrePolyVector::from_3d_data(
+            data3d.clone(),
+            vec![0.0, 1.0, 2.0],
+            Some(vec![1])
+        )
+        .unwrap_err(),
+        Error::InvalidParameter {
+            name: "symm",
+            value: "1 entries".to_string(),
+            reason: "must have one entry per polynomial (3)".to_string(),
+        }
+    );
+    let err = PiecewiseLegendrePolyVector::from_3d_data(data3d, vec![0.0, 1.0], None).unwrap_err();
+    assert!(
+        matches!(err, Error::InvalidParameter { name: "knots", .. }),
+        "{err:?}"
+    );
+
+    let vector = PiecewiseLegendrePolyVector::new(vec![a.clone(), a.clone(), a]).unwrap();
+    let indices = |value: &str, reason: &str| Error::InvalidParameter {
+        name: "indices",
+        value: value.to_string(),
+        reason: reason.to_string(),
+    };
+    assert_eq!(
+        vector.slice_multi(&[]).unwrap_err(),
+        Error::EmptyInput { name: "indices" }
+    );
+    assert_eq!(
+        vector.slice_multi(&[0, 3]).unwrap_err(),
+        indices("3", "must be less than the size 3")
+    );
+    assert_eq!(
+        vector.slice_multi(&[2, 0, 2]).unwrap_err(),
+        indices("2", "must not repeat")
+    );
+    assert_eq!(vector.slice_multi(&[2, 0]).unwrap().size(), 2);
 }

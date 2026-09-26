@@ -95,8 +95,8 @@ impl SVEResult {
     ///
     /// * [`Error::InvalidParameter`] if `eps` is not in [0, 1) (0 keeps every
     ///   singular value) or `max_size` is `Some(0)`
-    /// * The errors of [`Self::new`] if the (public) fields break its
-    ///   invariants
+    /// * The errors of [`Self::new`] and [`PiecewiseLegendrePolyVector::new`]
+    ///   if the (public) fields break their invariants
     pub fn part(
         &self,
         eps: Option<f64>,
@@ -129,9 +129,9 @@ impl SVEResult {
         }
 
         // Extract subsets
-        let u_part = PiecewiseLegendrePolyVector::new(self.u.get_polys()[..cut].to_vec());
+        let u_part = PiecewiseLegendrePolyVector::new(self.u.get_polys()[..cut].to_vec())?;
         let s_part = self.s[..cut].to_vec();
-        let v_part = PiecewiseLegendrePolyVector::new(self.v.get_polys()[..cut].to_vec());
+        let v_part = PiecewiseLegendrePolyVector::new(self.v.get_polys()[..cut].to_vec())?;
 
         Ok((u_part, s_part, v_part))
     }

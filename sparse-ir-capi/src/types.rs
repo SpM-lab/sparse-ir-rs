@@ -1226,7 +1226,10 @@ impl spir_funcs {
                     }
                     new_polys.push(pv.poly.polyvec[idx].clone());
                 }
-                let new_poly_vec = PiecewiseLegendrePolyVector::new(new_polys);
+                // The C API rejects an empty selection and invalid indices
+                // before this call; a failure here is an internal
+                // inconsistency (SPIR_INTERNAL_ERROR, as before).
+                let new_poly_vec = PiecewiseLegendrePolyVector::new(new_polys).ok()?;
                 Some(Self {
                     _private: Box::into_raw(Box::new(FuncsType::PolyVector(PolyVectorFuncs {
                         poly: Arc::new(new_poly_vec),

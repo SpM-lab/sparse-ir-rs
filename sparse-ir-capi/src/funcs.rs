@@ -79,6 +79,7 @@ pub extern "C" fn spir_funcs_deriv(
     n: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -102,8 +103,10 @@ pub extern "C" fn spir_funcs_deriv(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| unsafe {
-        let funcs_ref = &*funcs;
+    let result = catch_unwind(|| -> Result<*mut spir_funcs, crate::StatusCode> {
+        // SAFETY: `funcs` is non-null (checked above) and points to a valid
+        // spir_funcs, as the caller guarantees.
+        let funcs_ref = unsafe { &*funcs };
         let inner = funcs_ref.inner_type();
 
         // Only PolyVector types support derivatives
@@ -117,7 +120,10 @@ pub extern "C" fn spir_funcs_deriv(
                     .map(|poly| poly.deriv(n as usize))
                     .collect();
 
-                let deriv_poly = sparse_ir::poly::PiecewiseLegendrePolyVector::new(deriv_polyvec);
+                // The derivatives share the knots and the data shape, so this
+                // cannot fail; any error is reported through status_from.
+                let deriv_poly = sparse_ir::poly::PiecewiseLegendrePolyVector::new(deriv_polyvec)
+                    .map_err(|e| status_from(&e))?;
                 let deriv_arc = Arc::new(deriv_poly);
 
                 // Create appropriate funcs based on domain
@@ -132,39 +138,25 @@ pub extern "C" fn spir_funcs_deriv(
                         spir_funcs::from_v(deriv_arc, funcs_ref.beta)
                     }
                 };
-                Box::into_raw(Box::new(deriv_funcs))
+                Ok(Box::into_raw(Box::new(deriv_funcs)))
             }
-            crate::types::FuncsType::FTVector(_) => {
-                // FT vectors don't support derivatives in the current implementation
-                *status = SPIR_NOT_SUPPORTED;
-                std::ptr::null_mut()
-            }
-            _ => {
-                // Other types don't support derivatives
-                *status = SPIR_NOT_SUPPORTED;
-                std::ptr::null_mut()
-            }
+            // FT vectors don't support derivatives in the current implementation
+            crate::types::FuncsType::FTVector(_) => Err(SPIR_NOT_SUPPORTED),
+            // Other types don't support derivatives
+            _ => Err(SPIR_NOT_SUPPORTED),
         }
     });
 
-    match result {
-        Ok(ptr) if !ptr.is_null() => {
-            unsafe {
-                *status = SPIR_COMPUTATION_SUCCESS;
-            }
-            ptr
-        }
-        Ok(_) => {
-            // Null pointer returned - status was already set above (e.g. SPIR_NOT_SUPPORTED)
-            std::ptr::null_mut()
-        }
-        Err(_) => {
-            unsafe {
-                *status = SPIR_INTERNAL_ERROR;
-            }
-            std::ptr::null_mut()
-        }
+    let (ptr, code) = match result {
+        Ok(Ok(ptr)) => (ptr, SPIR_COMPUTATION_SUCCESS),
+        Ok(Err(code)) => (std::ptr::null_mut(), code),
+        Err(_) => (std::ptr::null_mut(), SPIR_INTERNAL_ERROR),
+    };
+    // SAFETY: `status` is non-null (checked on entry) and caller-provided.
+    unsafe {
+        *status = code;
     }
+    ptr
 }
 
 /// Create a spir_funcs object from piecewise Legendre polynomial coefficients
@@ -321,14 +313,13 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
             }
         };
 
-        // Create PiecewiseLegendrePolyVector (single function)
-        let polyvec = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            PiecewiseLegendrePolyVector::new(vec![poly])
-        })) {
+        // Create PiecewiseLegendrePolyVector (single function: neither empty
+        // nor inconsistent, but any error is reported through status_from)
+        let polyvec = match PiecewiseLegendrePolyVector::new(vec![poly]) {
             Ok(pv) => pv,
-            Err(_) => {
+            Err(e) => {
                 unsafe {
-                    *status = SPIR_INTERNAL_ERROR;
+                    *status = status_from(&e);
                 }
                 return std::ptr::null_mut();
             }

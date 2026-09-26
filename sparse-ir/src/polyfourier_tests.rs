@@ -101,7 +101,7 @@ fn test_ft_vector_from_poly_vector() {
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
     let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, 0).unwrap();
 
-    let poly_vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let poly_vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
     let ft_vector =
         FermionicPiecewiseLegendreFTVector::from_poly_vector(&poly_vector, Fermionic, None);
 

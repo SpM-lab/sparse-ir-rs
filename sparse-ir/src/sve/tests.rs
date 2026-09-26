@@ -339,14 +339,14 @@ fn test_merge_results_assigns_global_index() {
     // Interlacing singular values, as for a totally positive kernel.
     let merged = merge_results(
         (
-            PiecewiseLegendrePolyVector::new(even.clone()),
+            PiecewiseLegendrePolyVector::new(even.clone()).unwrap(),
             vec![1.0, 0.1],
-            PiecewiseLegendrePolyVector::new(even),
+            PiecewiseLegendrePolyVector::new(even).unwrap(),
         ),
         (
-            PiecewiseLegendrePolyVector::new(odd.clone()),
+            PiecewiseLegendrePolyVector::new(odd.clone()).unwrap(),
             vec![0.5, 0.05],
-            PiecewiseLegendrePolyVector::new(odd),
+            PiecewiseLegendrePolyVector::new(odd).unwrap(),
         ),
         1e-10,
     )
@@ -889,9 +889,9 @@ fn test_merge_results_with_an_empty_block() {
     let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
     let block = |polys: &Vec<PiecewiseLegendrePoly>, s: Vec<f64>| {
         (
-            PiecewiseLegendrePolyVector::new(polys.clone()),
+            PiecewiseLegendrePolyVector::new(polys.clone()).unwrap(),
             s,
-            PiecewiseLegendrePolyVector::new(polys.clone()),
+            PiecewiseLegendrePolyVector::new(polys.clone()).unwrap(),
         )
     };
 

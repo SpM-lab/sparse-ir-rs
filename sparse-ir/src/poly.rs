@@ -672,13 +672,27 @@ pub struct PiecewiseLegendrePolyVector {
 impl PiecewiseLegendrePolyVector {
     /// Constructor with a vector of PiecewiseLegendrePoly
     ///
-    /// # Panics
-    /// Panics if the input vector is empty, as empty PiecewiseLegendrePolyVector is not meaningful
-    pub fn new(polyvec: Vec<PiecewiseLegendrePoly>) -> Self {
-        if polyvec.is_empty() {
-            panic!("Cannot create empty PiecewiseLegendrePolyVector");
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `polyvec` is empty
+    /// * [`Error::InvalidParameter`] if a polynomial has other knots or
+    ///   another data shape than the first: the accessors of the vector
+    ///   (`get_knots`, `get_data`, ...) describe all of them by the first
+    pub fn new(polyvec: Vec<PiecewiseLegendrePoly>) -> Result<Self, Error> {
+        let Some(first) = polyvec.first() else {
+            return Err(Error::EmptyInput { name: "polyvec" });
+        };
+        if let Some(i) = polyvec
+            .iter()
+            .position(|p| p.knots != first.knots || p.data.shape() != first.data.shape())
+        {
+            return Err(Error::InvalidParameter {
+                name: "polyvec",
+                value: format!("polynomial {i}"),
+                reason: "must have the knots and the data shape of polynomial 0".to_string(),
+            });
         }
-        Self { polyvec }
+        Ok(Self { polyvec })
     }
 
     /// Get the polynomials
@@ -687,17 +701,34 @@ impl PiecewiseLegendrePolyVector {
     }
 
     /// Constructor with a 3D array, knots, and symmetry vector
+    ///
+    /// `data3d` has the shape `(polyorder, nsegments, npolys)`; polynomial `i`
+    /// gets `l = i` and the symmetry `symm[i]` (0 if `symm` is `None`).
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `data3d` has no polynomial
+    /// * [`Error::InvalidParameter`] if `symm` does not have one entry per
+    ///   polynomial
+    /// * The errors of [`PiecewiseLegendrePoly::new`] for the data and knots
     pub fn from_3d_data(
         data3d: mdarray::DTensor<f64, 3>,
         knots: Vec<f64>,
         symm: Option<Vec<i32>>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let npolys = data3d.shape().2;
+        if npolys == 0 {
+            return Err(Error::EmptyInput { name: "data3d" });
+        }
         let mut polyvec = Vec::with_capacity(npolys);
 
         if let Some(ref symm_vec) = symm {
             if symm_vec.len() != npolys {
-                panic!("Sizes of data and symm don't match");
+                return Err(Error::InvalidParameter {
+                    name: "symm",
+                    value: format!("{} entries", symm_vec.len()),
+                    reason: format!("must have one entry per polynomial ({npolys})"),
+                });
             }
         }
 
@@ -721,14 +752,12 @@ impl PiecewiseLegendrePolyVector {
                 i as i32,
                 Some(delta_x.clone()),
                 symm.as_ref().map_or(0, |s| s[i]),
-            )
-            // Temporary until from_3d_data returns Result (the next change)
-            .unwrap_or_else(|e| panic!("{e}"));
+            )?;
 
             polyvec.push(poly);
         }
 
-        Self { polyvec }
+        Ok(Self { polyvec })
     }
 
     /// Get the size of the vector
@@ -827,23 +856,35 @@ impl PiecewiseLegendrePolyVector {
         })
     }
 
-    /// Extract multiple polynomials by indices
-    pub fn slice_multi(&self, indices: &[usize]) -> Self {
-        // Validate indices
-        for &idx in indices {
-            if idx >= self.polyvec.len() {
-                panic!("Index {} out of range", idx);
-            }
+    /// Extract multiple polynomials by indices, in the order of `indices`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `indices` is empty
+    /// * [`Error::InvalidParameter`] for the first index that is out of range
+    ///   or repeats an earlier one
+    pub fn slice_multi(&self, indices: &[usize]) -> Result<Self, Error> {
+        if indices.is_empty() {
+            return Err(Error::EmptyInput { name: "indices" });
         }
-
-        // Check for duplicates
-        {
-            let mut unique_indices = indices.to_vec();
-            unique_indices.sort();
-            unique_indices.dedup();
-            if unique_indices.len() != indices.len() {
-                panic!("Duplicate indices not allowed");
+        let len = self.polyvec.len();
+        let mut seen = vec![false; len];
+        for &idx in indices {
+            if idx >= len {
+                return Err(Error::InvalidParameter {
+                    name: "indices",
+                    value: format!("{idx}"),
+                    reason: format!("must be less than the size {len}"),
+                });
             }
+            if seen[idx] {
+                return Err(Error::InvalidParameter {
+                    name: "indices",
+                    value: format!("{idx}"),
+                    reason: "must not repeat".to_string(),
+                });
+            }
+            seen[idx] = true;
         }
 
         let new_polyvec: Vec<_> = indices
@@ -851,9 +892,9 @@ impl PiecewiseLegendrePolyVector {
             .map(|&idx| self.polyvec[idx].clone())
             .collect();
 
-        Self {
+        Ok(Self {
             polyvec: new_polyvec,
-        }
+        })
     }
 
     /// Evaluate all polynomials at a single point
