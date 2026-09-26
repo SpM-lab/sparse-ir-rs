@@ -142,7 +142,8 @@ where
     ///
     /// # Arguments
     /// * `edges` - Segment boundaries: at least 2, finite and strictly
-    ///   increasing, with finite segment lengths
+    ///   increasing, with finite segment lengths and a finite sum of the ends
+    ///   of each segment (the midpoint of the segment is computed from it)
     ///
     /// # Errors
     /// [`Error::InvalidParameter`] if `edges` does not meet these conditions
@@ -176,6 +177,18 @@ where
                         edges[i - 1].to_f64()
                     ),
                     reason: "must be strictly increasing, with finite segment lengths".to_string(),
+                });
+            }
+            // `reseat` computes the midpoint as (a + b) * 0.5
+            if !(edges[i] + edges[i - 1]).to_f64().is_finite() {
+                return Err(Error::InvalidParameter {
+                    name: "edges",
+                    value: format!(
+                        "{:?} after {:?} at index {i}",
+                        edges[i].to_f64(),
+                        edges[i - 1].to_f64()
+                    ),
+                    reason: "must have a finite sum of the ends of each segment".to_string(),
                 });
             }
         }

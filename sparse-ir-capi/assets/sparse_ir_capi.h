@@ -2173,7 +2173,8 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  *   a size is less than 1, `epsilon` is not positive and finite or is 1 or
  *   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
  *   are not finite and strictly increasing, a segment length is not finite
- *   or is subnormal, or the matrix has rank 0
+ *   or is subnormal, the sum of the ends of a segment overflows, or the
+ *   matrix has rank 0
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
  *   overflows) or an internal error occurs
@@ -2236,7 +2237,8 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  *   and finite or is 1 or more, an entry of a matrix that is read is NaN or
  *   infinite, the segments are not finite and strictly increasing, the
  *   segments do not start at 0, a segment length is not finite or is
- *   subnormal, or both matrices have rank 0
+ *   subnormal, the sum of the ends of a segment overflows, or both
+ *   matrices have rank 0
  * - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
  * - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
  *   or an internal error occurs
@@ -2288,7 +2290,8 @@ struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double
  * # Arguments
  * * `n` - Number of Gauss points per segment (must be >= 1)
  * * `segments` - Array of segment boundaries (n_segments + 1 elements):
- *   finite and strictly increasing, with finite segment lengths
+ *   finite and strictly increasing, with finite segment lengths and a
+ *   finite sum of the ends of each segment
  * * `n_segments` - Number of segments (must be >= 1)
  * * `x` - Output array for Gauss points (size n * n_segments). Must be pre-allocated.
  * * `w` - Output array for Gauss weights (size n * n_segments). Must be pre-allocated.
@@ -2319,7 +2322,8 @@ StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
  * # Arguments
  * * `n` - Number of Gauss points per segment (must be >= 1)
  * * `segments` - Array of segment boundaries (n_segments + 1 elements):
- *   finite and strictly increasing, with finite segment lengths
+ *   finite and strictly increasing, with finite segment lengths and a
+ *   finite sum of the ends of each segment
  * * `n_segments` - Number of segments (must be >= 1)
  * * `x_high` - Output array for high part of Gauss points (size n * n_segments).
  *              Must be pre-allocated.

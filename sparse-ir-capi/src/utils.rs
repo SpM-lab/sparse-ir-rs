@@ -389,7 +389,8 @@ pub extern "C" fn spir_choose_working_type(epsilon: f64) -> libc::c_int {
 /// # Arguments
 /// * `n` - Number of Gauss points per segment (must be >= 1)
 /// * `segments` - Array of segment boundaries (n_segments + 1 elements):
-///   finite and strictly increasing, with finite segment lengths
+///   finite and strictly increasing, with finite segment lengths and a
+///   finite sum of the ends of each segment
 /// * `n_segments` - Number of segments (must be >= 1)
 /// * `x` - Output array for Gauss points (size n * n_segments). Must be pre-allocated.
 /// * `w` - Output array for Gauss weights (size n * n_segments). Must be pre-allocated.
@@ -503,7 +504,8 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
 /// # Arguments
 /// * `n` - Number of Gauss points per segment (must be >= 1)
 /// * `segments` - Array of segment boundaries (n_segments + 1 elements):
-///   finite and strictly increasing, with finite segment lengths
+///   finite and strictly increasing, with finite segment lengths and a
+///   finite sum of the ends of each segment
 /// * `n_segments` - Number of segments (must be >= 1)
 /// * `x_high` - Output array for high part of Gauss points (size n * n_segments).
 ///              Must be pre-allocated.
@@ -921,13 +923,18 @@ mod tests {
         }
     }
 
-    /// A NaN or infinite boundary, or a segment length that overflows, passed
-    /// the `<=` check; the core then panicked sorting NaN points
-    /// (SPIR_INTERNAL_ERROR) or returned NaN points. They are invalid
-    /// arguments now, for both precisions.
+    /// A NaN or infinite boundary, or a segment length or midpoint that
+    /// overflows, passed the `<=` check; the core then panicked sorting NaN
+    /// points (SPIR_INTERNAL_ERROR) or returned NaN or infinite points. They
+    /// are invalid arguments now, for both precisions.
     #[test]
     fn test_gauss_legendre_rule_piecewise_rejects_non_finite_segments() {
-        for segments in [[0.0, f64::NAN], [0.0, f64::INFINITY], [-1e308, 1e308]] {
+        for segments in [
+            [0.0, f64::NAN],
+            [0.0, f64::INFINITY],
+            [-1e308, 1e308],
+            [1e308, 1.7e308],
+        ] {
             for n in [1, 3] {
                 let len = n as usize;
                 let (mut x, mut w) = (vec![0.0; len], vec![0.0; len]);

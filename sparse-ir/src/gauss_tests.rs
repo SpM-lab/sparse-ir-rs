@@ -1049,3 +1049,24 @@ fn test_rule_constructors_check_their_input() {
     // Valid input is unchanged
     assert_eq!(rule.piecewise(&[-1.0, 1.0]).unwrap().x, rule.x);
 }
+
+/// Edges whose segment length is finite but whose midpoint a + b overflows
+/// gave infinite points. They are rejected as well.
+#[test]
+fn test_piecewise_rejects_an_overflowing_midpoint() {
+    use crate::error::Error;
+
+    for edges in [[1e308, 1.7e308], [-1.7e308, -1e308]] {
+        let err = legendre::<f64>(3).piecewise(&edges).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidParameter { name: "edges", .. }),
+            "{edges:?}: {err:?}"
+        );
+        let dd = [Df64::from(edges[0]), Df64::from(edges[1])];
+        let err = legendre::<Df64>(3).piecewise(&dd).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidParameter { name: "edges", .. }),
+            "{edges:?}: {err:?}"
+        );
+    }
+}

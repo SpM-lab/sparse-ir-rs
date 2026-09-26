@@ -467,7 +467,8 @@ unsafe fn validated_segments<'a>(
 ///   a size is less than 1, `epsilon` is not positive and finite or is 1 or
 ///   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
 ///   are not finite and strictly increasing, a segment length is not finite
-///   or is subnormal, or the matrix has rank 0
+///   or is subnormal, the sum of the ends of a segment overflows, or the
+///   matrix has rank 0
 /// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
 /// - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
 ///   overflows) or an internal error occurs
@@ -801,7 +802,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ///   and finite or is 1 or more, an entry of a matrix that is read is NaN or
 ///   infinite, the segments are not finite and strictly increasing, the
 ///   segments do not start at 0, a segment length is not finite or is
-///   subnormal, or both matrices have rank 0
+///   subnormal, the sum of the ends of a segment overflows, or both
+///   matrices have rank 0
 /// - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
 /// - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
 ///   or an internal error occurs
