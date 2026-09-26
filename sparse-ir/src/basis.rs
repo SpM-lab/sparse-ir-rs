@@ -746,8 +746,12 @@ where
             let i = idx[0]; // tau index
             let l = idx[1]; // basis function index
 
-            // Normalize tau to [0, beta] with statistics-dependent sign
-            let (tau_norm, sign) = normalize_tau::<S>(tau[i], self.beta);
+            // Normalize tau to [0, beta] with statistics-dependent sign.
+            // Basis::evaluate_tau returns Result in part 3b; until then a τ
+            // outside [-β, β] panics as before (β is checked by the
+            // constructors).
+            let (tau_norm, sign) =
+                normalize_tau::<S>(tau[i], self.beta).unwrap_or_else(|e| panic!("{e}"));
 
             // Evaluate basis function directly (u polynomials are in tau domain)
             sign * self.u[l].evaluate(tau_norm)

@@ -157,7 +157,7 @@ where
     let gtau_values: Vec<T> = tau_points
         .iter()
         .map(|&tau| {
-            let g = crate::gtau_single_pole::<S>(tau, omega, beta);
+            let g = crate::gtau_single_pole::<S>(tau, omega, beta).unwrap();
             T::from_real(g)
         })
         .collect();
@@ -165,7 +165,7 @@ where
     // Compute G(iν) at Matsubara frequencies
     let giwn_values: Vec<Complex<f64>> = matsubara_freqs
         .iter()
-        .map(|freq| giwn_single_pole::<S>(freq, omega, beta))
+        .map(|freq| giwn_single_pole::<S>(freq, omega, beta).unwrap())
         .collect();
 
     (coeffs, gtau_values, giwn_values)
@@ -266,7 +266,7 @@ where
 
         // Compute G(τ) values
         for (i, &tau) in tau_points.iter().enumerate() {
-            let g = gtau_single_pole::<S>(tau, omega, beta);
+            let g = gtau_single_pole::<S>(tau, omega, beta).unwrap();
             let mut full_idx = vec![i];
             full_idx.extend_from_slice(&extra_idx);
             gtau_values[&full_idx[..]] = T::from_real(g);
@@ -274,7 +274,7 @@ where
 
         // Compute G(iν) values
         for (i, freq) in matsubara_freqs.iter().enumerate() {
-            let g = giwn_single_pole::<S>(freq, omega, beta);
+            let g = giwn_single_pole::<S>(freq, omega, beta).unwrap();
             let mut full_idx = vec![i];
             full_idx.extend_from_slice(&extra_idx);
             giwn_values[&full_idx[..]] = g;

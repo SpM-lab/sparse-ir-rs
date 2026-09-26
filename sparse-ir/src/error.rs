@@ -146,6 +146,19 @@ pub(crate) fn require_positive_finite(name: &'static str, value: f64) -> Result<
     }
 }
 
+/// `Ok` if `value` is finite
+pub(crate) fn require_finite(name: &'static str, value: f64) -> Result<(), Error> {
+    if value.is_finite() {
+        Ok(())
+    } else {
+        Err(Error::InvalidParameter {
+            name,
+            value: format!("{value:?}"),
+            reason: "must be finite".to_string(),
+        })
+    }
+}
+
 /// `Ok` for an accuracy that selects the SVE: `None` (automatic) or a value
 /// in (0, 1)
 pub(crate) fn require_accuracy(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {

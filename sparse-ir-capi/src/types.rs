@@ -43,7 +43,8 @@ pub(crate) fn statistics_from_c(value: i32) -> Result<Statistics, i32> {
 /// The imaginary-time domain [-β, β] accepted by the C API.
 ///
 /// `normalize_tau` folds a negative τ onto [0, β] with the statistics sign;
-/// a point outside [-β, β] makes it (and `TauSampling`) panic.
+/// it returns an error for a point outside [-β, β], and `TauSampling` panics
+/// on one.
 pub(crate) fn tau_domain(beta: f64) -> (f64, f64) {
     (-beta, beta)
 }
@@ -547,15 +548,18 @@ pub(crate) struct PolyVectorFuncs {
 impl PolyVectorFuncs {
     /// Evaluate all functions at a single point
     pub fn evaluate_at(&self, x: f64, beta: f64) -> Vec<f64> {
-        // Normalize x based on domain
+        // Normalize x based on domain. spir_funcs_eval and
+        // spir_funcs_batch_eval check the point against tau_domain first;
+        // spir_basis_new_from_sve_and_regularizer does not (part 6), and the
+        // panic gives SPIR_INTERNAL_ERROR as before.
         let (x_reg, sign) = match self.domain {
             FunctionDomain::Tau(Statistics::Fermionic) => {
                 // u functions (fermionic): normalize tau to [0, beta]
-                normalize_tau::<Fermionic>(x, beta)
+                normalize_tau::<Fermionic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
             }
             FunctionDomain::Tau(Statistics::Bosonic) => {
                 // u functions (bosonic): normalize tau to [0, beta]
-                normalize_tau::<Bosonic>(x, beta)
+                normalize_tau::<Bosonic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
             }
             FunctionDomain::Omega => {
                 // v functions: no normalization needed
@@ -578,12 +582,18 @@ impl PolyVectorFuncs {
         let n_points = xs.len();
         let mut result = vec![vec![0.0; n_points]; n_funcs];
 
-        // Normalize all points based on domain
+        // Normalize all points based on domain. The C API checks them against
+        // tau_domain first (see evaluate_at); a point outside panics
+        // (SPIR_INTERNAL_ERROR) as before.
         let normalized: Vec<(f64, f64)> = xs
             .iter()
             .map(|&x| match self.domain {
-                FunctionDomain::Tau(Statistics::Fermionic) => normalize_tau::<Fermionic>(x, beta),
-                FunctionDomain::Tau(Statistics::Bosonic) => normalize_tau::<Bosonic>(x, beta),
+                FunctionDomain::Tau(Statistics::Fermionic) => {
+                    normalize_tau::<Fermionic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
+                }
+                FunctionDomain::Tau(Statistics::Bosonic) => {
+                    normalize_tau::<Bosonic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
+                }
                 FunctionDomain::Omega => (x, 1.0),
             })
             .collect();
@@ -637,9 +647,13 @@ impl DLRTauFuncs {
     }
 
     fn evaluate_single(&self, tau: f64, pole: f64, pole_weight: f64) -> f64 {
+        // spir_funcs_eval and spir_funcs_batch_eval check τ against
+        // tau_domain first; spir_basis_new_from_sve_and_regularizer does not
+        // (part 6), and the panic gives SPIR_INTERNAL_ERROR as before.
         match self.statistics {
             Statistics::Fermionic => {
-                let (tau_reg, sign) = normalize_tau::<Fermionic>(tau, self.beta);
+                let (tau_reg, sign) =
+                    normalize_tau::<Fermionic>(tau, self.beta).unwrap_or_else(|e| panic!("{e}"));
                 let value = if pole >= 0.0 {
                     -(-pole * tau_reg).exp() / (1.0 + (-self.beta * pole).exp())
                 } else {
@@ -648,7 +662,8 @@ impl DLRTauFuncs {
                 sign * value * pole_weight
             }
             Statistics::Bosonic => {
-                let (tau_reg, sign) = normalize_tau::<Bosonic>(tau, self.beta);
+                let (tau_reg, sign) =
+                    normalize_tau::<Bosonic>(tau, self.beta).unwrap_or_else(|e| panic!("{e}"));
                 if pole == 0.0 {
                     sign * self.zero_pole_tau_limit()
                 } else if pole > 0.0 {

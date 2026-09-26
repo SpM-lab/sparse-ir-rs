@@ -4,10 +4,11 @@
 //! which represents Green's functions as a linear combination of poles on the
 //! real-frequency axis.
 
-use crate::error::Error;
+use crate::error::{Error, require_finite, require_positive_finite};
 use crate::fitters::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
+use crate::taufuncs::normalize_tau;
 use crate::traits::{Statistics, StatisticsType};
 use mdarray::DTensor;
 use num_complex::Complex;
@@ -31,21 +32,24 @@ use std::marker::PhantomData;
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
-/// # Panics
-/// Panics if `tau` is outside [-β, β]
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+///   `omega` is not finite
+/// * [`Error::OutOfDomain`] if `tau` is outside [-β, β] or NaN
 ///
 /// # Example
 /// ```
 /// use sparse_ir::traits::{Bosonic, Fermionic};
 /// use sparse_ir::{bosonic_single_pole, fermionic_single_pole, gtau_single_pole};
 ///
-/// let g_f = gtau_single_pole::<Fermionic>(0.5, 5.0, 1.0);
-/// assert_eq!(g_f, fermionic_single_pole(0.5, 5.0, 1.0));
+/// let g_f = gtau_single_pole::<Fermionic>(0.5, 5.0, 1.0).unwrap();
+/// assert_eq!(g_f, fermionic_single_pole(0.5, 5.0, 1.0).unwrap());
 ///
-/// let g_b = gtau_single_pole::<Bosonic>(0.5, 5.0, 1.0);
-/// assert_eq!(g_b, bosonic_single_pole(0.5, 5.0, 1.0));
+/// let g_b = gtau_single_pole::<Bosonic>(0.5, 5.0, 1.0).unwrap();
+/// assert_eq!(g_b, bosonic_single_pole(0.5, 5.0, 1.0).unwrap());
 /// ```
-pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f64 {
+pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> Result<f64, Error> {
     match S::STATISTICS {
         Statistics::Fermionic => fermionic_single_pole(tau, omega, beta),
         Statistics::Bosonic => bosonic_single_pole(tau, omega, beta),
@@ -69,8 +73,11 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
-/// # Panics
-/// Panics if `tau` is outside [-β, β]
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+///   `omega` is not finite
+/// * [`Error::OutOfDomain`] if `tau` is outside [-β, β] or NaN
 ///
 /// # Example
 /// ```
@@ -79,31 +86,37 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 /// let beta = 1.0;
 /// let omega = 5.0;
 /// let tau = 0.5 * beta;
-/// let g = fermionic_single_pole(tau, omega, beta);
+/// let g = fermionic_single_pole(tau, omega, beta).unwrap();
 ///
 /// let expected = -(-omega * tau).exp() / (1.0 + (-beta * omega).exp());
 /// assert!((g - expected).abs() < 1e-15);
 ///
 /// // Anti-periodicity: G(τ - β) = -G(τ)
-/// assert!((fermionic_single_pole(tau - beta, omega, beta) + g).abs() < 1e-15);
+/// assert!((fermionic_single_pole(tau - beta, omega, beta).unwrap() + g).abs() < 1e-15);
 /// ```
-pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
-    use crate::taufuncs::normalize_tau;
+pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> Result<f64, Error> {
     use crate::traits::Fermionic;
 
     // Normalize τ to [0, β] and track sign from anti-periodicity
     // G(τ + β) = -G(τ) for fermions
-    let (tau_normalized, sign) = normalize_tau::<Fermionic>(tau, beta);
+    let (tau_normalized, sign) = normalize_tau::<Fermionic>(tau, beta)?;
+    require_finite("omega", omega)?;
+    Ok(sign * fermionic_single_pole_unchecked(tau_normalized, omega, beta))
+}
 
+/// Fermionic single-pole G(τ) for τ already in [0, β], without the sign of
+/// the antiperiodic continuation
+///
+/// Checked callers only: β positive and finite, ω finite (except the DLR,
+/// whose poles are checked in part 5).
+pub(crate) fn fermionic_single_pole_unchecked(tau_normalized: f64, omega: f64, beta: f64) -> f64 {
     // Avoid overflow for large negative ω by factoring out exp(βω).
     // Both branches keep the exponent non-positive.
-    let value = if omega >= 0.0 {
+    if omega >= 0.0 {
         -(-omega * tau_normalized).exp() / (1.0 + (-beta * omega).exp())
     } else {
         -(omega * (beta - tau_normalized)).exp() / (1.0 + (beta * omega).exp())
-    };
-
-    sign * value
+    }
 }
 
 /// Compute bosonic single-pole Green's function at imaginary time τ
@@ -133,8 +146,11 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
-/// # Panics
-/// Panics if `tau` is outside [-β, β]
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+///   `omega` is not finite
+/// * [`Error::OutOfDomain`] if `tau` is outside [-β, β] or NaN
 ///
 /// # Example
 /// ```
@@ -143,22 +159,22 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// let beta = 1.0;
 /// let omega = 5.0;
 /// let tau = 0.5 * beta;
-/// let g = bosonic_single_pole(tau, omega, beta);
+/// let g = bosonic_single_pole(tau, omega, beta).unwrap();
 ///
 /// let expected = -(-omega * tau).exp() / (1.0 - (-beta * omega).exp());
 /// assert!((g - expected).abs() <= 1e-14 * expected.abs());
 /// assert!(g < 0.0);
 ///
 /// // Periodicity: G(τ - β) = G(τ)
-/// assert!((bosonic_single_pole(tau - beta, omega, beta) - g).abs() < 1e-15);
+/// assert!((bosonic_single_pole(tau - beta, omega, beta).unwrap() - g).abs() < 1e-15);
 /// ```
-pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
-    use crate::taufuncs::normalize_tau;
+pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> Result<f64, Error> {
     use crate::traits::Bosonic;
 
     // Normalize τ to [0, β] using periodicity
     // G(τ + β) = G(τ) for bosons
-    let tau_normalized = normalize_tau::<Bosonic>(tau, beta).0;
+    let tau_normalized = normalize_tau::<Bosonic>(tau, beta)?.0;
+    require_finite("omega", omega)?;
 
     // Avoid overflow for large negative ω by factoring out exp(βω): both
     // branches keep the exponents non-positive. expm1 keeps the Bose
@@ -168,11 +184,11 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     if omega >= 0.0 {
         // 1 - exp(-βω) = -expm1(-βω)
         let denominator = -(-beta * omega).exp_m1();
-        -(-omega * tau_normalized).exp() / denominator
+        Ok(-(-omega * tau_normalized).exp() / denominator)
     } else {
         // -exp(-ωτ) / (1 - exp(-βω)) = exp(ω(β - τ)) / (1 - exp(βω))
         let denominator = -(beta * omega).exp_m1();
-        (omega * (beta - tau_normalized)).exp() / denominator
+        Ok((omega * (beta - tau_normalized)).exp() / denominator)
     }
 }
 
@@ -190,15 +206,22 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 ///
 /// # Returns
 /// Complex-valued Green's function G(iν)
+///
+/// # Errors
+///
+/// [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+/// `omega` is not finite
 pub fn giwn_single_pole<S: StatisticsType>(
     matsubara_freq: &MatsubaraFreq<S>,
     omega: f64,
     beta: f64,
-) -> Complex<f64> {
+) -> Result<Complex<f64>, Error> {
+    require_positive_finite("beta", beta)?;
+    require_finite("omega", omega)?;
     // G(iν) = 1/(iν - ω)
     let wn = matsubara_freq.value(beta);
     let denominator = Complex::new(0.0, 1.0) * wn - Complex::new(omega, 0.0);
-    Complex::new(1.0, 0.0) / denominator
+    Ok(Complex::new(1.0, 0.0) / denominator)
 }
 
 // ============================================================================
@@ -654,7 +677,6 @@ where
     }
 
     fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
-        use crate::taufuncs::normalize_tau;
         use mdarray::DTensor;
 
         let n_points = tau.len();
@@ -665,17 +687,25 @@ where
             let pole_weight = self.pole_weights[idx[1]];
             match S::STATISTICS {
                 Statistics::Fermionic => {
-                    gtau_single_pole::<S>(tau_val, pole, self.beta) * pole_weight
+                    // Basis::evaluate_tau returns Result in part 3b; until
+                    // then a τ outside [-β, β] panics as before.
+                    let (tau_norm, sign) =
+                        normalize_tau::<S>(tau_val, self.beta).unwrap_or_else(|e| panic!("{e}"));
+                    sign * fermionic_single_pole_unchecked(tau_norm, pole, self.beta) * pole_weight
                 }
                 Statistics::Bosonic => {
                     if pole == 0.0 {
                         self.zero_pole_tau_limit()
                     } else if pole > 0.0 {
-                        let tau_norm = normalize_tau::<S>(tau_val, self.beta).0;
+                        let tau_norm = normalize_tau::<S>(tau_val, self.beta)
+                            .unwrap_or_else(|e| panic!("{e}"))
+                            .0;
                         let denominator = -(-self.beta * pole).exp_m1();
                         -(-tau_norm * pole).exp() * pole_weight / denominator
                     } else {
-                        let tau_norm = normalize_tau::<S>(tau_val, self.beta).0;
+                        let tau_norm = normalize_tau::<S>(tau_val, self.beta)
+                            .unwrap_or_else(|e| panic!("{e}"))
+                            .0;
                         let denominator = -(self.beta * pole).exp_m1();
                         (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
                     }
@@ -757,8 +787,8 @@ mod tests {
         // For fermions: G(τ) should equal -G(τ-β)
         // For bosons: G(τ) should equal G(τ-β)
         for tau in [0.1, 0.3, 0.7] {
-            let g_tau = gtau_single_pole::<S>(tau, omega, beta);
-            let g_tau_minus_beta = gtau_single_pole::<S>(tau - beta, omega, beta);
+            let g_tau = gtau_single_pole::<S>(tau, omega, beta).unwrap();
+            let g_tau_minus_beta = gtau_single_pole::<S>(tau - beta, omega, beta).unwrap();
 
             // For fermions: G(τ) = -G(τ-β) → G(τ-β) = -G(τ)
             // For bosons: G(τ) = G(τ-β)
@@ -795,11 +825,11 @@ mod tests {
         let tau = 0.5;
 
         // Test that generic function matches specific functions
-        let g_f_specific = fermionic_single_pole(tau, omega, beta);
-        let g_f_generic = gtau_single_pole::<Fermionic>(tau, omega, beta);
+        let g_f_specific = fermionic_single_pole(tau, omega, beta).unwrap();
+        let g_f_generic = gtau_single_pole::<Fermionic>(tau, omega, beta).unwrap();
 
-        let g_b_specific = bosonic_single_pole(tau, omega, beta);
-        let g_b_generic = gtau_single_pole::<Bosonic>(tau, omega, beta);
+        let g_b_specific = bosonic_single_pole(tau, omega, beta).unwrap();
+        let g_b_generic = gtau_single_pole::<Bosonic>(tau, omega, beta).unwrap();
 
         assert!(
             (g_f_specific - g_f_generic).abs() < 1e-14,

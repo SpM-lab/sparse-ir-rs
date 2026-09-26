@@ -135,7 +135,8 @@ fn test_every_variant_lists_each_variant_once() {
 #[test]
 fn test_parameter_checks() {
     use super::{
-        require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
+        require_accuracy, require_finite, require_nonzero_size, require_positive_finite,
+        require_threshold,
     };
 
     let invalid = |name: &'static str, value: &str, reason: &str| Error::InvalidParameter {
@@ -188,4 +189,12 @@ fn test_parameter_checks() {
         require_nonzero_size("max_size", Some(0)),
         Err(invalid("max_size", "0", "must be positive"))
     );
+
+    assert_eq!(require_finite("omega", -1e300), Ok(()));
+    for (value, shown) in [(f64::NAN, "NaN"), (f64::NEG_INFINITY, "-inf")] {
+        assert_eq!(
+            require_finite("omega", value),
+            Err(invalid("omega", shown, "must be finite"))
+        );
+    }
 }

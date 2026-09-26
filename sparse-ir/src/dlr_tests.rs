@@ -643,7 +643,7 @@ fn test_fermionic_dlr_tau_sampling_matrix_matches_stable_kernel() {
     let expected = DTensor::<f64, 2>::from_fn([tau_points.len(), dlr.poles.len()], |idx| {
         let tau = tau_points[idx[0]];
         let pole = dlr.poles[idx[1]];
-        let (tau_norm, sign) = crate::taufuncs::normalize_tau::<Fermionic>(tau, beta);
+        let (tau_norm, sign) = crate::taufuncs::normalize_tau::<Fermionic>(tau, beta).unwrap();
         let x = 2.0 * tau_norm / beta - 1.0;
         let y = pole / wmax;
         sign * (-kernel.compute(x, y))
@@ -695,7 +695,7 @@ fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
     let expected = DTensor::<f64, 2>::from_fn([tau_points.len(), dlr.poles.len()], |idx| {
         let tau = tau_points[idx[0]];
         let pole = dlr.poles[idx[1]];
-        let (tau_norm, sign) = crate::taufuncs::normalize_tau::<Bosonic>(tau, beta);
+        let (tau_norm, sign) = crate::taufuncs::normalize_tau::<Bosonic>(tau, beta).unwrap();
         let x = 2.0 * tau_norm / beta - 1.0;
         let y = pole / wmax;
         sign * (-kernel.compute(x, y))
@@ -804,7 +804,7 @@ fn check_single_pole_tau_closed_form<S: StatisticsType>() {
 
         for frac in [0.0, 0.1, 0.5, 0.9, 1.0] {
             let tau = frac * beta;
-            let value = gtau_single_pole::<S>(tau, omega, beta);
+            let value = gtau_single_pole::<S>(tau, omega, beta).unwrap();
             let reference = single_pole_tau_reference::<S>(tau, omega, beta);
             assert!(
                 (value - reference).abs() <= rel_tol * reference.abs(),
@@ -833,7 +833,7 @@ fn check_single_pole_tau_closed_form<S: StatisticsType>() {
 
         // Periodic (bosons) / antiperiodic (fermions) extension to tau < 0.
         let tau = -0.25 * beta;
-        let value = gtau_single_pole::<S>(tau, omega, beta);
+        let value = gtau_single_pole::<S>(tau, omega, beta).unwrap();
         let reference = zeta * single_pole_tau_reference::<S>(tau + beta, omega, beta);
         assert!(
             (value - reference).abs() <= rel_tol * reference.abs(),
@@ -848,8 +848,8 @@ fn check_single_pole_tau_closed_form<S: StatisticsType>() {
 
         // G(0+) - G(0-) = -1 with G(0-) = zeta * G(beta-). Both terms carry a
         // few ulps of relative error, so the bound scales with their magnitude.
-        let g_0 = gtau_single_pole::<S>(0.0, omega, beta);
-        let g_beta = gtau_single_pole::<S>(beta, omega, beta);
+        let g_0 = gtau_single_pole::<S>(0.0, omega, beta).unwrap();
+        let g_beta = gtau_single_pole::<S>(beta, omega, beta).unwrap();
         let jump = g_0 - zeta * g_beta;
         let jump_tol = 16.0 * f64::EPSILON * g_0.abs().max(g_beta.abs()).max(1.0);
         assert!(
@@ -893,7 +893,7 @@ fn check_single_pole_fourier_pair<S: StatisticsType>() {
         let gtau: Vec<f64> = quad
             .x
             .iter()
-            .map(|&tau| gtau_single_pole::<S>(tau, omega, beta))
+            .map(|&tau| gtau_single_pole::<S>(tau, omega, beta).unwrap())
             .collect();
 
         // Error model: every quadrature term carries O(100) ulps of relative
@@ -915,7 +915,7 @@ fn check_single_pole_fourier_pair<S: StatisticsType>() {
                 .zip(&gtau)
                 .map(|((&tau, &w), &g)| Complex::new(0.0, nu * tau).exp() * (w * g))
                 .sum();
-            let reference = giwn_single_pole::<S>(&freq, omega, beta);
+            let reference = giwn_single_pole::<S>(&freq, omega, beta).unwrap();
             assert!(
                 (transform - reference).norm() <= tol,
                 "{:?} Fourier transform of G(tau) at n={} for omega={}, beta={}: \
@@ -979,7 +979,7 @@ fn check_single_pole_matches_dlr_evaluate_tau<S: StatisticsType + 'static>() {
             continue;
         }
         for (i, &tau) in taus.iter().enumerate() {
-            let expected = gtau_single_pole::<S>(tau, pole, beta) * weight;
+            let expected = gtau_single_pole::<S>(tau, pole, beta).unwrap() * weight;
             let actual = dlr_tau[[i, p]];
             // Both sides combine the same rounded exp, weight and denominator in
             // a different order, so they agree to a few ulps.
@@ -1015,13 +1015,13 @@ fn test_bosonic_single_pole_diverges_at_zero_omega() {
     let beta = 10.0;
     for tau in [0.0, 0.5 * beta, beta] {
         assert_eq!(
-            bosonic_single_pole(tau, 0.0, beta),
+            bosonic_single_pole(tau, 0.0, beta).unwrap(),
             f64::NEG_INFINITY,
             "omega = +0.0 at tau = {}",
             tau
         );
         assert_eq!(
-            bosonic_single_pole(tau, -0.0, beta),
+            bosonic_single_pole(tau, -0.0, beta).unwrap(),
             f64::INFINITY,
             "omega = -0.0 at tau = {}",
             tau
@@ -1278,5 +1278,45 @@ fn test_dlr_with_no_poles_is_an_error() {
     assert_eq!(
         Error::EmptyInput { name: "poles" }.to_string(),
         "poles must not be empty"
+    );
+}
+
+/// The single-pole functions reject τ outside [-β, β], a β that is not
+/// positive and finite, and a non-finite ω. Before the change the first
+/// panicked and the others gave NaN or infinite values silently. ω = 0 is a
+/// genuine pole of the bosonic function and stays infinite.
+#[test]
+fn test_single_pole_functions_check_their_arguments() {
+    let beta = 2.0;
+    assert!(matches!(
+        gtau_single_pole::<Fermionic>(2.5, 1.0, beta),
+        Err(Error::OutOfDomain { name: "tau", .. })
+    ));
+    assert!(matches!(
+        crate::fermionic_single_pole(0.5, 1.0, 0.0),
+        Err(Error::InvalidParameter { name: "beta", .. })
+    ));
+    assert!(matches!(
+        bosonic_single_pole(0.5, f64::NAN, beta),
+        Err(Error::InvalidParameter { name: "omega", .. })
+    ));
+    assert!(matches!(
+        gtau_single_pole::<Bosonic>(0.5, f64::INFINITY, beta),
+        Err(Error::InvalidParameter { name: "omega", .. })
+    ));
+
+    let freq = MatsubaraFreq::<Fermionic>::new(1).unwrap();
+    assert!(matches!(
+        giwn_single_pole(&freq, f64::INFINITY, beta),
+        Err(Error::InvalidParameter { name: "omega", .. })
+    ));
+    assert!(matches!(
+        giwn_single_pole(&freq, 1.0, -1.0),
+        Err(Error::InvalidParameter { name: "beta", .. })
+    ));
+
+    assert_eq!(
+        bosonic_single_pole(0.5, 0.0, beta).unwrap(),
+        f64::NEG_INFINITY
     );
 }
