@@ -38,7 +38,7 @@ use crate::error::{ArrayRole, Error};
 /// });
 /// // The τ points only label the rows here; the matrix is given explicitly
 /// let tau: Vec<f64> = (0..n).map(|i| (i as f64 + 0.5) / n as f64).collect();
-/// let sampling = TauSampling::<Fermionic>::from_matrix(tau, matrix);
+/// let sampling = TauSampling::<Fermionic>::from_matrix(tau, matrix).unwrap();
 ///
 /// let coeffs = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 /// let values = sampling.evaluate(&coeffs).unwrap(); // values = A * coeffs

@@ -879,17 +879,72 @@ fn test_tau_nd_with_empty_batch() {
     }
 }
 
-/// A sampling matrix without columns describes no basis function. Before the
-/// fix `from_matrix` accepted it and the first fit or condition number
-/// segfaulted in the SVD (mdarray#21).
+/// A sampling matrix without columns describes no basis function. Before
+/// PR-0 `from_matrix` accepted it and the first fit or condition number
+/// segfaulted in the SVD (mdarray#21); PR-0 made it a panic, and it is
+/// EmptyInput now.
 #[test]
-#[should_panic(expected = "Matrix must have at least one column")]
 fn test_from_matrix_rejects_zero_columns() {
+    use crate::error::Error;
     use mdarray::DTensor;
+
     let matrix = DTensor::<f64, 2>::zeros([3, 0]);
-    let sampling = TauSampling::<Fermionic>::from_matrix(vec![0.1, 0.2, 0.3], matrix);
-    // Not reached after the fix; crashed before it
-    sampling.condition_number().unwrap();
+    assert_eq!(
+        TauSampling::<Fermionic>::from_matrix(vec![0.1, 0.2, 0.3], matrix).err(),
+        Some(Error::EmptyInput { name: "matrix" })
+    );
+}
+
+/// from_matrix checks its arguments (spec D5): no points, a matrix whose
+/// rows are not the points, and NaN or infinite points or entries are
+/// errors (they panicked, or failed at the first fit). The points only label
+/// the rows: without β, any finite τ is accepted and kept.
+#[test]
+fn test_tau_from_matrix_checks_its_arguments() {
+    use crate::error::{ArrayRole, Error};
+    use mdarray::DTensor;
+
+    let matrix = |rows: usize| {
+        DTensor::<f64, 2>::from_fn([rows, 2], |idx| 1.0 / (1.0 + idx[0] as f64 + idx[1] as f64))
+    };
+    let from =
+        |points: Vec<f64>, m: DTensor<f64, 2>| TauSampling::<Bosonic>::from_matrix(points, m);
+
+    assert_eq!(
+        from(vec![], DTensor::<f64, 2>::zeros([0, 2])).err(),
+        Some(Error::EmptyInput {
+            name: "sampling_points"
+        })
+    );
+    assert_eq!(
+        from(vec![0.1, 0.2, 0.3], matrix(2)).err(),
+        Some(Error::ShapeMismatch {
+            which: ArrayRole::Input,
+            expected: vec![3, 2],
+            actual: vec![2, 2],
+        })
+    );
+    for tau in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let err = from(vec![0.1, tau, 0.3], matrix(3)).err().unwrap();
+        assert!(
+            matches!(&err, Error::NonFiniteInput { name: "sampling_points", index, value }
+                if index == &vec![1] && (value.is_nan() == tau.is_nan()) && (tau.is_nan() || *value == tau)),
+            "{err:?}"
+        );
+    }
+    let mut bad = matrix(3);
+    bad[[2, 1]] = f64::NAN;
+    let err = from(vec![0.1, 0.2, 0.3], bad).err().unwrap();
+    assert!(
+        matches!(&err, Error::NonFiniteInput { name: "matrix", index, value }
+            if index == &vec![2, 1] && value.is_nan()),
+        "{err:?}"
+    );
+
+    // Finite points outside any [-β, β] are labels, kept as given.
+    let points = vec![1e300, -7.5, -0.0];
+    let sampling = from(points.clone(), matrix(3)).unwrap();
+    assert_eq!(sampling.sampling_points(), &points[..]);
 }
 
 /// A tau sampling point outside [-β, β] or NaN is OutOfDomain (from

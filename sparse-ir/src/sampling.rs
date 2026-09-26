@@ -110,6 +110,67 @@ pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Ten
     arr.permute(&perm[..]).to_tensor()
 }
 
+/// Check the shape of a given sampling matrix against its points: some
+/// points, one row per point and at least one column
+///
+/// # Errors
+///
+/// * [`Error::EmptyInput`] named `sampling_points` if there are no points
+/// * [`Error::ShapeMismatch`] of the input if the matrix does not have one
+///   row per point
+/// * [`Error::EmptyInput`] named `matrix` if it has no columns: it describes
+///   no basis function, and the fitter would transpose `[n, 0]` arrays,
+///   which mdarray 0.7.2 does out of bounds
+///   (<https://github.com/fre-hu/mdarray/issues/21>)
+pub(crate) fn check_sampling_matrix_shape(
+    n_points: usize,
+    (rows, cols): (usize, usize),
+) -> Result<(), Error> {
+    if n_points == 0 {
+        return Err(Error::EmptyInput {
+            name: "sampling_points",
+        });
+    }
+    if rows != n_points {
+        return Err(Error::ShapeMismatch {
+            which: crate::error::ArrayRole::Input,
+            expected: vec![n_points, cols],
+            actual: vec![rows, cols],
+        });
+    }
+    if cols == 0 {
+        return Err(Error::EmptyInput { name: "matrix" });
+    }
+    Ok(())
+}
+
+/// `Ok` if every entry of a given sampling matrix is finite (the fitter
+/// factorizes it)
+///
+/// # Errors
+///
+/// [`Error::NonFiniteInput`] named `matrix` at the first NaN or infinite
+/// entry in row-major order; for a complex entry, `value` is its real part
+/// if that is not finite, and its imaginary part otherwise
+pub(crate) fn check_finite_matrix<T: Copy>(
+    matrix: &DTensor<T, 2>,
+    non_finite_part: impl Fn(T) -> Option<f64>,
+) -> Result<(), Error> {
+    let (rows, cols) = *matrix.shape();
+    for i in 0..rows {
+        for j in 0..cols {
+            if let Some(value) = non_finite_part(matrix[[i, j]]) {
+                return Err(Error::NonFiniteInput {
+                    name: "matrix",
+                    index: vec![i, j],
+                    value,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Sparse sampling in imaginary time
 ///
 /// Allows transformation between the IR basis and a set of sampling points
@@ -118,7 +179,8 @@ pub struct TauSampling<S>
 where
     S: StatisticsType,
 {
-    /// Sampling points in imaginary time τ ∈ [-β/2, β/2]
+    /// Sampling points in imaginary time, in the order given (τ ∈ [-β, β]
+    /// unless given with a matrix)
     sampling_points: Vec<f64>,
 
     /// Real matrix fitter for least-squares fitting
@@ -168,6 +230,9 @@ where
     /// # Returns
     /// A new TauSampling object
     ///
+    /// The points are kept in the given order, and duplicates are accepted;
+    /// they only raise the condition number.
+    ///
     /// # Errors
     ///
     /// * [`Error::EmptyInput`] if `sampling_points` is empty
@@ -207,41 +272,44 @@ where
     /// (e.g., from external sources or for testing).
     ///
     /// # Arguments
-    /// * `sampling_points` - Sampling points in τ ∈ [-β, β]
-    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size)
+    /// * `sampling_points` - Imaginary times τ that label the rows of
+    ///   `matrix`, in any order. There is no β to check them against, so
+    ///   any finite value is accepted and kept as given (spec D5).
+    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size); row i
+    ///   belongs to `sampling_points[i]`
     ///
-    /// # Returns
-    /// A new TauSampling object
+    /// Duplicate points are accepted; they only raise the condition number.
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty, if the number of matrix rows
-    /// differs from the number of sampling points, or if the matrix has no
-    /// columns (no basis functions)
-    pub fn from_matrix(sampling_points: Vec<f64>, matrix: DTensor<f64, 2>) -> Self {
-        assert!(!sampling_points.is_empty(), "No sampling points given");
-        assert_eq!(
-            matrix.shape().0,
-            sampling_points.len(),
-            "Matrix rows ({}) must match number of sampling points ({})",
-            matrix.shape().0,
-            sampling_points.len()
-        );
-        // A matrix without columns has an SVD without singular values, whose
-        // [n, 0] factors mdarray 0.7.2 transposes out of bounds (mdarray#21,
-        // https://github.com/fre-hu/mdarray/issues/21); there is nothing to fit.
-        assert!(
-            matrix.shape().1 > 0,
-            "Matrix must have at least one column (basis function), got shape {:?}",
-            matrix.shape()
-        );
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty, or `matrix`
+    ///   has no columns
+    /// * [`Error::ShapeMismatch`] of the input if `matrix` does not have one
+    ///   row per point
+    /// * [`Error::NonFiniteInput`] for the first NaN or infinite point, then
+    ///   for the first NaN or infinite entry of `matrix`
+    pub fn from_matrix(sampling_points: Vec<f64>, matrix: DTensor<f64, 2>) -> Result<Self, Error> {
+        check_sampling_matrix_shape(sampling_points.len(), *matrix.shape())?;
+        if let Some((i, &tau)) = sampling_points
+            .iter()
+            .enumerate()
+            .find(|(_, tau)| !tau.is_finite())
+        {
+            return Err(Error::NonFiniteInput {
+                name: "sampling_points",
+                index: vec![i],
+                value: tau,
+            });
+        }
+        check_finite_matrix(&matrix, |x: f64| (!x.is_finite()).then_some(x))?;
 
         let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the sampling points

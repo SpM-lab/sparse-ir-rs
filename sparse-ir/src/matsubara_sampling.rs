@@ -8,7 +8,9 @@ use crate::fitters::common::{check_input_shape, check_nd_shapes};
 use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter, InplaceFitter};
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
-use crate::sampling::{build_output_shape, movedim};
+use crate::sampling::{
+    build_output_shape, check_finite_matrix, check_sampling_matrix_shape, movedim,
+};
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
 use num_complex::Complex;
@@ -56,6 +58,33 @@ impl MatsubaraCoeffs for Complex<f64> {
     }
 }
 
+/// `Ok` if no point is negative, as positive-only samplings require (#247)
+///
+/// # Errors
+///
+/// [`Error::InvalidMatsubaraIndex`] for the first negative point
+fn check_non_negative<S: StatisticsType>(points: &[MatsubaraFreq<S>]) -> Result<(), Error> {
+    match points.iter().find(|f| f.n() < 0) {
+        Some(freq) => Err(Error::InvalidMatsubaraIndex {
+            n: freq.n(),
+            statistics: S::STATISTICS,
+        }),
+        None => Ok(()),
+    }
+}
+
+/// Some part of `z` that is not finite: the real part if it is not, else
+/// the imaginary part
+fn non_finite_part(z: Complex<f64>) -> Option<f64> {
+    if !z.re.is_finite() {
+        Some(z.re)
+    } else if !z.im.is_finite() {
+        Some(z.im)
+    } else {
+        None
+    }
+}
+
 /// Matsubara sampling for full frequency range (positive and negative)
 ///
 /// General complex problem without symmetry → complex coefficients
@@ -90,6 +119,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// [`Self::sampling_points`] returns them unchanged, and index i along the
     /// sampling-point axis of `evaluate` and `fit` refers to
     /// `sampling_points[i]`.
+    ///
+    /// Duplicate points are accepted; they only raise the condition number.
     ///
     /// # Errors
     ///
@@ -139,41 +170,30 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// returns them unchanged, and index i along the sampling-point axis of
     /// `evaluate` and `fit` refers to `sampling_points[i]`.
     ///
-    /// # Returns
-    /// A new MatsubaraSampling object
+    /// Duplicate points are accepted; they only raise the condition number.
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty, if the number of matrix rows
-    /// differs from the number of sampling points, or if the matrix has no
-    /// columns (no basis functions)
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty, or `matrix`
+    ///   has no columns
+    /// * [`Error::ShapeMismatch`] of the input if `matrix` does not have one
+    ///   row per point
+    /// * [`Error::NonFiniteInput`] for the first entry of `matrix` with a NaN
+    ///   or infinite part
     pub fn from_matrix(
         sampling_points: Vec<MatsubaraFreq<S>>,
         matrix: DTensor<Complex<f64>, 2>,
-    ) -> Self {
-        assert!(!sampling_points.is_empty(), "No sampling points given");
-        assert_eq!(
-            matrix.shape().0,
-            sampling_points.len(),
-            "Matrix rows ({}) must match number of sampling points ({})",
-            matrix.shape().0,
-            sampling_points.len()
-        );
-        // A matrix without columns would make the fitter transpose [n, 0]
-        // arrays, which mdarray 0.7.2 does out of bounds (mdarray#21,
-        // https://github.com/fre-hu/mdarray/issues/21); there is nothing to fit.
-        assert!(
-            matrix.shape().1 > 0,
-            "Matrix must have at least one column (basis function), got shape {:?}",
-            matrix.shape()
-        );
+    ) -> Result<Self, Error> {
+        check_sampling_matrix_shape(sampling_points.len(), *matrix.shape())?;
+        check_finite_matrix(&matrix, non_finite_part)?;
 
         let fitter = ComplexMatrixFitter::new(matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Get sampling points
@@ -830,6 +850,8 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// sampling-point axis of `evaluate` and `fit` refers to
     /// `sampling_points[i]`.
     ///
+    /// Duplicate points are accepted; they only raise the condition number.
+    ///
     /// # Errors
     ///
     /// * [`Error::EmptyInput`] if `sampling_points` is empty
@@ -852,12 +874,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         }
 
         // Positive-only sampling uses non-negative frequencies only (#247).
-        if let Some(freq) = sampling_points.iter().find(|f| f.n() < 0) {
-            return Err(Error::InvalidMatsubaraIndex {
-                n: freq.n(),
-                statistics: S::STATISTICS,
-            });
-        }
+        check_non_negative(&sampling_points)?;
 
         // Evaluate matrix at sampling points
         // Use Basis trait's evaluate_matsubara method
@@ -888,41 +905,32 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// returns them unchanged, and index i along the sampling-point axis of
     /// `evaluate` and `fit` refers to `sampling_points[i]`.
     ///
-    /// # Returns
-    /// A new MatsubaraSamplingPositiveOnly object
+    /// Duplicate points are accepted; they only raise the condition number.
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty, if the number of matrix rows
-    /// differs from the number of sampling points, or if the matrix has no
-    /// columns (no basis functions)
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty, or `matrix`
+    ///   has no columns
+    /// * [`Error::ShapeMismatch`] of the input if `matrix` does not have one
+    ///   row per point
+    /// * [`Error::InvalidMatsubaraIndex`] for the first negative point
+    /// * [`Error::NonFiniteInput`] for the first entry of `matrix` with a NaN
+    ///   or infinite part
     pub fn from_matrix(
         sampling_points: Vec<MatsubaraFreq<S>>,
         matrix: DTensor<Complex<f64>, 2>,
-    ) -> Self {
-        assert!(!sampling_points.is_empty(), "No sampling points given");
-        assert_eq!(
-            matrix.shape().0,
-            sampling_points.len(),
-            "Matrix rows ({}) must match number of sampling points ({})",
-            matrix.shape().0,
-            sampling_points.len()
-        );
-        // A matrix without columns would make the fitter transpose [n, 0]
-        // arrays, which mdarray 0.7.2 does out of bounds (mdarray#21,
-        // https://github.com/fre-hu/mdarray/issues/21); there is nothing to fit.
-        assert!(
-            matrix.shape().1 > 0,
-            "Matrix must have at least one column (basis function), got shape {:?}",
-            matrix.shape()
-        );
+    ) -> Result<Self, Error> {
+        check_sampling_matrix_shape(sampling_points.len(), *matrix.shape())?;
+        check_non_negative(&sampling_points)?;
+        check_finite_matrix(&matrix, non_finite_part)?;
 
         let fitter = ComplexToRealFitter::new(&matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Get sampling points

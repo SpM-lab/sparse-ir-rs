@@ -117,7 +117,7 @@ fn flatten_complex_to_real_cols(values: &DView<'_, Complex<f64>, 2>, out: &mut D
 /// });
 /// // The frequencies only label the rows here; the matrix is given explicitly
 /// let freqs = (0..n as i64).map(|i| FermionicFreq::new(2 * i + 1).unwrap()).collect();
-/// let sampling = MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(freqs, matrix);
+/// let sampling = MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(freqs, matrix).unwrap();
 ///
 /// let coeffs = vec![1.0, 2.0, 3.0, 4.0, 5.0];
 /// let values = sampling.evaluate(&coeffs).unwrap(); // → Vec<Complex<f64>>

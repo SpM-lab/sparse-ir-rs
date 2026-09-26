@@ -848,7 +848,7 @@ fn test_positive_only_condition_number_from_matrix() {
     let points: Vec<MatsubaraFreq<Bosonic>> = (0..n as i64)
         .map(|k| MatsubaraFreq::new(2 * k).unwrap())
         .collect();
-    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points, a.clone());
+    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points, a.clone()).unwrap();
 
     let oracle = oracle_condition_number(&stack_re_im(&a));
     let cond_complex = oracle_condition_number(&realify(&a));
@@ -926,7 +926,7 @@ fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
 
     let points = unsorted_points(&basis, true);
     let a = uhat_matrix(&basis, &points);
-    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), a.clone());
+    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), a.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert!(sampling.condition_number().unwrap() < 1e2);
     let values = sampling.evaluate(&coeffs).unwrap();
@@ -938,7 +938,7 @@ fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
 
     let points = unsorted_points(&basis, false);
     let a = uhat_matrix(&basis, &points);
-    let sampling = MatsubaraSampling::from_matrix(points.clone(), a.clone());
+    let sampling = MatsubaraSampling::from_matrix(points.clone(), a.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert!(sampling.condition_number().unwrap() < 1e2);
     let values = sampling.evaluate(&coeffs_z).unwrap();
@@ -1205,20 +1205,31 @@ fn test_matsubara_sampling_positive_only_rejects_negative_points() {
     );
 }
 
+/// A matrix without columns is EmptyInput (it was a panic, mdarray#21).
 #[test]
-#[should_panic(expected = "Matrix must have at least one column")]
 fn test_matsubara_from_matrix_rejects_zero_columns() {
+    use crate::error::Error;
+
     let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
-    MatsubaraSampling::<Fermionic>::from_matrix(vec![MatsubaraFreq::new(1).unwrap()], matrix);
+    assert_eq!(
+        MatsubaraSampling::<Fermionic>::from_matrix(vec![MatsubaraFreq::new(1).unwrap()], matrix)
+            .err(),
+        Some(Error::EmptyInput { name: "matrix" })
+    );
 }
 
 #[test]
-#[should_panic(expected = "Matrix must have at least one column")]
 fn test_matsubara_positive_only_from_matrix_rejects_zero_columns() {
+    use crate::error::Error;
+
     let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
-    MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(
-        vec![MatsubaraFreq::new(1).unwrap()],
-        matrix,
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(
+            vec![MatsubaraFreq::new(1).unwrap()],
+            matrix,
+        )
+        .err(),
+        Some(Error::EmptyInput { name: "matrix" })
     );
 }
 
@@ -1322,5 +1333,121 @@ fn test_matsubara_1d_methods_check_the_lengths() {
         positive.condition_number().unwrap(),
     ] {
         assert!(cond.is_finite() && cond >= 1.0, "{cond}");
+    }
+}
+
+/// from_matrix of both Matsubara samplings checks its arguments (spec D5):
+/// no points, rows that are not the points, a non-finite part of an entry,
+/// and a negative point of a positive-only sampling (#247; it was accepted).
+#[test]
+fn test_matsubara_from_matrix_checks_its_arguments() {
+    use crate::error::{ArrayRole, Error};
+    use mdarray::DTensor;
+
+    let freqs = |ns: &[i64]| -> Vec<MatsubaraFreq<Fermionic>> {
+        ns.iter().map(|&n| MatsubaraFreq::new(n).unwrap()).collect()
+    };
+    let matrix = |rows: usize| {
+        DTensor::<Complex<f64>, 2>::from_fn([rows, 2], |idx| {
+            Complex::new(
+                1.0 / (1.0 + idx[0] as f64 + idx[1] as f64),
+                0.1 * idx[0] as f64,
+            )
+        })
+    };
+
+    for positive_only in [false, true] {
+        let from = |points: Vec<MatsubaraFreq<Fermionic>>, m: DTensor<Complex<f64>, 2>| {
+            if positive_only {
+                MatsubaraSamplingPositiveOnly::from_matrix(points, m).err()
+            } else {
+                MatsubaraSampling::from_matrix(points, m).err()
+            }
+        };
+        assert_eq!(
+            from(vec![], DTensor::<Complex<f64>, 2>::zeros([0, 2])),
+            Some(Error::EmptyInput {
+                name: "sampling_points"
+            })
+        );
+        assert_eq!(
+            from(freqs(&[1, 3]), matrix(3)),
+            Some(Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                expected: vec![2, 2],
+                actual: vec![3, 2],
+            })
+        );
+        let mut bad = matrix(2);
+        bad[[1, 0]] = Complex::new(0.5, f64::INFINITY);
+        assert_eq!(
+            from(freqs(&[1, 3]), bad),
+            Some(Error::NonFiniteInput {
+                name: "matrix",
+                index: vec![1, 0],
+                value: f64::INFINITY,
+            })
+        );
+        assert_eq!(from(freqs(&[3, 1]), matrix(2)), None);
+    }
+
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::from_matrix(freqs(&[1, -3]), matrix(2)).err(),
+        Some(Error::InvalidMatsubaraIndex {
+            n: -3,
+            statistics: crate::traits::Statistics::Fermionic,
+        })
+    );
+    // The full sampling takes negative frequencies.
+    MatsubaraSampling::from_matrix(freqs(&[1, -3]), matrix(2)).unwrap();
+}
+
+/// Duplicate sampling points are accepted and kept, as on main since #291
+/// (spec D6): row i belongs to sampling_points[i] also for a repeated point.
+/// They only raise the condition number.
+#[test]
+fn test_duplicate_sampling_points_are_kept() {
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+
+    let mut points = MatsubaraSampling::new(&basis)
+        .unwrap()
+        .sampling_points()
+        .to_vec();
+    points.push(points[0]);
+    let full = MatsubaraSampling::with_sampling_points(&basis, points.clone()).unwrap();
+    assert_eq!(full.sampling_points(), &points[..]);
+    let (last, l) = (points.len() - 1, full.basis_size());
+    for j in 0..l {
+        assert_eq!(full.matrix()[[last, j]], full.matrix()[[0, j]]);
+    }
+
+    let mut points = MatsubaraSamplingPositiveOnly::new(&basis)
+        .unwrap()
+        .sampling_points()
+        .to_vec();
+    points.insert(1, points[0]);
+    let positive =
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone()).unwrap();
+    assert_eq!(positive.sampling_points(), &points[..]);
+    for j in 0..l {
+        assert_eq!(positive.matrix()[[1, j]], positive.matrix()[[0, j]]);
+    }
+
+    let mut taus = crate::sampling::TauSampling::new(&basis)
+        .unwrap()
+        .sampling_points()
+        .to_vec();
+    taus.push(taus[2]);
+    let tau = crate::sampling::TauSampling::with_sampling_points(&basis, taus.clone()).unwrap();
+    assert_eq!(tau.sampling_points(), &taus[..]);
+    let last = taus.len() - 1;
+    for j in 0..l {
+        assert_eq!(tau.matrix()[[last, j]], tau.matrix()[[2, j]]);
     }
 }

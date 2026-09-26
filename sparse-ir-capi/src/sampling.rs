@@ -503,14 +503,22 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
             });
         // Create sampling based on statistics
         let sampling_type = if fermionic {
-            let tau_sampling = sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
+            let tau_sampling = match sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
                 tau_points,
                 matrix_tensor,
-            );
+            ) {
+                Ok(sampling) => sampling,
+                Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+            };
             SamplingType::TauFermionic(Arc::new(tau_sampling))
         } else {
-            let tau_sampling =
-                sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(tau_points, matrix_tensor);
+            let tau_sampling = match sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(
+                tau_points,
+                matrix_tensor,
+            ) {
+                Ok(sampling) => sampling,
+                Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+            };
             SamplingType::TauBosonic(Arc::new(tau_sampling))
         };
 
@@ -748,10 +756,13 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 debug_println!("spir_matsu_sampling_new_with_matrix: calling from_matrix...");
                 std::io::stderr().flush().ok();
                 let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
+                    match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
                         matrix_tensor.clone(),
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 debug_println!("spir_matsu_sampling_new_with_matrix: from_matrix returned");
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
@@ -767,10 +778,14 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 std::io::stderr().flush().ok();
                 debug_println!("spir_matsu_sampling_new_with_matrix: calling from_matrix...");
                 std::io::stderr().flush().ok();
-                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                    matsu_freqs,
-                    matrix_tensor.clone(),
-                );
+                let matsu_sampling =
+                    match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                        matsu_freqs,
+                        matrix_tensor.clone(),
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 debug_println!("spir_matsu_sampling_new_with_matrix: from_matrix returned");
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
@@ -778,18 +793,25 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
             (MatsuFreqs::Bosonic(matsu_freqs), true) => {
                 // Bosonic, positive-only
                 let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
+                    match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
                         matrix_tensor.clone(),
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
             }
             (MatsuFreqs::Bosonic(matsu_freqs), false) => {
                 // Bosonic, full range
-                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                    matsu_freqs,
-                    matrix_tensor.clone(),
-                );
+                let matsu_sampling =
+                    match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                        matsu_freqs,
+                        matrix_tensor.clone(),
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
             }
         };

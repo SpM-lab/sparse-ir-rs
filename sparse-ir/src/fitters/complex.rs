@@ -40,7 +40,7 @@ use crate::error::{ArrayRole, Error};
 /// });
 /// // The frequencies only label the rows here; the matrix is given explicitly
 /// let freqs = (0..n as i64).map(|i| FermionicFreq::new(2 * i - 9).unwrap()).collect();
-/// let sampling = MatsubaraSampling::<Fermionic>::from_matrix(freqs, matrix);
+/// let sampling = MatsubaraSampling::<Fermionic>::from_matrix(freqs, matrix).unwrap();
 ///
 /// let coeffs: Vec<Complex<f64>> = (0..m)
 ///     .map(|l| Complex::new(1.0 + l as f64, -0.5 * l as f64))
