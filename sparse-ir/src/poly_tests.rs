@@ -1306,3 +1306,66 @@ fn test_vector_constructors_check_their_input() {
     );
     assert_eq!(vector.slice_multi(&[2, 0]).unwrap().size(), 2);
 }
+
+/// The try_ variants return OutOfDomain for a point outside [xmin, xmax],
+/// NaN included, and otherwise the values of the originals.
+#[test]
+fn test_try_evaluation_checks_the_domain() {
+    use crate::error::Error;
+
+    let data = tensor![[1.0, 2.0], [0.5, 0.25]];
+    let poly = PiecewiseLegendrePoly::new(data, vec![-1.0, 0.0, 1.0], 0, None, 0).unwrap();
+    let outside = |name: &'static str, value: f64| Error::OutOfDomain {
+        name,
+        value,
+        domain: (-1.0, 1.0),
+    };
+
+    assert_eq!(poly.try_evaluate(0.5), Ok(poly.evaluate(0.5)));
+    assert_eq!(poly.try_split(1.0), Ok(poly.split(1.0)));
+    assert_eq!(
+        poly.try_evaluate_many(&[-1.0, 1.0]),
+        Ok(poly.evaluate_many(&[-1.0, 1.0]))
+    );
+    assert_eq!(poly.try_derivs(0.5), Ok(poly.derivs(0.5)));
+
+    assert_eq!(poly.try_evaluate(1.5), Err(outside("x", 1.5)));
+    assert_eq!(poly.try_split(-1.5), Err(outside("x", -1.5)));
+    assert_eq!(poly.try_derivs(2.0), Err(outside("x", 2.0)));
+    assert_eq!(
+        poly.try_evaluate_many(&[0.0, -2.0, 3.0]),
+        Err(outside("xs", -2.0))
+    );
+    for result in [
+        poly.try_evaluate(f64::NAN),
+        poly.try_split(f64::NAN).map(|(_, x)| x),
+        poly.try_derivs(f64::NAN).map(|d| d[0]),
+    ] {
+        assert!(
+            matches!(result, Err(Error::OutOfDomain { name: "x", value, .. }) if value.is_nan()),
+            "{result:?}"
+        );
+    }
+
+    let vector = PiecewiseLegendrePolyVector::new(vec![poly.clone(), poly]).unwrap();
+    assert_eq!(vector.try_evaluate_at(0.5), Ok(vector.evaluate_at(0.5)));
+    assert_eq!(vector.try_evaluate_at(2.0), Err(outside("x", 2.0)));
+    let xs = [-1.0, 0.3, 1.0];
+    assert_eq!(
+        vector.try_evaluate_at_many(&xs).unwrap(),
+        vector.evaluate_at_many(&xs)
+    );
+    assert!(matches!(
+        vector.try_evaluate_at_many(&[0.0, f64::NAN]),
+        Err(Error::OutOfDomain { name: "xs", .. })
+    ));
+}
+
+/// The originals panic outside the domain, NaN included. Before the change
+/// NaN fell into the last segment and gave a NaN value.
+#[test]
+#[should_panic(expected = "x = NaN is outside the domain [-1.0, 1.0]")]
+fn test_evaluate_panics_on_nan() {
+    let poly = PiecewiseLegendrePoly::new(tensor![[1.0]], vec![-1.0, 1.0], 0, None, 0).unwrap();
+    poly.evaluate(f64::NAN);
+}

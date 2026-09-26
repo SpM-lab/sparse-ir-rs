@@ -257,9 +257,41 @@ impl PiecewiseLegendrePoly {
         )
     }
 
+    /// `Ok` if `x` lies in [xmin, xmax] (NaN does not)
+    fn check_in_domain(&self, name: &'static str, x: f64) -> Result<(), Error> {
+        if x >= self.xmin && x <= self.xmax {
+            Ok(())
+        } else {
+            Err(Error::OutOfDomain {
+                name,
+                value: x,
+                domain: (self.xmin, self.xmax),
+            })
+        }
+    }
+
     /// Evaluate the polynomial at a given point
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside [xmin, xmax] or NaN; see [`Self::try_evaluate`].
     pub fn evaluate(&self, x: f64) -> f64 {
-        let (i, x_tilde) = self.split(x);
+        self.try_evaluate(x).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside [xmin, xmax] or NaN
+    pub fn try_evaluate(&self, x: f64) -> Result<f64, Error> {
+        self.check_in_domain("x", x)?;
+        Ok(self.evaluate_in_domain(x))
+    }
+
+    /// [`Self::evaluate`] for an `x` already checked to lie in the domain
+    fn evaluate_in_domain(&self, x: f64) -> f64 {
+        let (i, x_tilde) = self.split_in_domain(x);
         // Extract column i into a Vec
         let coeffs: Vec<f64> = (0..self.data.shape().0)
             .map(|row| self.data[[row, i]])
@@ -269,16 +301,49 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Evaluate the polynomial at multiple points
+    ///
+    /// # Panics
+    ///
+    /// Panics if a point is outside [xmin, xmax] or NaN; see
+    /// [`Self::try_evaluate_many`].
     pub fn evaluate_many(&self, xs: &[f64]) -> Vec<f64> {
-        xs.iter().map(|&x| self.evaluate(x)).collect()
+        self.try_evaluate_many(xs).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate_many`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] for the first point of `xs` that is outside
+    /// [xmin, xmax] or NaN; no point is evaluated then
+    pub fn try_evaluate_many(&self, xs: &[f64]) -> Result<Vec<f64>, Error> {
+        for &x in xs {
+            self.check_in_domain("xs", x)?;
+        }
+        Ok(xs.iter().map(|&x| self.evaluate_in_domain(x)).collect())
     }
 
     /// Split x into segment index and normalized x
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside [xmin, xmax] or NaN; see [`Self::try_split`].
     pub fn split(&self, x: f64) -> (usize, f64) {
-        if x < self.xmin || x > self.xmax {
-            panic!("x = {} is outside domain [{}, {}]", x, self.xmin, self.xmax);
-        }
+        self.try_split(x).unwrap_or_else(|e| panic!("{e}"))
+    }
 
+    /// [`Self::split`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside [xmin, xmax] or NaN
+    pub fn try_split(&self, x: f64) -> Result<(usize, f64), Error> {
+        self.check_in_domain("x", x)?;
+        Ok(self.split_in_domain(x))
+    }
+
+    /// [`Self::split`] for an `x` already checked to lie in the domain
+    fn split_in_domain(&self, x: f64) -> (usize, f64) {
         // Find the segment containing x
         for i in 0..self.knots.len() - 1 {
             if x >= self.knots[i] && x <= self.knots[i + 1] {
@@ -404,16 +469,33 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Compute derivatives at a point x
+    ///
+    /// Returns the values of the derivatives of order 0 to `polyorder - 1`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside [xmin, xmax] or NaN; see [`Self::try_derivs`].
     pub fn derivs(&self, x: f64) -> Vec<f64> {
+        self.try_derivs(x).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::derivs`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside [xmin, xmax] or NaN
+    pub fn try_derivs(&self, x: f64) -> Result<Vec<f64>, Error> {
+        self.check_in_domain("x", x)?;
         let mut results = Vec::new();
 
         // Compute up to polyorder derivatives
+        // The derivatives have the knots of self, so x lies in their domain.
         for n in 0..self.polyorder {
             let deriv_poly = self.deriv(n);
-            results.push(deriv_poly.evaluate(x));
+            results.push(deriv_poly.evaluate_in_domain(x));
         }
 
-        results
+        Ok(results)
     }
 
     /// Compute overlap integral with a function
@@ -898,23 +980,65 @@ impl PiecewiseLegendrePolyVector {
     }
 
     /// Evaluate all polynomials at a single point
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside the domain of a polynomial or NaN; see
+    /// [`Self::try_evaluate_at`].
     pub fn evaluate_at(&self, x: f64) -> Vec<f64> {
-        self.polyvec.iter().map(|poly| poly.evaluate(x)).collect()
+        self.try_evaluate_at(x).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate_at`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside the domain of a polynomial
+    /// or NaN
+    pub fn try_evaluate_at(&self, x: f64) -> Result<Vec<f64>, Error> {
+        self.polyvec
+            .iter()
+            .map(|poly| poly.try_evaluate(x))
+            .collect()
     }
 
     /// Evaluate all polynomials at multiple points
+    ///
+    /// The result has the shape `(size, xs.len())`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a point is outside the domain of a polynomial or NaN; see
+    /// [`Self::try_evaluate_at_many`].
     pub fn evaluate_at_many(&self, xs: &[f64]) -> mdarray::DTensor<f64, 2> {
+        self.try_evaluate_at_many(xs)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate_at_many`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] for the first point of `xs` that is outside
+    /// the domain of a polynomial or NaN; every point is checked before any
+    /// is evaluated
+    pub fn try_evaluate_at_many(&self, xs: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
+        for poly in &self.polyvec {
+            for &x in xs {
+                poly.check_in_domain("xs", x)?;
+            }
+        }
         let n_funcs = self.polyvec.len();
         let n_points = xs.len();
         let mut results = mdarray::DTensor::<f64, 2>::from_elem([n_funcs, n_points], 0.0);
 
         for (i, poly) in self.polyvec.iter().enumerate() {
             for (j, &x) in xs.iter().enumerate() {
-                results[[i, j]] = poly.evaluate(x);
+                results[[i, j]] = poly.evaluate_in_domain(x);
             }
         }
 
-        results
+        Ok(results)
     }
 
     // Accessor methods to match C++ interface
