@@ -4,6 +4,7 @@
 //! IR basis coefficients and values at sparse Matsubara frequencies.
 
 use crate::error::Error;
+use crate::fitters::common::{check_input_shape, check_nd_shapes};
 use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter, InplaceFitter};
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
@@ -19,12 +20,18 @@ use std::marker::PhantomData;
 /// avoiding runtime TypeId checks and unsafe pointer casts.
 pub trait MatsubaraCoeffs: Copy + 'static {
     /// Evaluate coefficients using the given sampler
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
     fn evaluate_nd_with<S: StatisticsType>(
         sampler: &MatsubaraSampling<S>,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Self, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank>;
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error>;
 }
 
 impl MatsubaraCoeffs for f64 {
@@ -33,7 +40,7 @@ impl MatsubaraCoeffs for f64 {
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Self, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         sampler.evaluate_nd_impl_real(backend, coeffs, dim)
     }
 }
@@ -44,7 +51,7 @@ impl MatsubaraCoeffs for Complex<f64> {
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Self, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         sampler.evaluate_nd_impl_complex(backend, coeffs, dim)
     }
 }
@@ -232,18 +239,9 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
-        let rank = coeffs.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         let basis_size = self.basis_size();
-        let target_dim_size = coeffs.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, basis_size,
-            "coeffs.shape().dim({}) = {} must equal basis_size = {}",
-            dim, target_dim_size, basis_size
-        );
+        check_input_shape(coeffs.shape().dims(), dim, basis_size)?;
 
         if coeffs.is_empty() {
             // Zero-extent guard: an empty batch has nothing to evaluate.
@@ -252,7 +250,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
-            return Tensor::zeros(&out_shape[..]);
+            return Ok(Tensor::zeros(&out_shape[..]));
         }
 
         // 1. Move target dimension to position 0
@@ -284,7 +282,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         let result_dim0 = result_2d.into_dyn().reshape(&result_shape[..]).to_tensor();
 
         // 5. Move dimension 0 back to original position dim
-        movedim(&result_dim0, 0, dim)
+        Ok(movedim(&result_dim0, 0, dim))
     }
 
     /// Evaluate N-D coefficients for the complex case `T = Complex<f64>`
@@ -293,18 +291,9 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
-        let rank = coeffs.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         let basis_size = self.basis_size();
-        let target_dim_size = coeffs.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, basis_size,
-            "coeffs.shape().dim({}) = {} must equal basis_size = {}",
-            dim, target_dim_size, basis_size
-        );
+        check_input_shape(coeffs.shape().dims(), dim, basis_size)?;
 
         if coeffs.is_empty() {
             // Zero-extent guard: an empty batch has nothing to evaluate.
@@ -313,7 +302,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
-            return Tensor::zeros(&out_shape[..]);
+            return Ok(Tensor::zeros(&out_shape[..]));
         }
 
         // 1. Move target dimension to position 0
@@ -345,7 +334,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         let result_dim0 = result_2d.into_dyn().reshape(&result_shape[..]).to_tensor();
 
         // 5. Move dimension 0 back to original position dim
-        movedim(&result_dim0, 0, dim)
+        Ok(movedim(&result_dim0, 0, dim))
     }
 
     /// Evaluate N-dimensional coefficients at Matsubara sampling points
@@ -367,6 +356,12 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// N-dimensional tensor of complex values at Matsubara frequencies, with
     /// dimension `dim` of size n_sampling_points
     ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
+    ///
     /// # Example
     /// ```
     /// use num_complex::Complex;
@@ -382,7 +377,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// let coeffs_real = Tensor::<f64, DynRank>::from_fn(&[size, 2][..], |idx| {
     ///     1.0 / (1.0 + (idx[0] + idx[1]) as f64)
     /// });
-    /// let values = sampling.evaluate_nd::<f64>(None, &coeffs_real, 0);
+    /// let values = sampling.evaluate_nd::<f64>(None, &coeffs_real, 0).unwrap();
     /// assert_eq!(values.shape().dims(), &[n_points, 2]);
     ///
     /// // Complex coefficients
@@ -390,7 +385,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///     Tensor::<Complex<f64>, DynRank>::from_fn(&[size, 2][..], |idx| {
     ///         Complex::new(coeffs_real[idx], -0.5 * coeffs_real[idx])
     ///     });
-    /// let values_z = sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_complex, 0);
+    /// let values_z = sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_complex, 0).unwrap();
     ///
     /// // Each column matches the 1-D `evaluate` of the corresponding coefficient set
     /// for j in 0..2 {
@@ -408,7 +403,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<T, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         T::evaluate_nd_with(self, backend, coeffs, dim)
     }
 
@@ -424,23 +419,20 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// # Returns
     /// N-dimensional tensor of complex values at Matsubara frequencies
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
     pub fn evaluate_nd_real(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Tensor<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
-        let rank = coeffs.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         let basis_size = self.basis_size();
-        let target_dim_size = coeffs.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, basis_size,
-            "coeffs.shape().dim({}) = {} must equal basis_size = {}",
-            dim, target_dim_size, basis_size
-        );
+        check_input_shape(coeffs.shape().dims(), dim, basis_size)?;
 
         if coeffs.is_empty() {
             // Zero-extent guard: an empty batch has nothing to evaluate.
@@ -449,7 +441,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
-            return Tensor::zeros(&out_shape[..]);
+            return Ok(Tensor::zeros(&out_shape[..]));
         }
 
         // 1. Move target dimension to position 0
@@ -473,7 +465,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
 
         // 5. Reshape result back to N-D with first dimension = n_sampling_points
         let n_points = self.n_sampling_points();
-        let mut result_shape = Vec::with_capacity(rank);
+        let mut result_shape = Vec::with_capacity(coeffs.rank());
         result_shape.push(n_points);
         coeffs_dim0.shape().with_dims(|dims| {
             for i in 1..dims.len() {
@@ -484,7 +476,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         let result_dim0 = values_2d.into_dyn().reshape(&result_shape[..]).to_tensor();
 
         // 6. Move dimension 0 back to original position dim
-        movedim(&result_dim0, 0, dim)
+        Ok(movedim(&result_dim0, 0, dim))
     }
 
     /// Fit N-dimensional array of complex values to complex basis coefficients
@@ -496,23 +488,20 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// # Returns
     /// N-dimensional tensor of complex basis coefficients
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
-        let rank = values.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         let n_points = self.n_sampling_points();
-        let target_dim_size = values.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, n_points,
-            "values.shape().dim({}) = {} must equal n_sampling_points = {}",
-            dim, target_dim_size, n_points
-        );
+        check_input_shape(values.shape().dims(), dim, n_points)?;
 
         if values.is_empty() {
             // Zero-extent guard: an empty batch has nothing to fit.
@@ -521,7 +510,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
-            return Tensor::zeros(&out_shape[..]);
+            return Ok(Tensor::zeros(&out_shape[..]));
         }
 
         // 1. Move target dimension to position 0
@@ -552,7 +541,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&coeffs_shape[..]).to_tensor();
 
         // 5. Move dimension 0 back to original position dim
-        movedim(&coeffs_dim0, 0, dim)
+        Ok(movedim(&coeffs_dim0, 0, dim))
     }
 
     /// Fit N-dimensional array of complex values to real basis coefficients
@@ -567,23 +556,20 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// # Returns
     /// N-dimensional tensor of real basis coefficients
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`
     pub fn fit_nd_real(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
-        let rank = values.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
+    ) -> Result<Tensor<f64, DynRank>, Error> {
         let n_points = self.n_sampling_points();
-        let target_dim_size = values.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, n_points,
-            "values.shape().dim({}) = {} must equal n_sampling_points = {}",
-            dim, target_dim_size, n_points
-        );
+        check_input_shape(values.shape().dims(), dim, n_points)?;
 
         if values.is_empty() {
             // Zero-extent guard: an empty batch has nothing to fit.
@@ -592,7 +578,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
-            return Tensor::zeros(&out_shape[..]);
+            return Ok(Tensor::zeros(&out_shape[..]));
         }
 
         // 1. Move target dimension to position 0
@@ -623,7 +609,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&coeffs_shape[..]).to_tensor();
 
         // 5. Move dimension 0 back to original position dim
-        movedim(&coeffs_dim0, 0, dim)
+        Ok(movedim(&coeffs_dim0, 0, dim))
     }
 
     /// Evaluate basis coefficients at Matsubara sampling points (N-dimensional) with in-place output
@@ -635,46 +621,33 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// * `coeffs` - N-dimensional tensor with `coeffs.shape().dim(dim) == basis_size`
     /// * `dim` - Dimension along which to evaluate (0-indexed)
     /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points` (Complex<f64>)
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`, and of the output if `out` does not have
+    ///   the shape of `coeffs` with `n_sampling_points` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn evaluate_nd_to<T: MatsubaraCoeffs>(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<T, DynRank>,
         dim: usize,
         out: &mut Tensor<Complex<f64>, DynRank>,
-    ) {
-        // Validate output shape
+    ) -> Result<(), Error> {
+        check_nd_shapes(
+            coeffs.shape().dims(),
+            dim,
+            self.basis_size(),
+            out.shape().dims(),
+            self.n_sampling_points(),
+        )?;
         let rank = coeffs.rank();
-        assert_eq!(
-            out.rank(),
-            rank,
-            "out.rank()={} must equal coeffs.rank()={}",
-            out.rank(),
-            rank
-        );
-
-        let n_points = self.n_sampling_points();
-        let out_dim_size = out.shape().dim(dim);
-        assert_eq!(
-            out_dim_size, n_points,
-            "out.shape().dim({}) = {} must equal n_sampling_points = {}",
-            dim, out_dim_size, n_points
-        );
-
-        // Validate other dimensions match
-        for d in 0..rank {
-            if d != dim {
-                let coeffs_d = coeffs.shape().dim(d);
-                let out_d = out.shape().dim(d);
-                assert_eq!(
-                    coeffs_d, out_d,
-                    "coeffs.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
-                    d, coeffs_d, d, out_d
-                );
-            }
-        }
 
         // Compute result and copy to out
-        let result = self.evaluate_nd(backend, coeffs, dim);
+        let result = self.evaluate_nd(backend, coeffs, dim)?;
 
         // Copy result to out
         let total = out.len();
@@ -688,6 +661,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             }
             out[&idx[..]] = result[&idx[..]];
         }
+        Ok(())
     }
 
     /// Fit N-dimensional complex values to complex coefficients with in-place output
@@ -696,46 +670,33 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// * `values` - N-dimensional tensor with `values.shape().dim(dim) == n_sampling_points`
     /// * `dim` - Dimension along which to fit (0-indexed)
     /// * `out` - Output tensor with `out.shape().dim(dim) == basis_size` (Complex<f64>)
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
+    ///   the shape of `values` with `basis_size` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn fit_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut Tensor<Complex<f64>, DynRank>,
-    ) {
-        // Validate output shape
+    ) -> Result<(), Error> {
+        check_nd_shapes(
+            values.shape().dims(),
+            dim,
+            self.n_sampling_points(),
+            out.shape().dims(),
+            self.basis_size(),
+        )?;
         let rank = values.rank();
-        assert_eq!(
-            out.rank(),
-            rank,
-            "out.rank()={} must equal values.rank()={}",
-            out.rank(),
-            rank
-        );
-
-        let basis_size = self.basis_size();
-        let out_dim_size = out.shape().dim(dim);
-        assert_eq!(
-            out_dim_size, basis_size,
-            "out.shape().dim({}) = {} must equal basis_size = {}",
-            dim, out_dim_size, basis_size
-        );
-
-        // Validate other dimensions match
-        for d in 0..rank {
-            if d != dim {
-                let values_d = values.shape().dim(d);
-                let out_d = out.shape().dim(d);
-                assert_eq!(
-                    values_d, out_d,
-                    "values.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
-                    d, values_d, d, out_d
-                );
-            }
-        }
 
         // Compute result and copy to out
-        let result = self.fit_nd(backend, values, dim);
+        let result = self.fit_nd(backend, values, dim)?;
 
         // Copy result to out
         let total = out.len();
@@ -749,6 +710,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
             }
             out[&idx[..]] = result[&idx[..]];
         }
+        Ok(())
     }
 }
 
@@ -773,7 +735,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSampling<S> {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_dz_to(backend, coeffs, dim, out)
     }
 
@@ -783,7 +745,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSampling<S> {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
     }
 
@@ -793,7 +755,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSampling<S> {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_zd_to(backend, values, dim, out)
     }
 
@@ -803,7 +765,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSampling<S> {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_zz_to(backend, values, dim, out)
     }
 }
@@ -998,23 +960,20 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     ///
     /// # Returns
     /// N-dimensional tensor of complex values at Matsubara frequencies
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
     pub fn evaluate_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Tensor<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
-        let rank = coeffs.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
         let basis_size = self.basis_size();
-        let target_dim_size = coeffs.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, basis_size,
-            "coeffs.shape().dim({}) = {} must equal basis_size = {}",
-            dim, target_dim_size, basis_size
-        );
+        check_input_shape(coeffs.shape().dims(), dim, basis_size)?;
 
         if coeffs.is_empty() {
             // Zero-extent guard: an empty batch has nothing to evaluate.
@@ -1023,7 +982,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
-            return Tensor::zeros(&out_shape[..]);
+            return Ok(Tensor::zeros(&out_shape[..]));
         }
 
         // 1. Move target dimension to position 0
@@ -1057,7 +1016,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         let result_dim0 = result_2d.into_dyn().reshape(&result_shape[..]).to_tensor();
 
         // 5. Move dimension 0 back to original position dim
-        movedim(&result_dim0, 0, dim)
+        Ok(movedim(&result_dim0, 0, dim))
     }
 
     /// Fit N-dimensional array of complex values to real basis coefficients
@@ -1069,23 +1028,20 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     ///
     /// # Returns
     /// N-dimensional tensor of real basis coefficients
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
-        let rank = values.rank();
-        assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-
+    ) -> Result<Tensor<f64, DynRank>, Error> {
         let n_points = self.n_sampling_points();
-        let target_dim_size = values.shape().dim(dim);
-
-        assert_eq!(
-            target_dim_size, n_points,
-            "values.shape().dim({}) = {} must equal n_sampling_points = {}",
-            dim, target_dim_size, n_points
-        );
+        check_input_shape(values.shape().dims(), dim, n_points)?;
 
         if values.is_empty() {
             // Zero-extent guard: an empty batch has nothing to fit.
@@ -1094,7 +1050,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
-            return Tensor::zeros(&out_shape[..]);
+            return Ok(Tensor::zeros(&out_shape[..]));
         }
 
         // 1. Move target dimension to position 0
@@ -1125,7 +1081,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
         let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&coeffs_shape[..]).to_tensor();
 
         // 5. Move dimension 0 back to original position dim
-        movedim(&coeffs_dim0, 0, dim)
+        Ok(movedim(&coeffs_dim0, 0, dim))
     }
 
     /// Evaluate real basis coefficients at Matsubara sampling points (N-dimensional) with in-place output
@@ -1134,46 +1090,33 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// * `coeffs` - N-dimensional tensor of real coefficients with `coeffs.shape().dim(dim) == basis_size`
     /// * `dim` - Dimension along which to evaluate (0-indexed)
     /// * `out` - Output tensor with `out.shape().dim(dim) == n_sampling_points` (Complex<f64>)
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`, and of the output if `out` does not have
+    ///   the shape of `coeffs` with `n_sampling_points` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn evaluate_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Tensor<f64, DynRank>,
         dim: usize,
         out: &mut Tensor<Complex<f64>, DynRank>,
-    ) {
-        // Validate output shape
+    ) -> Result<(), Error> {
+        check_nd_shapes(
+            coeffs.shape().dims(),
+            dim,
+            self.basis_size(),
+            out.shape().dims(),
+            self.n_sampling_points(),
+        )?;
         let rank = coeffs.rank();
-        assert_eq!(
-            out.rank(),
-            rank,
-            "out.rank()={} must equal coeffs.rank()={}",
-            out.rank(),
-            rank
-        );
-
-        let n_points = self.n_sampling_points();
-        let out_dim_size = out.shape().dim(dim);
-        assert_eq!(
-            out_dim_size, n_points,
-            "out.shape().dim({}) = {} must equal n_sampling_points = {}",
-            dim, out_dim_size, n_points
-        );
-
-        // Validate other dimensions match
-        for d in 0..rank {
-            if d != dim {
-                let coeffs_d = coeffs.shape().dim(d);
-                let out_d = out.shape().dim(d);
-                assert_eq!(
-                    coeffs_d, out_d,
-                    "coeffs.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
-                    d, coeffs_d, d, out_d
-                );
-            }
-        }
 
         // Compute result and copy to out
-        let result = self.evaluate_nd(backend, coeffs, dim);
+        let result = self.evaluate_nd(backend, coeffs, dim)?;
 
         // Copy result to out
         let total = out.len();
@@ -1187,6 +1130,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             }
             out[&idx[..]] = result[&idx[..]];
         }
+        Ok(())
     }
 
     /// Fit N-dimensional complex values to real coefficients with in-place output
@@ -1195,46 +1139,33 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// * `values` - N-dimensional tensor with `values.shape().dim(dim) == n_sampling_points`
     /// * `dim` - Dimension along which to fit (0-indexed)
     /// * `out` - Output tensor with `out.shape().dim(dim) == basis_size` (f64)
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
+    ///   the shape of `values` with `basis_size` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn fit_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Tensor<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut Tensor<f64, DynRank>,
-    ) {
-        // Validate output shape
+    ) -> Result<(), Error> {
+        check_nd_shapes(
+            values.shape().dims(),
+            dim,
+            self.n_sampling_points(),
+            out.shape().dims(),
+            self.basis_size(),
+        )?;
         let rank = values.rank();
-        assert_eq!(
-            out.rank(),
-            rank,
-            "out.rank()={} must equal values.rank()={}",
-            out.rank(),
-            rank
-        );
-
-        let basis_size = self.basis_size();
-        let out_dim_size = out.shape().dim(dim);
-        assert_eq!(
-            out_dim_size, basis_size,
-            "out.shape().dim({}) = {} must equal basis_size = {}",
-            dim, out_dim_size, basis_size
-        );
-
-        // Validate other dimensions match
-        for d in 0..rank {
-            if d != dim {
-                let values_d = values.shape().dim(d);
-                let out_d = out.shape().dim(d);
-                assert_eq!(
-                    values_d, out_d,
-                    "values.shape().dim({}) = {} must equal out.shape().dim({}) = {}",
-                    d, values_d, d, out_d
-                );
-            }
-        }
 
         // Compute result and copy to out
-        let result = self.fit_nd(backend, values, dim);
+        let result = self.fit_nd(backend, values, dim)?;
 
         // Copy result to out
         let total = out.len();
@@ -1248,6 +1179,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
             }
             out[&idx[..]] = result[&idx[..]];
         }
+        Ok(())
     }
 }
 
@@ -1273,7 +1205,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_dz_to(backend, coeffs, dim, out)
     }
 
@@ -1283,7 +1215,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
     }
 
@@ -1293,7 +1225,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_zd_to(backend, values, dim, out)
     }
 
@@ -1303,7 +1235,7 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_zz_to(backend, values, dim, out)
     }
 }

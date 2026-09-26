@@ -108,8 +108,8 @@ mod tests {
     // ------------------------------------------------------------------
 
     use super::common::InplaceFitter;
+    use crate::error::{ArrayRole, Error};
     use mdarray::{DenseMapping, DynRank, Shape, Slice, Tensor, ViewMut};
-    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     const N_POINTS: usize = 5;
     const BASIS_SIZE: usize = 3;
@@ -146,8 +146,11 @@ mod tests {
         }
     }
 
-    type NdMethod<'f, Tin, Tout> =
-        &'f dyn Fn(&Slice<Tin, DynRank>, usize, &mut ViewMut<'_, Tout, DynRank>) -> bool;
+    type NdMethod<'f, Tin, Tout> = &'f dyn Fn(
+        &Slice<Tin, DynRank>,
+        usize,
+        &mut ViewMut<'_, Tout, DynRank>,
+    ) -> Result<(), Error>;
 
     /// Call `method` along `dim` of a rank-3 input with extent `n_in` there,
     /// with an output whose extent along `bad_axis` is off by `delta` from
@@ -155,8 +158,8 @@ mod tests {
     /// a canary and large enough for the correct output, so writes past the
     /// end of the view stay inside the buffer and are detected.
     ///
-    /// Returns the panic message (or `None` if `method` returned) and whether
-    /// the buffer is untouched.
+    /// Returns the result, the correct output shape, the shape of the view
+    /// and whether the buffer is untouched.
     fn call_with_mismatched_out<Tin: Canary + Default, Tout: Canary>(
         method: NdMethod<'_, Tin, Tout>,
         dim: usize,
@@ -164,7 +167,7 @@ mod tests {
         n_out: usize,
         bad_axis: usize,
         delta: isize,
-    ) -> (Option<String>, bool) {
+    ) -> (Result<(), Error>, Vec<usize>, Vec<usize>, bool) {
         let mut in_shape = vec![2usize, 3, 4];
         in_shape[dim] = n_in;
         let input = Tensor::<Tin, DynRank>::from_elem(&in_shape[..], Tin::default());
@@ -189,27 +192,16 @@ mod tests {
                     DenseMapping::new(DynRank::from_dims(&out_shape[..])),
                 )
             };
-            catch_unwind(AssertUnwindSafe(|| method(&input, dim, &mut out)))
-        };
-        let message = match result {
-            Ok(_) => None,
-            Err(payload) => Some(
-                payload
-                    .downcast_ref::<String>()
-                    .cloned()
-                    .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
-                    .unwrap_or_default(),
-            ),
+            method(&input, dim, &mut out)
         };
         let untouched = buffer.iter().all(|&x| x == Tout::canary());
-        (message, untouched)
+        (result, full_shape, out_shape, untouched)
     }
 
     /// A mismatched non-target extent of `out` must be rejected before
-    /// anything is written. Before the fix only the rank and the target
-    /// extent were checked: the unchecked views were sized from the input,
-    /// so a smaller output was written past its end (and, for the zd fit of
-    /// `ComplexMatrixFitter`, a larger one was read past a temporary).
+    /// anything is written, as ShapeMismatch of the output with both shapes.
+    /// Before PR-0 only the rank and the target extent were checked and a
+    /// smaller output was written past its end; PR-0 made it a panic.
     fn assert_rejects_mismatched_out<Tin: Canary + Default, Tout: Canary>(
         name: &str,
         method: NdMethod<'_, Tin, Tout>,
@@ -219,13 +211,17 @@ mod tests {
         for dim in 0..3 {
             for bad_axis in (0..3).filter(|&axis| axis != dim) {
                 for delta in [-1, 1] {
-                    let (message, untouched) =
+                    let (result, expected, actual, untouched) =
                         call_with_mismatched_out(method, dim, n_in, n_out, bad_axis, delta);
                     let case = format!("{name}: dim={dim}, bad_axis={bad_axis}, delta={delta}");
-                    let message = message.unwrap_or_else(|| panic!("{case}: not rejected"));
-                    assert!(
-                        message.contains(&format!("out.shape().dim({bad_axis})=")),
-                        "{case}: unexpected panic {message:?}"
+                    assert_eq!(
+                        result,
+                        Err(Error::ShapeMismatch {
+                            which: ArrayRole::Output,
+                            expected,
+                            actual,
+                        }),
+                        "{case}"
                     );
                     assert!(untouched, "{case}: output buffer was written");
                 }
@@ -335,11 +331,13 @@ mod tests {
             });
             shape[dim] = N_POINTS;
             let mut out = Tensor::<f64, DynRank>::from_elem(&shape[..], CANARY);
-            assert!(f.evaluate_nd_dd_to(None, &coeffs, dim, &mut out.expr_mut()));
+            f.evaluate_nd_dd_to(None, &coeffs, dim, &mut out.expr_mut())
+                .unwrap();
             assert!(out.iter().all(|&x| x != CANARY), "dim={dim}");
 
             let mut fitted = Tensor::<f64, DynRank>::from_elem(coeffs.shape().dims(), CANARY);
-            assert!(f.fit_nd_dd_to(None, &out, dim, &mut fitted.expr_mut()));
+            f.fit_nd_dd_to(None, &out, dim, &mut fitted.expr_mut())
+                .unwrap();
             for (x, y) in fitted.iter().zip(coeffs.iter()) {
                 assert!((x - y).abs() < 1e-12 * y.abs(), "dim={dim}: {x} vs {y}");
             }
@@ -356,5 +354,58 @@ mod tests {
         let fitter = RealMatrixFitter::new(DTensor::<f64, 2>::zeros([3, 0]));
         // No singular values: the documented convention for a zero dimension
         assert_eq!(fitter.condition_number(), 1.0);
+    }
+
+    /// The N-D methods check the axis first, then the input, then `out`, and
+    /// write nothing on an error. An unsupported pair of types is
+    /// NotSupported (it was `false`).
+    #[test]
+    fn test_nd_methods_report_the_axis_and_the_input_shape() {
+        let f = RealMatrixFitter::new(real_matrix());
+        let coeffs = Tensor::<f64, DynRank>::from_elem(&[BASIS_SIZE, 2][..], 1.0);
+        let mut out = Tensor::<f64, DynRank>::from_elem(&[N_POINTS, 2][..], CANARY);
+
+        assert_eq!(
+            f.evaluate_nd_dd_to(None, &coeffs, 2, &mut out.expr_mut()),
+            Err(Error::AxisOutOfRange { axis: 2, rank: 2 })
+        );
+        let wrong = Tensor::<f64, DynRank>::from_elem(&[BASIS_SIZE + 1, 2][..], 1.0);
+        assert_eq!(
+            f.evaluate_nd_dd_to(None, &wrong, 0, &mut out.expr_mut()),
+            Err(Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                expected: vec![BASIS_SIZE, 2],
+                actual: vec![BASIS_SIZE + 1, 2],
+            })
+        );
+        let mut rank3 = Tensor::<f64, DynRank>::from_elem(&[N_POINTS, 2, 1][..], CANARY);
+        assert_eq!(
+            f.evaluate_nd_dd_to(None, &coeffs, 0, &mut rank3.expr_mut()),
+            Err(Error::ShapeMismatch {
+                which: ArrayRole::Output,
+                expected: vec![N_POINTS, 2],
+                actual: vec![N_POINTS, 2, 1],
+            })
+        );
+        assert!(out.iter().chain(rank3.iter()).all(|&x| x == CANARY));
+
+        let mut out_z = Tensor::<Complex<f64>, DynRank>::zeros(&[N_POINTS, 2][..]);
+        let err = InplaceFitter::evaluate_nd_dz_to(&f, None, &coeffs, 0, &mut out_z.expr_mut())
+            .unwrap_err();
+        assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+
+        // An empty batch of the right shape is fine; a wrong empty `out` is not.
+        let empty = Tensor::<f64, DynRank>::zeros(&[BASIS_SIZE, 0][..]);
+        let mut out0 = Tensor::<f64, DynRank>::zeros(&[N_POINTS, 0][..]);
+        f.evaluate_nd_dd_to(None, &empty, 0, &mut out0.expr_mut())
+            .unwrap();
+        let mut out_bad = Tensor::<f64, DynRank>::zeros(&[N_POINTS + 1, 0][..]);
+        assert!(matches!(
+            f.evaluate_nd_dd_to(None, &empty, 0, &mut out_bad.expr_mut()),
+            Err(Error::ShapeMismatch {
+                which: ArrayRole::Output,
+                ..
+            })
+        ));
     }
 }

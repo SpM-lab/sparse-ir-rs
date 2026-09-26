@@ -5,6 +5,7 @@
 
 use crate::error::Error;
 use crate::fitters::InplaceFitter;
+use crate::fitters::common::check_input_shape;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
@@ -42,6 +43,10 @@ pub(crate) fn build_output_shape<S: Shape>(
 /// # Returns
 /// Tensor with axes permuted
 ///
+/// # Panics
+///
+/// Panics if `src` or `dst` is not an axis of `arr`, also when they are equal.
+///
 /// # Example
 /// ```
 /// use sparse_ir::sampling::movedim;
@@ -60,10 +65,6 @@ pub(crate) fn build_output_shape<S: Shape>(
 /// assert_eq!(moved[&[2, 3, 1, 4][..]], arr[&[1, 2, 3, 4][..]]);
 /// ```
 pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
-    if src == dst {
-        return arr.to_tensor();
-    }
-
     let rank = arr.rank();
     assert!(
         src < rank,
@@ -77,6 +78,9 @@ pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Ten
         dst,
         rank
     );
+    if src == dst {
+        return arr.to_tensor();
+    }
 
     // Generate permutation: move src to dst position
     let mut perm = Vec::with_capacity(rank);
@@ -339,16 +343,23 @@ where
     ///
     /// # Returns
     /// N-dimensional array with `result.shape().dim(dim) == n_sampling_points`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
     pub fn evaluate_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
+    ) -> Result<Tensor<f64, DynRank>, Error> {
+        check_input_shape(coeffs.shape().dims(), dim, self.basis_size())?;
         let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
         let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
-        self.evaluate_nd_to(backend, coeffs, dim, &mut out.expr_mut());
-        out
+        self.evaluate_nd_to(backend, coeffs, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Evaluate N-D real coefficients, writing to a mutable view
@@ -356,18 +367,22 @@ where
     /// `out` must have the shape of `coeffs` with `n_sampling_points` along
     /// `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `coeffs`, `coeffs` does not have
-    /// `basis_size` along `dim`, or `out` does not have that shape. Nothing is
-    /// written to `out` then.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`, and of the output if `out` does not have
+    ///   the shape of `coeffs` with `n_sampling_points` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn evaluate_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out)
     }
 
     /// Fit N-D real values at sampling points to basis coefficients
@@ -378,25 +393,36 @@ where
     ///
     /// # Returns
     /// N-dimensional array with `result.shape().dim(dim) == basis_size`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Slice<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
+    ) -> Result<Tensor<f64, DynRank>, Error> {
+        check_input_shape(values.shape().dims(), dim, self.n_sampling_points())?;
         let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
         let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
-        self.fit_nd_to(backend, values, dim, &mut out.expr_mut());
-        out
+        self.fit_nd_to(backend, values, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Fit N-D real values, writing to a mutable view
     ///
     /// `out` must have the shape of `values` with `basis_size` along `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `values`, `values` does not have
-    /// `n_sampling_points` along `dim`, or `out` does not have that shape.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
+    ///   the shape of `values` with `basis_size` along `dim`
+    ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_to(
         &self,
@@ -404,8 +430,8 @@ where
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out)
     }
 
     // ========================================================================
@@ -420,16 +446,23 @@ where
     ///
     /// # Returns
     /// N-dimensional complex array with `result.shape().dim(dim) == n_sampling_points`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
     pub fn evaluate_nd_zz(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
+        check_input_shape(coeffs.shape().dims(), dim, self.basis_size())?;
         let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
-        self.evaluate_nd_zz_to(backend, coeffs, dim, &mut out.expr_mut());
-        out
+        self.evaluate_nd_zz_to(backend, coeffs, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Evaluate N-D complex coefficients, writing to a mutable view
@@ -437,18 +470,22 @@ where
     /// `out` must have the shape of `coeffs` with `n_sampling_points` along
     /// `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `coeffs`, `coeffs` does not have
-    /// `basis_size` along `dim`, or `out` does not have that shape. Nothing is
-    /// written to `out` then.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`, and of the output if `out` does not have
+    ///   the shape of `coeffs` with `n_sampling_points` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
     }
 
     /// Fit N-D complex values at sampling points to basis coefficients
@@ -459,25 +496,36 @@ where
     ///
     /// # Returns
     /// N-dimensional complex array with `result.shape().dim(dim) == basis_size`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`
     pub fn fit_nd_zz(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
+        check_input_shape(values.shape().dims(), dim, self.n_sampling_points())?;
         let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
-        self.fit_nd_zz_to(backend, values, dim, &mut out.expr_mut());
-        out
+        self.fit_nd_zz_to(backend, values, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Fit N-D complex values, writing to a mutable view
     ///
     /// `out` must have the shape of `values` with `basis_size` along `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `values`, `values` does not have
-    /// `n_sampling_points` along `dim`, or `out` does not have that shape.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
+    ///   the shape of `values` with `basis_size` along `dim`
+    ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_zz_to(
         &self,
@@ -485,8 +533,8 @@ where
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out)
     }
 }
 
@@ -508,7 +556,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_dd_to(backend, coeffs, dim, out)
     }
 
@@ -518,7 +566,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
     }
 
@@ -528,7 +576,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_dd_to(backend, values, dim, out)
     }
 
@@ -538,7 +586,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_zz_to(backend, values, dim, out)
     }
 }

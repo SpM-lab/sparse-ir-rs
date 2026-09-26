@@ -41,10 +41,10 @@ where
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
 
         // Evaluate along target dimension
-        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim);
+        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
 
         // Fit back along target dimension
-        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim);
+        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
@@ -112,8 +112,8 @@ where
             );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim).unwrap();
+        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim).unwrap();
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -177,8 +177,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_real() {
         );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let fitted_coeffs_dim = sampling.fit_nd(None, &evaluated_values, dim).unwrap();
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -229,8 +229,8 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
             );
 
         let coeffs_dim = movedim(&coeffs_0, 0, dim);
-        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim);
-        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim);
+        let evaluated_values = sampling.evaluate_nd_zz(None, &coeffs_dim, dim).unwrap();
+        let fitted_coeffs_dim = sampling.fit_nd_zz(None, &evaluated_values, dim).unwrap();
         let fitted_coeffs_0 = movedim(&fitted_coeffs_dim, dim, 0);
 
         let basis_size = basis.size();
@@ -289,12 +289,14 @@ fn test_evaluate_nd_to_matches_fermionic_real() {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], 0.0);
     {
         let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual_view);
+        sampling
+            .evaluate_nd_to(None, &coeffs, 0, &mut actual_view)
+            .unwrap();
     }
 
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -346,7 +348,7 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
             )
         });
 
-    let expected = sampling.evaluate_nd_zz(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd_zz(None, &coeffs, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[n_points, n_k, n_omega][..],
@@ -354,7 +356,9 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
     );
     {
         let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_zz_to(None, &coeffs, 0, &mut actual_view);
+        sampling
+            .evaluate_nd_zz_to(None, &coeffs, 0, &mut actual_view)
+            .unwrap();
     }
 
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -403,12 +407,14 @@ fn test_fit_nd_to_matches_fermionic_real() {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
     {
         let mut actual_view = actual.expr_mut();
-        sampling.fit_nd_to(None, &values, 0, &mut actual_view);
+        sampling
+            .fit_nd_to(None, &values, 0, &mut actual_view)
+            .unwrap();
     }
 
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -460,7 +466,7 @@ fn test_fit_nd_to_matches_fermionic_complex() {
             )
         });
 
-    let expected = sampling.fit_nd_zz(None, &values, 0);
+    let expected = sampling.fit_nd_zz(None, &values, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[basis_size, n_k, n_omega][..],
@@ -468,7 +474,9 @@ fn test_fit_nd_to_matches_fermionic_complex() {
     );
     {
         let mut actual_view = actual.expr_mut();
-        sampling.fit_nd_zz_to(None, &values, 0, &mut actual_view);
+        sampling
+            .fit_nd_zz_to(None, &values, 0, &mut actual_view)
+            .unwrap();
     }
 
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -520,12 +528,14 @@ fn test_evaluate_nd_to_dim0() {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_points, n_k, n_omega][..], 0.0);
     {
         let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual_view);
+        sampling
+            .evaluate_nd_to(None, &coeffs, 0, &mut actual_view)
+            .unwrap();
     }
 
     for i in 0..n_points {
@@ -571,13 +581,15 @@ fn test_evaluate_nd_to_dim1() {
     });
 
     // Expected result
-    let expected = sampling.evaluate_nd(None, &coeffs, 1);
+    let expected = sampling.evaluate_nd(None, &coeffs, 1).unwrap();
 
     // Actual result using to_viewmut
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_k, n_points, n_omega][..], 0.0);
     {
         let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 1, &mut actual_view);
+        sampling
+            .evaluate_nd_to(None, &coeffs, 1, &mut actual_view)
+            .unwrap();
     }
 
     // Compare
@@ -625,13 +637,15 @@ fn test_evaluate_nd_to_dim_last() {
     });
 
     // Expected result (dim=2, which is rank-1)
-    let expected = sampling.evaluate_nd(None, &coeffs, 2);
+    let expected = sampling.evaluate_nd(None, &coeffs, 2).unwrap();
 
     // Actual result using to_viewmut (should use fast path for dim == N-1)
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[n_k, n_omega, n_points][..], 0.0);
     {
         let mut actual_view = actual.expr_mut();
-        sampling.evaluate_nd_to(None, &coeffs, 2, &mut actual_view);
+        sampling
+            .evaluate_nd_to(None, &coeffs, 2, &mut actual_view)
+            .unwrap();
     }
 
     // Compare
@@ -686,13 +700,14 @@ fn test_tau_condition_number_bosonic() {
 }
 
 /// `out` of `TauSampling::*_nd_to` must match the input on every axis, not
-/// only in rank and target extent. Before the fix, `evaluate_nd_to` with
-/// coeffs of shape [L, 50] and an out view of shape [n_points, 1] wrote the
-/// 49 × n_points values that do not fit past the end of the view.
+/// only in rank and target extent. Before PR-0, `evaluate_nd_to` with coeffs
+/// of shape [L, 50] and an out view of shape [n_points, 1] wrote the
+/// 49 × n_points values that do not fit past the end of the view; PR-0 made
+/// it a panic, and it is ShapeMismatch of the output now.
 #[test]
 fn test_nd_to_rejects_out_with_wrong_batch_extent() {
+    use crate::error::{ArrayRole, Error};
     use mdarray::{DenseMapping, DynRank, Shape, Tensor, ViewMut};
-    use std::panic::{AssertUnwindSafe, catch_unwind};
 
     let basis = FiniteTempBasis::<_, Fermionic>::new(
         LogisticKernel::new(10.0).unwrap(),
@@ -707,54 +722,56 @@ fn test_nd_to_rejects_out_with_wrong_batch_extent() {
 
     // Each call gets a buffer large enough for the correct output, and a view
     // that claims only its first `extra` = 1 column.
-    let run = |fit: bool, complex: bool| -> (bool, bool) {
+    let run = |fit: bool, complex: bool| -> (Result<(), Error>, usize, bool) {
         let (n_in, n_out) = if fit { (np, l) } else { (l, np) };
         let mut buffer = vec![CANARY; 2 * n_out * extra];
         let shape = DynRank::from_dims(&[n_out, 1]);
-        let panicked = catch_unwind(AssertUnwindSafe(|| {
-            if complex {
-                let input = Tensor::<Complex<f64>, DynRank>::from_elem(
-                    &[n_in, extra][..],
-                    Complex::new(1.0, 0.5),
-                );
-                // SAFETY: the view covers the first `n_out` of `2 * n_out * extra` complex-sized slots.
-                let mut out = unsafe {
-                    ViewMut::<'_, Complex<f64>, DynRank>::new_unchecked(
-                        buffer.as_mut_ptr() as *mut Complex<f64>,
-                        DenseMapping::new(shape.clone()),
-                    )
-                };
-                if fit {
-                    sampling.fit_nd_zz_to(None, &input, 0, &mut out)
-                } else {
-                    sampling.evaluate_nd_zz_to(None, &input, 0, &mut out)
-                }
+        let result = if complex {
+            let input = Tensor::<Complex<f64>, DynRank>::from_elem(
+                &[n_in, extra][..],
+                Complex::new(1.0, 0.5),
+            );
+            // SAFETY: the view covers the first `n_out` of `2 * n_out * extra` complex-sized slots.
+            let mut out = unsafe {
+                ViewMut::<'_, Complex<f64>, DynRank>::new_unchecked(
+                    buffer.as_mut_ptr() as *mut Complex<f64>,
+                    DenseMapping::new(shape.clone()),
+                )
+            };
+            if fit {
+                sampling.fit_nd_zz_to(None, &input, 0, &mut out)
             } else {
-                let input = Tensor::<f64, DynRank>::from_elem(&[n_in, extra][..], 1.0);
-                // SAFETY: the view covers the first `n_out` elements of `buffer`.
-                let mut out = unsafe {
-                    ViewMut::<'_, f64, DynRank>::new_unchecked(
-                        buffer.as_mut_ptr(),
-                        DenseMapping::new(shape.clone()),
-                    )
-                };
-                if fit {
-                    sampling.fit_nd_to(None, &input, 0, &mut out)
-                } else {
-                    sampling.evaluate_nd_to(None, &input, 0, &mut out)
-                }
+                sampling.evaluate_nd_zz_to(None, &input, 0, &mut out)
             }
-        }))
-        .is_err();
-        (panicked, buffer.iter().all(|&x| x == CANARY))
+        } else {
+            let input = Tensor::<f64, DynRank>::from_elem(&[n_in, extra][..], 1.0);
+            // SAFETY: the view covers the first `n_out` elements of `buffer`.
+            let mut out = unsafe {
+                ViewMut::<'_, f64, DynRank>::new_unchecked(
+                    buffer.as_mut_ptr(),
+                    DenseMapping::new(shape.clone()),
+                )
+            };
+            if fit {
+                sampling.fit_nd_to(None, &input, 0, &mut out)
+            } else {
+                sampling.evaluate_nd_to(None, &input, 0, &mut out)
+            }
+        };
+        (result, n_out, buffer.iter().all(|&x| x == CANARY))
     };
 
     for fit in [false, true] {
         for complex in [false, true] {
-            let (panicked, untouched) = run(fit, complex);
-            assert!(
-                panicked,
-                "fit={fit}, complex={complex}: mismatched out accepted"
+            let (result, n_out, untouched) = run(fit, complex);
+            assert_eq!(
+                result,
+                Err(Error::ShapeMismatch {
+                    which: ArrayRole::Output,
+                    expected: vec![n_out, extra],
+                    actual: vec![n_out, 1],
+                }),
+                "fit={fit}, complex={complex}"
             );
             assert!(
                 untouched,
@@ -809,6 +826,18 @@ fn test_movedim_with_zero_extent() {
     assert_eq!(moved[&[3, 1, 2][..]], arr[&[1, 2, 3][..]]);
 }
 
+/// movedim checks both axes also when they are equal: an axis past the rank
+/// was returned as a copy of the array.
+#[test]
+#[should_panic(expected = "src axis 2 out of bounds for rank 2")]
+fn test_movedim_rejects_equal_axes_past_the_rank() {
+    use crate::sampling::movedim;
+    use mdarray::{DynRank, Tensor};
+
+    let arr = Tensor::<f64, DynRank>::zeros(&[2, 3][..]);
+    let _ = movedim(&arr, 2, 2);
+}
+
 /// Evaluating or fitting an empty batch gives an empty result of the right
 /// shape, for every target axis
 #[test]
@@ -837,15 +866,15 @@ fn test_tau_nd_with_empty_batch() {
         expected.insert(dim, np);
 
         let coeffs = Tensor::<f64, DynRank>::zeros(&dims[..]);
-        let values = sampling.evaluate_nd(None, &coeffs, dim);
+        let values = sampling.evaluate_nd(None, &coeffs, dim).unwrap();
         assert_eq!(values.shape().dims(), &expected[..]);
-        let fitted = sampling.fit_nd(None, &values, dim);
+        let fitted = sampling.fit_nd(None, &values, dim).unwrap();
         assert_eq!(fitted.shape().dims(), &dims[..]);
 
         let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims[..]);
-        let values_z = sampling.evaluate_nd_zz(None, &coeffs_z, dim);
+        let values_z = sampling.evaluate_nd_zz(None, &coeffs_z, dim).unwrap();
         assert_eq!(values_z.shape().dims(), &expected[..]);
-        let fitted_z = sampling.fit_nd_zz(None, &values_z, dim);
+        let fitted_z = sampling.fit_nd_zz(None, &values_z, dim).unwrap();
         assert_eq!(fitted_z.shape().dims(), &dims[..]);
     }
 }
@@ -895,4 +924,54 @@ fn test_tau_sampling_rejects_invalid_points() {
     );
     // ±β are inside the domain.
     TauSampling::with_sampling_points(&basis, vec![-beta, 0.0, beta]).unwrap();
+}
+
+/// The N-D methods of TauSampling report an axis that is not an axis of the
+/// input and an input of the wrong extent along it (they panicked), before
+/// allocating the output.
+#[test]
+fn test_tau_nd_methods_check_the_axis_and_the_input() {
+    use crate::error::{ArrayRole, Error};
+    use mdarray::{DynRank, Tensor};
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let sampling = TauSampling::new(&basis).unwrap();
+    let (l, np) = (sampling.basis_size(), sampling.n_sampling_points());
+
+    let coeffs = Tensor::<f64, DynRank>::zeros(&[l, 3][..]);
+    let values = Tensor::<f64, DynRank>::zeros(&[np, 3][..]);
+    let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&[l, 3][..]);
+    let values_z = Tensor::<Complex<f64>, DynRank>::zeros(&[np, 3][..]);
+    let axis = Some(Error::AxisOutOfRange { axis: 2, rank: 2 });
+    assert_eq!(sampling.evaluate_nd(None, &coeffs, 2).err(), axis);
+    assert_eq!(sampling.fit_nd(None, &values, 2).err(), axis);
+    assert_eq!(sampling.evaluate_nd_zz(None, &coeffs_z, 2).err(), axis);
+    assert_eq!(sampling.fit_nd_zz(None, &values_z, 2).err(), axis);
+
+    // Inputs of the wrong extent along `dim` (the default τ points are as
+    // many as the basis functions here, so l + 1 and np + 1 are both wrong)
+    let values_bad = Tensor::<f64, DynRank>::zeros(&[l + 1, 3][..]);
+    let coeffs_bad = Tensor::<f64, DynRank>::zeros(&[np + 1, 3][..]);
+    assert_eq!(
+        sampling.fit_nd(None, &values_bad, 0).err(),
+        Some(Error::ShapeMismatch {
+            which: ArrayRole::Input,
+            expected: vec![np, 3],
+            actual: vec![l + 1, 3],
+        })
+    );
+    assert_eq!(
+        sampling.evaluate_nd(None, &coeffs_bad, 0).err(),
+        Some(Error::ShapeMismatch {
+            which: ArrayRole::Input,
+            expected: vec![l, 3],
+            actual: vec![np + 1, 3],
+        })
+    );
 }

@@ -9,8 +9,9 @@ use num_complex::Complex;
 use std::sync::OnceLock;
 
 use super::common::{
-    RealSVD, assert_nd_shapes, compute_real_svd, condition_number_from_singular_values,
+    RealSVD, check_nd_shapes, compute_real_svd, condition_number_from_singular_values,
 };
+use crate::error::Error;
 
 /// Fitter for real matrix: A ∈ R^{n×m}
 ///
@@ -434,26 +435,25 @@ impl RealMatrixFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let rank = coeffs.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
         // Validate the whole shape of `out`: the views below are sized from `coeffs`
-        assert_nd_shapes(
-            "coeffs",
+        check_nd_shapes(
             coeffs.shape().dims(),
-            ("basis_size", basis_size),
             dim,
+            basis_size,
             out.shape().dims(),
-            ("n_points", n_points),
-        );
+            n_points,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         let total = coeffs.len();
@@ -499,7 +499,7 @@ impl RealMatrixFitter {
             // and treat dimensions after dim as the "extra" dimension for each GEMM
             self.evaluate_nd_dd_to_batched(backend, coeffs, dim, out);
         }
-        true
+        Ok(())
     }
 
     /// Batched GEMM implementation for middle dimensions
@@ -754,26 +754,25 @@ impl RealMatrixFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let rank = values.rank();
         let n_points = self.n_points();
         let basis_size = self.basis_size();
 
         // Validate the whole shape of `out`: the views below are sized from `values`
-        assert_nd_shapes(
-            "values",
+        check_nd_shapes(
             values.shape().dims(),
-            ("n_points", n_points),
             dim,
+            n_points,
             out.shape().dims(),
-            ("basis_size", basis_size),
-        );
+            basis_size,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         let total = values.len();
@@ -819,7 +818,7 @@ impl RealMatrixFitter {
             // we iterate over batch_dims and call GEMM for each batch.
             self.fit_nd_dd_to_batched(backend, values, dim, out);
         }
-        true
+        Ok(())
     }
 
     /// Batched GEMM implementation for fit with middle dimensions
@@ -926,7 +925,10 @@ impl RealMatrixFitter {
         // Convert to DynRank and delegate to ND version
         let values_dyn = values_2d.into_dyn();
         let mut out_dyn = out.expr_mut().into_dyn();
-        self.fit_nd_zz_to(backend, &values_dyn, 0, &mut out_dyn);
+        // Bridge until fit_2d_zz_to returns Result (the next change): the fit
+        // can only fail if the SVD does.
+        self.fit_nd_zz_to(backend, &values_dyn, 0, &mut out_dyn)
+            .unwrap_or_else(|e| panic!("{e}"));
     }
 
     /// Fit N-D complex tensor along specified dimension, writing to a mutable view
@@ -949,26 +951,25 @@ impl RealMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let rank = values.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
         // Validate the whole shape of `out`: the views below are sized from `values`
-        assert_nd_shapes(
-            "values",
+        check_nd_shapes(
             values.shape().dims(),
-            ("n_points", n_points),
             dim,
+            n_points,
             out.shape().dims(),
-            ("basis_size", basis_size),
-        );
+            basis_size,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         let total = values.len();
@@ -1050,7 +1051,7 @@ impl RealMatrixFitter {
             // General path
             return self.fit_nd_zz_to_general(backend, values, dim, out);
         }
-        true
+        Ok(())
     }
 
     /// General implementation for fit_nd_zz_to (non-fast-path cases)
@@ -1061,7 +1062,7 @@ impl RealMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let total = values.len();
         let out_total = out.len();
 
@@ -1126,8 +1127,8 @@ impl RealMatrixFitter {
         };
 
         // 4. Do 2 fits
-        self.fit_nd_dd_to(backend, &values_re_view, dim, &mut out_re_view);
-        self.fit_nd_dd_to(backend, &values_im_view, dim, &mut out_im_view);
+        self.fit_nd_dd_to(backend, &values_re_view, dim, &mut out_re_view)?;
+        self.fit_nd_dd_to(backend, &values_im_view, dim, &mut out_im_view)?;
 
         // 5. Interleave into complex output
         let out_ptr = out.as_mut_ptr() as *mut f64;
@@ -1137,7 +1138,7 @@ impl RealMatrixFitter {
                 *out_ptr.add(2 * i + 1) = out_im[i];
             }
         }
-        true
+        Ok(())
     }
 
     /// Evaluate 2D complex coefficients to complex values using GEMM
@@ -1209,7 +1210,8 @@ impl RealMatrixFitter {
         // Convert to DynRank and delegate to ND version
         let coeffs_dyn = coeffs_2d.into_dyn();
         let mut out_dyn = out.expr_mut().into_dyn();
-        self.evaluate_nd_zz_to(backend, &coeffs_dyn, 0, &mut out_dyn);
+        self.evaluate_nd_zz_to(backend, &coeffs_dyn, 0, &mut out_dyn)
+            .expect("evaluate_2d_zz_to checked the shapes above");
     }
 
     /// Evaluate N-D complex tensor along specified dimension, writing to a mutable view
@@ -1232,26 +1234,25 @@ impl RealMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let rank = coeffs.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
         // Validate the whole shape of `out`: the views below are sized from `coeffs`
-        assert_nd_shapes(
-            "coeffs",
+        check_nd_shapes(
             coeffs.shape().dims(),
-            ("basis_size", basis_size),
             dim,
+            basis_size,
             out.shape().dims(),
-            ("n_points", n_points),
-        );
+            n_points,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         let total = coeffs.len();
@@ -1333,7 +1334,7 @@ impl RealMatrixFitter {
             // General path
             return self.evaluate_nd_zz_to_general(backend, coeffs, dim, out);
         }
-        true
+        Ok(())
     }
 
     /// General implementation for evaluate_nd_zz_to (non-fast-path cases)
@@ -1344,7 +1345,7 @@ impl RealMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let total = coeffs.len();
         let out_total = out.len();
 
@@ -1409,8 +1410,8 @@ impl RealMatrixFitter {
         };
 
         // 4. Do 2 GEMMs
-        self.evaluate_nd_dd_to(backend, &coeffs_re_view, dim, &mut out_re_view);
-        self.evaluate_nd_dd_to(backend, &coeffs_im_view, dim, &mut out_im_view);
+        self.evaluate_nd_dd_to(backend, &coeffs_re_view, dim, &mut out_re_view)?;
+        self.evaluate_nd_dd_to(backend, &coeffs_im_view, dim, &mut out_im_view)?;
 
         // 5. Interleave into complex output
         let out_ptr = out.as_mut_ptr() as *mut f64;
@@ -1420,7 +1421,7 @@ impl RealMatrixFitter {
                 *out_ptr.add(2 * i + 1) = out_im[i];
             }
         }
-        true
+        Ok(())
     }
 
     /// Generic 2D evaluate (works for both f64 and Complex<f64>)
@@ -1545,7 +1546,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         RealMatrixFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out)
     }
 
@@ -1555,7 +1556,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         RealMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
     }
 
@@ -1565,7 +1566,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         RealMatrixFitter::fit_nd_dd_to(self, backend, values, dim, out)
     }
 
@@ -1575,7 +1576,7 @@ impl super::common::InplaceFitter for RealMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         RealMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out)
     }
 }

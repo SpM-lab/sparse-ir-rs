@@ -1436,7 +1436,7 @@ pub(crate) enum SamplingType {
 /// InplaceFitter implementation for SamplingType
 ///
 /// Delegates to the underlying sampling type's InplaceFitter implementation.
-/// Returns false for unsupported operations based on sampling type.
+/// Returns `Error::NotSupported` for the operations that the sampling type does not support.
 impl InplaceFitter for SamplingType {
     fn n_points(&self) -> usize {
         match self {
@@ -1466,7 +1466,7 @@ impl InplaceFitter for SamplingType {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::evaluate_nd_dd_to(s.as_ref(), backend, coeffs, dim, out)
@@ -1475,7 +1475,7 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::evaluate_nd_dd_to(s.as_ref(), backend, coeffs, dim, out)
             }
             // Matsubara doesn't support dd (real → real)
-            _ => false,
+            _ => Err(unsupported("evaluate_nd_dd_to")),
         }
     }
 
@@ -1485,7 +1485,7 @@ impl InplaceFitter for SamplingType {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::MatsubaraFermionic(s) => {
                 InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
@@ -1500,7 +1500,7 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::evaluate_nd_dz_to(s.as_ref(), backend, coeffs, dim, out)
             }
             // Tau doesn't support dz (real → complex)
-            _ => false,
+            _ => Err(unsupported("evaluate_nd_dz_to")),
         }
     }
 
@@ -1510,7 +1510,7 @@ impl InplaceFitter for SamplingType {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::evaluate_nd_zz_to(s.as_ref(), backend, coeffs, dim, out)
@@ -1539,7 +1539,7 @@ impl InplaceFitter for SamplingType {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::fit_nd_dd_to(s.as_ref(), backend, values, dim, out)
@@ -1548,7 +1548,7 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::fit_nd_dd_to(s.as_ref(), backend, values, dim, out)
             }
             // Matsubara doesn't support dd (real → real)
-            _ => false,
+            _ => Err(unsupported("fit_nd_dd_to")),
         }
     }
 
@@ -1558,7 +1558,7 @@ impl InplaceFitter for SamplingType {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::MatsubaraFermionic(s) => {
                 InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
@@ -1573,7 +1573,7 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::fit_nd_zd_to(s.as_ref(), backend, values, dim, out)
             }
             // Tau doesn't support zd (complex → real)
-            _ => false,
+            _ => Err(unsupported("fit_nd_zd_to")),
         }
     }
 
@@ -1583,7 +1583,7 @@ impl InplaceFitter for SamplingType {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {
                 InplaceFitter::fit_nd_zz_to(s.as_ref(), backend, values, dim, out)
@@ -1604,6 +1604,13 @@ impl InplaceFitter for SamplingType {
                 InplaceFitter::fit_nd_zz_to(s.as_ref(), backend, values, dim, out)
             }
         }
+    }
+}
+
+/// The error of an N-D operation that a sampling type does not support
+fn unsupported(operation: &str) -> sparse_ir::Error {
+    sparse_ir::Error::NotSupported {
+        what: format!("{operation} for this sampling type"),
     }
 }
 

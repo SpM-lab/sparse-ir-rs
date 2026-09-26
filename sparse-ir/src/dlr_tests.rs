@@ -591,7 +591,7 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
 
     let ir_coeffs = dlr.to_ir_nd::<f64>(None, &dlr_coeffs, 0);
 
-    let g_tau_ir = tau_sampling.evaluate_nd(None, &ir_coeffs, 0);
+    let g_tau_ir = tau_sampling.evaluate_nd(None, &ir_coeffs, 0).unwrap();
     let dlr_tau = dlr.evaluate_tau(&tau_points).unwrap();
     let g_tau_dlr = DTensor::<f64, 2>::from_fn([tau_points.len(), 1], |idx| {
         let i = idx[0];
@@ -602,7 +602,9 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
         sum
     });
 
-    let g_iw_ir = matsubara_sampling.evaluate_nd_real(None, &ir_coeffs, 0);
+    let g_iw_ir = matsubara_sampling
+        .evaluate_nd_real(None, &ir_coeffs, 0)
+        .unwrap();
     let dlr_iw = dlr.evaluate_matsubara(&matsubara_points).unwrap();
     let g_iw_dlr = DTensor::<Complex<f64>, 2>::from_fn([matsubara_points.len(), 1], |idx| {
         let i = idx[0];

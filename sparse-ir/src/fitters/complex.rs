@@ -9,10 +9,11 @@ use num_complex::Complex;
 use std::sync::OnceLock;
 
 use super::common::{
-    ComplexSVD, InplaceFitter, assert_nd_shapes, combine_complex, compute_complex_svd,
+    ComplexSVD, InplaceFitter, check_nd_shapes, combine_complex, compute_complex_svd,
     condition_number_from_singular_values, copy_from_contiguous, extract_real_parts_coeffs,
     make_perm_to_front,
 };
+use crate::error::Error;
 
 /// Fitter for complex matrix with complex coefficients: A ∈ C^{n×m}
 ///
@@ -673,26 +674,25 @@ impl ComplexMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let rank = coeffs.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
         // Validate the whole shape of `out`: the views below are sized from `coeffs`
-        assert_nd_shapes(
-            "coeffs",
+        check_nd_shapes(
             coeffs.shape().dims(),
-            ("basis_size", basis_size),
             dim,
+            basis_size,
             out.shape().dims(),
-            ("n_points", n_points),
-        );
+            n_points,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         let total = coeffs.len();
@@ -728,7 +728,7 @@ impl ComplexMatrixFitter {
             // General path: batched GEMM approach
             self.evaluate_nd_zz_to_batched(backend, coeffs, dim, out);
         }
-        true
+        Ok(())
     }
 
     /// Batched GEMM implementation for evaluate_nd_zz_to with middle dimensions
@@ -794,26 +794,25 @@ impl ComplexMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let rank = values.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
         // Validate the whole shape of `out`: the views below are sized from `values`
-        assert_nd_shapes(
-            "values",
+        check_nd_shapes(
             values.shape().dims(),
-            ("n_points", n_points),
             dim,
+            n_points,
             out.shape().dims(),
-            ("basis_size", basis_size),
-        );
+            basis_size,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         let total = values.len();
@@ -849,7 +848,7 @@ impl ComplexMatrixFitter {
             // General path: batched GEMM approach
             self.fit_nd_zz_to_batched(backend, values, dim, out);
         }
-        true
+        Ok(())
     }
 
     /// Batched GEMM implementation for fit_nd_zz_to with middle dimensions
@@ -917,7 +916,7 @@ impl ComplexMatrixFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         use crate::gemm::matmul_par_view;
 
         let rank = coeffs.rank();
@@ -925,20 +924,19 @@ impl ComplexMatrixFitter {
         let n_points = self.n_points();
 
         // Validate the whole shape of `out`: the views below are sized from `coeffs`
-        assert_nd_shapes(
-            "coeffs",
+        check_nd_shapes(
             coeffs.shape().dims(),
-            ("basis_size", basis_size),
             dim,
+            basis_size,
             out.shape().dims(),
-            ("n_points", n_points),
-        );
+            n_points,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         let total = coeffs.len();
@@ -1010,7 +1008,7 @@ impl ComplexMatrixFitter {
             // General path: batched GEMM approach
             self.evaluate_nd_dz_to_batched(backend, coeffs, dim, out);
         }
-        true
+        Ok(())
     }
 
     /// Batched GEMM implementation for evaluate_nd_dz_to with middle dimensions
@@ -1089,26 +1087,25 @@ impl ComplexMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let rank = values.rank();
         let basis_size = self.basis_size();
         let n_points = self.n_points();
 
         // Validate the whole shape of `out`: the views below are sized from `values`
-        assert_nd_shapes(
-            "values",
+        check_nd_shapes(
             values.shape().dims(),
-            ("n_points", n_points),
             dim,
+            n_points,
             out.shape().dims(),
-            ("basis_size", basis_size),
-        );
+            basis_size,
+        )?;
         if out.is_empty() {
             // Zero-extent guard: an empty batch has nothing to compute. It
             // would otherwise reach zero-size GEMMs and, on some paths,
             // iterate permuted views of empty arrays, which mdarray 0.7.2
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
-            return true;
+            return Ok(());
         }
 
         // Build output shape for complex temp buffer
@@ -1126,7 +1123,7 @@ impl ComplexMatrixFitter {
             mdarray::Tensor::zeros(&temp_shape[..]);
 
         // Fit to complex coefficients
-        self.fit_nd_zz_to(backend, values, dim, &mut temp_coeffs.expr_mut());
+        self.fit_nd_zz_to(backend, values, dim, &mut temp_coeffs.expr_mut())?;
 
         // Extract real parts to output
         let total = out.len();
@@ -1166,7 +1163,7 @@ impl ComplexMatrixFitter {
                 *o = t.re;
             }
         }
-        true
+        Ok(())
     }
 }
 
@@ -1191,7 +1188,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         ComplexMatrixFitter::evaluate_nd_dz_to(self, backend, coeffs, dim, out)
     }
 
@@ -1201,7 +1198,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         ComplexMatrixFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
     }
 
@@ -1211,7 +1208,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         ComplexMatrixFitter::fit_nd_zd_to(self, backend, values, dim, out)
     }
 
@@ -1221,7 +1218,7 @@ impl InplaceFitter for ComplexMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         ComplexMatrixFitter::fit_nd_zz_to(self, backend, values, dim, out)
     }
 }
@@ -1345,8 +1342,12 @@ mod tests {
             let mut fitted =
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[basis_size, extra1][..]);
 
-            fitter.evaluate_nd_zz_to(None, &coeffs.expr(), 0, &mut values.expr_mut());
-            fitter.fit_nd_zz_to(None, &values.expr(), 0, &mut fitted.expr_mut());
+            fitter
+                .evaluate_nd_zz_to(None, &coeffs.expr(), 0, &mut values.expr_mut())
+                .unwrap();
+            fitter
+                .fit_nd_zz_to(None, &values.expr(), 0, &mut fitted.expr_mut())
+                .unwrap();
 
             for i in 0..basis_size {
                 for j in 0..extra1 {
@@ -1374,8 +1375,12 @@ mod tests {
             let mut fitted =
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra1, basis_size][..]);
 
-            fitter.evaluate_nd_zz_to(None, &coeffs.expr(), 1, &mut values.expr_mut());
-            fitter.fit_nd_zz_to(None, &values.expr(), 1, &mut fitted.expr_mut());
+            fitter
+                .evaluate_nd_zz_to(None, &coeffs.expr(), 1, &mut values.expr_mut())
+                .unwrap();
+            fitter
+                .fit_nd_zz_to(None, &values.expr(), 1, &mut fitted.expr_mut())
+                .unwrap();
 
             for i in 0..extra1 {
                 for j in 0..basis_size {
@@ -1408,8 +1413,12 @@ mod tests {
             let mut fitted =
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra1, basis_size, extra2][..]);
 
-            fitter.evaluate_nd_zz_to(None, &coeffs.expr(), 1, &mut values.expr_mut());
-            fitter.fit_nd_zz_to(None, &values.expr(), 1, &mut fitted.expr_mut());
+            fitter
+                .evaluate_nd_zz_to(None, &coeffs.expr(), 1, &mut values.expr_mut())
+                .unwrap();
+            fitter
+                .fit_nd_zz_to(None, &values.expr(), 1, &mut fitted.expr_mut())
+                .unwrap();
 
             for i in 0..extra1 {
                 for j in 0..basis_size {
@@ -1461,8 +1470,12 @@ mod tests {
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[n_points, extra][..]);
             let mut fitted_real = Tensor::<f64, mdarray::DynRank>::zeros(&[basis_size, extra][..]);
 
-            fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 0, &mut values.expr_mut());
-            fitter.fit_nd_zd_to(None, &values.expr(), 0, &mut fitted_real.expr_mut());
+            fitter
+                .evaluate_nd_dz_to(None, &coeffs_real.expr(), 0, &mut values.expr_mut())
+                .unwrap();
+            fitter
+                .fit_nd_zd_to(None, &values.expr(), 0, &mut fitted_real.expr_mut())
+                .unwrap();
 
             for i in 0..basis_size {
                 for j in 0..extra {
@@ -1489,8 +1502,12 @@ mod tests {
                 Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[extra, n_points][..]);
             let mut fitted_real = Tensor::<f64, mdarray::DynRank>::zeros(&[extra, basis_size][..]);
 
-            fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 1, &mut values.expr_mut());
-            fitter.fit_nd_zd_to(None, &values.expr(), 1, &mut fitted_real.expr_mut());
+            fitter
+                .evaluate_nd_dz_to(None, &coeffs_real.expr(), 1, &mut values.expr_mut())
+                .unwrap();
+            fitter
+                .fit_nd_zd_to(None, &values.expr(), 1, &mut fitted_real.expr_mut())
+                .unwrap();
 
             for i in 0..extra {
                 for j in 0..basis_size {
@@ -1519,8 +1536,12 @@ mod tests {
             let mut fitted_real =
                 Tensor::<f64, mdarray::DynRank>::zeros(&[extra, basis_size, extra2][..]);
 
-            fitter.evaluate_nd_dz_to(None, &coeffs_real.expr(), 1, &mut values.expr_mut());
-            fitter.fit_nd_zd_to(None, &values.expr(), 1, &mut fitted_real.expr_mut());
+            fitter
+                .evaluate_nd_dz_to(None, &coeffs_real.expr(), 1, &mut values.expr_mut())
+                .unwrap();
+            fitter
+                .fit_nd_zd_to(None, &values.expr(), 1, &mut fitted_real.expr_mut())
+                .unwrap();
 
             for i in 0..extra {
                 for j in 0..basis_size {

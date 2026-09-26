@@ -374,7 +374,9 @@ fn run_integration_example_single<K, S>(
     // Step 6: Evaluate on tau grid from both DLR and IR
     println!("Step 6: Evaluating on tau grid...");
     // From IR coefficients
-    let g_tau_ir = tau_sampling.evaluate_nd(None, &ir_coeffs, target_dim);
+    let g_tau_ir = tau_sampling
+        .evaluate_nd(None, &ir_coeffs, target_dim)
+        .unwrap();
     println!("  g_tau_ir shape: {:?}", g_tau_ir.shape().dims());
 
     // From DLR coefficients (evaluate DLR basis functions at tau points)
@@ -396,7 +398,9 @@ fn run_integration_example_single<K, S>(
     // Step 7: Evaluate on Matsubara grid from both DLR and IR
     println!("Step 7: Evaluating on Matsubara grid...");
     // From IR coefficients: evaluate_nd now accepts f64 directly
-    let g_iw_ir = matsubara_sampling.evaluate_nd(None, &ir_coeffs, target_dim);
+    let g_iw_ir = matsubara_sampling
+        .evaluate_nd(None, &ir_coeffs, target_dim)
+        .unwrap();
     println!("  g_iw_ir shape: {:?}", g_iw_ir.shape().dims());
 
     // From DLR coefficients (evaluate DLR basis functions at Matsubara frequencies)
@@ -424,7 +428,7 @@ fn run_integration_example_single<K, S>(
     // Step 8: Round-trip test: tau → IR → Matsubara
     println!("Step 8: Round-trip test (tau → IR → Matsubara)...");
     // Fit IR coefficients directly from g_tau_ir (values on tau grid)
-    let ir_coeffs_recovered = tau_sampling.fit_nd(None, &g_tau_ir, target_dim);
+    let ir_coeffs_recovered = tau_sampling.fit_nd(None, &g_tau_ir, target_dim).unwrap();
     println!(
         "  Recovered IR coefficients shape: {:?}",
         ir_coeffs_recovered.shape().dims()
@@ -446,8 +450,9 @@ fn run_integration_example_single<K, S>(
         expr::FromExpression::from_expr(expr::map(ir_coeffs_recovered.expr(), |x| {
             Complex::new(*x, 0.0)
         }));
-    let g_iw_ir_reconst =
-        matsubara_sampling.evaluate_nd(None, &ir_coeffs_recovered_complex, target_dim);
+    let g_iw_ir_reconst = matsubara_sampling
+        .evaluate_nd(None, &ir_coeffs_recovered_complex, target_dim)
+        .unwrap();
 
     // Compare with original g_iw_ir
     let roundtrip_error = max_relative_error_complex(&g_iw_ir, &g_iw_ir_reconst);

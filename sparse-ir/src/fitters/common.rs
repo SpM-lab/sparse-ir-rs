@@ -3,6 +3,7 @@
 //! This module contains shared helper functions and SVD structures
 //! used by all fitter implementations.
 
+use crate::error::{ArrayRole, Error};
 use crate::fpu_check::FpuGuard;
 use crate::gemm::GemmBackendHandle;
 use mdarray::{DTensor, DynRank, Shape, Slice, ViewMut};
@@ -23,19 +24,19 @@ use num_complex::Complex;
 /// - `evaluate_nd_zz_to`: Complex<f64> input → Complex<f64> output
 /// - `evaluate_nd_dz_to`: f64 input → Complex<f64> output
 /// - `evaluate_nd_zd_to`: Complex<f64> input → f64 output
-/// Trait for inplace evaluation and fitting operations on N-dimensional arrays.
 ///
-/// All methods return `bool`:
-/// - `true` = operation succeeded
-/// - `false` = operation not supported for this fitter
+/// Each method returns `Ok(())` after writing the result to `out`. On an
+/// error nothing is written to `out`:
+/// - [`Error::NotSupported`] if the fitter does not support this pair of
+///   types (the default implementations);
+/// - [`Error::AxisOutOfRange`] if `dim` is not an axis of the input;
+/// - [`Error::ShapeMismatch`] of the input if it does not have `basis_size`
+///   (evaluate) or `n_points` (fit) along `dim`, and of the output if `out`
+///   does not have the shape of the input with `n_points` (evaluate) or
+///   `basis_size` (fit) along `dim`.
 ///
-/// Default implementations return `false` (not supported).
-///
-/// The input has `basis_size` (evaluate) or `n_points` (fit) along `dim`, and
-/// `out` must have the shape of the input with `n_points` (evaluate) or
-/// `basis_size` (fit) along `dim`. A supported operation panics if `dim` is
-/// not an axis of the input or a shape does not match, before writing to
-/// `out`.
+/// An empty input of the right shape (a batch axis of extent 0) gives
+/// `Ok(())` without computing anything.
 pub trait InplaceFitter {
     /// Number of sampling points
     fn n_points(&self) -> usize;
@@ -50,9 +51,11 @@ pub trait InplaceFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, coeffs, dim, out);
-        false
+        Err(not_supported(
+            "evaluate_nd_dd_to (real coefficients to real values)",
+        ))
     }
 
     /// Evaluate ND: f64 coeffs → Complex<f64> values
@@ -62,9 +65,11 @@ pub trait InplaceFitter {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, coeffs, dim, out);
-        false
+        Err(not_supported(
+            "evaluate_nd_dz_to (real coefficients to complex values)",
+        ))
     }
 
     /// Evaluate ND: Complex<f64> coeffs → f64 values
@@ -74,9 +79,11 @@ pub trait InplaceFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, coeffs, dim, out);
-        false
+        Err(not_supported(
+            "evaluate_nd_zd_to (complex coefficients to real values)",
+        ))
     }
 
     /// Evaluate ND: Complex<f64> coeffs → Complex<f64> values
@@ -86,9 +93,11 @@ pub trait InplaceFitter {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, coeffs, dim, out);
-        false
+        Err(not_supported(
+            "evaluate_nd_zz_to (complex coefficients to complex values)",
+        ))
     }
 
     /// Fit ND: f64 values → f64 coeffs
@@ -98,9 +107,11 @@ pub trait InplaceFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, values, dim, out);
-        false
+        Err(not_supported(
+            "fit_nd_dd_to (real values to real coefficients)",
+        ))
     }
 
     /// Fit ND: f64 values → Complex<f64> coeffs
@@ -110,9 +121,11 @@ pub trait InplaceFitter {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, values, dim, out);
-        false
+        Err(not_supported(
+            "fit_nd_dz_to (real values to complex coefficients)",
+        ))
     }
 
     /// Fit ND: Complex<f64> values → f64 coeffs
@@ -122,9 +135,11 @@ pub trait InplaceFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, values, dim, out);
-        false
+        Err(not_supported(
+            "fit_nd_zd_to (complex values to real coefficients)",
+        ))
     }
 
     /// Fit ND: Complex<f64> values → Complex<f64> coeffs
@@ -134,9 +149,18 @@ pub trait InplaceFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         let _ = (backend, values, dim, out);
-        false
+        Err(not_supported(
+            "fit_nd_zz_to (complex values to complex coefficients)",
+        ))
+    }
+}
+
+/// The error of an [`InplaceFitter`] method that a fitter does not support
+fn not_supported(operation: &str) -> Error {
+    Error::NotSupported {
+        what: format!("{operation} for this sampling"),
     }
 }
 
@@ -163,52 +187,69 @@ pub(crate) fn make_perm_to_front(rank: usize, dim: usize) -> Vec<usize> {
 // Shape validation
 // ============================================================================
 
-/// Check the shapes of an N-D evaluate or fit along axis `dim`
+/// Check the input of an N-D evaluate or fit along axis `dim`
+///
+/// `Ok` if `dim` is an axis of the input and the input has extent `n_in`
+/// along it. Call this before reading `input_dims[dim]` anywhere else, and
+/// before allocating an output from the input shape.
+///
+/// # Errors
+///
+/// * [`Error::AxisOutOfRange`] if `dim` is not an axis of the input
+/// * [`Error::ShapeMismatch`] of the input, with the shape it should have,
+///   if its extent along `dim` is not `n_in`
+pub(crate) fn check_input_shape(
+    input_dims: &[usize],
+    dim: usize,
+    n_in: usize,
+) -> Result<(), Error> {
+    let rank = input_dims.len();
+    if dim >= rank {
+        return Err(Error::AxisOutOfRange { axis: dim, rank });
+    }
+    if input_dims[dim] != n_in {
+        let mut expected = input_dims.to_vec();
+        expected[dim] = n_in;
+        return Err(Error::ShapeMismatch {
+            which: ArrayRole::Input,
+            expected,
+            actual: input_dims.to_vec(),
+        });
+    }
+    Ok(())
+}
+
+/// Check the shapes of an N-D evaluate or fit along axis `dim` that writes
+/// to `out`
 ///
 /// The N-D methods of the fitters address the input and `out` as contiguous
 /// matrices through unchecked views and pointer offsets computed from the
-/// shape of the input. So the input must have extent `n_in` along `dim`, and
-/// `out` must have the rank of the input, extent `n_out` along `dim` and the
-/// extent of the input along every other axis. Call this before any unchecked
-/// access or write.
+/// shape of the input. So the input must pass [`check_input_shape`], and
+/// `out` must have the shape of the input with `n_out` along `dim` (in
+/// particular its rank). Call this before any unchecked access or write.
 ///
-/// `input` names the input (`coeffs` or `values`) and `n_in`/`n_out` name the
-/// expected extents in the panic messages.
+/// # Errors
 ///
-/// # Panics
-/// Panics, naming the axis and both extents, if `dim` is not an axis of the
-/// input or a shape does not match.
-pub(crate) fn assert_nd_shapes(
-    input: &str,
+/// The errors of [`check_input_shape`], then [`Error::ShapeMismatch`] of the
+/// output, with the shape it should have, if `out` has another shape
+pub(crate) fn check_nd_shapes(
     input_dims: &[usize],
-    (n_in_name, n_in): (&str, usize),
     dim: usize,
+    n_in: usize,
     out_dims: &[usize],
-    (n_out_name, n_out): (&str, usize),
-) {
-    let rank = input_dims.len();
-    assert!(dim < rank, "dim={} must be < rank={}", dim, rank);
-    assert!(
-        out_dims.len() == rank,
-        "out.rank()={} must equal {input}.rank()={rank}",
-        out_dims.len()
-    );
-    assert!(
-        input_dims[dim] == n_in,
-        "{input}.shape().dim({dim})={} must equal {n_in_name}={n_in}",
-        input_dims[dim]
-    );
-    assert!(
-        out_dims[dim] == n_out,
-        "out.shape().dim({dim})={} must equal {n_out_name}={n_out}",
-        out_dims[dim]
-    );
-    for (axis, (&o, &i)) in out_dims.iter().zip(input_dims).enumerate() {
-        assert!(
-            axis == dim || o == i,
-            "out.shape().dim({axis})={o} must equal {input}.shape().dim({axis})={i}"
-        );
+    n_out: usize,
+) -> Result<(), Error> {
+    check_input_shape(input_dims, dim, n_in)?;
+    let mut expected = input_dims.to_vec();
+    expected[dim] = n_out;
+    if out_dims != expected.as_slice() {
+        return Err(Error::ShapeMismatch {
+            which: ArrayRole::Output,
+            expected,
+            actual: out_dims.to_vec(),
+        });
     }
+    Ok(())
 }
 
 // ============================================================================

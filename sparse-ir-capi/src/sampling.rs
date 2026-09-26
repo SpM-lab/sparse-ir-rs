@@ -1163,14 +1163,14 @@ pub extern "C" fn spir_sampling_eval_dd(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (zero-copy: writes directly to output buffer)
-        if !InplaceFitter::evaluate_nd_dd_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_dd_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1252,14 +1252,14 @@ pub extern "C" fn spir_sampling_eval_dz(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (dz: real → complex)
-        if !InplaceFitter::evaluate_nd_dz_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_dz_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1340,14 +1340,14 @@ pub extern "C" fn spir_sampling_eval_zz(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (zz: complex → complex)
-        if !InplaceFitter::evaluate_nd_zz_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_zz_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1459,14 +1459,14 @@ pub extern "C" fn spir_sampling_fit_dd(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit using InplaceFitter (dd: real → real)
-        if !InplaceFitter::fit_nd_dd_to(
+        if let Err(e) = InplaceFitter::fit_nd_dd_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1549,14 +1549,14 @@ pub extern "C" fn spir_sampling_fit_zz(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit using InplaceFitter (zz: complex → complex)
-        if !InplaceFitter::fit_nd_zz_to(
+        if let Err(e) = InplaceFitter::fit_nd_zz_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1671,14 +1671,14 @@ pub extern "C" fn spir_sampling_fit_zd(
         // Note: For full-range Matsubara, this takes the real part of the fitted
         // complex coefficients. This is physically correct for Green's functions
         // where IR coefficients are guaranteed to be real by symmetry.
-        if !InplaceFitter::fit_nd_zd_to(
+        if let Err(e) = InplaceFitter::fit_nd_zd_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS

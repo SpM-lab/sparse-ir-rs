@@ -189,8 +189,8 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
@@ -263,8 +263,8 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
@@ -467,13 +467,15 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[n_points, n_k, n_omega][..],
         Complex::new(0.0, 0.0),
     );
-    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+    sampling
+        .evaluate_nd_to(None, &coeffs, 0, &mut actual)
+        .unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -526,13 +528,13 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[basis_size, n_k, n_omega][..],
         Complex::new(0.0, 0.0),
     );
-    sampling.fit_nd_to(None, &values, 0, &mut actual);
+    sampling.fit_nd_to(None, &values, 0, &mut actual).unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -581,13 +583,15 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
     });
 
     // Test for dim = 0
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[n_points, n_k, n_omega][..],
         Complex::new(0.0, 0.0),
     );
-    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+    sampling
+        .evaluate_nd_to(None, &coeffs, 0, &mut actual)
+        .unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -640,10 +644,10 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
-    sampling.fit_nd_to(None, &values, 0, &mut actual);
+    sampling.fit_nd_to(None, &values, 0, &mut actual).unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -1040,19 +1044,21 @@ fn test_matsubara_nd_with_empty_batch() {
         for (s_np, values) in [
             (
                 sampling.n_sampling_points(),
-                sampling.evaluate_nd::<f64>(None, &coeffs, dim),
+                sampling.evaluate_nd::<f64>(None, &coeffs, dim).unwrap(),
             ),
             (
                 sampling.n_sampling_points(),
-                sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_z, dim),
+                sampling
+                    .evaluate_nd::<Complex<f64>>(None, &coeffs_z, dim)
+                    .unwrap(),
             ),
             (
                 sampling.n_sampling_points(),
-                sampling.evaluate_nd_real(None, &coeffs, dim),
+                sampling.evaluate_nd_real(None, &coeffs, dim).unwrap(),
             ),
             (
                 positive.n_sampling_points(),
-                positive.evaluate_nd(None, &coeffs, dim),
+                positive.evaluate_nd(None, &coeffs, dim).unwrap(),
             ),
         ] {
             assert_eq!(values.shape().dims(), &with_target(&batch, dim, s_np)[..]);
@@ -1061,22 +1067,28 @@ fn test_matsubara_nd_with_empty_batch() {
         let dims_np = with_target(&batch, dim, sampling.n_sampling_points());
         let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
         assert_eq!(
-            sampling.fit_nd(None, &values, dim).shape().dims(),
+            sampling.fit_nd(None, &values, dim).unwrap().shape().dims(),
             &dims_l[..]
         );
         assert_eq!(
-            sampling.fit_nd_real(None, &values, dim).shape().dims(),
+            sampling
+                .fit_nd_real(None, &values, dim)
+                .unwrap()
+                .shape()
+                .dims(),
             &dims_l[..]
         );
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
-        sampling.evaluate_nd_to::<f64>(None, &coeffs, dim, &mut out);
+        sampling
+            .evaluate_nd_to::<f64>(None, &coeffs, dim, &mut out)
+            .unwrap();
         let mut out_l = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
-        sampling.fit_nd_to(None, &values, dim, &mut out_l);
+        sampling.fit_nd_to(None, &values, dim, &mut out_l).unwrap();
 
         let dims_np = with_target(&batch, dim, positive.n_sampling_points());
         let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
         assert_eq!(
-            positive.fit_nd(None, &values, dim).shape().dims(),
+            positive.fit_nd(None, &values, dim).unwrap().shape().dims(),
             &dims_l[..]
         );
     }
@@ -1110,10 +1122,14 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
         let mut out_np = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
         let mut out_l = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
         let mut out_l_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
-        assert!(f.evaluate_nd_dz_to(None, &coeffs, dim, &mut out_np.expr_mut()));
-        assert!(f.evaluate_nd_zz_to(None, &coeffs_z, dim, &mut out_np.expr_mut()));
-        assert!(f.fit_nd_zd_to(None, &values_z, dim, &mut out_l.expr_mut()));
-        assert!(f.fit_nd_zz_to(None, &values_z, dim, &mut out_l_z.expr_mut()));
+        f.evaluate_nd_dz_to(None, &coeffs, dim, &mut out_np.expr_mut())
+            .unwrap();
+        f.evaluate_nd_zz_to(None, &coeffs_z, dim, &mut out_np.expr_mut())
+            .unwrap();
+        f.fit_nd_zd_to(None, &values_z, dim, &mut out_l.expr_mut())
+            .unwrap();
+        f.fit_nd_zz_to(None, &values_z, dim, &mut out_l_z.expr_mut())
+            .unwrap();
     }
 
     for (batch, dim) in empty_batches() {
@@ -1204,4 +1220,71 @@ fn test_matsubara_positive_only_from_matrix_rejects_zero_columns() {
         vec![MatsubaraFreq::new(1).unwrap()],
         matrix,
     );
+}
+
+/// The N-D methods of both Matsubara samplings check the axis first: the
+/// `*_to` methods read out.shape().dim(dim) before checking the rank and
+/// panicked. The InplaceFitter methods a sampling does not support are
+/// NotSupported (they returned false).
+#[test]
+fn test_matsubara_nd_methods_check_the_axis_first() {
+    use crate::error::{ArrayRole, Error};
+    use crate::fitters::InplaceFitter;
+    use mdarray::{DynRank, Tensor};
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let full = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
+    let l = full.basis_size();
+    let axis = Some(Error::AxisOutOfRange { axis: 1, rank: 1 });
+
+    let coeffs = Tensor::<f64, DynRank>::zeros(&[l][..]);
+    let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&[l][..]);
+    let values = Tensor::<Complex<f64>, DynRank>::zeros(&[full.n_sampling_points()][..]);
+    let values_p = Tensor::<Complex<f64>, DynRank>::zeros(&[positive.n_sampling_points()][..]);
+    assert_eq!(full.evaluate_nd::<f64>(None, &coeffs, 1).err(), axis);
+    assert_eq!(
+        full.evaluate_nd::<Complex<f64>>(None, &coeffs_z, 1).err(),
+        axis
+    );
+    assert_eq!(full.evaluate_nd_real(None, &coeffs, 1).err(), axis);
+    assert_eq!(full.fit_nd(None, &values, 1).err(), axis);
+    assert_eq!(full.fit_nd_real(None, &values, 1).err(), axis);
+    assert_eq!(positive.evaluate_nd(None, &coeffs, 1).err(), axis);
+    assert_eq!(positive.fit_nd(None, &values_p, 1).err(), axis);
+
+    // `out` of rank 2 for rank-1 data, and an axis past both ranks
+    let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&[full.n_sampling_points(), 1][..]);
+    assert_eq!(
+        full.evaluate_nd_to::<f64>(None, &coeffs, 0, &mut out),
+        Err(Error::ShapeMismatch {
+            which: ArrayRole::Output,
+            expected: vec![full.n_sampling_points()],
+            actual: vec![full.n_sampling_points(), 1],
+        })
+    );
+    assert_eq!(
+        full.evaluate_nd_to::<f64>(None, &coeffs, 5, &mut out).err(),
+        Some(Error::AxisOutOfRange { axis: 5, rank: 1 })
+    );
+    let mut out_l = Tensor::<f64, DynRank>::zeros(&[l][..]);
+    assert_eq!(
+        positive.fit_nd_to(None, &values_p, 5, &mut out_l).err(),
+        Some(Error::AxisOutOfRange { axis: 5, rank: 1 })
+    );
+
+    // Unsupported pairs of types
+    let mut out_d = Tensor::<f64, DynRank>::zeros(&[full.n_sampling_points()][..]);
+    let err = InplaceFitter::evaluate_nd_dd_to(&full, None, &coeffs, 0, &mut out_d.expr_mut())
+        .unwrap_err();
+    assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+    let err = InplaceFitter::evaluate_nd_dd_to(&positive, None, &coeffs, 0, &mut out_d.expr_mut())
+        .unwrap_err();
+    assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
 }
