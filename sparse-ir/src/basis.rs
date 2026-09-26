@@ -9,7 +9,7 @@ use crate::error::{
     Error, require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
 };
 use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel};
-use crate::poly::{PiecewiseLegendrePolyVector, default_sampling_points};
+use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector, default_sampling_points};
 use crate::polyfourier::PiecewiseLegendreFTVector;
 use crate::sve::{SVEResult, TworkType, compute_sve};
 use crate::traits::{Bosonic, Fermionic, StatisticsType};
@@ -99,6 +99,29 @@ fn check_unit_domain(sve_result: &SVEResult) -> Result<(), Error> {
             reason: "must be an SVE on [-1, 1] × [-1, 1]".to_string(),
         })
     }
+}
+
+/// Knots and widths of `poly` with the first and last knot set exactly to
+/// -1 and 1
+///
+/// `check_unit_domain` accepts an SVE whose domain differs from [-1, 1] by up
+/// to 1e-12 (e.g. from `spir_sve_result_from_matrix`). Scaled to τ and ω,
+/// such knots end inside [0, β] and [-ωmax, ωmax], where evaluating at the
+/// ends panics. The width of an end segment is recomputed only if its knot
+/// moved, so an SVE with exact ends keeps its knots and widths bit for bit.
+fn unit_knots_and_widths(poly: &PiecewiseLegendrePoly) -> (Vec<f64>, Vec<f64>) {
+    let mut knots = poly.knots.clone();
+    let mut widths = poly.delta_x.clone();
+    let last = knots.len() - 1;
+    if knots[0] != -1.0 {
+        knots[0] = -1.0;
+        widths[0] = knots[1] - knots[0];
+    }
+    if knots[last] != 1.0 {
+        knots[last] = 1.0;
+        widths[last - 1] = knots[last] - knots[last - 1];
+    }
+    (knots, widths)
 }
 
 impl<K, S> FiniteTempBasis<K, S>
@@ -316,31 +339,17 @@ where
         // tau = β/2 * (x + 1), w = ωmax * y
 
         // Transform u: x ∈ [-1, 1] → τ ∈ [0, β]
-        let u_knots: Vec<f64> = u_sve.get_polys()[0]
-            .knots
-            .iter()
-            .map(|&x| beta / 2.0 * (x + 1.0))
-            .collect();
-        let u_delta_x: Vec<f64> = u_sve.get_polys()[0]
-            .delta_x
-            .iter()
-            .map(|&dx| beta / 2.0 * dx)
-            .collect();
+        let (x_knots, x_widths) = unit_knots_and_widths(&u_sve.get_polys()[0]);
+        let u_knots: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
+        let u_delta_x: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
         let u_symm: Vec<i32> = u_sve.get_polys().iter().map(|p| p.symm).collect();
 
         let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm))?;
 
         // Transform v: y ∈ [-1, 1] → ω ∈ [-ωmax, ωmax]
-        let v_knots: Vec<f64> = v_sve.get_polys()[0]
-            .knots
-            .iter()
-            .map(|&y| omega_max * y)
-            .collect();
-        let v_delta_x: Vec<f64> = v_sve.get_polys()[0]
-            .delta_x
-            .iter()
-            .map(|&dy| omega_max * dy)
-            .collect();
+        let (y_knots, y_widths) = unit_knots_and_widths(&v_sve.get_polys()[0]);
+        let v_knots: Vec<f64> = y_knots.iter().map(|&y| omega_max * y).collect();
+        let v_delta_x: Vec<f64> = y_widths.iter().map(|&dy| omega_max * dy).collect();
         let v_symm: Vec<i32> = v_sve.get_polys().iter().map(|p| p.symm).collect();
 
         let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm))?;

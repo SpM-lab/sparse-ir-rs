@@ -168,6 +168,62 @@ fn test_basis_from_sve_result_rejects_an_sve_on_another_domain() {
     );
 }
 
+/// An SVE whose domain ends within 1e-12 inside ±1 passes the domain check.
+/// Before the change its Fourier transform panicked at x = 1 (fixed in the
+/// FT), and its u functions ended inside [0, β], so that evaluating them at
+/// τ = 0 or β panicked. The knots of the basis functions now end exactly at
+/// 0 and β (u) and ±ωmax (v).
+#[test]
+fn test_basis_from_an_sve_just_inside_the_unit_domain() {
+    use crate::poly::PiecewiseLegendrePolyVector;
+
+    let beta = 10.0;
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let mut sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let shrink = |funcs: &PiecewiseLegendrePolyVector| {
+        let mut knots = funcs.get_polys()[0].knots.clone();
+        let last = knots.len() - 1;
+        knots[0] = -1.0 + 1e-13;
+        knots[last] = 1.0 - 1e-13;
+        funcs.rescale_domain(knots, None, None).unwrap()
+    };
+    sve.u = shrink(&sve.u);
+    sve.v = shrink(&sve.v);
+
+    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
+        kernel, beta, sve, None, None,
+    )
+    .unwrap();
+    for u in basis.u().get_polys() {
+        assert_eq!((u.xmin, u.xmax), (0.0, beta));
+        assert!(u.evaluate(0.0).is_finite() && u.evaluate(beta).is_finite());
+    }
+    let wmax = basis.omega_max();
+    for v in basis.v().get_polys() {
+        assert_eq!((v.xmin, v.xmax), (-wmax, wmax));
+    }
+}
+
+/// The snap is a no-op for the SVE of a kernel of this crate, whose knots
+/// are exactly ±1: the basis functions keep the scaled knots and widths.
+#[test]
+fn test_basis_knots_of_a_kernel_sve_are_the_scaled_knots() {
+    let beta = 10.0;
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let x_knots = sve.u.get_polys()[0].knots.clone();
+    let x_widths = sve.u.get_polys()[0].delta_x.clone();
+    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
+        kernel, beta, sve, None, None,
+    )
+    .unwrap();
+    let u = &basis.u().get_polys()[0];
+    let scaled: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
+    let widths: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
+    assert_eq!(u.knots, scaled);
+    assert_eq!(u.delta_x, widths);
+}
+
 #[test]
 fn test_default_tau_sampling_points_conditioning() {
     // Test parameters: beta=1.0, lambda=10.0
