@@ -7,6 +7,26 @@
 
 use crate::traits::Statistics;
 
+/// Which array of an operation has the wrong shape, in
+/// [`Error::ShapeMismatch`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ArrayRole {
+    /// An array that the operation reads, e.g. the coefficients of an
+    /// evaluation or a given sampling matrix
+    Input,
+    /// The array that the operation writes to, e.g. `out` of `evaluate_nd_to`
+    Output,
+}
+
+impl std::fmt::Display for ArrayRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            ArrayRole::Input => "input",
+            ArrayRole::Output => "output",
+        })
+    }
+}
+
 /// Error returned by the fallible public functions of this crate
 ///
 /// More variants may be added without a major version bump. To handle a category of
@@ -83,6 +103,26 @@ pub enum Error {
         /// Number of default poles found
         n_poles: usize,
     },
+    /// An axis argument is not an axis of the array, e.g. `dim` of
+    /// `evaluate_nd` for an array of rank `dim` or less.
+    #[error("axis {axis} is out of range for an array of rank {rank}")]
+    AxisOutOfRange {
+        /// The rejected axis
+        axis: usize,
+        /// The rank of the array
+        rank: usize,
+    },
+    /// An array has the wrong shape. For a slice, the shapes have one entry,
+    /// its length.
+    #[error("{which} has the shape {actual:?}, expected {expected:?}")]
+    ShapeMismatch {
+        /// Which array: an input, or the output
+        which: ArrayRole,
+        /// The shape the operation needs
+        expected: Vec<usize>,
+        /// The shape of the array
+        actual: Vec<usize>,
+    },
     /// The operation is not defined for this input, e.g. default Matsubara
     /// sampling points for basis functions without a definite parity (#183).
     #[error("not supported: {what}")]
@@ -134,6 +174,15 @@ impl Error {
             | Error::NonFiniteInput { .. }
             | Error::InsufficientDefaultPoles { .. } => ErrorKind::InvalidArgument,
             Error::KernelStatisticsMismatch | Error::NotSupported { .. } => ErrorKind::NotSupported,
+            Error::AxisOutOfRange { .. } => ErrorKind::InvalidDimension,
+            Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                ..
+            } => ErrorKind::InputDimensionMismatch,
+            Error::ShapeMismatch {
+                which: ArrayRole::Output,
+                ..
+            } => ErrorKind::OutputDimensionMismatch,
             Error::DecompositionFailed { .. } => ErrorKind::Internal,
         }
     }

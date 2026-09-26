@@ -1,6 +1,6 @@
 //! Tests for the crate error type
 
-use super::{Error, ErrorKind};
+use super::{ArrayRole, Error, ErrorKind};
 use crate::traits::Statistics;
 
 /// One error of every variant, with its kind and its message
@@ -73,6 +73,20 @@ fn every_variant() -> Vec<(Error, ErrorKind, &'static str)> {
             },
             ErrorKind::NotSupported,
             "not supported: default Matsubara sampling points of functions with symm = 0",
+        ),
+        (
+            Error::AxisOutOfRange { axis: 3, rank: 2 },
+            ErrorKind::InvalidDimension,
+            "axis 3 is out of range for an array of rank 2",
+        ),
+        (
+            Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                expected: vec![5, 2],
+                actual: vec![4, 2],
+            },
+            ErrorKind::InputDimensionMismatch,
+            "input has the shape [4, 2], expected [5, 2]",
         ),
     ]
 }
@@ -152,10 +166,12 @@ fn variant_number(err: &Error) -> usize {
         Error::DecompositionFailed { .. } => 6,
         Error::OutOfDomain { .. } => 7,
         Error::NotSupported { .. } => 8,
+        Error::AxisOutOfRange { .. } => 9,
+        Error::ShapeMismatch { .. } => 10,
     }
 }
 
-const VARIANT_COUNT: usize = 9;
+const VARIANT_COUNT: usize = 11;
 
 #[test]
 fn test_every_variant_lists_each_variant_once() {
@@ -165,6 +181,23 @@ fn test_every_variant_lists_each_variant_once() {
         .collect();
     numbers.sort();
     assert_eq!(numbers, (0..VARIANT_COUNT).collect::<Vec<_>>());
+}
+
+/// A shape mismatch of the output has its own kind (the C API reports
+/// SPIR_OUTPUT_DIMENSION_MISMATCH), and the message names the array.
+#[test]
+fn test_shape_mismatch_of_the_output() {
+    let err = Error::ShapeMismatch {
+        which: ArrayRole::Output,
+        expected: vec![7, 3],
+        actual: vec![7, 1],
+    };
+    assert_eq!(err.kind(), ErrorKind::OutputDimensionMismatch);
+    assert_eq!(
+        err.to_string(),
+        "output has the shape [7, 1], expected [7, 3]"
+    );
+    assert_eq!(ArrayRole::Input.to_string(), "input");
 }
 
 #[test]

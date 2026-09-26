@@ -32,6 +32,7 @@ mod tests {
     // imports of the parent module.
     use super::*;
     use crate::SPIR_COMPUTATION_SUCCESS;
+    use sparse_ir::ArrayRole;
     use sparse_ir::Statistics;
 
     /// Every error category has its own failure status.
@@ -120,6 +121,26 @@ mod tests {
                         .to_string(),
                 },
                 SPIR_NOT_SUPPORTED,
+            ),
+            (
+                Error::AxisOutOfRange { axis: 3, rank: 2 },
+                SPIR_INVALID_DIMENSION,
+            ),
+            (
+                Error::ShapeMismatch {
+                    which: ArrayRole::Input,
+                    expected: vec![5, 2],
+                    actual: vec![4, 2],
+                },
+                SPIR_INPUT_DIMENSION_MISMATCH,
+            ),
+            (
+                Error::ShapeMismatch {
+                    which: ArrayRole::Output,
+                    expected: vec![7, 3],
+                    actual: vec![7, 1],
+                },
+                SPIR_OUTPUT_DIMENSION_MISMATCH,
             ),
         ];
         for (err, status) in &table {

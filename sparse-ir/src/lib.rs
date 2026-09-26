@@ -54,7 +54,7 @@ pub use dlr::{
     DiscreteLehmannRepresentation, bosonic_single_pole, fermionic_single_pole, giwn_single_pole,
     gtau_single_pole,
 };
-pub use error::{Error, ErrorKind};
+pub use error::{ArrayRole, Error, ErrorKind};
 pub use fitters::InplaceFitter;
 pub use freq::{BosonicFreq, FermionicFreq, MatsubaraFreq};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
