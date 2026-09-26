@@ -31,7 +31,8 @@ fn test_matsubara_sampling_roundtrip_generic<S: StatisticsType + 'static>() {
     let sampling_points = basis.default_matsubara_sampling_points(false).unwrap();
 
     // Create sampling
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone());
+    let sampling =
+        MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone()).unwrap();
 
     // Generate test data (we only need Matsubara values)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -89,7 +90,8 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
 
     // Create sampling
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     // Generate test data (we only need Matsubara values)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -134,7 +136,8 @@ fn test_matsubara_sampling_dimensions() {
     let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
 
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     assert_eq!(sampling.basis_size(), basis.size());
     assert_eq!(sampling.n_sampling_points(), sampling_points.len());
@@ -165,7 +168,8 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
 
     let sampling_points = basis.default_matsubara_sampling_points(false).unwrap(); // Symmetric (positive and negative)
 
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone());
+    let sampling =
+        MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone()).unwrap();
 
     let n_k = 4;
     let n_omega = 5;
@@ -238,7 +242,8 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
     let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
 
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     let n_k = 4;
     let n_omega = 5;
@@ -319,7 +324,8 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
     println!("Sampling points (symmetric): {}", symmetric_points.len());
 
     // Create sampling
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, symmetric_points.clone());
+    let sampling =
+        MatsubaraSampling::with_sampling_points(&basis, symmetric_points.clone()).unwrap();
 
     // Generate test data (we only need Matsubara values)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -381,7 +387,8 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic() {
 
     // Create sampling
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     // Generate test data (real coefficients for positive-only)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -443,7 +450,7 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
-    let sampling = MatsubaraSampling::new(&basis);
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -502,7 +509,7 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
-    let sampling = MatsubaraSampling::new(&basis);
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -561,7 +568,7 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
-    let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -616,7 +623,7 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
 
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
-    let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -688,7 +695,7 @@ fn test_matsubara_sampling_debug_parameters() {
         FiniteTempBasis::new(kernel, beta, Some(eps), None).unwrap();
 
     // Step 3: Create Matsubara sampling
-    let matsf = MatsubaraSampling::new(&basisf);
+    let matsf = MatsubaraSampling::new(&basisf).unwrap();
 
     // Verify expected values (matching C++ implementation)
     // Basis size should be 19 for these parameters
@@ -764,7 +771,8 @@ fn check_positive_only_condition_number<S: StatisticsType + 'static>(
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
     let points = basis.default_matsubara_sampling_points(true).unwrap();
-    let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
+    let sampling =
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone()).unwrap();
 
     let oracle = oracle_condition_number(&stack_re_im(&uhat_matrix(&basis, &points)));
     let label = format!(
@@ -783,7 +791,7 @@ fn check_full_condition_number<S: StatisticsType + 'static>(beta: f64, wmax: f64
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
     let points = basis.default_matsubara_sampling_points(false).unwrap();
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone()).unwrap();
 
     let oracle = oracle_condition_number(&realify(&uhat_matrix(&basis, &points)));
     let label = format!(
@@ -960,7 +968,8 @@ fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>
     let coeffs_z: Vec<Complex<f64>> = coeffs.iter().map(|&c| Complex::new(c, 0.5 * c)).collect();
 
     let points = unsorted_points(&basis, true);
-    let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
+    let sampling =
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert_rows_times(
         &uhat_matrix(&basis, &points),
@@ -969,7 +978,7 @@ fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>
     );
 
     let points = unsorted_points(&basis, false);
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert_rows_times(
         &uhat_matrix(&basis, &points),
@@ -1019,8 +1028,8 @@ fn test_matsubara_nd_with_empty_batch() {
         None,
     )
     .unwrap();
-    let sampling = MatsubaraSampling::new(&basis);
-    let positive = MatsubaraSamplingPositiveOnly::new(&basis);
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
     let l = sampling.basis_size();
 
     for (batch, dim) in empty_batches() {
@@ -1089,8 +1098,8 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
         None,
     )
     .unwrap();
-    let full = MatsubaraSampling::new(&basis);
-    let positive = MatsubaraSamplingPositiveOnly::new(&basis);
+    let full = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
 
     fn check<F: InplaceFitter>(f: &F, batch: &[usize], dim: usize) {
         let (l, np) = (f.basis_size(), f.n_points());
@@ -1113,9 +1122,12 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
     }
 }
 
+/// No sampling points is an error: the sampling matrix would have no rows.
+/// It was a panic ("No sampling points given").
 #[test]
-#[should_panic(expected = "No sampling points given")]
 fn test_matsubara_sampling_rejects_empty_sampling_points() {
+    use crate::error::Error;
+
     let basis = FiniteTempBasis::<_, Fermionic>::new(
         LogisticKernel::new(10.0).unwrap(),
         1.0,
@@ -1123,12 +1135,19 @@ fn test_matsubara_sampling_rejects_empty_sampling_points() {
         None,
     )
     .unwrap();
-    MatsubaraSampling::with_sampling_points(&basis, vec![]);
+    assert_eq!(
+        MatsubaraSampling::with_sampling_points(&basis, vec![]).err(),
+        Some(Error::EmptyInput {
+            name: "sampling_points"
+        })
+    );
 }
 
+/// Same for the positive-only sampling.
 #[test]
-#[should_panic(expected = "No sampling points given")]
 fn test_matsubara_sampling_positive_only_rejects_empty_sampling_points() {
+    use crate::error::Error;
+
     let basis = FiniteTempBasis::<_, Fermionic>::new(
         LogisticKernel::new(10.0).unwrap(),
         1.0,
@@ -1136,7 +1155,38 @@ fn test_matsubara_sampling_positive_only_rejects_empty_sampling_points() {
         None,
     )
     .unwrap();
-    MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, vec![]);
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, vec![]).err(),
+        Some(Error::EmptyInput {
+            name: "sampling_points"
+        })
+    );
+}
+
+/// A negative frequency in a positive-only sampling is an invalid Matsubara
+/// index (spec §3); it was a panic (#247).
+#[test]
+fn test_matsubara_sampling_positive_only_rejects_negative_points() {
+    use crate::error::Error;
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let points = vec![
+        MatsubaraFreq::<Fermionic>::new(1).unwrap(),
+        MatsubaraFreq::<Fermionic>::new(-3).unwrap(),
+    ];
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points).err(),
+        Some(Error::InvalidMatsubaraIndex {
+            n: -3,
+            statistics: crate::traits::Statistics::Fermionic,
+        })
+    );
 }
 
 #[test]

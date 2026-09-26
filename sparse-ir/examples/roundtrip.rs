@@ -335,7 +335,7 @@ fn run_integration_example_single<K, S>(
     let tau_points = basis.default_tau_sampling_points().unwrap();
     let n_tau = tau_points.len();
     println!("  Number of tau points: {}", n_tau);
-    let tau_sampling = TauSampling::<S>::with_sampling_points(&basis, tau_points.clone());
+    let tau_sampling = TauSampling::<S>::with_sampling_points(&basis, tau_points.clone()).unwrap();
 
     let matsubara_points = basis
         .default_matsubara_sampling_points(positive_only)
@@ -343,7 +343,7 @@ fn run_integration_example_single<K, S>(
     let n_matsubara = matsubara_points.len();
     println!("  Number of Matsubara points: {}", n_matsubara);
     let matsubara_sampling =
-        MatsubaraSampling::<S>::with_sampling_points(&basis, matsubara_points.clone());
+        MatsubaraSampling::<S>::with_sampling_points(&basis, matsubara_points.clone()).unwrap();
     println!();
 
     // Step 3: Create DLR from IR basis
@@ -379,7 +379,8 @@ fn run_integration_example_single<K, S>(
 
     // From DLR coefficients (evaluate DLR basis functions at tau points)
     // Use Basis trait to call evaluate_tau
-    let dlr_u_tau = <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_tau(&dlr, &tau_points);
+    let dlr_u_tau =
+        <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_tau(&dlr, &tau_points).unwrap();
     // For multi-dimensional case, we need to evaluate DLR at each tau point
     // and then contract with DLR coefficients along the target_dim
     let g_tau_dlr = contract_along_dim(&dlr_u_tau, &dlr_coeffs, target_dim);
@@ -401,7 +402,8 @@ fn run_integration_example_single<K, S>(
     // From DLR coefficients (evaluate DLR basis functions at Matsubara frequencies)
     // Use Basis trait to call evaluate_matsubara
     let dlr_uhat_matsu =
-        <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_matsubara(&dlr, &matsubara_points);
+        <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_matsubara(&dlr, &matsubara_points)
+            .unwrap();
     // For multi-dimensional case, similar to tau evaluation
     // Convert real DLR coefficients to complex for matrix multiplication
     let dlr_coeffs_complex: Tensor<Complex<f64>, DynRank> =

@@ -105,7 +105,7 @@ fn test_dlr_with_custom_poles() {
     assert_eq!(dlr.poles, poles);
     assert_eq!(dlr.beta, beta);
 
-    let tau_values = dlr.evaluate_tau(&[0.0, beta / 3.0, beta]);
+    let tau_values = dlr.evaluate_tau(&[0.0, beta / 3.0, beta]).unwrap();
     for i in 0..3 {
         assert!(
             tau_values[[i, 2]].is_finite(),
@@ -121,7 +121,7 @@ fn test_dlr_with_custom_poles() {
         crate::MatsubaraFreq::<Bosonic>::new(0).unwrap(),
         crate::MatsubaraFreq::<Bosonic>::new(2).unwrap(),
     ];
-    let matsubara_values = dlr.evaluate_matsubara(&freqs);
+    let matsubara_values = dlr.evaluate_matsubara(&freqs).unwrap();
     assert!(
         matsubara_values[[0, 2]].re.is_finite() && matsubara_values[[0, 2]].im.is_finite(),
         "zero-pole Matsubara basis at n=0 must be finite"
@@ -270,7 +270,7 @@ fn test_dlr_basis_trait() {
 
     // Test evaluate_tau
     let tau_points = vec![0.0, beta / 4.0, beta / 2.0, 3.0 * beta / 4.0];
-    let matrix_tau = dlr.evaluate_tau(&tau_points);
+    let matrix_tau = dlr.evaluate_tau(&tau_points).unwrap();
     assert_eq!(*matrix_tau.shape(), (tau_points.len(), dlr.size()));
 
     // Test evaluate_matsubara
@@ -280,7 +280,7 @@ fn test_dlr_basis_trait() {
         MatsubaraFreq::<Fermionic>::new(3).unwrap(),
         MatsubaraFreq::<Fermionic>::new(-1).unwrap(),
     ];
-    let matrix_matsu = dlr.evaluate_matsubara(&freqs);
+    let matrix_matsu = dlr.evaluate_matsubara(&freqs).unwrap();
     assert_eq!(*matrix_matsu.shape(), (freqs.len(), dlr.size()));
 }
 
@@ -301,7 +301,7 @@ fn test_dlr_with_tau_sampling() {
     // Create TauSampling from DLR (using Basis trait)
     let tau_points = basis_ir.default_tau_sampling_points().unwrap();
     let n_tau_points = tau_points.len();
-    let sampling_dlr = TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points);
+    let sampling_dlr = TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points).unwrap();
 
     // Test that it works
     println!(
@@ -384,7 +384,7 @@ fn test_dlr_regularized_bose_with_custom_poles() {
     assert_eq!(dlr.poles, poles);
     assert_eq!(dlr.beta, beta);
 
-    let tau_values = dlr.evaluate_tau(&[0.0, beta / 3.0, beta]);
+    let tau_values = dlr.evaluate_tau(&[0.0, beta / 3.0, beta]).unwrap();
     for i in 0..3 {
         assert!(
             tau_values[[i, 2]].is_finite(),
@@ -401,7 +401,7 @@ fn test_dlr_regularized_bose_with_custom_poles() {
         crate::MatsubaraFreq::<Bosonic>::new(0).unwrap(),
         crate::MatsubaraFreq::<Bosonic>::new(2).unwrap(),
     ];
-    let matsubara_values = dlr.evaluate_matsubara(&freqs);
+    let matsubara_values = dlr.evaluate_matsubara(&freqs).unwrap();
     assert!(
         matsubara_values[[0, 2]].re.is_finite() && matsubara_values[[0, 2]].im.is_finite(),
         "zero-pole Matsubara basis at n=0 must be finite"
@@ -437,7 +437,7 @@ fn test_dlr_regularized_bose_basis_functions_match_physical_kernel() {
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, poles.clone()).unwrap();
 
     let taus = [0.25, 3.7, 8.9];
-    let tau_values = dlr.evaluate_tau(&taus);
+    let tau_values = dlr.evaluate_tau(&taus).unwrap();
     for (i, &tau) in taus.iter().enumerate() {
         for (p, &pole) in poles.iter().enumerate() {
             let exact = -pole * (-tau * pole).exp() / (1.0 - (-beta * pole).exp());
@@ -450,7 +450,7 @@ fn test_dlr_regularized_bose_basis_functions_match_physical_kernel() {
     }
 
     let freqs = [0_i64, 2, -6].map(|n| crate::MatsubaraFreq::<Bosonic>::new(n).unwrap());
-    let matsubara_values = dlr.evaluate_matsubara(&freqs);
+    let matsubara_values = dlr.evaluate_matsubara(&freqs).unwrap();
     for (i, freq) in freqs.iter().enumerate() {
         for (p, &pole) in poles.iter().enumerate() {
             let exact = Complex::new(pole, 0.0) / Complex::new(-pole, freq.value(beta));
@@ -574,11 +574,13 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
 
     let tau_points = basis.default_tau_sampling_points().unwrap();
-    let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&basis, tau_points.clone());
+    let tau_sampling =
+        TauSampling::<Bosonic>::with_sampling_points(&basis, tau_points.clone()).unwrap();
 
     let matsubara_points = basis.default_matsubara_sampling_points(false).unwrap();
     let matsubara_sampling =
-        MatsubaraSampling::<Bosonic>::with_sampling_points(&basis, matsubara_points.clone());
+        MatsubaraSampling::<Bosonic>::with_sampling_points(&basis, matsubara_points.clone())
+            .unwrap();
 
     let n_poles = dlr.poles.len();
     let dlr_coeffs_2d = DTensor::<f64, 2>::from_fn([n_poles, 1], |idx| {
@@ -590,7 +592,7 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
     let ir_coeffs = dlr.to_ir_nd::<f64>(None, &dlr_coeffs, 0);
 
     let g_tau_ir = tau_sampling.evaluate_nd(None, &ir_coeffs, 0);
-    let dlr_tau = dlr.evaluate_tau(&tau_points);
+    let dlr_tau = dlr.evaluate_tau(&tau_points).unwrap();
     let g_tau_dlr = DTensor::<f64, 2>::from_fn([tau_points.len(), 1], |idx| {
         let i = idx[0];
         let mut sum = 0.0;
@@ -601,7 +603,7 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
     });
 
     let g_iw_ir = matsubara_sampling.evaluate_nd_real(None, &ir_coeffs, 0);
-    let dlr_iw = dlr.evaluate_matsubara(&matsubara_points);
+    let dlr_iw = dlr.evaluate_matsubara(&matsubara_points).unwrap();
     let g_iw_dlr = DTensor::<Complex<f64>, 2>::from_fn([matsubara_points.len(), 1], |idx| {
         let i = idx[0];
         let mut sum = Complex::new(0.0, 0.0);
@@ -638,7 +640,8 @@ fn test_fermionic_dlr_tau_sampling_matrix_matches_stable_kernel() {
             .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
     let tau_points = basis.default_tau_sampling_points().unwrap();
-    let tau_sampling = TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points.clone());
+    let tau_sampling =
+        TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points.clone()).unwrap();
 
     let expected = DTensor::<f64, 2>::from_fn([tau_points.len(), dlr.poles.len()], |idx| {
         let tau = tau_points[idx[0]];
@@ -690,7 +693,8 @@ fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
         FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
     let tau_points = basis.default_tau_sampling_points().unwrap();
-    let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&dlr, tau_points.clone());
+    let tau_sampling =
+        TauSampling::<Bosonic>::with_sampling_points(&dlr, tau_points.clone()).unwrap();
 
     let expected = DTensor::<f64, 2>::from_fn([tau_points.len(), dlr.poles.len()], |idx| {
         let tau = tau_points[idx[0]];
@@ -969,7 +973,7 @@ fn check_single_pole_matches_dlr_evaluate_tau<S: StatisticsType + 'static>() {
         0.9 * beta,
         beta,
     ];
-    let dlr_tau = dlr.evaluate_tau(&taus);
+    let dlr_tau = dlr.evaluate_tau(&taus).unwrap();
 
     for (p, (&pole, &weight)) in dlr.poles.iter().zip(dlr.pole_weights()).enumerate() {
         // An exact bosonic zero pole is a genuine pole of the unweighted
@@ -1083,36 +1087,42 @@ where
         self.inner.svals()
     }
 
-    fn default_tau_sampling_points(&self) -> Vec<f64> {
+    fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
         self.inner.default_tau_sampling_points()
     }
 
-    fn default_matsubara_sampling_points(&self, positive_only: bool) -> Vec<MatsubaraFreq<S>>
+    fn default_matsubara_sampling_points(
+        &self,
+        positive_only: bool,
+    ) -> Result<Vec<MatsubaraFreq<S>>, Error>
     where
         S: 'static,
     {
         self.inner.default_matsubara_sampling_points(positive_only)
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> DTensor<f64, 2> {
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<DTensor<f64, 2>, Error> {
         self.inner.evaluate_tau(tau)
     }
 
-    fn evaluate_matsubara(&self, freqs: &[MatsubaraFreq<S>]) -> DTensor<Complex<f64>, 2>
+    fn evaluate_matsubara(
+        &self,
+        freqs: &[MatsubaraFreq<S>],
+    ) -> Result<DTensor<Complex<f64>, 2>, Error>
     where
         S: 'static,
     {
         self.inner.evaluate_matsubara(freqs)
     }
 
-    fn evaluate_omega(&self, omega: &[f64]) -> DTensor<f64, 2> {
+    fn evaluate_omega(&self, omega: &[f64]) -> Result<DTensor<f64, 2>, Error> {
         self.inner.evaluate_omega(omega)
     }
 
-    fn default_omega_sampling_points(&self) -> Vec<f64> {
-        let mut poles = self.inner.default_omega_sampling_points();
+    fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
+        let mut poles = self.inner.default_omega_sampling_points()?;
         poles.truncate(self.n_poles);
-        poles
+        Ok(poles)
     }
 }
 
@@ -1322,4 +1332,72 @@ fn test_single_pole_functions_check_their_arguments() {
         bosonic_single_pole(0.5, 0.0, beta).unwrap(),
         f64::NEG_INFINITY
     );
+}
+
+/// The DLR has no default tau or Matsubara sampling points of its own and no
+/// real-frequency functions: these Basis methods are NotSupported (they hit
+/// unimplemented!). Its tau functions reject τ outside [-β, β] and NaN for
+/// every pole, including the bosonic pole at 0, which returned its limit
+/// without looking at τ.
+#[test]
+fn test_dlr_basis_methods_report_errors() {
+    let beta = 10.0;
+    let ir = FiniteTempBasis::<_, Bosonic>::new(
+        LogisticKernel::new(beta).unwrap(),
+        beta,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let dlr =
+        DiscreteLehmannRepresentation::<Bosonic>::with_poles(&ir, vec![-0.5, 0.0, 0.5]).unwrap();
+
+    let not_supported = |err: Error| assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+    not_supported(Basis::default_tau_sampling_points(&dlr).unwrap_err());
+    not_supported(Basis::default_matsubara_sampling_points(&dlr, false).unwrap_err());
+    not_supported(Basis::evaluate_omega(&dlr, &[0.1]).unwrap_err());
+    not_supported(TauSampling::new(&dlr).err().unwrap());
+    not_supported(
+        DiscreteLehmannRepresentation::<Bosonic>::with_poles(&dlr, vec![0.1])
+            .err()
+            .unwrap(),
+    );
+
+    for tau in [2.0 * beta, f64::NAN] {
+        let err = Basis::evaluate_tau(&dlr, &[0.0, tau]).unwrap_err();
+        assert!(
+            matches!(err, Error::OutOfDomain { name: "tau", .. }),
+            "{err:?}"
+        );
+    }
+    assert_eq!(*Basis::evaluate_tau(&dlr, &[]).unwrap().shape(), (0, 3));
+    // Unchanged values: the pole at 0 gives its limit -1/2 at any τ.
+    let values = Basis::evaluate_tau(&dlr, &[0.0, 0.5 * beta, beta]).unwrap();
+    for i in 0..3 {
+        assert_eq!(values[[i, 1]], -0.5);
+    }
+}
+
+/// with_poles evaluates the IR basis at the poles: a pole outside
+/// [-ωmax, ωmax] or NaN is OutOfDomain (it panicked, SPIR_INTERNAL_ERROR in
+/// spir_dlr_new_with_poles).
+#[test]
+fn test_with_poles_rejects_poles_outside_the_frequency_domain() {
+    let ir = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        10.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    for pole in [2.0, -2.0, f64::NAN, f64::INFINITY] {
+        let err = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&ir, vec![0.5, pole])
+            .err()
+            .unwrap();
+        assert!(
+            matches!(err, Error::OutOfDomain { name: "omega", .. }),
+            "{err:?}"
+        );
+    }
+    DiscreteLehmannRepresentation::<Fermionic>::with_poles(&ir, vec![-1.0, 1.0]).unwrap();
 }

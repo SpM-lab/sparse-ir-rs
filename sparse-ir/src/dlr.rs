@@ -322,6 +322,9 @@ where
     ///   the requested statistics (e.g. `RegularizedBoseKernel` with fermionic
     ///   statistics)
     /// * [`Error::EmptyInput`] if `poles` is empty
+    /// * [`Error::OutOfDomain`] if a pole is outside [-ωmax, ωmax] of `basis`
+    ///   or NaN (from [`Basis::evaluate_omega`](crate::basis_trait::Basis::evaluate_omega))
+    /// * [`Error::NotSupported`] if `basis` is itself a DLR
     pub fn with_poles<K>(
         basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
         poles: Vec<f64>,
@@ -352,7 +355,7 @@ where
 
         // Compute fitting matrix: fitmat = -s · V(poles)
         // This transforms DLR coefficients to IR coefficients
-        let v_at_poles = basis.evaluate_omega(&poles); // shape: [n_poles, basis_size]
+        let v_at_poles = basis.evaluate_omega(&poles)?; // shape: [n_poles, basis_size]
         let s = basis.svals(); // Non-normalized singular values (same as C++)
 
         let basis_size = basis.size();
@@ -429,12 +432,15 @@ where
     ///   (e.g. `RegularizedBoseKernel`) due to numerical precision limitations
     ///   in root finding.
     /// * [`Error::KernelStatisticsMismatch`] as in [`Self::with_poles`]
+    /// * The errors of
+    ///   [`Basis::default_omega_sampling_points`](crate::basis_trait::Basis::default_omega_sampling_points)
+    ///   (NotSupported for an SVE with too few singular functions)
     pub fn new<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Result<Self, Error>
     where
         S: 'static,
         K: crate::kernel::KernelProperties + Clone,
     {
-        let poles = basis.default_omega_sampling_points();
+        let poles = basis.default_omega_sampling_points()?;
         let basis_size = basis.size();
         if basis_size > poles.len() {
             return Err(Error::InsufficientDefaultPoles {
@@ -652,102 +658,120 @@ where
         vec![1.0; self.poles.len()]
     }
 
-    fn default_tau_sampling_points(&self) -> Vec<f64> {
+    fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
         // DLR does not own the underlying IR basis, so it cannot delegate.
         // Callers should obtain tau sampling points from the IR basis that
         // was used to construct this DLR, e.g. `ir_basis.default_tau_sampling_points()`.
-        unimplemented!(
-            "DLR does not directly support default tau sampling points; \
-             use the underlying IR basis"
-        )
+        Err(Error::NotSupported {
+            what: "default tau sampling points of a DLR, which does not own its IR basis; \
+                   use those of the IR basis"
+                .to_string(),
+        })
     }
 
     fn default_matsubara_sampling_points(
         &self,
         _positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>> {
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error> {
         // DLR does not own the underlying IR basis, so it cannot delegate.
         // Callers should obtain Matsubara sampling points from the IR basis
         // that was used to construct this DLR, e.g.
         // `ir_basis.default_matsubara_sampling_points(positive_only)`.
-        unimplemented!(
-            "DLR does not directly support default Matsubara sampling points; \
-             use the underlying IR basis"
-        )
+        Err(Error::NotSupported {
+            what: "default Matsubara sampling points of a DLR, which does not own its IR \
+                   basis; use those of the IR basis"
+                .to_string(),
+        })
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         use mdarray::DTensor;
 
-        let n_points = tau.len();
         let n_poles = self.poles.len();
-        DTensor::<f64, 2>::from_fn([n_points, n_poles], |idx| {
-            let tau_val = tau[idx[0]];
-            let pole = self.poles[idx[1]];
-            let pole_weight = self.pole_weights[idx[1]];
-            match S::STATISTICS {
-                Statistics::Fermionic => {
-                    // Basis::evaluate_tau returns Result in part 3b; until
-                    // then a τ outside [-β, β] panics as before.
-                    let (tau_norm, sign) =
-                        normalize_tau::<S>(tau_val, self.beta).unwrap_or_else(|e| panic!("{e}"));
-                    sign * fermionic_single_pole_unchecked(tau_norm, pole, self.beta) * pole_weight
-                }
-                Statistics::Bosonic => {
-                    if pole == 0.0 {
-                        self.zero_pole_tau_limit()
-                    } else if pole > 0.0 {
-                        let tau_norm = normalize_tau::<S>(tau_val, self.beta)
-                            .unwrap_or_else(|e| panic!("{e}"))
-                            .0;
-                        let denominator = -(-self.beta * pole).exp_m1();
-                        -(-tau_norm * pole).exp() * pole_weight / denominator
-                    } else {
-                        let tau_norm = normalize_tau::<S>(tau_val, self.beta)
-                            .unwrap_or_else(|e| panic!("{e}"))
-                            .0;
-                        let denominator = -(self.beta * pole).exp_m1();
-                        (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
+        // Normalize every τ first: this rejects a τ outside [-β, β] and NaN
+        // for every pole, including the bosonic pole at 0, whose limit does
+        // not depend on τ.
+        let normalized = tau
+            .iter()
+            .map(|&t| normalize_tau::<S>(t, self.beta))
+            .collect::<Result<Vec<(f64, f64)>, Error>>()?;
+        if normalized.is_empty() {
+            // mdarray 0.7.2 runs the closure of from_fn for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21).
+            return Ok(DTensor::<f64, 2>::from_elem([0, n_poles], 0.0));
+        }
+        Ok(DTensor::<f64, 2>::from_fn(
+            [normalized.len(), n_poles],
+            |idx| {
+                let (tau_norm, sign) = normalized[idx[0]];
+                let pole = self.poles[idx[1]];
+                let pole_weight = self.pole_weights[idx[1]];
+                match S::STATISTICS {
+                    Statistics::Fermionic => {
+                        sign * fermionic_single_pole_unchecked(tau_norm, pole, self.beta)
+                            * pole_weight
+                    }
+                    Statistics::Bosonic => {
+                        // The bosonic sign of normalize_tau is always 1.
+                        if pole == 0.0 {
+                            self.zero_pole_tau_limit()
+                        } else if pole > 0.0 {
+                            let denominator = -(-self.beta * pole).exp_m1();
+                            -(-tau_norm * pole).exp() * pole_weight / denominator
+                        } else {
+                            let denominator = -(self.beta * pole).exp_m1();
+                            (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
+                        }
                     }
                 }
-            }
-        })
+            },
+        ))
     }
 
     fn evaluate_matsubara(
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
-    ) -> mdarray::DTensor<num_complex::Complex<f64>, 2> {
+    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error> {
         use mdarray::DTensor;
         use num_complex::Complex;
 
         let n_points = freqs.len();
         let n_poles = self.poles.len();
+        if n_points == 0 {
+            // See evaluate_tau (mdarray#21).
+            return Ok(DTensor::<Complex<f64>, 2>::from_elem(
+                [0, n_poles],
+                Complex::new(0.0, 0.0),
+            ));
+        }
 
         // Evaluate MatsubaraPoles basis functions
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, n_poles], |idx| {
-            let freq = &freqs[idx[0]];
-            let pole = self.poles[idx[1]];
-            let pole_weight = self.pole_weights[idx[1]];
+        Ok(DTensor::<Complex<f64>, 2>::from_fn(
+            [n_points, n_poles],
+            |idx| {
+                let freq = &freqs[idx[0]];
+                let pole = self.poles[idx[1]];
+                let pole_weight = self.pole_weights[idx[1]];
 
-            // iν = iπn/β, with n = freq.n() (odd for fermions, even for bosons)
-            let iv = freq.value_imaginary(self.beta);
+                // iν = iπn/β, with n = freq.n() (odd for fermions, even for bosons)
+                let iv = freq.value_imaginary(self.beta);
 
-            // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the
-            // regularizer w(β, ω_i) of the source kernel.
-            if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
-                if crate::freq::is_zero(freq) {
-                    Complex::new(self.zero_pole_matsubara_limit(), 0.0)
+                // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the
+                // regularizer w(β, ω_i) of the source kernel.
+                if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
+                    if crate::freq::is_zero(freq) {
+                        Complex::new(self.zero_pole_matsubara_limit(), 0.0)
+                    } else {
+                        Complex::new(0.0, 0.0)
+                    }
                 } else {
-                    Complex::new(0.0, 0.0)
+                    Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0))
                 }
-            } else {
-                Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0))
-            }
-        })
+            },
+        ))
     }
 
-    fn evaluate_omega(&self, _omega: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_omega(&self, _omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         // TODO(#205): For the IR basis, evaluate_omega returns V_l(omega).
         // For DLR, the "basis functions" in omega-space are single-pole
         // functions (conceptually delta functions at the pole positions),
@@ -758,16 +782,17 @@ where
         //       the IR basis), or
         //   (b) defining an appropriate discretized representation for the
         //       pole basis in omega-space.
-        // Until the semantics are clarified, this remains unimplemented.
-        unimplemented!(
-            "evaluate_omega is not well-defined for DLR; \
-             use the underlying IR basis for real-frequency evaluation"
-        )
+        // Until the semantics are clarified, this is NotSupported.
+        Err(Error::NotSupported {
+            what: "evaluate_omega of a DLR: its pole functions have no real-frequency \
+                   representation (#205); use the IR basis"
+                .to_string(),
+        })
     }
 
-    fn default_omega_sampling_points(&self) -> Vec<f64> {
+    fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
         // DLR poles ARE the omega sampling points
-        self.poles.clone()
+        Ok(self.poles.clone())
     }
 }
 

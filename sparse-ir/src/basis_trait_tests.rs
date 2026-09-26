@@ -99,7 +99,7 @@ fn test_basis_trait_evaluate_tau() {
 
     // Test evaluate_tau via Basis trait
     let tau_points = vec![0.0, beta / 4.0, beta / 2.0, 3.0 * beta / 4.0, beta];
-    let matrix = basis.evaluate_tau(&tau_points);
+    let matrix = basis.evaluate_tau(&tau_points).unwrap();
 
     // Check shape
     assert_eq!(*matrix.shape(), (tau_points.len(), basis.size()));
@@ -140,7 +140,7 @@ fn test_basis_trait_evaluate_matsubara() {
         MatsubaraFreq::new(-1).unwrap(),
     ];
 
-    let matrix = basis.evaluate_matsubara(&freqs);
+    let matrix = basis.evaluate_matsubara(&freqs).unwrap();
 
     // Check shape
     assert_eq!(*matrix.shape(), (freqs.len(), basis.size()));
@@ -158,4 +158,58 @@ fn test_basis_trait_evaluate_matsubara() {
             );
         }
     }
+}
+
+/// Basis::evaluate_* reject points outside their domain and NaN (they
+/// panicked), and return an empty matrix of the right width for no points
+/// (from_fn ran its closure for a zero extent, mdarray#21, and panicked).
+#[test]
+fn test_basis_evaluate_checks_the_points() {
+    use crate::error::Error;
+    use crate::freq::MatsubaraFreq;
+
+    let beta = 10.0;
+    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
+        LogisticKernel::new(beta).unwrap(),
+        beta,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let size = basis.size();
+    let wmax = Basis::wmax(&basis);
+
+    for tau in [2.0 * beta, f64::NAN] {
+        let err = Basis::evaluate_tau(&basis, &[0.0, tau]).unwrap_err();
+        assert!(
+            matches!(err, Error::OutOfDomain { name: "tau", .. }),
+            "{err:?}"
+        );
+    }
+    for omega in [2.0 * wmax, -2.0 * wmax, f64::NAN] {
+        let err = Basis::evaluate_omega(&basis, &[0.0, omega]).unwrap_err();
+        assert!(
+            matches!(err, Error::OutOfDomain { name: "omega", domain, .. } if domain == (-wmax, wmax)),
+            "{err:?}"
+        );
+    }
+    // The ends of the domains are inside.
+    Basis::evaluate_tau(&basis, &[-beta, beta]).unwrap();
+    Basis::evaluate_omega(&basis, &[-wmax, wmax]).unwrap();
+
+    assert_eq!(
+        *Basis::evaluate_tau(&basis, &[]).unwrap().shape(),
+        (0, size)
+    );
+    assert_eq!(
+        *Basis::evaluate_omega(&basis, &[]).unwrap().shape(),
+        (0, size)
+    );
+    let no_freqs: [MatsubaraFreq<Fermionic>; 0] = [];
+    assert_eq!(
+        *Basis::evaluate_matsubara(&basis, &no_freqs)
+            .unwrap()
+            .shape(),
+        (0, size)
+    );
 }

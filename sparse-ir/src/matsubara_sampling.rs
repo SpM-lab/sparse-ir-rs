@@ -3,6 +3,7 @@
 //! This module provides Matsubara frequency sampling for transforming between
 //! IR basis coefficients and values at sparse Matsubara frequencies.
 
+use crate::error::Error;
 use crate::fitters::{ComplexMatrixFitter, ComplexToRealFitter, InplaceFitter};
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
@@ -62,11 +63,17 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// Uses the default sampling points of the basis (symmetric: positive and
     /// negative frequencies).
-    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Self
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Basis::default_matsubara_sampling_points`](crate::basis_trait::Basis::default_matsubara_sampling_points)
+    /// (NotSupported for a DLR or for basis functions without a definite
+    /// parity, #183)
+    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Result<Self, Error>
     where
         S: 'static,
     {
-        let sampling_points = basis.default_matsubara_sampling_points(false);
+        let sampling_points = basis.default_matsubara_sampling_points(false)?;
         Self::with_sampling_points(basis, sampling_points)
     }
 
@@ -77,32 +84,38 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// sampling-point axis of `evaluate` and `fit` refers to
     /// `sampling_points[i]`.
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty
+    /// * The errors of [`Basis::evaluate_matsubara`](crate::basis_trait::Basis::evaluate_matsubara)
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
         sampling_points: Vec<MatsubaraFreq<S>>,
-    ) -> Self
+    ) -> Result<Self, Error>
     where
         S: 'static,
     {
         // With no points the sampling matrix would have no rows; building it
         // and the fitter's transposes would go through the zero-extent paths
         // of mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
-        assert!(!sampling_points.is_empty(), "No sampling points given");
+        if sampling_points.is_empty() {
+            return Err(Error::EmptyInput {
+                name: "sampling_points",
+            });
+        }
 
         // Evaluate matrix at sampling points
         // Use Basis trait's evaluate_matsubara method
-        let matrix = basis.evaluate_matsubara(&sampling_points);
+        let matrix = basis.evaluate_matsubara(&sampling_points)?;
 
         // Create fitter (complex → complex, no symmetry)
         let fitter = ComplexMatrixFitter::new(matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Create Matsubara sampling with custom sampling points and pre-computed matrix
@@ -362,7 +375,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// let beta = 10.0;
     /// let wmax = 1.0;
     /// let basis = FermionicBasis::new(LogisticKernel::new(beta * wmax).unwrap(), beta, Some(1e-6), None).unwrap();
-    /// let sampling = MatsubaraSampling::new(&basis);
+    /// let sampling = MatsubaraSampling::new(&basis).unwrap();
     /// let (size, n_points) = (sampling.basis_size(), sampling.n_sampling_points());
     ///
     /// // Real coefficients: two sets stacked along axis 1, evaluated along axis 0
@@ -810,11 +823,17 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     ///
     /// Uses the default sampling points of the basis (non-negative frequencies only).
     /// Exploits symmetry to reconstruct real coefficients.
-    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Self
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Basis::default_matsubara_sampling_points`](crate::basis_trait::Basis::default_matsubara_sampling_points)
+    /// (NotSupported for a DLR or for basis functions without a definite
+    /// parity, #183)
+    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Result<Self, Error>
     where
         S: 'static,
     {
-        let sampling_points = basis.default_matsubara_sampling_points(true);
+        let sampling_points = basis.default_matsubara_sampling_points(true)?;
         Self::with_sampling_points(basis, sampling_points)
     }
 
@@ -825,38 +844,47 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// sampling-point axis of `evaluate` and `fit` refers to
     /// `sampling_points[i]`.
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty or a sampling point is negative
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty
+    /// * [`Error::InvalidMatsubaraIndex`] if a point is negative
+    /// * The errors of [`Basis::evaluate_matsubara`](crate::basis_trait::Basis::evaluate_matsubara)
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
         sampling_points: Vec<MatsubaraFreq<S>>,
-    ) -> Self
+    ) -> Result<Self, Error>
     where
         S: 'static,
     {
         // With no points the sampling matrix would have no rows; building it
         // and the fitter's transposes would go through the zero-extent paths
         // of mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
-        assert!(!sampling_points.is_empty(), "No sampling points given");
+        if sampling_points.is_empty() {
+            return Err(Error::EmptyInput {
+                name: "sampling_points",
+            });
+        }
 
-        // Validate that all points are non-negative
-        assert!(
-            sampling_points.iter().all(|f| f.n() >= 0),
-            "All sampling points must be non-negative for positive-only Matsubara sampling"
-        );
+        // Positive-only sampling uses non-negative frequencies only (#247).
+        if let Some(freq) = sampling_points.iter().find(|f| f.n() < 0) {
+            return Err(Error::InvalidMatsubaraIndex {
+                n: freq.n(),
+                statistics: S::STATISTICS,
+            });
+        }
 
         // Evaluate matrix at sampling points
         // Use Basis trait's evaluate_matsubara method
-        let matrix = basis.evaluate_matsubara(&sampling_points);
+        let matrix = basis.evaluate_matsubara(&sampling_points)?;
 
         // Create fitter (complex → real, exploits symmetry)
         let fitter = ComplexToRealFitter::new(&matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: PhantomData,
-        }
+        })
     }
 
     /// Create Matsubara sampling (positive-only) with custom sampling points and pre-computed matrix

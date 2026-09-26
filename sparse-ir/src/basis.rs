@@ -783,86 +783,104 @@ where
         self.s.clone()
     }
 
-    fn default_tau_sampling_points(&self) -> Vec<f64> {
-        // Basis returns Result in the next task of part 3b.
+    fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
         self.default_tau_sampling_points()
-            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>> {
-        // Basis returns Result in the next task of part 3b.
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error> {
         self.default_matsubara_sampling_points(positive_only)
-            .unwrap_or_else(|e| panic!("{e}"))
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         use crate::taufuncs::normalize_tau;
         use mdarray::DTensor;
 
-        let n_points = tau.len();
         let basis_size = self.size();
 
-        // Evaluate each basis function at all tau points
+        // Normalize every τ ∈ [-β, β] to [0, β] with the statistics sign
+        // first; this rejects a τ outside [-β, β] and NaN. The u polynomials
+        // are on [0, β] exactly (from_sve_result sets their ends), so
+        // evaluating them cannot fail.
+        let normalized = tau
+            .iter()
+            .map(|&t| normalize_tau::<S>(t, self.beta))
+            .collect::<Result<Vec<(f64, f64)>, Error>>()?;
+        if normalized.is_empty() {
+            // mdarray 0.7.2 runs the closure of from_fn for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21).
+            return Ok(DTensor::<f64, 2>::from_elem([0, basis_size], 0.0));
+        }
+
         // Result: matrix[i, l] = u_l(tau[i])
-        // Note: tau can be in [-beta, beta] and will be normalized to [0, beta]
-        // self.u polynomials are already scaled to tau ∈ [0, beta] domain
-        DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // tau index
-            let l = idx[1]; // basis function index
-
-            // Normalize tau to [0, beta] with statistics-dependent sign.
-            // Basis::evaluate_tau returns Result in part 3b; until then a τ
-            // outside [-β, β] panics as before (β is checked by the
-            // constructors).
-            let (tau_norm, sign) =
-                normalize_tau::<S>(tau[i], self.beta).unwrap_or_else(|e| panic!("{e}"));
-
-            // Evaluate basis function directly (u polynomials are in tau domain)
-            sign * self.u[l].evaluate(tau_norm)
-        })
+        Ok(DTensor::<f64, 2>::from_fn(
+            [normalized.len(), basis_size],
+            |idx| {
+                let (tau_norm, sign) = normalized[idx[0]];
+                sign * self.u[idx[1]].evaluate(tau_norm)
+            },
+        ))
     }
 
     fn evaluate_matsubara(
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
-    ) -> mdarray::DTensor<num_complex::Complex<f64>, 2> {
+    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error> {
         use mdarray::DTensor;
         use num_complex::Complex;
 
         let n_points = freqs.len();
         let basis_size = self.size();
+        if n_points == 0 {
+            // See evaluate_tau (mdarray#21).
+            return Ok(DTensor::<Complex<f64>, 2>::from_elem(
+                [0, basis_size],
+                Complex::new(0.0, 0.0),
+            ));
+        }
 
         // Evaluate each basis function at all Matsubara frequencies
         // Result: matrix[i, l] = uhat_l(iν[i])
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // frequency index
-            let l = idx[1]; // basis function index
-            self.uhat[l].evaluate(&freqs[i])
-        })
+        Ok(DTensor::<Complex<f64>, 2>::from_fn(
+            [n_points, basis_size],
+            |idx| {
+                let i = idx[0]; // frequency index
+                let l = idx[1]; // basis function index
+                self.uhat[l].evaluate(&freqs[i])
+            },
+        ))
     }
 
-    fn evaluate_omega(&self, omega: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_omega(&self, omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         use mdarray::DTensor;
 
-        let n_points = omega.len();
         let basis_size = self.size();
+        // The v polynomials are on [-ωmax, ωmax] exactly (from_sve_result
+        // sets their ends).
+        let domain = (self.v.xmin(), self.v.xmax());
+        if let Some(&w) = omega.iter().find(|&&w| !(w >= domain.0 && w <= domain.1)) {
+            return Err(Error::OutOfDomain {
+                name: "omega",
+                value: w,
+                domain,
+            });
+        }
+        if omega.is_empty() {
+            // See evaluate_tau (mdarray#21).
+            return Ok(DTensor::<f64, 2>::from_elem([0, basis_size], 0.0));
+        }
 
-        // Evaluate each spectral basis function at all omega points
         // Result: matrix[i, l] = V_l(omega[i])
-        DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // omega index
-            let l = idx[1]; // basis function index
-            self.v[l].evaluate(omega[i])
-        })
+        Ok(DTensor::<f64, 2>::from_fn(
+            [omega.len(), basis_size],
+            |idx| self.v[idx[1]].evaluate(omega[idx[0]]),
+        ))
     }
 
-    fn default_omega_sampling_points(&self) -> Vec<f64> {
-        // Basis returns Result in the next task of part 3b.
+    fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
         self.default_omega_sampling_points()
-            .unwrap_or_else(|e| panic!("{e}"))
     }
 }
 

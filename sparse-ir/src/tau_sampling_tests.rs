@@ -21,7 +21,7 @@ where
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let n_k = 5;
     let n_omega = 7;
@@ -96,7 +96,7 @@ where
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let n_k = 5;
     let n_omega = 7;
@@ -162,7 +162,7 @@ fn test_regularized_bose_evaluate_nd_roundtrip_real() {
 
     let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let n_k = 5;
     let n_omega = 7;
@@ -213,7 +213,7 @@ fn test_regularized_bose_evaluate_nd_roundtrip_complex() {
 
     let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let n_k = 5;
     let n_omega = 7;
@@ -278,7 +278,7 @@ fn test_evaluate_nd_to_matches_fermionic_real() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -331,7 +331,7 @@ fn test_evaluate_nd_to_matches_fermionic_complex() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -392,7 +392,7 @@ fn test_fit_nd_to_matches_fermionic_real() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -445,7 +445,7 @@ fn test_fit_nd_to_matches_fermionic_complex() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -509,7 +509,7 @@ fn test_evaluate_nd_to_dim0() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -558,7 +558,7 @@ fn test_evaluate_nd_to_dim1() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -612,7 +612,7 @@ fn test_evaluate_nd_to_dim_last() {
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, epsilon, None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -663,7 +663,7 @@ fn check_tau_condition_number<S: StatisticsType + 'static>() {
     let (beta, wmax, epsilon) = (10.0, 1.0, 1e-6);
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
 
     let oracle = oracle_condition_number(sampling.matrix());
     let label = format!(
@@ -701,7 +701,7 @@ fn test_nd_to_rejects_out_with_wrong_batch_extent() {
         None,
     )
     .unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
     let (l, np, extra) = (sampling.basis_size(), sampling.n_sampling_points(), 50);
     const CANARY: f64 = -12345.0;
 
@@ -822,7 +822,7 @@ fn test_tau_nd_with_empty_batch() {
         None,
     )
     .unwrap();
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis).unwrap();
     let (l, np) = (sampling.basis_size(), sampling.n_sampling_points());
 
     for (batch, dim) in [
@@ -861,4 +861,38 @@ fn test_from_matrix_rejects_zero_columns() {
     let sampling = TauSampling::<Fermionic>::from_matrix(vec![0.1, 0.2, 0.3], matrix);
     // Not reached after the fix; crashed before it
     sampling.condition_number();
+}
+
+/// A tau sampling point outside [-β, β] or NaN is OutOfDomain (from
+/// Basis::evaluate_tau), and no points is EmptyInput; both were panics.
+#[test]
+fn test_tau_sampling_rejects_invalid_points() {
+    use crate::error::Error;
+
+    let beta = 10.0;
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(beta).unwrap(),
+        beta,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    for tau in [beta * 1.5, -beta * 1.5, f64::NAN, f64::INFINITY] {
+        let err = TauSampling::with_sampling_points(&basis, vec![0.5, tau])
+            .err()
+            .unwrap();
+        assert!(
+            matches!(err, Error::OutOfDomain { name: "tau", value, domain }
+                if (value == tau || (value.is_nan() && tau.is_nan())) && domain == (-beta, beta)),
+            "{err:?}"
+        );
+    }
+    assert_eq!(
+        TauSampling::with_sampling_points(&basis, vec![]).err(),
+        Some(Error::EmptyInput {
+            name: "sampling_points"
+        })
+    );
+    // ±β are inside the domain.
+    TauSampling::with_sampling_points(&basis, vec![-beta, 0.0, beta]).unwrap();
 }

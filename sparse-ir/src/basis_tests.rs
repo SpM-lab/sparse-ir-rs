@@ -284,7 +284,7 @@ fn test_default_tau_sampling_points_conditioning() {
     // Evaluate sampling matrix: matrix[i,l] = u_l(tau_i)
     // Use the Basis trait method which handles tau normalization
     use crate::basis_trait::Basis;
-    let matrix = basis.evaluate_tau(&tau_points);
+    let matrix = basis.evaluate_tau(&tau_points).unwrap();
 
     let num_points = tau_points.len();
     let basis_size = basis.size();

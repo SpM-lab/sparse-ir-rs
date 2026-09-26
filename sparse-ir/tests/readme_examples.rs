@@ -15,7 +15,7 @@ fn test_basic_example() -> Result<(), Error> {
     let basis = FermionicBasis::new(kernel, beta, None, None)?;
 
     // Generate sampling points
-    let sampling = TauSampling::new(&basis);
+    let sampling = TauSampling::new(&basis)?;
 
     // Use the basis for calculations
     let tau_points = sampling.sampling_points();

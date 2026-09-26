@@ -3,6 +3,7 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
+use crate::error::Error;
 use crate::fitters::InplaceFitter;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
@@ -139,11 +140,16 @@ where
     ///
     /// # Returns
     /// A new TauSampling object
-    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Self
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Basis::default_tau_sampling_points`](crate::basis_trait::Basis::default_tau_sampling_points)
+    /// (e.g. NotSupported for a DLR, whose IR basis has the default points)
+    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Result<Self, Error>
     where
         S: 'static,
     {
-        let sampling_points = basis.default_tau_sampling_points();
+        let sampling_points = basis.default_tau_sampling_points()?;
         Self::with_sampling_points(basis, sampling_points)
     }
 
@@ -158,38 +164,37 @@ where
     /// # Returns
     /// A new TauSampling object
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty or if any point is outside [-β, β]
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty
+    /// * [`Error::OutOfDomain`] if a point is outside [-β, β] or NaN (from
+    ///   [`Basis::evaluate_tau`](crate::basis_trait::Basis::evaluate_tau))
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
         sampling_points: Vec<f64>,
-    ) -> Self
+    ) -> Result<Self, Error>
     where
         S: 'static,
     {
-        assert!(!sampling_points.is_empty(), "No sampling points given");
-
-        let beta = basis.beta();
-        for &tau in &sampling_points {
-            assert!(
-                tau >= -beta && tau <= beta,
-                "Sampling point τ={} is outside [-β, β]",
-                tau
-            );
+        // With no points the sampling matrix would have no rows, and the
+        // fitter's transposes would go through the zero-extent paths of
+        // mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
+        if sampling_points.is_empty() {
+            return Err(Error::EmptyInput {
+                name: "sampling_points",
+            });
         }
 
-        // Compute sampling matrix: A[i, l] = u_l(τ_i)
-        // Use Basis trait's evaluate_tau method
-        let matrix = basis.evaluate_tau(&sampling_points);
-
-        // Create fitter
+        // Compute sampling matrix: A[i, l] = u_l(τ_i); evaluate_tau checks
+        // that every τ is in [-β, β].
+        let matrix = basis.evaluate_tau(&sampling_points)?;
         let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Create a new TauSampling with custom sampling points and pre-computed matrix

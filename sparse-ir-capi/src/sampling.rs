@@ -152,46 +152,64 @@ pub extern "C" fn spir_tau_sampling_new(
         // Create sampling based on basis statistics
         let sampling_type = match basis_ref.inner() {
             BasisType::LogisticFermionic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
             BasisType::RegularizedBoseFermionic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
             BasisType::LogisticBosonic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
             BasisType::RegularizedBoseBosonic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
             // DLR: tau sampling supported via Basis trait
             BasisType::DLRFermionic(dlr) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     dlr.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
             BasisType::DLRBosonic(dlr) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     dlr.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
         };
@@ -282,16 +300,22 @@ pub extern "C" fn spir_matsu_sampling_new(
                         Err(code) => return (std::ptr::null_mut(), code),
                     };
                 if positive_only {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
                 } else {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
                 }
             }};
@@ -302,16 +326,22 @@ pub extern "C" fn spir_matsu_sampling_new(
                         Err(code) => return (std::ptr::null_mut(), code),
                     };
                 if positive_only {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
                 } else {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
                 }
             }};
