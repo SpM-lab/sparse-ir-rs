@@ -1148,7 +1148,7 @@ fn test_new_rejects_invalid_knots_and_widths() {
         invalid(
             "delta_x",
             "1.5 at index 1",
-            "must equal the knot spacing 1.0 within 1e-10 times the magnitude of the knots"
+            "must equal the knot spacing 1.0 to a relative 1e-10, or to 8 machine epsilons times the magnitude of the knots"
         )
     );
     let err = new(vec![0.0, 1.0, 2.0], Some(vec![1.0, f64::NAN])).unwrap_err();
@@ -1368,4 +1368,34 @@ fn test_try_evaluation_checks_the_domain() {
 fn test_evaluate_panics_on_nan() {
     let poly = PiecewiseLegendrePoly::new(tensor![[1.0]], vec![-1.0, 1.0], 0, None, 0).unwrap();
     poly.evaluate(f64::NAN);
+}
+
+/// The delta_x tolerance is relative to the segment length, plus a few
+/// machine epsilons of the knots for their rounding. Relative to the knot
+/// magnitude alone (part 3a), a width off by 0.1 % next to knots of 1e7 was
+/// accepted. The exact widths, which such knots represent only up to their
+/// rounding, are still accepted.
+#[test]
+fn test_new_checks_delta_x_relative_to_the_segment_length() {
+    use crate::error::Error;
+    use mdarray::DTensor;
+
+    let data = || DTensor::<f64, 2>::from_elem([2, 2], 1.0);
+    let knots = vec![1e7, 1e7 + 1e-3, 1e7 + 1.0];
+    let exact =
+        PiecewiseLegendrePoly::new(data(), knots.clone(), 0, Some(vec![1e-3, 1.0 - 1e-3]), 0);
+    assert!(exact.is_ok(), "{:?}", exact.err());
+
+    let err = PiecewiseLegendrePoly::new(data(), knots, 0, Some(vec![1.001e-3, 1.0 - 1e-3]), 0)
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            Error::InvalidParameter {
+                name: "delta_x",
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }

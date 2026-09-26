@@ -74,13 +74,16 @@ fn check_knots(knots: &[f64], nsegments: usize) -> Result<(), Error> {
     Ok(())
 }
 
-/// `Ok` if `delta_x` has one entry per segment, each within
-/// `1e-10 * max(1, |knots[i]|, |knots[i + 1]|)` of the knot spacing (NaN is
-/// rejected)
+/// `Ok` if `delta_x` has one entry per segment, each equal to the knot
+/// spacing `e = knots[i + 1] - knots[i]` within
+/// `max(1e-10 * |e|, 8 * f64::EPSILON * max(|knots[i]|, |knots[i + 1]|))`
+/// (NaN is rejected)
 ///
-/// The tolerance scales with the magnitude of the knots: knots and widths
-/// scaled separately (as `FiniteTempBasis::from_sve_result` does, by β / 2)
-/// differ by the rounding of the knots, which grows with their magnitude.
+/// The first term is a relative tolerance on the segment length. The second
+/// covers the rounding of the knots, which grows with their magnitude: knots
+/// and widths scaled separately (as `FiniteTempBasis::from_sve_result` does,
+/// by β / 2) differ by a few units in the last place of the knots, which next
+/// to large knots can exceed 1e-10 times a narrow segment.
 fn check_delta_x(delta_x: &[f64], knots: &[f64]) -> Result<(), Error> {
     let nsegments = knots.len() - 1;
     if delta_x.len() != nsegments {
@@ -92,13 +95,14 @@ fn check_delta_x(delta_x: &[f64], knots: &[f64]) -> Result<(), Error> {
     }
     for (i, &d) in delta_x.iter().enumerate() {
         let expected = knots[i + 1] - knots[i];
-        let scale = 1.0_f64.max(knots[i].abs()).max(knots[i + 1].abs());
-        if !((d - expected).abs() <= 1e-10 * scale) {
+        let rounding = 8.0 * f64::EPSILON * knots[i].abs().max(knots[i + 1].abs());
+        let tolerance = (1e-10 * expected.abs()).max(rounding);
+        if !((d - expected).abs() <= tolerance) {
             return Err(Error::InvalidParameter {
                 name: "delta_x",
                 value: format!("{d:?} at index {i}"),
                 reason: format!(
-                    "must equal the knot spacing {expected:?} within 1e-10 times the magnitude of the knots"
+                    "must equal the knot spacing {expected:?} to a relative 1e-10, or to 8 machine epsilons times the magnitude of the knots"
                 ),
             });
         }
@@ -121,8 +125,8 @@ impl PiecewiseLegendrePoly {
     ///   `knots[i] - knots[i - 1]` is not a positive normal double (this
     ///   includes decreasing knots, NaN, lengths that overflow and subnormal
     ///   lengths); or if `delta_x` does not have one entry per segment or
-    ///   differs from the knot spacing by more than
-    ///   `1e-10 * max(1, |knots[i]|, |knots[i + 1]|)`
+    ///   differs from the knot spacing `e` by more than
+    ///   `max(1e-10 * |e|, 8 * f64::EPSILON * max(|knots[i]|, |knots[i + 1]|))`
     pub fn new(
         data: mdarray::DTensor<f64, 2>,
         knots: Vec<f64>,
@@ -1023,9 +1027,11 @@ impl PiecewiseLegendrePolyVector {
     /// the domain of a polynomial or NaN; every point is checked before any
     /// is evaluated
     pub fn try_evaluate_at_many(&self, xs: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
-        for poly in &self.polyvec {
+        // `new` gives every polynomial the knots of the first, so checking the
+        // points against the first checks them against all of them.
+        if let Some(first) = self.polyvec.first() {
             for &x in xs {
-                poly.check_in_domain("xs", x)?;
+                first.check_in_domain("xs", x)?;
             }
         }
         let n_funcs = self.polyvec.len();
