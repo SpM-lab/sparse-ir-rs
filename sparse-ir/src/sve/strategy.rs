@@ -96,22 +96,30 @@ where
         u: &DTensor<T, 2>,
         s: &[T],
         v: &DTensor<T, 2>,
-    ) -> (
-        PiecewiseLegendrePolyVector,
-        Vec<f64>,
-        PiecewiseLegendrePolyVector,
-    ) {
-        let (u_polys, s, v_polys) = self.postprocess_block(u, s, v);
+    ) -> Result<
         (
+            PiecewiseLegendrePolyVector,
+            Vec<f64>,
+            PiecewiseLegendrePolyVector,
+        ),
+        Error,
+    > {
+        let (u_polys, s, v_polys) = self.postprocess_block(u, s, v)?;
+        Ok((
             PiecewiseLegendrePolyVector::new(u_polys),
             s,
             PiecewiseLegendrePolyVector::new(v_polys),
-        )
+        ))
     }
 
     /// [`Self::postprocess_single`] returning plain vectors, which may be
     /// empty
-    fn postprocess_block(&self, u: &DTensor<T, 2>, s: &[T], v: &DTensor<T, 2>) -> SvdBlock {
+    fn postprocess_block(
+        &self,
+        u: &DTensor<T, 2>,
+        s: &[T],
+        v: &DTensor<T, 2>,
+    ) -> Result<SvdBlock, Error> {
         // 1. Remove weights
         // Both U and V have rows corresponding to Gauss points, so is_row=true for both
         let u_unweighted = remove_weights(u, self.gauss_x.w.as_slice(), true);
@@ -124,16 +132,16 @@ where
             &self.segments_x,
             &gauss_rule_f64,
             self.n_gauss,
-        );
+        )?;
         let v_polys = svd_to_polynomials(
             &v_unweighted,
             &self.segments_y,
             &gauss_rule_f64,
             self.n_gauss,
-        );
+        )?;
 
         // Note: No domain extension here - that's the caller's responsibility
-        (u_polys, s.iter().map(|&x| x.to_f64()).collect(), v_polys)
+        Ok((u_polys, s.iter().map(|&x| x.to_f64()).collect(), v_polys))
     }
 }
 
@@ -225,14 +233,18 @@ where
     }
 
     /// Extend polynomials from [0, xmax] to [-xmax, xmax]
-    fn extend_result_to_full_domain(&self, result: SvdBlock, symmetry: SymmetryType) -> SvdBlock {
+    fn extend_result_to_full_domain(
+        &self,
+        result: SvdBlock,
+        symmetry: SymmetryType,
+    ) -> Result<SvdBlock, Error> {
         let (u, s, v) = result;
 
         // Extend u and v from [0, xmax] to [-xmax, xmax]
-        let u_full = extend_to_full_domain(u, symmetry, self.kernel.xmax());
-        let v_full = extend_to_full_domain(v, symmetry, self.kernel.ymax());
+        let u_full = extend_to_full_domain(u, symmetry, self.kernel.xmax())?;
+        let v_full = extend_to_full_domain(v, symmetry, self.kernel.ymax())?;
 
-        (u_full, s, v_full)
+        Ok((u_full, s, v_full))
     }
 }
 
@@ -262,14 +274,15 @@ where
         // odd one), and a PiecewiseLegendrePolyVector cannot be empty.
         let result_even = self
             .sampling_sve
-            .postprocess_block(&u_list[0], &s_list[0], &v_list[0]);
+            .postprocess_block(&u_list[0], &s_list[0], &v_list[0])?;
         let result_odd = self
             .sampling_sve
-            .postprocess_block(&u_list[1], &s_list[1], &v_list[1]);
+            .postprocess_block(&u_list[1], &s_list[1], &v_list[1])?;
 
         // Now extend to full domain (this is where symmetry comes in)
-        let result_even_full = self.extend_result_to_full_domain(result_even, SymmetryType::Even);
-        let result_odd_full = self.extend_result_to_full_domain(result_odd, SymmetryType::Odd);
+        let result_even_full =
+            self.extend_result_to_full_domain(result_even, SymmetryType::Even)?;
+        let result_odd_full = self.extend_result_to_full_domain(result_odd, SymmetryType::Odd)?;
 
         // Merge the results (at least one singular value is kept)
         merge_blocks(result_even_full, result_odd_full, self.epsilon)
@@ -442,14 +455,20 @@ where
         s_list: Vec<Vec<T>>,
         v_list: Vec<DTensor<T, 2>>,
     ) -> Result<SVEResult, Error> {
-        // Process single result using SamplingSVE
+        // Process single result using SamplingSVE. The functions are
+        // already on the full domain. Fix the sign gauge u_l(xmax) >= 0 as
+        // CentrosymmSVE does in merge_results.
         let (u_polys, s, v_polys) = self
             .sampling_sve
-            .postprocess_single(&u_list[0], &s_list[0], &v_list[0]);
-
-        // No domain extension needed - already on full domain. Fix the sign
-        // gauge u_l(xmax) >= 0 as CentrosymmSVE does in merge_results.
-        let (u_polys, v_polys) = canonicalize_signs(u_polys, v_polys, self.kernel.xmax());
-        SVEResult::new(u_polys, s, v_polys, self.epsilon)
+            .postprocess_block(&u_list[0], &s_list[0], &v_list[0])?;
+        let (u_polys, v_polys) = canonicalize_signs(u_polys, v_polys);
+        // A matrix of rank 0 leaves empty vectors; SVEResult::new reports the
+        // empty `s`. The field becomes private in part 7.
+        SVEResult::new(
+            PiecewiseLegendrePolyVector { polyvec: u_polys },
+            s,
+            PiecewiseLegendrePolyVector { polyvec: v_polys },
+            self.epsilon,
+        )
     }
 }

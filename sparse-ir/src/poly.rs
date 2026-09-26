@@ -3,6 +3,8 @@
 //! This module provides high-performance piecewise Legendre polynomial
 //! functionality compatible with the C++ implementation.
 
+use crate::error::Error;
+
 /// A single piecewise Legendre polynomial
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendrePoly {
@@ -38,44 +40,107 @@ pub struct PiecewiseLegendrePoly {
     pub norms: Vec<f64>,
 }
 
+/// `Ok` if there are `nsegments + 1` finite knots and every segment length is
+/// a positive normal double (so that `2 / length` is finite)
+fn check_knots(knots: &[f64], nsegments: usize) -> Result<(), Error> {
+    if knots.len() != nsegments + 1 {
+        return Err(Error::InvalidParameter {
+            name: "knots",
+            value: format!("{} knots", knots.len()),
+            reason: format!(
+                "must have {} entries, one more than the segments of data",
+                nsegments + 1
+            ),
+        });
+    }
+    if let Some((i, k)) = knots.iter().enumerate().find(|(_, k)| !k.is_finite()) {
+        return Err(Error::InvalidParameter {
+            name: "knots",
+            value: format!("{k:?} at index {i}"),
+            reason: "must be finite".to_string(),
+        });
+    }
+    for i in 1..knots.len() {
+        let length = knots[i] - knots[i - 1];
+        if !(length > 0.0 && length.is_normal()) {
+            return Err(Error::InvalidParameter {
+                name: "knots",
+                value: format!("{:?} after {:?} at index {i}", knots[i], knots[i - 1]),
+                reason: "must be strictly increasing, with each segment length a normal double"
+                    .to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// `Ok` if `delta_x` has one entry per segment, each within
+/// `1e-10 * max(1, |knots[i]|, |knots[i + 1]|)` of the knot spacing (NaN is
+/// rejected)
+///
+/// The tolerance scales with the magnitude of the knots: knots and widths
+/// scaled separately (as `FiniteTempBasis::from_sve_result` does, by β / 2)
+/// differ by the rounding of the knots, which grows with their magnitude.
+fn check_delta_x(delta_x: &[f64], knots: &[f64]) -> Result<(), Error> {
+    let nsegments = knots.len() - 1;
+    if delta_x.len() != nsegments {
+        return Err(Error::InvalidParameter {
+            name: "delta_x",
+            value: format!("{} entries", delta_x.len()),
+            reason: format!("must have one entry per segment ({nsegments})"),
+        });
+    }
+    for (i, &d) in delta_x.iter().enumerate() {
+        let expected = knots[i + 1] - knots[i];
+        let scale = 1.0_f64.max(knots[i].abs()).max(knots[i + 1].abs());
+        if !((d - expected).abs() <= 1e-10 * scale) {
+            return Err(Error::InvalidParameter {
+                name: "delta_x",
+                value: format!("{d:?} at index {i}"),
+                reason: format!(
+                    "must equal the knot spacing {expected:?} within 1e-10 times the magnitude of the knots"
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
 impl PiecewiseLegendrePoly {
     /// Create a new PiecewiseLegendrePoly from data and knots
+    ///
+    /// `data` holds the Legendre coefficients, one column per segment; the
+    /// `nsegments + 1` knots bound the segments. `delta_x` (the segment
+    /// widths) is computed from the knots when `None`.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `data` has no row or no column
+    /// * [`Error::InvalidParameter`] if `knots` does not have one entry more
+    ///   than `data` has columns, a knot is not finite, or a segment length
+    ///   `knots[i] - knots[i - 1]` is not a positive normal double (this
+    ///   includes decreasing knots, NaN, lengths that overflow and subnormal
+    ///   lengths); or if `delta_x` does not have one entry per segment or
+    ///   differs from the knot spacing by more than
+    ///   `1e-10 * max(1, |knots[i]|, |knots[i + 1]|)`
     pub fn new(
         data: mdarray::DTensor<f64, 2>,
         knots: Vec<f64>,
         l: i32,
         delta_x: Option<Vec<f64>>,
         symm: i32,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let polyorder = data.shape().0;
         let nsegments = data.shape().1;
-
-        if knots.len() != nsegments + 1 {
-            panic!(
-                "Invalid knots array: expected {} knots, got {}",
-                nsegments + 1,
-                knots.len()
-            );
+        if polyorder == 0 || nsegments == 0 {
+            return Err(Error::EmptyInput { name: "data" });
         }
-
-        // Validate knots are sorted
-        for i in 1..knots.len() {
-            if knots[i] <= knots[i - 1] {
-                panic!("Knots must be monotonically increasing");
-            }
-        }
+        check_knots(&knots, nsegments)?;
 
         // Compute delta_x if not provided
         let delta_x =
             delta_x.unwrap_or_else(|| (1..knots.len()).map(|i| knots[i] - knots[i - 1]).collect());
-
-        // Validate delta_x matches knots
-        for i in 0..delta_x.len() {
-            let expected = knots[i + 1] - knots[i];
-            if (delta_x[i] - expected).abs() > 1e-10 {
-                panic!("delta_x must match knots");
-            }
-        }
+        check_delta_x(&delta_x, &knots)?;
 
         // Compute segment midpoints
         let xm: Vec<f64> = (0..nsegments)
@@ -88,7 +153,7 @@ impl PiecewiseLegendrePoly {
         // Compute normalization factors
         let norms: Vec<f64> = inv_xs.iter().map(|&inv_x| inv_x.sqrt()).collect();
 
-        Self {
+        Ok(Self {
             polyorder,
             xmin: knots[0],
             xmax: knots[knots.len() - 1],
@@ -100,7 +165,7 @@ impl PiecewiseLegendrePoly {
             xm,
             inv_xs,
             norms,
-        }
+        })
     }
 
     /// Create a new PiecewiseLegendrePoly with new data but same structure
@@ -129,6 +194,17 @@ impl PiecewiseLegendrePoly {
         }
     }
 
+    /// The polynomial with every coefficient negated
+    ///
+    /// Knots, widths and normalizations are those of `self`, so this equals
+    /// `new` on the negated data without repeating its checks.
+    pub(crate) fn negated(&self) -> Self {
+        self.with_data(mdarray::DTensor::<f64, 2>::from_fn(
+            *self.data.shape(),
+            |idx| -self.data[idx],
+        ))
+    }
+
     /// Rescale domain: create a new polynomial with the same data but different knots
     ///
     /// This is useful for transforming from one domain to another, e.g.,
@@ -143,12 +219,16 @@ impl PiecewiseLegendrePoly {
     /// # Returns
     ///
     /// New polynomial with rescaled domain
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`new`](Self::new) for the new knots and widths
     pub fn rescale_domain(
         &self,
         new_knots: Vec<f64>,
         new_delta_x: Option<Vec<f64>>,
         new_symm: Option<i32>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         Self::new(
             self.data.clone(),
             new_knots,
@@ -245,6 +325,9 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Compute derivative of the polynomial
+    ///
+    /// The result has `polyorder` equal to the number of its coefficient rows
+    /// (at least 1).
     pub fn deriv(&self, n: usize) -> Self {
         if n == 0 {
             return self.clone();
@@ -269,6 +352,7 @@ impl PiecewiseLegendrePoly {
         let new_symm = if n % 2 == 0 { self.symm } else { -self.symm };
 
         Self {
+            polyorder: ddata.shape().0,
             data: ddata,
             symm: new_symm,
             ..self.clone()
@@ -637,7 +721,9 @@ impl PiecewiseLegendrePolyVector {
                 i as i32,
                 Some(delta_x.clone()),
                 symm.as_ref().map_or(0, |s| s[i]),
-            );
+            )
+            // Temporary until from_3d_data returns Result (the next change)
+            .unwrap_or_else(|e| panic!("{e}"));
 
             polyvec.push(poly);
         }
@@ -664,12 +750,30 @@ impl PiecewiseLegendrePolyVector {
     /// # Returns
     ///
     /// New vector with rescaled domains
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::InvalidParameter`] if `new_symm` does not have one entry per
+    ///   polynomial
+    /// * The errors of [`PiecewiseLegendrePoly::rescale_domain`]
     pub fn rescale_domain(
         &self,
         new_knots: Vec<f64>,
         new_delta_x: Option<Vec<f64>>,
         new_symm: Option<Vec<i32>>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
+        if let Some(symm) = &new_symm {
+            if symm.len() != self.polyvec.len() {
+                return Err(Error::InvalidParameter {
+                    name: "new_symm",
+                    value: format!("{} entries", symm.len()),
+                    reason: format!(
+                        "must have one entry per polynomial ({})",
+                        self.polyvec.len()
+                    ),
+                });
+            }
+        }
         let polyvec = self
             .polyvec
             .iter()
@@ -678,9 +782,8 @@ impl PiecewiseLegendrePolyVector {
                 let symm = new_symm.as_ref().map(|s| s[i]);
                 poly.rescale_domain(new_knots.clone(), new_delta_x.clone(), symm)
             })
-            .collect();
-
-        Self { polyvec }
+            .collect::<Result<_, _>>()?;
+        Ok(Self { polyvec })
     }
 
     /// Scale all data values by a constant factor

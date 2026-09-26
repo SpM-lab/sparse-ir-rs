@@ -328,7 +328,7 @@ where
             .collect();
         let u_symm: Vec<i32> = u_sve.get_polys().iter().map(|p| p.symm).collect();
 
-        let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm));
+        let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm))?;
 
         // Transform v: y ∈ [-1, 1] → ω ∈ [-ωmax, ωmax]
         let v_knots: Vec<f64> = v_sve.get_polys()[0]
@@ -343,7 +343,7 @@ where
             .collect();
         let v_symm: Vec<i32> = v_sve.get_polys().iter().map(|p| p.symm).collect();
 
-        let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm));
+        let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm))?;
 
         // Scale singular values to τ = β(x + 1)/2 and ω = ωmax y. A kernel with
         // `ypower` carries that power of y = ω/ωmax, so its physical form is

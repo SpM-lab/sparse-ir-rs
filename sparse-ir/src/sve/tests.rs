@@ -23,7 +23,7 @@ fn create_simple_poly_on_positive_domain() -> PiecewiseLegendrePoly {
     let data = DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 2.0 });
     let knots = vec![0.0, 1.0];
     let delta_x = vec![1.0];
-    PiecewiseLegendrePoly::new(data, knots, 0, Some(delta_x), 0)
+    PiecewiseLegendrePoly::new(data, knots, 0, Some(delta_x), 0).unwrap()
 }
 
 /// Create polynomial with multiple segments [0, 0.5, 1.0]
@@ -33,14 +33,14 @@ fn create_poly_with_segments() -> PiecewiseLegendrePoly {
     let data = DTensor::<f64, 2>::from_fn([2, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
     let knots = vec![0.0, 0.5, 1.0];
     let delta_x = vec![0.5, 0.5];
-    PiecewiseLegendrePoly::new(data, knots, 0, Some(delta_x), 0)
+    PiecewiseLegendrePoly::new(data, knots, 0, Some(delta_x), 0).unwrap()
 }
 
 #[test]
 fn test_extend_even_symmetry() {
     let poly_positive = create_simple_poly_on_positive_domain();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0);
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0).unwrap();
 
     // Test: f(-x) = f(x) for Even symmetry
     let poly = &polys_full[0];
@@ -62,7 +62,7 @@ fn test_extend_even_symmetry() {
 fn test_extend_odd_symmetry() {
     let poly_positive = create_simple_poly_on_positive_domain();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Odd, 1.0);
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Odd, 1.0).unwrap();
 
     // Test: f(-x) = -f(x) for Odd symmetry
     let poly = &polys_full[0];
@@ -89,7 +89,7 @@ fn test_positive_domain_preserved() {
         .map(|i| poly_positive.evaluate(i as f64 * 0.1))
         .collect();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0);
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0).unwrap();
 
     // Check that positive domain values are preserved (with 1/sqrt(2) normalization)
     // The extended polynomial applies 1/sqrt(2) normalization to both parts
@@ -114,7 +114,7 @@ fn test_positive_domain_preserved() {
 fn test_segment_structure() {
     let poly = create_poly_with_segments();
 
-    let polys_full = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0);
+    let polys_full = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0).unwrap();
 
     // Extended from [0, 0.5, 1.0] to [-1.0, -0.5, 0.0, 0.5, 1.0]
     let expected_knots = [-1.0, -0.5, 0.0, 0.5, 1.0];
@@ -136,7 +136,7 @@ fn test_multiple_polynomials() {
     let poly1 = create_simple_poly_on_positive_domain();
     let poly2 = create_poly_with_segments();
 
-    let polys_full = extend_to_full_domain(vec![poly1, poly2], SymmetryType::Even, 1.0);
+    let polys_full = extend_to_full_domain(vec![poly1, poly2], SymmetryType::Even, 1.0).unwrap();
 
     // Should have extended both polynomials
     assert_eq!(polys_full.len(), 2);
@@ -317,7 +317,7 @@ fn test_sve_decomposition_regularized_bose_kernel() {
 /// column `k` of one even/odd SVD block.
 fn half_domain_poly(c: f64, k: i32) -> PiecewiseLegendrePoly {
     let data = DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { c } else { 1.0 });
-    PiecewiseLegendrePoly::new(data, vec![0.0, 1.0], k, Some(vec![1.0]), 0)
+    PiecewiseLegendrePoly::new(data, vec![0.0, 1.0], k, Some(vec![1.0]), 0).unwrap()
 }
 
 /// `merge_results` must renumber `l` from the index within the even or odd
@@ -328,12 +328,14 @@ fn test_merge_results_assigns_global_index() {
         vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
         SymmetryType::Even,
         1.0,
-    );
+    )
+    .unwrap();
     let odd = extend_to_full_domain(
         vec![half_domain_poly(3.0, 0), half_domain_poly(4.0, 1)],
         SymmetryType::Odd,
         1.0,
-    );
+    )
+    .unwrap();
     // Interlacing singular values, as for a totally positive kernel.
     let merged = merge_results(
         (
@@ -880,8 +882,10 @@ fn test_merge_results_with_an_empty_block() {
         vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
         SymmetryType::Even,
         1.0,
-    );
-    let odd = extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd, 1.0);
+    )
+    .unwrap();
+    let odd =
+        extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd, 1.0).unwrap();
     let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
     let block = |polys: &Vec<PiecewiseLegendrePoly>, s: Vec<f64>| {
         (
@@ -1074,4 +1078,54 @@ fn test_sve_result_part_checks_its_parameters() {
         invalid("max_size", "0", "must be positive")
     );
     assert_eq!(sve.part(None, Some(3)).unwrap().1, sve.s[..3].to_vec());
+}
+
+/// `extend_to_full_domain` needs functions on [0, xmax]. Before the change a
+/// negative first knot made the mirrored knots decrease (a panic in `new`)
+/// and a positive one gave wrong functions silently.
+#[test]
+fn test_extend_to_full_domain_requires_the_half_domain() {
+    for start in [-0.5, 0.25] {
+        let data = DTensor::<f64, 2>::from_elem([1, 1], 1.0);
+        let poly = PiecewiseLegendrePoly::new(data, vec![start, 1.0], 0, None, 0).unwrap();
+        let err = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidParameter { name: "polys", .. }),
+            "{err:?}"
+        );
+    }
+}
+
+/// `canonicalize_signs` fixes the sign at the right end of each function's
+/// own domain. Before the change it evaluated at x = 1, which panicked for
+/// functions whose domain ends below 1 (e.g. from spir_sve_result_from_matrix).
+#[test]
+fn test_canonicalize_signs_uses_the_end_of_the_domain() {
+    use super::utils::canonicalize_signs;
+    let minus_one = DTensor::<f64, 2>::from_elem([1, 1], -1.0);
+    let u = PiecewiseLegendrePoly::new(minus_one.clone(), vec![-1.0, 0.5], 0, None, 0).unwrap();
+    let v = PiecewiseLegendrePoly::new(minus_one, vec![-1.0, 1.0], 0, None, 0).unwrap();
+    let (u, v) = canonicalize_signs(vec![u], vec![v]);
+    assert!(u[0].evaluate(0.5) > 0.0);
+    assert!(v[0].evaluate(1.0) > 0.0);
+}
+
+/// `svd_to_polynomials` needs at least one segment; before, an empty segment
+/// list underflowed `segments.len() - 1`.
+#[test]
+fn test_svd_to_polynomials_needs_a_segment() {
+    use super::utils::svd_to_polynomials;
+    let rule = crate::gauss::legendre::<f64>(2);
+    let u = DTensor::<f64, 2>::zeros([2, 1]);
+    let err = svd_to_polynomials(&u, &[0.0_f64], &rule, 2).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            Error::InvalidParameter {
+                name: "segments",
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }

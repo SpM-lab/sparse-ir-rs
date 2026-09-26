@@ -19,7 +19,7 @@ use num_complex::Complex64;
 fn test_fermionic_ft_creation() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     let ft_poly = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None);
 
@@ -32,7 +32,7 @@ fn test_fermionic_ft_creation() {
 fn test_bosonic_ft_creation() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     let ft_poly = BosonicPiecewiseLegendreFT::new(poly.clone(), Bosonic, Some(100.0));
 
@@ -45,7 +45,7 @@ fn test_bosonic_ft_creation() {
 fn test_ft_evaluation_fermionic() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
 
@@ -62,7 +62,7 @@ fn test_ft_evaluation_fermionic() {
 fn test_ft_evaluation_bosonic() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     let ft_poly = BosonicPiecewiseLegendreFT::new(poly, Bosonic, None);
 
@@ -81,8 +81,8 @@ fn test_ft_vector_creation() {
     let data2 = tensor![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
-    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
-    let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0);
+    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
+    let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0).unwrap();
 
     let ft_poly1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None);
     let ft_poly2 = FermionicPiecewiseLegendreFT::new(poly2, Fermionic, None);
@@ -98,8 +98,8 @@ fn test_ft_vector_from_poly_vector() {
     let data2 = tensor![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
-    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
-    let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, 0);
+    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
+    let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, 0).unwrap();
 
     let poly_vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
     let ft_vector =
@@ -112,7 +112,7 @@ fn test_ft_vector_from_poly_vector() {
 fn test_ft_vector_evaluation() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
     let ft_vector = FermionicPiecewiseLegendreFTVector::from_vector(vec![ft_poly]);
@@ -128,7 +128,7 @@ fn test_ft_vector_evaluation() {
 fn test_power_model_creation() {
     let data = tensor![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0).unwrap();
 
     let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
 
@@ -142,7 +142,7 @@ fn test_invalid_domain_panic() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![0.0, 2.0]; // Invalid domain for Fourier transform
 
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     // This should panic
     std::panic::catch_unwind(|| {
@@ -158,7 +158,7 @@ fn test_get_tnl_basic_values() {
     // Create a simple polynomial for testing
     let data = tensor![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0).unwrap();
 
     let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
 
@@ -211,7 +211,7 @@ fn test_get_tnl_basic_values() {
 fn test_spherical_bessel_basic() {
     let data = tensor![[1.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
     let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
 
     // Test j_0(x) = sin(x)/x for x != 0
@@ -243,7 +243,7 @@ fn test_constant_polynomial_fourier_transform() {
     // Create constant polynomial f(x) = 1
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
 
@@ -502,8 +502,9 @@ fn test_ft_vector_set_rejects_index_past_the_end() {
     use crate::error::Error;
 
     let knots = vec![-1.0, 1.0];
-    let poly0 = PiecewiseLegendrePoly::new(tensor![[1.0], [0.0]], knots.clone(), 0, None, 0);
-    let poly1 = PiecewiseLegendrePoly::new(tensor![[0.0], [1.0]], knots, 1, None, 0);
+    let poly0 =
+        PiecewiseLegendrePoly::new(tensor![[1.0], [0.0]], knots.clone(), 0, None, 0).unwrap();
+    let poly1 = PiecewiseLegendrePoly::new(tensor![[0.0], [1.0]], knots, 1, None, 0).unwrap();
     let ft0 = FermionicPiecewiseLegendreFT::new(poly0, Fermionic, None);
     let ft1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None);
     let mut ft_vector =

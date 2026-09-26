@@ -150,7 +150,7 @@ fn test_basis_from_sve_result_rejects_an_sve_on_another_domain() {
     let kernel = LogisticKernel::new(10.0).unwrap();
     let mut sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     let knots: Vec<f64> = sve.u.get_polys()[0].knots.iter().map(|x| 2.0 * x).collect();
-    sve.u = sve.u.rescale_domain(knots, None, None);
+    sve.u = sve.u.rescale_domain(knots, None, None).unwrap();
     let err = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
         kernel, 10.0, sve, None, None,
     )
@@ -497,5 +497,24 @@ fn test_regularized_bose_basis_single_pole() {
             (giv - exact).norm() <= 1e-8 * exact.norm(),
             "n={n}: sum G_l Uhat_l = {giv}, 1/(iν - ω0) = {exact}"
         );
+    }
+}
+
+/// A large β with a moderate Λ is valid. `from_sve_result` scales the knots
+/// and the widths separately, so their difference grows with the magnitude of
+/// the knots (about β); the width check of `PiecewiseLegendrePoly::new` must
+/// be relative to that magnitude and not reject such a basis.
+#[test]
+fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
+    for beta in [1e4, 1e7, 1e10] {
+        let omega_max = 10.0 / beta;
+        let kernel = LogisticKernel::new(beta * omega_max).unwrap();
+        let basis = FermionicBasis::new(kernel, beta, Some(1e-6), None)
+            .unwrap_or_else(|e| panic!("beta = {beta}: {e}"));
+        let u = &basis.u().get_polys()[0];
+        assert_eq!(u.xmax, beta);
+        for tau in [0.0, 0.5 * beta, beta] {
+            assert!(u.evaluate(tau).is_finite(), "beta = {beta}, tau = {tau}");
+        }
     }
 }

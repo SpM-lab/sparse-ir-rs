@@ -626,13 +626,15 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 &segs_x_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
-            );
+            )
+            .map_err(|e| status_from(&e))?;
             let v_polys = sparse_ir::sve::utils::svd_to_polynomials(
                 &v_f64,
                 &segs_y_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
-            );
+            )
+            .map_err(|e| status_from(&e))?;
 
             // Convert singular values to f64 (Df64 -> f64)
             let s_f64: Vec<f64> = s.iter().map(|&sv| sv.to_f64()).collect();
@@ -698,13 +700,15 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 &segs_x_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
-            );
+            )
+            .map_err(|e| status_from(&e))?;
             let v_polys = sparse_ir::sve::utils::svd_to_polynomials(
                 &v_unweighted,
                 &segs_y_f64,
                 &gauss_rule_f64,
                 n_gauss as usize,
-            );
+            )
+            .map_err(|e| status_from(&e))?;
 
             // Convert singular values to f64 (s is already Vec<f64>)
             let s_f64: Vec<f64> = s;
@@ -988,33 +992,41 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
             &segs_x_f64,
             &gauss_rule_f64,
             n_gauss as usize,
-        );
+        )
+        .map_err(|e| status_from(&e))?;
         let v_even_polys = sparse_ir::sve::utils::svd_to_polynomials(
             &v_even,
             &segs_y_f64,
             &gauss_rule_f64,
             n_gauss as usize,
-        );
+        )
+        .map_err(|e| status_from(&e))?;
 
         let u_odd_polys = sparse_ir::sve::utils::svd_to_polynomials(
             &u_odd,
             &segs_x_f64,
             &gauss_rule_f64,
             n_gauss as usize,
-        );
+        )
+        .map_err(|e| status_from(&e))?;
         let v_odd_polys = sparse_ir::sve::utils::svd_to_polynomials(
             &v_odd,
             &segs_y_f64,
             &gauss_rule_f64,
             n_gauss as usize,
-        );
+        )
+        .map_err(|e| status_from(&e))?;
 
         // Extend to full domain
-        let u_even_full = extend_to_full_domain(u_even_polys, SymmetryType::Even, xmax);
-        let v_even_full = extend_to_full_domain(v_even_polys, SymmetryType::Even, ymax);
+        let u_even_full = extend_to_full_domain(u_even_polys, SymmetryType::Even, xmax)
+            .map_err(|e| status_from(&e))?;
+        let v_even_full = extend_to_full_domain(v_even_polys, SymmetryType::Even, ymax)
+            .map_err(|e| status_from(&e))?;
 
-        let u_odd_full = extend_to_full_domain(u_odd_polys, SymmetryType::Odd, xmax);
-        let v_odd_full = extend_to_full_domain(v_odd_polys, SymmetryType::Odd, ymax);
+        let u_odd_full = extend_to_full_domain(u_odd_polys, SymmetryType::Odd, xmax)
+            .map_err(|e| status_from(&e))?;
+        let v_odd_full = extend_to_full_domain(v_odd_polys, SymmetryType::Odd, ymax)
+            .map_err(|e| status_from(&e))?;
 
         // Merge even and odd results. A block of rank 0 (e.g. the odd part of a
         // kernel that is even in y) has no functions: `merge_results` accepts

@@ -89,11 +89,18 @@ pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Ve
 /// For Odd symmetry (sign = -1): f(-x) = -f(x)
 ///
 /// Legendre polynomial parity: P_n(-x) = (-1)^n P_n(x)
+///
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if a polynomial does not start at x = 0
+///   (the half domain [0, xmax]): its mirrored knots would decrease or
+///   overlap
+/// * The errors of [`PiecewiseLegendrePoly::new`] for the extended knots
 pub fn extend_to_full_domain(
     polys: Vec<PiecewiseLegendrePoly>,
     symmetry: SymmetryType,
     _xmax: f64,
-) -> Vec<PiecewiseLegendrePoly> {
+) -> Result<Vec<PiecewiseLegendrePoly>, Error> {
     let sign = symmetry.sign() as f64;
     let symm = symmetry.sign(); // Preserve symmetry: +1 for even, -1 for odd
 
@@ -102,7 +109,7 @@ pub fn extend_to_full_domain(
     let n_poly_coeffs = if !polys.is_empty() {
         polys[0].data.shape().0
     } else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
 
     let poly_flip_x: Vec<f64> = (0..n_poly_coeffs)
@@ -112,6 +119,13 @@ pub fn extend_to_full_domain(
     polys
         .into_iter()
         .map(|poly| {
+            if poly.knots[0] != 0.0 {
+                return Err(Error::InvalidParameter {
+                    name: "polys",
+                    value: format!("a polynomial on [{:?}, {:?}]", poly.xmin, poly.xmax),
+                    reason: "must be defined on [0, xmax] (the half domain)".to_string(),
+                });
+            }
             // Create full segments from this polynomial's knots: [-xmax, ..., 0, ..., xmax]
             let full_segments = mirror_segments_to_full_domain(&poly.knots);
 
@@ -175,12 +189,24 @@ pub fn extend_to_full_domain(
 /// Vector of piecewise Legendre polynomials. The `k`-th polynomial has `l = k`,
 /// its column in `u_or_v`; for a centrosymmetric SVE that is the index within
 /// the even or odd block, which `merge_results` renumbers.
+///
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `segments` has fewer than 2 entries
+/// * The errors of [`PiecewiseLegendrePoly::new`] for the segments
 pub fn svd_to_polynomials<T: CustomNumeric>(
     u_or_v: &DTensor<T, 2>,
     segments: &[T],
     gauss_rule: &Rule<f64>,
     n_gauss: usize,
-) -> Vec<PiecewiseLegendrePoly> {
+) -> Result<Vec<PiecewiseLegendrePoly>, Error> {
+    if segments.len() < 2 {
+        return Err(Error::InvalidParameter {
+            name: "segments",
+            value: format!("{} boundaries", segments.len()),
+            reason: "must have at least 2 entries".to_string(),
+        });
+    }
     let n_segments = segments.len() - 1;
     let n_svals = u_or_v.shape().1;
     let n_rows = u_or_v.shape().0;
@@ -258,10 +284,10 @@ pub fn svd_to_polynomials<T: CustomNumeric>(
             k as i32,
             Some(delta_x.clone()),
             0, // no symmetry
-        ));
+        )?);
     }
 
-    polys
+    Ok(polys)
 }
 
 // Note: legendre_collocation_matrix is imported from interpolation1d module
@@ -269,61 +295,24 @@ pub fn svd_to_polynomials<T: CustomNumeric>(
 
 /// Canonicalize singular function signs
 ///
-/// Fix the gauge freedom in SVD by demanding u[l](xmax) > 0.
-/// This ensures consistent signs across different implementations.
-///
-/// # Arguments
-///
-/// * `u_polys` - Left singular functions
-/// * `v_polys` - Right singular functions
-/// * `xmax` - Maximum value to evaluate at (typically 1.0)
+/// Fix the gauge freedom in SVD by demanding u[l](xmax) >= 0, where xmax is
+/// the right end of the domain of u[l]. The pairs (u[l], v[l]) are flipped
+/// together.
 pub(crate) fn canonicalize_signs(
-    u_polys: PiecewiseLegendrePolyVector,
-    v_polys: PiecewiseLegendrePolyVector,
-    xmax: f64,
-) -> (PiecewiseLegendrePolyVector, PiecewiseLegendrePolyVector) {
-    let u_vec = u_polys.get_polys();
-    let v_vec = v_polys.get_polys();
-
-    let mut new_u_vec = Vec::new();
-    let mut new_v_vec = Vec::new();
-
-    for i in 0..u_vec.len().min(v_vec.len()) {
-        // Evaluate u[i] at xmax
-        let u_at_xmax = u_vec[i].evaluate(xmax);
-
-        if u_at_xmax < 0.0 {
-            // Flip sign of both u and v
-            let u_data_flipped =
-                DTensor::<f64, 2>::from_fn(*u_vec[i].data.shape(), |idx| -u_vec[i].data[idx]);
-            let v_data_flipped =
-                DTensor::<f64, 2>::from_fn(*v_vec[i].data.shape(), |idx| -v_vec[i].data[idx]);
-
-            new_u_vec.push(PiecewiseLegendrePoly::new(
-                u_data_flipped,
-                u_vec[i].knots.clone(),
-                u_vec[i].l,
-                Some(u_vec[i].delta_x.clone()),
-                u_vec[i].symm,
-            ));
-            new_v_vec.push(PiecewiseLegendrePoly::new(
-                v_data_flipped,
-                v_vec[i].knots.clone(),
-                v_vec[i].l,
-                Some(v_vec[i].delta_x.clone()),
-                v_vec[i].symm,
-            ));
-        } else {
-            // Keep as is
-            new_u_vec.push(u_vec[i].clone());
-            new_v_vec.push(v_vec[i].clone());
-        }
-    }
-
-    (
-        PiecewiseLegendrePolyVector::new(new_u_vec),
-        PiecewiseLegendrePolyVector::new(new_v_vec),
-    )
+    u_polys: Vec<PiecewiseLegendrePoly>,
+    v_polys: Vec<PiecewiseLegendrePoly>,
+) -> (Vec<PiecewiseLegendrePoly>, Vec<PiecewiseLegendrePoly>) {
+    u_polys
+        .into_iter()
+        .zip(v_polys)
+        .map(|(u, v)| {
+            if u.evaluate(u.xmax) < 0.0 {
+                (u.negated(), v.negated())
+            } else {
+                (u, v)
+            }
+        })
+        .unzip()
 }
 
 /// Singular functions and values of one SVD block: `(u, s, v)`
@@ -452,15 +441,20 @@ pub(crate) fn merge_blocks(
         s_sorted.push(s_block[idx]);
     }
 
-    // Canonicalize signs: ensure u[l](1) > 0. The merged vectors are not
-    // empty (checked above).
-    let (canonical_u, canonical_v) = canonicalize_signs(
-        PiecewiseLegendrePolyVector::new(u_polys),
-        PiecewiseLegendrePolyVector::new(v_polys),
-        1.0,
-    );
-
-    SVEResult::new(canonical_u, s_sorted, canonical_v, epsilon)
+    // Canonicalize signs: ensure u[l](xmax) >= 0. The merged blocks are not
+    // empty (checked above) and share their knots, so the vectors are built
+    // through their field; the field becomes private in part 7.
+    let (canonical_u, canonical_v) = canonicalize_signs(u_polys, v_polys);
+    SVEResult::new(
+        PiecewiseLegendrePolyVector {
+            polyvec: canonical_u,
+        },
+        s_sorted,
+        PiecewiseLegendrePolyVector {
+            polyvec: canonical_v,
+        },
+        epsilon,
+    )
 }
 
 #[cfg(test)]

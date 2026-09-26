@@ -212,6 +212,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
     _order: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
+    use crate::status::status_from;
     use crate::utils::validate_dims;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT,
@@ -308,14 +309,13 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         // Note: knots.len() is guaranteed to be n_segments + 1 because knots is created
         // from segments_slice which has (n_segments + 1) elements
 
-        // Create PiecewiseLegendrePoly (l=-1 means not specified)
-        let poly = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            PiecewiseLegendrePoly::new(data, knots.clone(), -1, None, 0)
-        })) {
+        // Create PiecewiseLegendrePoly (l=-1 means not specified). The knots
+        // were checked above with the same conditions as the core.
+        let poly = match PiecewiseLegendrePoly::new(data, knots, -1, None, 0) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
                 unsafe {
-                    *status = SPIR_INTERNAL_ERROR;
+                    *status = status_from(&e);
                 }
                 return std::ptr::null_mut();
             }
