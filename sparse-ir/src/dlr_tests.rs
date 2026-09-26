@@ -299,7 +299,7 @@ fn test_dlr_with_tau_sampling() {
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis_ir).unwrap();
 
     // Create TauSampling from DLR (using Basis trait)
-    let tau_points = basis_ir.default_tau_sampling_points();
+    let tau_points = basis_ir.default_tau_sampling_points().unwrap();
     let n_tau_points = tau_points.len();
     let sampling_dlr = TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points);
 
@@ -573,10 +573,10 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
             .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
 
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&basis, tau_points.clone());
 
-    let matsubara_points = basis.default_matsubara_sampling_points(false);
+    let matsubara_points = basis.default_matsubara_sampling_points(false).unwrap();
     let matsubara_sampling =
         MatsubaraSampling::<Bosonic>::with_sampling_points(&basis, matsubara_points.clone());
 
@@ -637,7 +637,7 @@ fn test_fermionic_dlr_tau_sampling_matrix_matches_stable_kernel() {
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
             .unwrap();
     let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     let tau_sampling = TauSampling::<Fermionic>::with_sampling_points(&dlr, tau_points.clone());
 
     let expected = DTensor::<f64, 2>::from_fn([tau_points.len(), dlr.poles.len()], |idx| {
@@ -689,7 +689,7 @@ fn test_bosonic_logistic_dlr_tau_sampling_matrix_matches_stable_kernel() {
     let basis =
         FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(&basis).unwrap();
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     let tau_sampling = TauSampling::<Bosonic>::with_sampling_points(&dlr, tau_points.clone());
 
     let expected = DTensor::<f64, 2>::from_fn([tau_points.len(), dlr.poles.len()], |idx| {
@@ -1122,7 +1122,10 @@ fn check_dlr_new_insufficient_default_poles<S: StatisticsType + 'static>() {
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(1e-6), None).unwrap();
     let basis_size = basis.size();
-    assert_eq!(basis.default_omega_sampling_points().len(), basis_size);
+    assert_eq!(
+        basis.default_omega_sampling_points().unwrap().len(),
+        basis_size
+    );
 
     // Exactly as many default poles as basis functions is enough.
     let enough = TruncatedDefaultPoles {
@@ -1172,7 +1175,7 @@ fn test_dlr_regularized_bose_fermionic_is_kernel_statistics_mismatch() {
         FiniteTempBasis::<RegularizedBoseKernel, Fermionic>::new(kernel, beta, Some(1e-6), None)
             .unwrap();
     // The default poles are sufficient, so `new` reaches the statistics check.
-    assert!(basis.default_omega_sampling_points().len() >= basis.size());
+    assert!(basis.default_omega_sampling_points().unwrap().len() >= basis.size());
 
     let err = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&basis, vec![-2.0, 0.5, 3.0])
         .err()

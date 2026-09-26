@@ -28,7 +28,7 @@ fn test_matsubara_sampling_roundtrip_generic<S: StatisticsType + 'static>() {
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Create symmetric Matsubara sampling points (positive and negative)
-    let sampling_points = basis.default_matsubara_sampling_points(false);
+    let sampling_points = basis.default_matsubara_sampling_points(false).unwrap();
 
     // Create sampling
     let sampling = MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone());
@@ -84,7 +84,7 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Use positive-only sampling points
-    let sampling_points = basis.default_matsubara_sampling_points(true);
+    let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
     let _n_matsubara = sampling_points.len();
 
     // Create sampling
@@ -131,7 +131,7 @@ fn test_matsubara_sampling_dimensions() {
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
     let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
-    let sampling_points = basis.default_matsubara_sampling_points(true);
+    let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
 
     let sampling =
         MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
@@ -163,7 +163,7 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
     let kernel = LogisticKernel::new(wmax * beta).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
-    let sampling_points = basis.default_matsubara_sampling_points(false); // Symmetric (positive and negative)
+    let sampling_points = basis.default_matsubara_sampling_points(false).unwrap(); // Symmetric (positive and negative)
 
     let sampling = MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone());
 
@@ -235,7 +235,7 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Use positive-only sampling points
-    let sampling_points = basis.default_matsubara_sampling_points(true);
+    let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
 
     let sampling =
         MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
@@ -763,7 +763,7 @@ fn check_positive_only_condition_number<S: StatisticsType + 'static>(
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
-    let points = basis.default_matsubara_sampling_points(true);
+    let points = basis.default_matsubara_sampling_points(true).unwrap();
     let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
 
     let oracle = oracle_condition_number(&stack_re_im(&uhat_matrix(&basis, &points)));
@@ -782,7 +782,7 @@ fn check_full_condition_number<S: StatisticsType + 'static>(beta: f64, wmax: f64
 
     let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
-    let points = basis.default_matsubara_sampling_points(false);
+    let points = basis.default_matsubara_sampling_points(false).unwrap();
     let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
 
     let oracle = oracle_condition_number(&realify(&uhat_matrix(&basis, &points)));
@@ -857,7 +857,9 @@ fn unsorted_points<S: StatisticsType + 'static>(
     basis: &FiniteTempBasis<LogisticKernel, S>,
     positive_only: bool,
 ) -> Vec<MatsubaraFreq<S>> {
-    let sorted = basis.default_matsubara_sampling_points(positive_only);
+    let sorted = basis
+        .default_matsubara_sampling_points(positive_only)
+        .unwrap();
     let mut points: Vec<_> = sorted.iter().step_by(2).cloned().collect();
     points.extend(sorted.iter().skip(1).step_by(2).rev().cloned());
     assert_eq!(points.len(), sorted.len());

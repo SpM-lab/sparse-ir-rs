@@ -239,7 +239,7 @@ fn test_default_tau_sampling_points_conditioning() {
     println!("Basis size: {}", basis.size());
 
     // Get default sampling points
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     println!("Number of sampling points: {}", tau_points.len());
 
     // Verify range: [-beta/2, beta/2] (matches C++ implementation)
@@ -402,7 +402,7 @@ fn test_default_omega_sampling_points_fermionic() {
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
             .unwrap();
 
-    let omega_points = basis.default_omega_sampling_points();
+    let omega_points = basis.default_omega_sampling_points().unwrap();
 
     // Should have same size as basis
     assert_eq!(omega_points.len(), basis.size());
@@ -433,7 +433,7 @@ fn test_default_omega_sampling_points_bosonic() {
     let basis =
         FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
-    let omega_points = basis.default_omega_sampling_points();
+    let omega_points = basis.default_omega_sampling_points().unwrap();
 
     // Should have same size as basis
     assert_eq!(omega_points.len(), basis.size());
@@ -464,7 +464,7 @@ fn test_omega_points_symmetry() {
     let basis_f =
         FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
             .unwrap();
-    let omega_points = basis_f.default_omega_sampling_points();
+    let omega_points = basis_f.default_omega_sampling_points().unwrap();
 
     // Check approximate symmetry: for each positive point, there should be a negative counterpart
     // (This is approximate due to the nature of the roots)
@@ -608,4 +608,77 @@ fn test_default_matsubara_points_impl_errors() {
         .unwrap_err(),
         Error::EmptyInput { name: "uhat_full" }
     );
+}
+
+/// A basis from an SVE truncated to 2 functions has no default tau sampling
+/// points: they are the roots of u_2, which is missing, and its stand-in, the
+/// extrema of u_1, does not exist (u_1 is monotonic). The empty extrema were
+/// indexed and panicked. Points that need only u_0 and u_1 are still
+/// defined, as are the other default points.
+#[test]
+fn test_default_tau_points_of_an_sve_truncated_to_two_functions() {
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve(kernel, Some(1e-6), None, Some(2), TworkType::Auto).unwrap();
+    assert_eq!(sve.s.len(), 2);
+    fn check<S: crate::traits::StatisticsType + 'static>(
+        basis: &FiniteTempBasis<LogisticKernel, S>,
+    ) {
+        let not_supported = |err: Error| {
+            assert!(
+                matches!(&err, Error::NotSupported { what } if what.contains("no extrema")),
+                "{err:?}"
+            );
+        };
+        not_supported(basis.default_tau_sampling_points().unwrap_err());
+        for n in [2, 3, 10] {
+            not_supported(
+                basis
+                    .default_tau_sampling_points_size_requested(n)
+                    .unwrap_err(),
+            );
+        }
+        // The roots of u_0 (none) and u_1 (one, at τ = β/2)
+        assert_eq!(
+            basis
+                .default_tau_sampling_points_size_requested(0)
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            basis
+                .default_tau_sampling_points_size_requested(1)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(!basis.default_omega_sampling_points().unwrap().is_empty());
+        assert!(
+            !basis
+                .default_matsubara_sampling_points(false)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    check(
+        &FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 10.0, sve.clone(), None, None)
+            .unwrap(),
+    );
+    check(&FiniteTempBasis::<_, Bosonic>::from_sve_result(kernel, 10.0, sve, None, None).unwrap());
+}
+
+/// default_sampling_points needs the unscaled functions of an SVE, on
+/// [-1, 1]; the functions of a basis (on [0, β]) are rejected. It panicked.
+#[test]
+fn test_default_sampling_points_rejects_scaled_functions() {
+    use crate::poly::default_sampling_points;
+
+    let basis =
+        FermionicBasis::new(LogisticKernel::new(10.0).unwrap(), 10.0, Some(1e-6), None).unwrap();
+    let err = default_sampling_points(basis.u(), 3).unwrap_err();
+    assert!(
+        matches!(err, Error::InvalidParameter { name: "u", .. }),
+        "{err:?}"
+    );
+    assert!(default_sampling_points(&basis.sve_result().u, 3).is_ok());
 }

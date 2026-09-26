@@ -191,45 +191,57 @@ where
     }
 
     /// Get default Matsubara sampling points as i64 indices (for C-API)
-    pub fn default_matsubara_sampling_points_i64(&self, positive_only: bool) -> Vec<i64>
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis functions have no definite parity
+    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
+    /// #183)
+    pub fn default_matsubara_sampling_points_i64(
+        &self,
+        positive_only: bool,
+    ) -> Result<Vec<i64>, Error>
     where
         S: 'static,
     {
-        let freqs = self.default_matsubara_sampling_points(positive_only);
-        freqs.into_iter().map(|f| f.n()).collect()
+        Ok(self
+            .default_matsubara_sampling_points(positive_only)?
+            .into_iter()
+            .map(|f| f.n())
+            .collect())
     }
 
     /// Get default Matsubara sampling points as i64 indices with mitigate parameter (for C-API)
     ///
-    /// # Panics
-    /// Panics if the kernel is not centrosymmetric. This method relies on
-    /// centrosymmetry to generate sampling points.
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis functions have no definite parity
+    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
+    /// #183)
     pub fn default_matsubara_sampling_points_i64_with_mitigate(
         &self,
         positive_only: bool,
         mitigate: bool,
         n_points: usize,
-    ) -> Vec<i64>
+    ) -> Result<Vec<i64>, Error>
     where
         S: 'static,
     {
         if !self.kernel().is_centrosymmetric() {
-            panic!(
-                "default_matsubara_sampling_points_i64_with_mitigate is not supported for non-centrosymmetric kernels. \
-                 The current implementation relies on centrosymmetry to generate sampling points."
-            );
+            return Err(Error::NotSupported {
+                what: "default Matsubara sampling points of a basis whose kernel is not \
+                       centrosymmetric: they rely on the parity of the basis functions"
+                    .to_string(),
+            });
         }
         let fence = mitigate;
-        // Returns Result in the next task of part 3b; until then the error of
-        // a basis without parity panics as before (#183).
         let freqs = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
             n_points,
             fence,
             positive_only,
-        )
-        .unwrap_or_else(|e| panic!("{e}"));
-        freqs.into_iter().map(|f| f.n()).collect()
+        )?;
+        Ok(freqs.into_iter().map(|f| f.n()).collect())
     }
 
     /// Create a new FiniteTempBasis
@@ -427,8 +439,14 @@ where
     ///
     /// Roots are found with symmetry exploitation (matching Python 1.x / Julia v1),
     /// then mapped to [-β/2, β/2] by folding τ_physical ∈ [0, β] around β/2.
-    pub fn default_tau_sampling_points(&self) -> Vec<f64> {
-        let points = self.default_tau_sampling_points_size_requested(self.size());
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::NotSupported`] if the default points are not defined for
+    ///   this basis: its SVE has so few singular functions that the last one
+    ///   has no extrema (e.g. `compute_sve` with `max_num_svals = Some(2)`)
+    pub fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
+        let points = self.default_tau_sampling_points_size_requested(self.size())?;
         let basis_size = self.size();
         if points.len() < basis_size {
             debug_warn!(
@@ -441,14 +459,23 @@ where
                 self.accuracy()
             );
         }
-        points
+        Ok(points)
     }
 
     /// Get default tau sampling points with a requested size
     ///
     /// Returns sampling points in τ ∈ [-β/2, β/2].
-    pub fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
-        let x = default_sampling_points(&self.sve_result.u, size_requested);
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::NotSupported`] if the default points are not defined for
+    ///   this basis: its SVE has so few singular functions that the last one
+    ///   has no extrema (e.g. `compute_sve` with `max_num_svals = Some(2)`)
+    pub fn default_tau_sampling_points_size_requested(
+        &self,
+        size_requested: usize,
+    ) -> Result<Vec<f64>, Error> {
+        let x = default_sampling_points(&self.sve_result.u, size_requested)?;
         let half_beta = self.beta / 2.0;
         // Map roots to physical tau ∈ [0, β], then fold to [-β/2, β/2]
         let mut smpl_taus: Vec<f64> = x
@@ -463,7 +490,7 @@ where
             })
             .collect();
         smpl_taus.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        smpl_taus
+        Ok(smpl_taus)
     }
 
     /// Get default Matsubara frequency sampling points
@@ -478,32 +505,32 @@ where
     /// # Returns
     /// Vector of Matsubara frequency sampling points
     ///
-    /// # Panics
-    /// Panics if the kernel is not centrosymmetric. This method relies on
-    /// centrosymmetry to generate sampling points.
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis functions have no definite parity
+    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
+    /// #183)
     pub fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>>
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
     where
         S: 'static,
     {
         if !self.kernel().is_centrosymmetric() {
-            panic!(
-                "default_matsubara_sampling_points is not supported for non-centrosymmetric kernels. \
-                 The current implementation relies on centrosymmetry to generate sampling points."
-            );
+            return Err(Error::NotSupported {
+                what: "default Matsubara sampling points of a basis whose kernel is not \
+                       centrosymmetric: they rely on the parity of the basis functions"
+                    .to_string(),
+            });
         }
         let fence = false;
-        // Returns Result in the next task of part 3b; until then the error of
-        // a basis without parity panics as before (#183).
         let points = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
             self.size(),
             fence,
             positive_only,
-        )
-        .unwrap_or_else(|e| panic!("{e}"));
+        )?;
         let basis_size = self.size();
         // For positive_only=true, we need 2*n_sampling_points >= basis_size
         // For positive_only=false, we need n_sampling_points >= basis_size
@@ -524,7 +551,7 @@ where
                 self.accuracy()
             );
         }
-        points
+        Ok(points)
     }
 
     /// Fence Matsubara sampling points to improve conditioning
@@ -688,18 +715,24 @@ where
     ///
     /// # Returns
     /// Vector of real-frequency sampling points in [-ωmax, ωmax]
-    pub fn default_omega_sampling_points(&self) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::NotSupported`] if the default points are not defined for
+    ///   this basis: its SVE has so few singular functions that the last one
+    ///   has no extrema (e.g. `compute_sve` with `max_num_svals = Some(2)`)
+    pub fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
         let sz = self.size();
 
         // Use UNTRUNCATED sve_result.v (same as C++)
         // C++: default_sampling_points(*(sve_result->v), sz)
-        let y = default_sampling_points(&self.sve_result.v, sz);
+        let y = default_sampling_points(&self.sve_result.v, sz)?;
 
         // Scale to [-ωmax, ωmax]
         let wmax = self.kernel.lambda() / self.beta;
         let omega_points: Vec<f64> = y.into_iter().map(|yi| wmax * yi).collect();
 
-        omega_points
+        Ok(omega_points)
     }
 }
 
@@ -751,14 +784,18 @@ where
     }
 
     fn default_tau_sampling_points(&self) -> Vec<f64> {
+        // Basis returns Result in the next task of part 3b.
         self.default_tau_sampling_points()
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
     ) -> Vec<crate::freq::MatsubaraFreq<S>> {
+        // Basis returns Result in the next task of part 3b.
         self.default_matsubara_sampling_points(positive_only)
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 
     fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
@@ -823,7 +860,9 @@ where
     }
 
     fn default_omega_sampling_points(&self) -> Vec<f64> {
+        // Basis returns Result in the next task of part 3b.
         self.default_omega_sampling_points()
+            .unwrap_or_else(|e| panic!("{e}"))
     }
 }
 

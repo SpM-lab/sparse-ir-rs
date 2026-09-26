@@ -402,21 +402,21 @@ impl spir_basis {
         }
     }
 
-    pub(crate) fn default_tau_sampling_points(&self) -> Vec<f64> {
+    pub(crate) fn default_tau_sampling_points(&self) -> Result<Vec<f64>, sparse_ir::Error> {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.default_tau_sampling_points(),
             BasisType::LogisticBosonic(b) => b.default_tau_sampling_points(),
             BasisType::RegularizedBoseFermionic(b) => b.default_tau_sampling_points(),
             BasisType::RegularizedBoseBosonic(b) => b.default_tau_sampling_points(),
             // DLR: no default tau sampling points
-            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => Ok(vec![]),
         }
     }
 
     pub(crate) fn default_tau_sampling_points_size_requested(
         &self,
         size_requested: usize,
-    ) -> Vec<f64> {
+    ) -> Result<Vec<f64>, sparse_ir::Error> {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => {
                 b.default_tau_sampling_points_size_requested(size_requested)
@@ -431,7 +431,7 @@ impl spir_basis {
                 b.default_tau_sampling_points_size_requested(size_requested)
             }
             // DLR: no default tau sampling points
-            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => Ok(vec![]),
         }
     }
 
@@ -449,7 +449,10 @@ impl spir_basis {
         }
     }
 
-    pub(crate) fn default_matsubara_sampling_points(&self, positive_only: bool) -> Vec<i64> {
+    pub(crate) fn default_matsubara_sampling_points(
+        &self,
+        positive_only: bool,
+    ) -> Result<Vec<i64>, sparse_ir::Error> {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => {
                 b.default_matsubara_sampling_points_i64(positive_only)
@@ -462,7 +465,7 @@ impl spir_basis {
                 b.default_matsubara_sampling_points_i64(positive_only)
             }
             // DLR: no default Matsubara sampling points
-            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => Ok(vec![]),
         }
     }
 
@@ -471,7 +474,7 @@ impl spir_basis {
         positive_only: bool,
         mitigate: bool,
         n_points: usize,
-    ) -> Vec<i64> {
+    ) -> Result<Vec<i64>, sparse_ir::Error> {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => b
                 .default_matsubara_sampling_points_i64_with_mitigate(
@@ -497,19 +500,19 @@ impl spir_basis {
                     n_points,
                 ),
             // DLR: no default Matsubara sampling points
-            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => vec![],
+            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => Ok(vec![]),
         }
     }
 
-    pub(crate) fn default_omega_sampling_points(&self) -> Vec<f64> {
+    pub(crate) fn default_omega_sampling_points(&self) -> Result<Vec<f64>, sparse_ir::Error> {
         match self.inner_type() {
             BasisType::LogisticFermionic(b) => b.default_omega_sampling_points(),
             BasisType::LogisticBosonic(b) => b.default_omega_sampling_points(),
             BasisType::RegularizedBoseFermionic(b) => b.default_omega_sampling_points(),
             BasisType::RegularizedBoseBosonic(b) => b.default_omega_sampling_points(),
             // DLR: return poles as omega sampling points
-            BasisType::DLRFermionic(dlr) => dlr.poles.clone(),
-            BasisType::DLRBosonic(dlr) => dlr.poles.clone(),
+            BasisType::DLRFermionic(dlr) => Ok(dlr.poles.clone()),
+            BasisType::DLRBosonic(dlr) => Ok(dlr.poles.clone()),
         }
     }
 }

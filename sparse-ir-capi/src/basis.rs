@@ -585,7 +585,10 @@ pub extern "C" fn spir_basis_get_n_default_taus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let points = basis.default_tau_sampling_points();
+        let points = match basis.default_tau_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         *num_points = points.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -619,7 +622,10 @@ pub extern "C" fn spir_basis_get_default_taus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let tau_points = basis.default_tau_sampling_points();
+        let tau_points = match basis.default_tau_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         std::ptr::copy_nonoverlapping(tau_points.as_ptr(), points, tau_points.len());
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -660,7 +666,10 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
         if !basis.has_default_matsubara_sampling_points() {
             return SPIR_NOT_SUPPORTED;
         }
-        let points = basis.default_matsubara_sampling_points(positive_only);
+        let points = match basis.default_matsubara_sampling_points(positive_only) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         *num_points = points.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -702,7 +711,10 @@ pub extern "C" fn spir_basis_get_default_matsus(
         if !basis.has_default_matsubara_sampling_points() {
             return SPIR_NOT_SUPPORTED;
         }
-        let matsu_points = basis.default_matsubara_sampling_points(positive_only);
+        let matsu_points = match basis.default_matsubara_sampling_points(positive_only) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, matsu_points.len());
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -899,7 +911,10 @@ pub extern "C" fn spir_basis_get_n_default_ws(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let omega_points = basis.default_omega_sampling_points();
+        let omega_points = match basis.default_omega_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         *num_points = omega_points.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -926,7 +941,10 @@ pub extern "C" fn spir_basis_get_default_ws(b: *const spir_basis, points: *mut f
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let omega_points = basis.default_omega_sampling_points();
+        let omega_points = match basis.default_omega_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         std::ptr::copy_nonoverlapping(omega_points.as_ptr(), points, omega_points.len());
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -1153,7 +1171,10 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let tau_points = basis.default_tau_sampling_points_size_requested(n_points as usize);
+        let tau_points = match basis.default_tau_sampling_points_size_requested(n_points as usize) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
 
         // Return min(requested, available) points
         let n_to_return = std::cmp::min(n_points as usize, tau_points.len());
@@ -1216,11 +1237,14 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
         if !basis.has_default_matsubara_sampling_points() {
             return SPIR_NOT_SUPPORTED;
         }
-        let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
+        let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,
             basis_size as usize,
-        );
+        ) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
 
         *n_points_total = matsu_points.len() as libc::c_int;
 
@@ -1287,11 +1311,14 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
         if !basis.has_default_matsubara_sampling_points() {
             return SPIR_NOT_SUPPORTED;
         }
-        let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
+        let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,
             basis_size as usize,
-        );
+        ) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
 
         *n_points_total = matsu_points.len() as libc::c_int;
         if points.is_null() {
@@ -2311,11 +2338,13 @@ mod tests {
 
         // A buffer of exactly n_total elements receives the full point set.
         let expected = unsafe {
-            (*basis).default_matsubara_sampling_points_with_mitigate(
-                positive_only,
-                fence,
-                basis_size as usize,
-            )
+            (*basis)
+                .default_matsubara_sampling_points_with_mitigate(
+                    positive_only,
+                    fence,
+                    basis_size as usize,
+                )
+                .unwrap()
         };
         assert_eq!(expected.len(), n_total as usize);
         let mut points = vec![0i64; n_total as usize];

@@ -332,12 +332,14 @@ fn run_integration_example_single<K, S>(
 
     // Step 2: Create tau and Matsubara sampling
     println!("Step 2: Creating sampling objects...");
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     let n_tau = tau_points.len();
     println!("  Number of tau points: {}", n_tau);
     let tau_sampling = TauSampling::<S>::with_sampling_points(&basis, tau_points.clone());
 
-    let matsubara_points = basis.default_matsubara_sampling_points(positive_only);
+    let matsubara_points = basis
+        .default_matsubara_sampling_points(positive_only)
+        .unwrap();
     let n_matsubara = matsubara_points.len();
     println!("  Number of Matsubara points: {}", n_matsubara);
     let matsubara_sampling =

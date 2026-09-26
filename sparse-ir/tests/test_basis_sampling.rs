@@ -15,7 +15,7 @@ fn check_sampling_points<S: StatisticsType + 'static>(
     let basis_size = basis.size();
 
     // Check tau sampling
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     assert!(
         tau_points.len() >= basis_size,
         "Tau sampling check failed: {} < {} for beta={} wmax={} eps={:?}",
@@ -27,7 +27,7 @@ fn check_sampling_points<S: StatisticsType + 'static>(
     );
 
     // Check Matsubara sampling (positive_only=false)
-    let matsubara_all = basis.default_matsubara_sampling_points(false);
+    let matsubara_all = basis.default_matsubara_sampling_points(false).unwrap();
     assert!(
         matsubara_all.len() >= basis_size,
         "Matsubara sampling (all) check failed: {} < {} for beta={} wmax={} eps={:?}",
@@ -39,7 +39,7 @@ fn check_sampling_points<S: StatisticsType + 'static>(
     );
 
     // Check Matsubara sampling (positive_only=true)
-    let matsubara_pos = basis.default_matsubara_sampling_points(true);
+    let matsubara_pos = basis.default_matsubara_sampling_points(true).unwrap();
     let effective = 2 * matsubara_pos.len();
     assert!(
         effective >= basis_size,
@@ -98,7 +98,7 @@ mod high_api_sampling_tests {
             FiniteTempBasis::<LogisticKernel, S>::new(kernel, beta, Some(ir_tol), None).unwrap();
 
         // Tau Sampling
-        let tau_sampling_points = basis.default_tau_sampling_points();
+        let tau_sampling_points = basis.default_tau_sampling_points().unwrap();
         assert!(
             tau_sampling_points.len() >= basis.size(),
             "Tau sampling points insufficient: {} < {}",
@@ -107,7 +107,7 @@ mod high_api_sampling_tests {
         );
 
         // Matsubara Sampling (all frequencies)
-        let matsubara_all = basis.default_matsubara_sampling_points(false);
+        let matsubara_all = basis.default_matsubara_sampling_points(false).unwrap();
         assert!(
             matsubara_all.len() >= basis.size(),
             "Matsubara (all) sampling points insufficient: {} < {}",
@@ -116,7 +116,7 @@ mod high_api_sampling_tests {
         );
 
         // Matsubara Sampling (positive only)
-        let matsubara_pos = basis.default_matsubara_sampling_points(true);
+        let matsubara_pos = basis.default_matsubara_sampling_points(true).unwrap();
         let effective = 2 * matsubara_pos.len();
         assert!(
             effective >= basis.size(),

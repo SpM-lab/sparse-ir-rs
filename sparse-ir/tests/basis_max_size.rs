@@ -182,6 +182,7 @@ fn check_case<K, S>(
     for (positive_only, expected) in [(false, matsu.all), (true, matsu.positive)] {
         let got: Vec<i64> = basis
             .default_matsubara_sampling_points(positive_only)
+            .unwrap()
             .iter()
             .map(|w| w.n())
             .collect();
@@ -209,6 +210,7 @@ fn check_case<K, S>(
         // Rust folds τ into [-β/2, β/2]; unfold to SparseIR.jl's [0, β].
         let mut got: Vec<f64> = basis
             .default_tau_sampling_points()
+            .unwrap()
             .iter()
             .map(|&tau| if tau < 0.0 { tau + group.beta } else { tau })
             .collect();
@@ -216,7 +218,7 @@ fn check_case<K, S>(
         compare_points("tau", &got, expected, POINT_TOL * group.beta, &mut fail);
     }
     if let Some(expected) = case.omega {
-        let mut got = basis.default_omega_sampling_points();
+        let mut got = basis.default_omega_sampling_points().unwrap();
         got.sort_by(f64::total_cmp);
         compare_points("omega", &got, expected, POINT_TOL * basis.wmax(), &mut fail);
     }

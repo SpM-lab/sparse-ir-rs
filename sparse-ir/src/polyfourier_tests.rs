@@ -480,11 +480,11 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
 }
 
 /// Functions without a parity (symm = 0, as from `compute_sve_general`) have
-/// no default Matsubara sampling points, and the panic says why (#183). The
-/// C API reports SPIR_NOT_SUPPORTED before reaching it.
+/// no default Matsubara sampling points (#183): every entry point returns
+/// NotSupported (they panicked). The C API reports SPIR_NOT_SUPPORTED.
 #[test]
-#[should_panic(expected = "need basis functions of definite parity")]
 fn test_default_matsubara_points_need_functions_of_definite_parity() {
+    use crate::error::Error;
     use crate::sve::{TworkType, compute_sve_general};
 
     let kernel = LogisticKernel::new(10.0).unwrap();
@@ -493,7 +493,32 @@ fn test_default_matsubara_points_need_functions_of_definite_parity() {
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();
-    basis.default_matsubara_sampling_points(false);
+    let not_supported = |err: Error| {
+        assert!(
+            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
+            "{err:?}"
+        );
+    };
+    for positive_only in [false, true] {
+        not_supported(
+            basis
+                .default_matsubara_sampling_points(positive_only)
+                .unwrap_err(),
+        );
+        not_supported(
+            basis
+                .default_matsubara_sampling_points_i64(positive_only)
+                .unwrap_err(),
+        );
+        not_supported(
+            basis
+                .default_matsubara_sampling_points_i64_with_mitigate(positive_only, true, 8)
+                .unwrap_err(),
+        );
+    }
+    // The other default points do not depend on the parity.
+    assert!(!basis.default_tau_sampling_points().unwrap().is_empty());
+    assert!(!basis.default_omega_sampling_points().unwrap().is_empty());
 }
 
 /// `set` rejects an index past the end, including `index == len`, and then

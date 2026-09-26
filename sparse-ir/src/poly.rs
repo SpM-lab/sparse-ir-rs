@@ -1208,11 +1208,25 @@ impl std::ops::Index<usize> for PiecewiseLegendrePolyVector {
 /// roots of the L'th polynomial by the extrema of the last basis function,
 /// which is sensible due to the strong interleaving property of these
 /// functions' roots.
-pub fn default_sampling_points(u: &PiecewiseLegendrePolyVector, l: usize) -> Vec<f64> {
+///
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `u` is not on [-1, 1] (1e-10), i.e. not
+///   the unscaled functions of an SVE
+/// * [`Error::NotSupported`] if the extrema are needed and the last function
+///   has none (e.g. an SVE truncated to 2 functions, whose u_1 is monotonic)
+pub(crate) fn default_sampling_points(
+    u: &PiecewiseLegendrePolyVector,
+    l: usize,
+) -> Result<Vec<f64>, Error> {
     // C++: if (u.xmin() != -1.0 || u.xmax() != 1.0)
     //          throw std::runtime_error("Expecting unscaled functions here.");
     if (u.xmin() - (-1.0)).abs() > 1e-10 || (u.xmax() - 1.0).abs() > 1e-10 {
-        panic!("Expecting unscaled functions here.");
+        return Err(Error::InvalidParameter {
+            name: "u",
+            value: format!("functions on [{:?}, {:?}]", u.xmin(), u.xmax()),
+            reason: "must be the unscaled functions of an SVE, on [-1, 1]".to_string(),
+        });
     }
 
     let x0 = if l < u.polyvec.len() {
@@ -1225,11 +1239,24 @@ pub fn default_sampling_points(u: &PiecewiseLegendrePolyVector, l: usize) -> Vec
         let poly_deriv = poly.deriv(1);
         let maxima = poly_deriv.roots();
 
+        // C++ reads maxima[0] without a check; SparseIR.jl's first(maxima)
+        // fails the same way.
+        let (Some(&first), Some(&last)) = (maxima.first(), maxima.last()) else {
+            return Err(Error::NotSupported {
+                what: format!(
+                    "default sampling points for {l} basis functions: the last singular \
+                     function (l = {}) has no extrema to stand in for the roots of the \
+                     missing function l = {l} (an SVE truncated to too few functions)",
+                    poly.l
+                ),
+            });
+        };
+
         // C++: double left = (maxima[0] + poly.xmin) / 2.0;
-        let left = (maxima[0] + poly.xmin) / 2.0;
+        let left = (first + poly.xmin) / 2.0;
 
         // C++: double right = (maxima[maxima.size() - 1] + poly.xmax) / 2.0;
-        let right = (maxima[maxima.len() - 1] + poly.xmax) / 2.0;
+        let right = (last + poly.xmax) / 2.0;
 
         // C++: Eigen::VectorXd x0(maxima.size() + 2);
         //      x0[0] = left;
@@ -1252,7 +1279,7 @@ pub fn default_sampling_points(u: &PiecewiseLegendrePolyVector, l: usize) -> Vec
         );
     }
 
-    x0
+    Ok(x0)
 }
 
 // IndexMut implementation removed - PiecewiseLegendrePolyVector is designed to be immutable

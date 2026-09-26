@@ -31,10 +31,10 @@ fn test_basis_trait_fermionic() {
     }
 
     // Test sampling points
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     assert_eq!(tau_points.len(), basis.size());
 
-    let matsubara_points = basis.default_matsubara_sampling_points(false);
+    let matsubara_points = basis.default_matsubara_sampling_points(false).unwrap();
     assert!(!matsubara_points.is_empty());
 }
 
@@ -50,7 +50,7 @@ fn test_basis_trait_omega_sampling() {
             .unwrap();
 
     // Test omega sampling via Basis trait
-    let omega_points = basis.default_omega_sampling_points();
+    let omega_points = basis.default_omega_sampling_points().unwrap();
     assert_eq!(omega_points.len(), basis.size());
 
     // All points should be in [-wmax, wmax]
