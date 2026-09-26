@@ -16,7 +16,9 @@ use std::sync::Arc;
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::status::status_from;
 use crate::types::{BasisType, spir_basis};
-use crate::utils::{MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, validate_dims};
+use crate::utils::{
+    MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, validate_dims, validate_transform_dims,
+};
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
 use sparse_ir::dlr::DiscreteLehmannRepresentation;
 
@@ -150,6 +152,11 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
 ///     statistics (`RegularizedBoseKernel` with fermionic statistics). The
 ///     basis constructors already reject this combination.
 ///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
+///
+/// Duplicate poles are accepted. They make `spir_ir2dlr_dd` and
+/// `spir_ir2dlr_zz` ill-conditioned: the coefficients of equal poles are not
+/// unique, although `spir_dlr2ir_dd` / `spir_dlr2ir_zz` of them still give
+/// the IR coefficients.
 ///
 /// # Safety
 /// Caller must ensure `b` is valid and `poles` has `npoles` elements
@@ -331,6 +338,15 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 // Conversion Functions
 // ============================================================================
 
+/// IR basis size and number of poles of a DLR, or `None` if `b` is not a DLR
+fn dlr_sizes(b: &spir_basis) -> Option<(usize, usize)> {
+    match b.inner() {
+        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size(), dlr.poles.len())),
+        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size(), dlr.poles.len())),
+        _ => None,
+    }
+}
+
 /// Convert IR coefficients to DLR (real-valued)
 ///
 /// # Arguments
@@ -347,10 +363,11 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   size of the IR basis of `dlr`
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the IR basis size
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -390,6 +407,23 @@ pub extern "C" fn spir_ir2dlr_dd(
             Ok(dims) => dims,
             Err(code) => return code,
         };
+
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) = validate_transform_dims::<f64, f64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            ir_size,
+            n_poles,
+        ) {
+            return code;
+        }
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
@@ -443,10 +477,11 @@ pub extern "C" fn spir_ir2dlr_dd(
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   size of the IR basis of `dlr`
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the IR basis size
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -486,6 +521,23 @@ pub extern "C" fn spir_ir2dlr_zz(
             Ok(dims) => dims,
             Err(code) => return code,
         };
+
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) = validate_transform_dims::<Complex64, Complex64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            ir_size,
+            n_poles,
+        ) {
+            return code;
+        }
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
@@ -539,10 +591,11 @@ pub extern "C" fn spir_ir2dlr_zz(
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   number of poles of `dlr` (`spir_dlr_get_npoles`)
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the number of poles
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -582,6 +635,23 @@ pub extern "C" fn spir_dlr2ir_dd(
             Ok(dims) => dims,
             Err(code) => return code,
         };
+
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) = validate_transform_dims::<f64, f64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            n_poles,
+            ir_size,
+        ) {
+            return code;
+        }
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
@@ -635,10 +705,11 @@ pub extern "C" fn spir_dlr2ir_dd(
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   number of poles of `dlr` (`spir_dlr_get_npoles`)
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the number of poles
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -678,6 +749,23 @@ pub extern "C" fn spir_dlr2ir_zz(
             Ok(dims) => dims,
             Err(code) => return code,
         };
+
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) = validate_transform_dims::<Complex64, Complex64>(
+            dims_slice,
+            target_dim as usize,
+            mem_order,
+            n_poles,
+            ir_size,
+        ) {
+            return code;
+        }
 
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
@@ -1206,6 +1294,83 @@ mod tests {
                     );
                 }
             }
+        }
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
+        spir_kernel_release(kernel);
+    }
+
+    /// spir_ir2dlr_* maps L IR coefficients to n_poles DLR coefficients, and
+    /// n_poles may exceed L, so the output can be too large to address when
+    /// the input is not. That is SPIR_INVALID_DIMENSION, checked before
+    /// `input` is read (the buffers here are tiny) and `out` written. Before,
+    /// the conversion read input_dims worth of elements.
+    #[test]
+    fn test_ir2dlr_rejects_an_output_too_large_to_address() {
+        use crate::{SPIR_INVALID_DIMENSION, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR};
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let basis = spir_basis_new(
+            SPIR_STATISTICS_FERMIONIC,
+            10.0,
+            1.0,
+            1e-6,
+            kernel,
+            ptr::null(),
+            -1,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut l = 0;
+        assert_eq!(spir_basis_get_size(basis, &mut l), SPIR_COMPUTATION_SUCCESS);
+
+        // 16 L distinct poles in [-omega_max, omega_max] = [-1, 1].
+        let n_poles = 16 * l as usize;
+        let poles: Vec<f64> = (0..n_poles)
+            .map(|i| -1.0 + 2.0 * i as f64 / (n_poles - 1) as f64)
+            .collect();
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new_with_poles(basis, n_poles as i32, poles.as_ptr(), &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        // The input has l * 2^30 * (2^28 / l) <= 2^58 elements (at most 2^62
+        // bytes of complex); the output 16 times as many, more than
+        // isize::MAX bytes.
+        let dims = [l, 1 << 30, (1 << 28) / l];
+        const SENTINEL: f64 = -12345.0;
+        let z_sentinel = Complex64::new(SENTINEL, -SENTINEL);
+        let input_d = [1.0; 4];
+        let input_z = [Complex64::new(1.0, 0.5); 4];
+        for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+            let mut out_d = [SENTINEL; 4];
+            let mut out_z = [z_sentinel; 4];
+            let status_d = spir_ir2dlr_dd(
+                dlr,
+                ptr::null(),
+                order,
+                3,
+                dims.as_ptr(),
+                0,
+                input_d.as_ptr(),
+                out_d.as_mut_ptr(),
+            );
+            let status_z = spir_ir2dlr_zz(
+                dlr,
+                ptr::null(),
+                order,
+                3,
+                dims.as_ptr(),
+                0,
+                input_z.as_ptr(),
+                out_z.as_mut_ptr(),
+            );
+            assert_eq!(status_d, SPIR_INVALID_DIMENSION, "order={order} (dd)");
+            assert_eq!(status_z, SPIR_INVALID_DIMENSION, "order={order} (zz)");
+            assert!(out_d.iter().all(|&x| x == SENTINEL));
+            assert!(out_z.iter().all(|&x| x == z_sentinel));
         }
         spir_basis_release(dlr);
         spir_basis_release(basis);

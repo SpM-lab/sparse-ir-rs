@@ -2057,9 +2057,6 @@ fn test_sampling_fit_zd_validates_input_dims() {
     );
 }
 
-// The DLR conversions cannot check the target extent at the boundary (the IR
-// basis size of a DLR is not exposed by the core), so `check_mismatch` is off.
-
 #[test]
 fn test_ir2dlr_dd_validates_input_dims() {
     let fx = InputDimsFixture::new();
@@ -2069,7 +2066,7 @@ fn test_ir2dlr_dd_validates_input_dims() {
         fx.basis_size,
         fx.n_poles,
         OUT_SENTINEL,
-        false,
+        true,
         |dims, target_dim, order, out| {
             spir_ir2dlr_dd(
                 fx.dlr,
@@ -2094,7 +2091,7 @@ fn test_ir2dlr_zz_validates_input_dims() {
         fx.basis_size,
         fx.n_poles,
         complex_sentinel(),
-        false,
+        true,
         |dims, target_dim, order, out| {
             spir_ir2dlr_zz(
                 fx.dlr,
@@ -2119,7 +2116,7 @@ fn test_dlr2ir_dd_validates_input_dims() {
         fx.n_poles,
         fx.basis_size,
         OUT_SENTINEL,
-        false,
+        true,
         |dims, target_dim, order, out| {
             spir_dlr2ir_dd(
                 fx.dlr,
@@ -2144,7 +2141,7 @@ fn test_dlr2ir_zz_validates_input_dims() {
         fx.n_poles,
         fx.basis_size,
         complex_sentinel(),
-        false,
+        true,
         |dims, target_dim, order, out| {
             spir_dlr2ir_zz(
                 fx.dlr,

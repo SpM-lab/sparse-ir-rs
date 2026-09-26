@@ -678,6 +678,11 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  *     basis constructors already reject this combination.
  *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
+ * Duplicate poles are accepted. They make `spir_ir2dlr_dd` and
+ * `spir_ir2dlr_zz` ill-conditioned: the coefficients of equal poles are not
+ * unique, although `spir_dlr2ir_dd` / `spir_dlr2ir_zz` of them still give
+ * the IR coefficients.
+ *
  * # Safety
  * Caller must ensure `b` is valid and `poles` has `npoles` elements
  */
@@ -734,10 +739,11 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   size of the IR basis of `dlr`
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the IR basis size
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
@@ -771,10 +777,11 @@ StatusCode spir_ir2dlr_dd(const struct spir_basis *dlr,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   size of the IR basis of `dlr`
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the IR basis size
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
@@ -808,10 +815,11 @@ StatusCode spir_ir2dlr_zz(const struct spir_basis *dlr,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   number of poles of `dlr` (`spir_dlr_get_npoles`)
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the number of poles
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
@@ -845,10 +853,11 @@ StatusCode spir_dlr2ir_dd(const struct spir_basis *dlr,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   number of poles of `dlr` (`spir_dlr_get_npoles`)
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the number of poles
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
