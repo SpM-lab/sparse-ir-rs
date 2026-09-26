@@ -67,6 +67,13 @@ fn every_variant() -> Vec<(Error, ErrorKind, &'static str)> {
             ErrorKind::InvalidArgument,
             "tau = 1.5 is outside the domain [-1.0, 1.0]",
         ),
+        (
+            Error::NotSupported {
+                what: "default Matsubara sampling points of functions with symm = 0".to_string(),
+            },
+            ErrorKind::NotSupported,
+            "not supported: default Matsubara sampling points of functions with symm = 0",
+        ),
     ]
 }
 
@@ -117,10 +124,11 @@ fn variant_number(err: &Error) -> usize {
         Error::InsufficientDefaultPoles { .. } => 5,
         Error::DecompositionFailed { .. } => 6,
         Error::OutOfDomain { .. } => 7,
+        Error::NotSupported { .. } => 8,
     }
 }
 
-const VARIANT_COUNT: usize = 8;
+const VARIANT_COUNT: usize = 9;
 
 #[test]
 fn test_every_variant_lists_each_variant_once() {

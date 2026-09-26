@@ -114,6 +114,13 @@ mod tests {
                 },
                 SPIR_INVALID_ARGUMENT,
             ),
+            (
+                Error::NotSupported {
+                    what: "default Matsubara sampling points of functions with symm = 0"
+                        .to_string(),
+                },
+                SPIR_NOT_SUPPORTED,
+            ),
         ];
         for (err, status) in &table {
             assert_eq!(status_from(err), *status, "{err:?}");

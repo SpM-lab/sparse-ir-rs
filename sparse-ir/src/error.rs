@@ -84,6 +84,13 @@ pub enum Error {
         /// Number of default poles found
         n_poles: usize,
     },
+    /// The operation is not defined for this input, e.g. default Matsubara
+    /// sampling points for basis functions without a definite parity (#183).
+    #[error("not supported: {what}")]
+    NotSupported {
+        /// What is not supported, and why
+        what: String,
+    },
     /// A matrix decomposition failed, e.g. the SVD iteration did not converge.
     #[error("decomposition failed: {reason}")]
     DecompositionFailed {
@@ -127,7 +134,7 @@ impl Error {
             | Error::EmptyInput { .. }
             | Error::NonFiniteInput { .. }
             | Error::InsufficientDefaultPoles { .. } => ErrorKind::InvalidArgument,
-            Error::KernelStatisticsMismatch => ErrorKind::NotSupported,
+            Error::KernelStatisticsMismatch | Error::NotSupported { .. } => ErrorKind::NotSupported,
             Error::DecompositionFailed { .. } => ErrorKind::Internal,
         }
     }
