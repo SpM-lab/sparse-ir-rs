@@ -46,16 +46,17 @@ pub enum SVDStrategy {
 ///
 /// # Panics
 ///
-/// Panics if epsilon is negative. [`compute_sve`](crate::sve::compute_sve)
+/// Panics if epsilon is negative or NaN. [`compute_sve`](crate::sve::compute_sve)
 /// checks it first.
 pub fn safe_epsilon(
     epsilon: Option<f64>,
     twork: TworkType,
     svd_strategy: SVDStrategy,
 ) -> (f64, TworkType, SVDStrategy) {
-    // Check for negative epsilon (following C++ implementation)
-    if epsilon.is_some_and(|eps| eps < 0.0) {
-        panic!("eps_required must be non-negative");
+    // Check for a negative or NaN epsilon (following the C++ implementation
+    // for negative values; NaN used to select the automatic accuracy)
+    if let Some(eps) = epsilon.filter(|eps| !(*eps >= 0.0)) {
+        panic!("eps_required must be non-negative, got {eps:?}");
     }
 
     // First, choose the working dtype based on the eps required
@@ -147,5 +148,14 @@ mod tests {
     #[should_panic(expected = "eps_required must be non-negative")]
     fn test_negative_epsilon_panics() {
         safe_epsilon(Some(-1.0), TworkType::Auto, SVDStrategy::Auto);
+    }
+
+    /// NaN is not an accuracy: it used to select the automatic accuracy.
+    /// compute_sve rejects it first; the public helper panics like it does
+    /// for a negative epsilon until part 7 makes it pub(crate).
+    #[test]
+    #[should_panic(expected = "eps_required must be non-negative, got NaN")]
+    fn test_nan_epsilon_panics() {
+        safe_epsilon(Some(f64::NAN), TworkType::Auto, SVDStrategy::Auto);
     }
 }

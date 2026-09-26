@@ -183,9 +183,10 @@ extern "C" {
  *   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
  *     `beta`, `omega_max` or `epsilon` is not positive and finite,
  *     `epsilon` is 1 or more, `max_size` is 0, the lambda of `k` differs
- *     from `beta * omega_max` by more than 1e-10, or `sve` is not an SVE on
+ *     from `beta * omega_max` by more than 1e-10, `sve` is not an SVE on
  *     [-1, 1] × [-1, 1] (e.g. from `spir_sve_result_from_matrix` with other
- *     segments)
+ *     segments), or `sve` is NULL and the discretized kernel has a
+ *     non-finite entry (e.g. a `RegularizedBoseKernel` with a tiny lambda)
  *   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
  *     `statistics` is fermionic: that kernel supports bosonic statistics
  *     only

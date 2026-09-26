@@ -315,12 +315,17 @@ where
     // A finite matrix can still overflow in the QR (a column norm above
     // f64::MAX). The input is valid, so a non-finite entry of R is a failure
     // of the decomposition, not a non-finite input.
-    if let Err(Error::NonFiniteInput { index, value, .. }) = check_finite(&r_matrix) {
-        return Err(Error::DecompositionFailed {
-            reason: format!(
-                "the R factor of the QR decomposition has the non-finite entry {value} at index {index:?}"
-            ),
-        });
+    match check_finite(&r_matrix) {
+        Ok(()) => {}
+        Err(Error::NonFiniteInput { index, value, .. }) => {
+            return Err(Error::DecompositionFailed {
+                reason: format!(
+                    "the R factor of the QR decomposition has the non-finite entry {value} at index {index:?}"
+                ),
+            });
+        }
+        // check_finite reports only NonFiniteInput; pass anything else on.
+        Err(other) => return Err(other),
     }
 
     // Step 2: Apply QR-based rank estimation first

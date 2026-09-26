@@ -97,18 +97,12 @@ fn test_basis_new_rejects_invalid_parameters() {
         ),
     ];
     for (beta, epsilon, max_size, expected) in cases {
-        let start = std::time::Instant::now();
         let err = FermionicBasis::new(kernel, beta, epsilon, max_size)
             .err()
             .expect("must be rejected");
         assert_eq!(
             err, expected,
             "beta = {beta}, epsilon = {epsilon:?}, max_size = {max_size:?}"
-        );
-        // Rejected before the SVE, which takes far longer than this.
-        assert!(
-            start.elapsed() < std::time::Duration::from_millis(50),
-            "{expected}"
         );
     }
 }

@@ -229,6 +229,9 @@ where
     /// * [`Error::InvalidParameter`] if `beta` is not positive and finite,
     ///   `epsilon` is not in (0, 1), or `max_size` is `Some(0)`. These are
     ///   checked before the SVE is computed.
+    /// * The errors of [`compute_sve`]: [`Error::NonFiniteInput`] if the
+    ///   discretized kernel has a non-finite entry, [`Error::DecompositionFailed`]
+    ///   if an SVD of the SVE fails
     /// * The errors of [`from_sve_result`](Self::from_sve_result)
     pub fn new(
         kernel: K,
@@ -281,6 +284,8 @@ where
     ///   `epsilon` is not in [0, 1) (0 keeps every singular value), `max_size`
     ///   is `Some(0)`, or `sve_result` is not an SVE on [-1, 1] × [-1, 1]
     /// * [`Error::EmptyInput`] if `sve_result` has no singular functions
+    /// * The errors of [`SVEResult::part`] (for an `SVEResult` whose public
+    ///   fields break its invariants)
     pub fn from_sve_result(
         kernel: K,
         beta: f64,
