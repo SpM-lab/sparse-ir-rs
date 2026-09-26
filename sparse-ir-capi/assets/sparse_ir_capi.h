@@ -319,6 +319,10 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last one has no
+ *   extrema to stand in for the roots of the missing one (e.g. an SVE from
+ *   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
  StatusCode spir_basis_get_n_default_taus(const struct spir_basis *b, int *num_points);
@@ -338,6 +342,10 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last one has no
+ *   extrema to stand in for the roots of the missing one (e.g. an SVE from
+ *   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
  StatusCode spir_basis_get_default_taus(const struct spir_basis *b, double *points);
@@ -429,7 +437,13 @@ StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
  * * `num_points` - Pointer to store the number of sampling points
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success)
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last v has no
+ *   extrema to stand in for the roots of the missing one. Nothing is
+ *   written.
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Safety
  * The caller must ensure that `b` and `num_points` are valid pointers
@@ -444,7 +458,13 @@ StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
  * * `points` - Pre-allocated array to store the omega sampling points
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success)
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last v has no
+ *   extrema to stand in for the roots of the missing one. Nothing is
+ *   written.
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Safety
  * The caller must ensure that `points` has size >= `spir_basis_get_n_default_ws(b)`
@@ -508,6 +528,11 @@ StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+ * * `SPIR_NOT_SUPPORTED` (-5) if `n_points` is at least the number of
+ *   singular functions of the SVE of `b` and the default points are not
+ *   defined for it: the last singular function has no extrema to stand in
+ *   for the roots of the missing one (e.g. an SVE from
+ *   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
@@ -620,8 +645,9 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  *     can lose poles, e.g. for `RegularizedBoseKernel` at large lambda; pass
  *     the poles explicitly with `spir_dlr_new_with_poles` instead.
  *   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
- *     statistics (`RegularizedBoseKernel` with fermionic statistics). The
- *     basis constructors already reject this combination.
+ *     statistics (`RegularizedBoseKernel` with fermionic statistics; the
+ *     basis constructors already reject this combination), or the default
+ *     poles of `b` are not defined (see `spir_basis_get_default_ws`)
  *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Safety
@@ -635,7 +661,7 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  * # Arguments
  * * `b` - Pointer to a finite temperature (IR) basis object
  * * `npoles` - Number of poles to use (must be > 0)
- * * `poles` - Array of `npoles` pole locations on the real-frequency axis
+ * * `poles` - Array of `npoles` pole locations in [-omega_max, omega_max] of `b`
  * * `status` - Pointer to store the status code (may be NULL, in which case
  *   no status is written)
  *
@@ -645,7 +671,8 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  * * Status code:
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
  *   - `SPIR_INVALID_ARGUMENT` (-6) if `b` or `poles` is NULL, `npoles <= 0`,
- *     or `b` is already a DLR
+ *     or `b` is already a DLR, or a pole is outside [-omega_max, omega_max]
+ *     of `b` or not finite
  *   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
  *     statistics (`RegularizedBoseKernel` with fermionic statistics). The
  *     basis constructors already reject this combination.

@@ -45,8 +45,9 @@ use sparse_ir::dlr::DiscreteLehmannRepresentation;
 ///     can lose poles, e.g. for `RegularizedBoseKernel` at large lambda; pass
 ///     the poles explicitly with `spir_dlr_new_with_poles` instead.
 ///   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
-///     statistics (`RegularizedBoseKernel` with fermionic statistics). The
-///     basis constructors already reject this combination.
+///     statistics (`RegularizedBoseKernel` with fermionic statistics; the
+///     basis constructors already reject this combination), or the default
+///     poles of `b` are not defined (see `spir_basis_get_default_ws`)
 ///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Safety
@@ -133,7 +134,7 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
 /// # Arguments
 /// * `b` - Pointer to a finite temperature (IR) basis object
 /// * `npoles` - Number of poles to use (must be > 0)
-/// * `poles` - Array of `npoles` pole locations on the real-frequency axis
+/// * `poles` - Array of `npoles` pole locations in [-omega_max, omega_max] of `b`
 /// * `status` - Pointer to store the status code (may be NULL, in which case
 ///   no status is written)
 ///
@@ -143,7 +144,8 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
 /// * Status code:
 ///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
 ///   - `SPIR_INVALID_ARGUMENT` (-6) if `b` or `poles` is NULL, `npoles <= 0`,
-///     or `b` is already a DLR
+///     or `b` is already a DLR, or a pole is outside [-omega_max, omega_max]
+///     of `b` or not finite
 ///   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
 ///     statistics (`RegularizedBoseKernel` with fermionic statistics). The
 ///     basis constructors already reject this combination.
@@ -1035,6 +1037,46 @@ mod tests {
             let dlr_of_dlr = spir_dlr_new_with_poles(dlr, 2, poles.as_ptr(), &mut status);
             expect_invalid(dlr_of_dlr, status, "spir_dlr_new_with_poles on a DLR");
 
+            spir_basis_release(dlr);
+            spir_basis_release(basis);
+        }
+        spir_kernel_release(kernel);
+    }
+
+    /// A pole outside [-omega_max, omega_max] of the basis, NaN or an
+    /// infinity made the core evaluate v outside its domain and panic
+    /// (SPIR_INTERNAL_ERROR). It is an invalid argument now; ±omega_max are
+    /// valid poles.
+    #[test]
+    fn test_dlr_new_with_poles_rejects_poles_outside_the_frequency_domain() {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        for statistics in [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new(
+                statistics,
+                10.0,
+                1.0,
+                1e-6,
+                kernel,
+                ptr::null(),
+                -1,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+            for pole in [2.0, -1.5, f64::NAN, f64::INFINITY] {
+                let poles = [0.5, pole];
+                let mut status = SPIR_COMPUTATION_SUCCESS;
+                let dlr = spir_dlr_new_with_poles(basis, 2, poles.as_ptr(), &mut status);
+                assert_eq!(status, SPIR_INVALID_ARGUMENT, "pole = {pole}");
+                assert!(dlr.is_null());
+            }
+            let poles = [-1.0, 1.0];
+            let mut status = SPIR_INTERNAL_ERROR;
+            let dlr = spir_dlr_new_with_poles(basis, 2, poles.as_ptr(), &mut status);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
             spir_basis_release(dlr);
             spir_basis_release(basis);
         }

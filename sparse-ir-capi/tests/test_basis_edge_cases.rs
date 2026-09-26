@@ -456,6 +456,65 @@ fn sve_result_truncate_checks_its_parameters() {
     spir_kernel_release(kernel);
 }
 
+/// A basis on an SVE truncated to 2 functions has no default tau sampling
+/// points: they need the extrema of u_1, which has none. Indexing the empty
+/// extrema panicked (SPIR_INTERNAL_ERROR, -7); the default points are not
+/// supported now. Points that need only u_0 and u_1, and the default
+/// real-frequency points, are still returned.
+#[test]
+fn default_taus_of_an_sve_truncated_to_two_functions_are_not_supported() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let truncated = spir_sve_result_truncate(sve, 0.0, 2, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+    for statistics in STATISTICS {
+        let (status, basis) = try_basis_new(statistics, kernel, truncated, EPS, -1);
+        assert_eq!(
+            status, SPIR_COMPUTATION_SUCCESS,
+            "statistics = {statistics}"
+        );
+
+        let mut n = UNTOUCHED;
+        assert_eq!(
+            spir_basis_get_n_default_taus(basis, &mut n),
+            SPIR_NOT_SUPPORTED
+        );
+        assert_eq!(n, UNTOUCHED);
+        let mut points = vec![f64::NAN; 16];
+        assert_eq!(
+            spir_basis_get_default_taus(basis, points.as_mut_ptr()),
+            SPIR_NOT_SUPPORTED
+        );
+        assert!(points.iter().all(|p| p.is_nan()));
+        let mut returned = UNTOUCHED;
+        assert_eq!(
+            spir_basis_get_default_taus_ext(basis, 5, points.as_mut_ptr(), &mut returned),
+            SPIR_NOT_SUPPORTED
+        );
+        assert_eq!(returned, UNTOUCHED);
+
+        // One point: the root of u_1
+        assert_eq!(
+            spir_basis_get_default_taus_ext(basis, 1, points.as_mut_ptr(), &mut returned),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        assert_eq!(returned, 1);
+        let mut n_ws = 0;
+        assert_eq!(
+            spir_basis_get_n_default_ws(basis, &mut n_ws),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        assert!(n_ws > 0);
+        spir_basis_release(basis);
+    }
+    spir_sve_result_release(truncated);
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
 /// A matrix of rank 0 leaves no singular functions: the empty vector of
 /// functions made the C API panic (SPIR_INTERNAL_ERROR, -7).
 #[test]

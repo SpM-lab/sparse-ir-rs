@@ -573,6 +573,10 @@ pub extern "C" fn spir_basis_get_singular_values(
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last one has no
+///   extrema to stand in for the roots of the missing one (e.g. an SVE from
+///   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_n_default_taus(
@@ -610,6 +614,10 @@ pub extern "C" fn spir_basis_get_n_default_taus(
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last one has no
+///   extrema to stand in for the roots of the missing one (e.g. an SVE from
+///   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_default_taus(
@@ -896,7 +904,13 @@ pub unsafe extern "C" fn spir_basis_get_v(
 /// * `num_points` - Pointer to store the number of sampling points
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success)
+/// * `SPIR_COMPUTATION_SUCCESS` (0) on success
+/// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last v has no
+///   extrema to stand in for the roots of the missing one. Nothing is
+///   written.
+/// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure that `b` and `num_points` are valid pointers
@@ -929,7 +943,13 @@ pub extern "C" fn spir_basis_get_n_default_ws(
 /// * `points` - Pre-allocated array to store the omega sampling points
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success)
+/// * `SPIR_COMPUTATION_SUCCESS` (0) on success
+/// * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last v has no
+///   extrema to stand in for the roots of the missing one. Nothing is
+///   written.
+/// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure that `points` has size >= `spir_basis_get_n_default_ws(b)`
@@ -1150,6 +1170,11 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+/// * `SPIR_NOT_SUPPORTED` (-5) if `n_points` is at least the number of
+///   singular functions of the SVE of `b` and the default points are not
+///   defined for it: the last singular function has no extrema to stand in
+///   for the roots of the missing one (e.g. an SVE from
+///   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
