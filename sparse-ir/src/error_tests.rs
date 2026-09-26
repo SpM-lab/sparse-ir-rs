@@ -93,6 +93,33 @@ fn test_message_of_every_variant() {
     }
 }
 
+/// InvalidMatsubaraIndex says why n is not allowed: a wrong parity, or a
+/// negative n where only non-negative frequencies are allowed (positive-only
+/// samplings, #247). The fields are those of spec §3; the message follows
+/// from n and the statistics.
+#[test]
+fn test_invalid_matsubara_index_messages() {
+    let message = |n, statistics| Error::InvalidMatsubaraIndex { n, statistics }.to_string();
+    assert_eq!(
+        message(2, Statistics::Fermionic),
+        "Matsubara frequency n = 2 is not allowed for fermionic statistics"
+    );
+    assert_eq!(
+        message(-3, Statistics::Bosonic),
+        "Matsubara frequency n = -3 is not allowed for bosonic statistics"
+    );
+    assert_eq!(
+        message(-3, Statistics::Fermionic),
+        "Matsubara frequency n = -3 is negative, but only non-negative frequencies are \
+         allowed here (positive-only sampling)"
+    );
+    assert_eq!(
+        message(-2, Statistics::Bosonic),
+        "Matsubara frequency n = -2 is negative, but only non-negative frequencies are \
+         allowed here (positive-only sampling)"
+    );
+}
+
 /// `Error` can be returned with `?` as a boxed `Send + Sync` error, e.g. to
 /// `anyhow`, and downcast back to the typed error.
 #[test]

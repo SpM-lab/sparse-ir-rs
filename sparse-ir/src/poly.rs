@@ -1209,21 +1209,24 @@ impl std::ops::Index<usize> for PiecewiseLegendrePolyVector {
 /// which is sensible due to the strong interleaving property of these
 /// functions' roots.
 ///
+/// `name` names `u` in the errors (`"u"` or `"v"`).
+///
 /// # Errors
 ///
-/// * [`Error::InvalidParameter`] if `u` is not on [-1, 1] (1e-10), i.e. not
-///   the unscaled functions of an SVE
+/// * [`Error::InvalidParameter`] named `name` if `u` is not on [-1, 1]
+///   (1e-10), i.e. not the unscaled functions of an SVE
 /// * [`Error::NotSupported`] if the extrema are needed and the last function
 ///   has none (e.g. an SVE truncated to 2 functions, whose u_1 is monotonic)
 pub(crate) fn default_sampling_points(
     u: &PiecewiseLegendrePolyVector,
+    name: &'static str,
     l: usize,
 ) -> Result<Vec<f64>, Error> {
     // C++: if (u.xmin() != -1.0 || u.xmax() != 1.0)
     //          throw std::runtime_error("Expecting unscaled functions here.");
     if (u.xmin() - (-1.0)).abs() > 1e-10 || (u.xmax() - 1.0).abs() > 1e-10 {
         return Err(Error::InvalidParameter {
-            name: "u",
+            name,
             value: format!("functions on [{:?}, {:?}]", u.xmin(), u.xmax()),
             reason: "must be the unscaled functions of an SVE, on [-1, 1]".to_string(),
         });

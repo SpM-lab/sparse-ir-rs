@@ -668,17 +668,24 @@ fn test_default_tau_points_of_an_sve_truncated_to_two_functions() {
 }
 
 /// default_sampling_points needs the unscaled functions of an SVE, on
-/// [-1, 1]; the functions of a basis (on [0, β]) are rejected. It panicked.
+/// [-1, 1]; the functions of a basis (on [0, β] and [-ωmax, ωmax]) are
+/// rejected, under the name the caller gives them. It panicked.
 #[test]
 fn test_default_sampling_points_rejects_scaled_functions() {
     use crate::poly::default_sampling_points;
 
+    // β = 1 and Λ = 10: u is on [0, 1] and v on [-10, 10], neither on [-1, 1].
     let basis =
-        FermionicBasis::new(LogisticKernel::new(10.0).unwrap(), 10.0, Some(1e-6), None).unwrap();
-    let err = default_sampling_points(basis.u(), 3).unwrap_err();
+        FermionicBasis::new(LogisticKernel::new(10.0).unwrap(), 1.0, Some(1e-6), None).unwrap();
+    let err = default_sampling_points(basis.u(), "u", 3).unwrap_err();
     assert!(
         matches!(err, Error::InvalidParameter { name: "u", .. }),
         "{err:?}"
     );
-    assert!(default_sampling_points(&basis.sve_result().u, 3).is_ok());
+    let err = default_sampling_points(basis.v(), "v", 3).unwrap_err();
+    assert!(
+        matches!(err, Error::InvalidParameter { name: "v", .. }),
+        "{err:?}"
+    );
+    assert!(default_sampling_points(&basis.sve_result().u, "u", 3).is_ok());
 }

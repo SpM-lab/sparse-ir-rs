@@ -38,12 +38,11 @@ pub enum Error {
         /// The closed interval `(lower, upper)` of valid points
         domain: (f64, f64),
     },
-    /// A Matsubara frequency index has the wrong parity: `n` must be odd for
-    /// fermionic and even for bosonic statistics.
-    #[error(
-        "Matsubara frequency n = {n} is not allowed for {} statistics",
-        .statistics.as_str()
-    )]
+    /// A Matsubara frequency index is not allowed: `n` must be odd for
+    /// fermionic and even for bosonic statistics, and non-negative for a
+    /// positive-only sampling. The message says which: a wrong parity, or a
+    /// negative `n` of the right parity.
+    #[error("{}", invalid_matsubara_index_message(.n, .statistics))]
     InvalidMatsubaraIndex {
         /// The rejected index
         n: i64,
@@ -137,6 +136,27 @@ impl Error {
             Error::KernelStatisticsMismatch | Error::NotSupported { .. } => ErrorKind::NotSupported,
             Error::DecompositionFailed { .. } => ErrorKind::Internal,
         }
+    }
+}
+
+/// Message of [`Error::InvalidMatsubaraIndex`]: an `n` of the parity of
+/// `statistics` can only have been rejected for being negative (in a
+/// positive-only sampling)
+fn invalid_matsubara_index_message(n: &i64, statistics: &Statistics) -> String {
+    let parity_ok = match statistics {
+        Statistics::Fermionic => n.rem_euclid(2) == 1,
+        Statistics::Bosonic => n.rem_euclid(2) == 0,
+    };
+    if parity_ok && *n < 0 {
+        format!(
+            "Matsubara frequency n = {n} is negative, but only non-negative frequencies are \
+             allowed here (positive-only sampling)"
+        )
+    } else {
+        format!(
+            "Matsubara frequency n = {n} is not allowed for {} statistics",
+            statistics.as_str()
+        )
     }
 }
 

@@ -173,8 +173,11 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Errors
     ///
-    /// None for the bases of this crate: every `MatsubaraFreq<S>` has the
-    /// parity of the statistics, so every frequency can be evaluated.
+    /// Implementors may return errors. The bases of this crate
+    /// ([`FiniteTempBasis`](crate::basis::FiniteTempBasis) and
+    /// [`DiscreteLehmannRepresentation`](crate::dlr::DiscreteLehmannRepresentation))
+    /// never do: every `MatsubaraFreq<S>` has the parity of the statistics, so
+    /// every frequency can be evaluated.
     fn evaluate_matsubara(
         &self,
         freqs: &[MatsubaraFreq<S>],

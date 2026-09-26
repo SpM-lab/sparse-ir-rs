@@ -475,7 +475,7 @@ where
         &self,
         size_requested: usize,
     ) -> Result<Vec<f64>, Error> {
-        let x = default_sampling_points(&self.sve_result.u, size_requested)?;
+        let x = default_sampling_points(&self.sve_result.u, "u", size_requested)?;
         let half_beta = self.beta / 2.0;
         // Map roots to physical tau ∈ [0, β], then fold to [-β/2, β/2]
         let mut smpl_taus: Vec<f64> = x
@@ -726,7 +726,7 @@ where
 
         // Use UNTRUNCATED sve_result.v (same as C++)
         // C++: default_sampling_points(*(sve_result->v), sz)
-        let y = default_sampling_points(&self.sve_result.v, sz)?;
+        let y = default_sampling_points(&self.sve_result.v, "v", sz)?;
 
         // Scale to [-ωmax, ωmax]
         let wmax = self.kernel.lambda() / self.beta;

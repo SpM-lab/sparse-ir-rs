@@ -521,6 +521,34 @@ fn test_default_matsubara_points_need_functions_of_definite_parity() {
     assert!(!basis.default_omega_sampling_points().unwrap().is_empty());
 }
 
+/// The entry points that go through the Basis trait report the same
+/// NotSupported for a basis without parity (#183): the trait method itself
+/// and the two Matsubara samplings built from it.
+#[test]
+fn test_trait_paths_to_default_matsubara_points_need_definite_parity() {
+    use crate::basis_trait::Basis;
+    use crate::error::Error;
+    use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
+    use crate::sve::{TworkType, compute_sve_general};
+
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
+            .unwrap();
+    let not_supported = |err: Error| {
+        assert!(
+            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
+            "{err:?}"
+        );
+    };
+    for positive_only in [false, true] {
+        not_supported(Basis::default_matsubara_sampling_points(&basis, positive_only).unwrap_err());
+    }
+    not_supported(MatsubaraSampling::new(&basis).err().unwrap());
+    not_supported(MatsubaraSamplingPositiveOnly::new(&basis).err().unwrap());
+}
+
 /// `set` rejects an index past the end, including `index == len`, and then
 /// leaves the vector unchanged.
 #[test]
