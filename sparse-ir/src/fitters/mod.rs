@@ -469,4 +469,66 @@ mod tests {
         );
         assert!(out_nd.iter().all(|&x| x == CANARY));
     }
+
+    /// The error of a failed SVD names the matrix. The positive-only
+    /// (complex-to-real) fitter decomposes the real 2n x m matrix stacked from
+    /// the n x m complex sampling matrix; it reported that stacked matrix as
+    /// "the 2n x m sampling matrix", which is not the matrix the user gave.
+    #[test]
+    fn test_svd_errors_name_the_matrix() {
+        let reason = |err: Error| match err {
+            Error::DecompositionFailed { reason } => reason,
+            err => panic!("{err:?}"),
+        };
+        let sampling = format!("the SVD of the {N_POINTS} x {BASIS_SIZE} sampling matrix failed: ");
+
+        let mut m = real_matrix();
+        m[[1, 1]] = f64::NAN;
+        let r = reason(RealMatrixFitter::new(m).condition_number().unwrap_err());
+        assert!(r.starts_with(&sampling), "{r}");
+
+        let mut mc = complex_matrix();
+        mc[[2, 0]] = Complex::new(0.0, f64::INFINITY);
+        let r = reason(
+            ComplexMatrixFitter::new(mc.clone())
+                .condition_number()
+                .unwrap_err(),
+        );
+        assert!(r.starts_with(&sampling), "{r}");
+
+        let r = reason(
+            ComplexToRealFitter::new(&mc)
+                .condition_number()
+                .unwrap_err(),
+        );
+        let stacked = format!(
+            "the SVD of the {} x {BASIS_SIZE} real matrix stacked from the \
+             {N_POINTS} x {BASIS_SIZE} complex sampling matrix failed: ",
+            2 * N_POINTS
+        );
+        assert!(r.starts_with(&stacked), "{r}");
+    }
+
+    /// ComplexToRealFitter::evaluate_nd_zz_to checks the axis and the input
+    /// before it copies the real parts of the coefficients: the same errors,
+    /// in the same order, as the evaluate_nd_dz_to it delegates to.
+    #[test]
+    fn test_complex_to_real_zz_checks_the_input_first() {
+        let f = ComplexToRealFitter::new(&complex_matrix());
+        let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&[N_POINTS, 2][..]);
+        let coeffs = Tensor::<Complex<f64>, DynRank>::zeros(&[BASIS_SIZE, 2][..]);
+        assert_eq!(
+            InplaceFitter::evaluate_nd_zz_to(&f, None, &coeffs, 2, &mut out.expr_mut()),
+            Err(Error::AxisOutOfRange { axis: 2, rank: 2 })
+        );
+        let wrong = Tensor::<Complex<f64>, DynRank>::zeros(&[BASIS_SIZE + 1, 2][..]);
+        assert_eq!(
+            InplaceFitter::evaluate_nd_zz_to(&f, None, &wrong, 0, &mut out.expr_mut()),
+            Err(Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                expected: vec![BASIS_SIZE, 2],
+                actual: vec![BASIS_SIZE + 1, 2],
+            })
+        );
+    }
 }

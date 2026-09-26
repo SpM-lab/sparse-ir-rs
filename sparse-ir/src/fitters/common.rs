@@ -451,10 +451,16 @@ pub(crate) fn check_len(which: ArrayRole, len: usize, expected: usize) -> Result
     }
 }
 
-/// The error of an SVD of a `rows × cols` sampling matrix that failed
-fn svd_failed((rows, cols): (usize, usize), err: impl std::fmt::Display) -> Error {
+/// Name of a `rows × cols` sampling matrix in an error
+fn sampling_matrix((rows, cols): (usize, usize)) -> String {
+    format!("{rows} x {cols} sampling matrix")
+}
+
+/// The error of an SVD that failed; `matrix` names the matrix, e.g.
+/// "5 x 3 sampling matrix"
+fn svd_failed(matrix: String, err: impl std::fmt::Display) -> Error {
     Error::DecompositionFailed {
-        reason: format!("the SVD of the {rows} x {cols} sampling matrix failed: {err}"),
+        reason: format!("the SVD of the {matrix} failed: {err}"),
     }
 }
 
@@ -466,6 +472,14 @@ fn svd_failed((rows, cols): (usize, usize), err: impl std::fmt::Display) -> Erro
 /// matrix with a NaN or an infinite entry (which the public constructors
 /// of the samplings reject)
 pub(crate) fn compute_real_svd(matrix: &DTensor<f64, 2>) -> Result<RealSVD, Error> {
+    compute_real_svd_of(matrix, || sampling_matrix(*matrix.shape()))
+}
+
+/// [`compute_real_svd`] of a matrix that `name` names in the error
+pub(crate) fn compute_real_svd_of(
+    matrix: &DTensor<f64, 2>,
+    name: impl FnOnce() -> String,
+) -> Result<RealSVD, Error> {
     use mdarray_linalg::prelude::SVD;
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
@@ -474,9 +488,7 @@ pub(crate) fn compute_real_svd(matrix: &DTensor<f64, 2>) -> Result<RealSVD, Erro
     let _guard = FpuGuard::new_protect_computation();
 
     let mut a = matrix.clone();
-    let SVDDecomp { u, s, vt } = Faer
-        .svd(&mut *a)
-        .map_err(|e| svd_failed(*matrix.shape(), e))?;
+    let SVDDecomp { u, s, vt } = Faer.svd(&mut *a).map_err(|e| svd_failed(name(), e))?;
 
     // Extract singular values from first row
     let min_dim = s.shape().0.min(s.shape().1);
@@ -512,7 +524,7 @@ pub(crate) fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> Result<C
     // Compute complex SVD directly
     let SVDDecomp { u, s, vt } = Faer
         .svd(&mut *matrix_c64)
-        .map_err(|e| svd_failed(*matrix.shape(), e))?;
+        .map_err(|e| svd_failed(sampling_matrix(*matrix.shape()), e))?;
 
     // Extract singular values from first row (they are real even though stored as Complex)
     let min_dim = s.shape().0.min(s.shape().1);

@@ -13,7 +13,7 @@ use num_complex::Complex;
 use std::sync::OnceLock;
 
 use super::common::{
-    InplaceFitter, RealSVD, check_len, check_nd_shapes, compute_real_svd,
+    InplaceFitter, RealSVD, check_input_shape, check_len, check_nd_shapes, compute_real_svd_of,
     condition_number_from_singular_values,
 };
 use crate::error::{ArrayRole, Error};
@@ -153,15 +153,21 @@ struct RealSVDExtended {
 }
 
 impl RealSVDExtended {
-    /// Create extended SVD from matrix with pre-computed transposes
+    /// Create extended SVD from the stacked real matrix of an
+    /// `n_points × cols` complex sampling matrix, with pre-computed transposes
     ///
     /// # Errors
     ///
     /// [`Error::DecompositionFailed`] if the SVD fails
-    fn from_matrix(matrix: &DTensor<f64, 2>) -> Result<Self, Error> {
-        let svd = compute_real_svd(matrix)?;
-        let min_dim = svd.s.len();
+    fn from_matrix(matrix: &DTensor<f64, 2>, n_points: usize) -> Result<Self, Error> {
         let (rows, cols) = *matrix.shape();
+        let svd = compute_real_svd_of(matrix, || {
+            format!(
+                "{rows} x {cols} real matrix stacked from the {n_points} x {cols} \
+                 complex sampling matrix"
+            )
+        })?;
+        let min_dim = svd.s.len();
 
         // U = ut^T: shape (rows, min_dim)
         let u = DTensor::<f64, 2>::from_fn([rows, min_dim], |idx| svd.ut[[idx[1], idx[0]]]);
@@ -647,7 +653,7 @@ impl ComplexToRealFitter {
                     n_points, effective_points, basis_size
                 );
             }
-            RealSVDExtended::from_matrix(&self.matrix_real)
+            RealSVDExtended::from_matrix(&self.matrix_real, n_points)
         })
         .as_ref()
         .map_err(Clone::clone)
@@ -908,6 +914,10 @@ impl InplaceFitter for ComplexToRealFitter {
                 coeffs_shape.push(*d);
             }
         });
+
+        // Check the axis and the input before copying anything; the
+        // delegate checks them again, and `out`.
+        check_input_shape(&coeffs_shape, dim, ComplexToRealFitter::basis_size(self))?;
 
         // Extract real parts to temporary buffer
         let total = coeffs.len();
