@@ -9,11 +9,11 @@ use num_complex::Complex;
 use std::sync::OnceLock;
 
 use super::common::{
-    ComplexSVD, InplaceFitter, check_nd_shapes, combine_complex, compute_complex_svd,
+    ComplexSVD, InplaceFitter, check_len, check_nd_shapes, combine_complex, compute_complex_svd,
     condition_number_from_singular_values, copy_from_contiguous, extract_real_parts_coeffs,
     make_perm_to_front,
 };
-use crate::error::Error;
+use crate::error::{ArrayRole, Error};
 
 /// Fitter for complex matrix with complex coefficients: A ∈ C^{n×m}
 ///
@@ -45,8 +45,8 @@ use crate::error::Error;
 /// let coeffs: Vec<Complex<f64>> = (0..m)
 ///     .map(|l| Complex::new(1.0 + l as f64, -0.5 * l as f64))
 ///     .collect();
-/// let values = sampling.evaluate(&coeffs); // → Vec<Complex<f64>>
-/// let fitted_coeffs = sampling.fit(&values); // ← Vec<Complex<f64>>, → Vec<Complex<f64>>
+/// let values = sampling.evaluate(&coeffs).unwrap(); // → Vec<Complex<f64>>
+/// let fitted_coeffs = sampling.fit(&values).unwrap(); // ← Vec<Complex<f64>>, → Vec<Complex<f64>>
 /// for (c, f) in coeffs.iter().zip(&fitted_coeffs) {
 ///     assert!((c - f).norm() < 1e-12);
 /// }
@@ -59,7 +59,7 @@ pub(crate) struct ComplexMatrixFitter {
     matrix_im: DTensor<f64, 2>,   // (n_points, basis_size)
     matrix_re_t: DTensor<f64, 2>, // (basis_size, n_points) - transposed
     matrix_im_t: DTensor<f64, 2>, // (basis_size, n_points) - transposed
-    svd: OnceLock<ComplexSVDExtended>,
+    svd: OnceLock<Result<ComplexSVDExtended, Error>>,
 }
 
 /// Extended SVD structure with pre-computed transposes for dim=1 operations
@@ -135,8 +135,14 @@ impl ComplexMatrixFitter {
     ///
     /// Uses the SVD that fitting uses (computed on first use, then cached).
     /// See [`condition_number_from_singular_values`] for edge cases.
-    pub fn condition_number(&self) -> f64 {
-        condition_number_from_singular_values(&self.get_svd().svd.s)
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DecompositionFailed`] if the SVD fails
+    pub fn condition_number(&self) -> Result<f64, Error> {
+        Ok(condition_number_from_singular_values(
+            &self.get_svd()?.svd.s,
+        ))
     }
 
     /// Evaluate: coeffs (complex) → values (complex)
@@ -146,19 +152,13 @@ impl ComplexMatrixFitter {
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &[Complex<f64>],
-    ) -> Vec<Complex<f64>> {
-        assert_eq!(
-            coeffs.len(),
-            self.basis_size(),
-            "coeffs.len()={} must equal basis_size={}",
-            coeffs.len(),
-            self.basis_size()
-        );
+    ) -> Result<Vec<Complex<f64>>, Error> {
+        check_len(ArrayRole::Input, coeffs.len(), self.basis_size())?;
 
         let n_points = self.n_points();
         let mut out = vec![Complex::new(0.0, 0.0); n_points];
-        self.evaluate_to(backend, coeffs, &mut out);
-        out
+        self.evaluate_to(backend, coeffs, &mut out)?;
+        Ok(out)
     }
 
     /// Evaluate: coeffs (complex) → values (complex), writing to output slice
@@ -169,9 +169,9 @@ impl ComplexMatrixFitter {
         backend: Option<&GemmBackendHandle>,
         coeffs: &[Complex<f64>],
         out: &mut [Complex<f64>],
-    ) {
-        assert_eq!(coeffs.len(), self.basis_size());
-        assert_eq!(out.len(), self.n_points());
+    ) -> Result<(), Error> {
+        check_len(ArrayRole::Input, coeffs.len(), self.basis_size())?;
+        check_len(ArrayRole::Output, out.len(), self.n_points())?;
 
         // Create views treating slices as column vectors [N, 1]
         let coeffs_view = unsafe {
@@ -183,6 +183,7 @@ impl ComplexMatrixFitter {
             mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(out.as_mut_ptr(), mapping)
         };
         self.evaluate_2d_to(backend, &coeffs_view, &mut out_view);
+        Ok(())
     }
 
     /// Fit: values (complex) → coeffs (complex)
@@ -192,19 +193,13 @@ impl ComplexMatrixFitter {
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &[Complex<f64>],
-    ) -> Vec<Complex<f64>> {
-        assert_eq!(
-            values.len(),
-            self.n_points(),
-            "values.len()={} must equal n_points={}",
-            values.len(),
-            self.n_points()
-        );
+    ) -> Result<Vec<Complex<f64>>, Error> {
+        check_len(ArrayRole::Input, values.len(), self.n_points())?;
 
         let basis_size = self.basis_size();
         let mut out = vec![Complex::new(0.0, 0.0); basis_size];
-        self.fit_to(backend, values, &mut out);
-        out
+        self.fit_to(backend, values, &mut out)?;
+        Ok(out)
     }
 
     /// Fit: values (complex) → coeffs (complex), writing to output slice
@@ -215,9 +210,11 @@ impl ComplexMatrixFitter {
         backend: Option<&GemmBackendHandle>,
         values: &[Complex<f64>],
         out: &mut [Complex<f64>],
-    ) {
-        assert_eq!(values.len(), self.n_points());
-        assert_eq!(out.len(), self.basis_size());
+    ) -> Result<(), Error> {
+        check_len(ArrayRole::Input, values.len(), self.n_points())?;
+        check_len(ArrayRole::Output, out.len(), self.basis_size())?;
+        // The fit needs the SVD: compute it (or fail) before writing
+        self.get_svd()?;
 
         // Create views treating slices as column vectors [N, 1]
         let values_view = unsafe {
@@ -228,7 +225,7 @@ impl ComplexMatrixFitter {
             let mapping = mdarray::DenseMapping::new((out.len(), 1));
             mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(out.as_mut_ptr(), mapping)
         };
-        self.fit_2d_to(backend, &values_view, &mut out_view);
+        self.fit_2d_to(backend, &values_view, &mut out_view)
     }
 
     /// Evaluate 2D complex tensor (along dim=0) using matrix multiplication
@@ -357,7 +354,7 @@ impl ComplexMatrixFitter {
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,
-    ) -> DTensor<Complex<f64>, 2> {
+    ) -> Result<DTensor<Complex<f64>, 2>, Error> {
         let (n_points, extra_size) = *values_2d.shape();
         assert_eq!(
             n_points,
@@ -370,8 +367,8 @@ impl ComplexMatrixFitter {
         let basis_size = self.basis_size();
         let mut out = DTensor::<Complex<f64>, 2>::zeros([basis_size, extra_size]);
         let mut out_view = out.view_mut(.., ..);
-        self.fit_2d_to(backend, values_2d, &mut out_view);
-        out
+        self.fit_2d_to(backend, values_2d, &mut out_view)?;
+        Ok(out)
     }
 
     /// Fit 2D complex tensor (along dim=0), writing to a mutable view
@@ -389,7 +386,7 @@ impl ComplexMatrixFitter {
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,
         out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
-    ) {
+    ) -> Result<(), Error> {
         use crate::gemm::{matmul_par_to_viewmut, matmul_par_view};
 
         let (n_points, extra_size) = *values_2d.shape();
@@ -416,7 +413,7 @@ impl ComplexMatrixFitter {
         );
 
         // Compute SVD lazily
-        let svd_ext = self.get_svd();
+        let svd_ext = self.get_svd()?;
         let svd = &svd_ext.svd;
 
         // coeffs_2d = V * S^{-1} * U^H * values_2d
@@ -437,6 +434,7 @@ impl ComplexMatrixFitter {
         let v_view = svd.v.view(.., ..);
         let uh_values_view = uh_values.view(.., ..);
         matmul_par_to_viewmut(&v_view, &uh_values_view, out, backend);
+        Ok(())
     }
 
     /// Fit 2D complex values to real coefficients (along dim=0)
@@ -453,12 +451,12 @@ impl ComplexMatrixFitter {
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,
-    ) -> DTensor<f64, 2> {
+    ) -> Result<DTensor<f64, 2>, Error> {
         // Fit as complex, then take real part
-        let coeffs_complex = self.fit_2d(backend, values_2d);
+        let coeffs_complex = self.fit_2d(backend, values_2d)?;
 
         // Extract real part
-        extract_real_parts_coeffs(&coeffs_complex)
+        Ok(extract_real_parts_coeffs(&coeffs_complex))
     }
 
     /// Evaluate 2D complex tensor with configurable target dimension
@@ -550,14 +548,14 @@ impl ComplexMatrixFitter {
         values_2d: &DView<'_, Complex<f64>, 2>,
         out: &mut mdarray::DViewMut<'_, Complex<f64>, 2>,
         dim: usize,
-    ) {
+    ) -> Result<(), Error> {
         use crate::gemm::{matmul_par_to_viewmut, matmul_par_view};
 
         let (values_rows, values_cols) = *values_2d.shape();
         let (out_rows, out_cols) = *out.shape();
 
         // Compute SVD lazily
-        let svd_ext = self.get_svd();
+        let svd_ext = self.get_svd()?;
         let svd = &svd_ext.svd;
         let min_dim = svd.s.len();
 
@@ -642,24 +640,30 @@ impl ComplexMatrixFitter {
             let values_u_view = values_u.view(.., ..);
             matmul_par_to_viewmut(&values_u_view, &vt_view, out, backend);
         }
+        Ok(())
     }
 
-    /// Get extended SVD, computing it lazily if needed.
-    fn get_svd(&self) -> &ComplexSVDExtended {
-        self.svd.get_or_init(|| {
-            let n_points = self.n_points();
-            let basis_size = self.basis_size();
-            if n_points < basis_size {
-                debug_warn!(
-                    "Number of sampling points ({}) is less than basis size ({}). \
-                     Fitting may be ill-conditioned.",
-                    n_points,
-                    basis_size
-                );
-            }
-            let svd = compute_complex_svd(&self.matrix);
-            ComplexSVDExtended::from_svd(svd, self.n_points(), self.basis_size())
-        })
+    /// Extended SVD of the matrix, computed on first use and then cached,
+    /// like its error if it fails
+    fn get_svd(&self) -> Result<&ComplexSVDExtended, Error> {
+        self.svd
+            .get_or_init(|| {
+                let n_points = self.n_points();
+                let basis_size = self.basis_size();
+                if n_points < basis_size {
+                    debug_warn!(
+                        "Number of sampling points ({}) is less than basis size ({}). \
+                         Fitting may be ill-conditioned.",
+                        n_points,
+                        basis_size
+                    );
+                }
+                compute_complex_svd(&self.matrix).map(|svd| {
+                    ComplexSVDExtended::from_svd(svd, self.n_points(), self.basis_size())
+                })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
     }
 
     /// Evaluate ND complex tensor (along specified dim)
@@ -814,6 +818,8 @@ impl ComplexMatrixFitter {
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
             return Ok(());
         }
+        // The fit needs the SVD: compute it (or fail) before any path writes
+        self.get_svd()?;
 
         let total = values.len();
         let extra_size = total / n_points;
@@ -830,7 +836,7 @@ impl ComplexMatrixFitter {
                 mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(out.as_mut_ptr(), mapping)
             };
 
-            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0);
+            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0)?;
         } else if dim == rank - 1 {
             // Fast path 2: dim == N-1, no movedim needed
             let values_2d = unsafe {
@@ -843,10 +849,10 @@ impl ComplexMatrixFitter {
                 mdarray::DViewMut::<'_, Complex<f64>, 2>::new_unchecked(out.as_mut_ptr(), mapping)
             };
 
-            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 1);
+            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 1)?;
         } else {
             // General path: batched GEMM approach
-            self.fit_nd_zz_to_batched(backend, values, dim, out);
+            self.fit_nd_zz_to_batched(backend, values, dim, out)?;
         }
         Ok(())
     }
@@ -858,7 +864,7 @@ impl ComplexMatrixFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
+    ) -> Result<(), Error> {
         let rank = values.rank();
         let n_points = self.n_points();
         let basis_size = self.basis_size();
@@ -898,8 +904,9 @@ impl ComplexMatrixFitter {
                 )
             };
 
-            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0);
+            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0)?;
         }
+        Ok(())
     }
 
     /// Evaluate ND real tensor to complex (along specified dim)
@@ -1107,6 +1114,8 @@ impl ComplexMatrixFitter {
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
             return Ok(());
         }
+        // The fit needs the SVD: compute it (or fail) before any path writes
+        self.get_svd()?;
 
         // Build output shape for complex temp buffer
         let mut temp_shape: Vec<usize> = Vec::with_capacity(rank);
@@ -1258,10 +1267,10 @@ mod tests {
             .map(|i| Complex::new((i as f64 + 1.0) * 0.5, (i as f64) * 0.3))
             .collect();
 
-        let values = fitter.evaluate(None, &coeffs);
+        let values = fitter.evaluate(None, &coeffs).unwrap();
         assert_eq!(values.len(), n_points);
 
-        let fitted_coeffs = fitter.fit(None, &values);
+        let fitted_coeffs = fitter.fit(None, &values).unwrap();
         assert_eq!(fitted_coeffs.len(), basis_size);
 
         for (i, (orig, fitted)) in coeffs.iter().zip(fitted_coeffs.iter()).enumerate() {
@@ -1293,9 +1302,9 @@ mod tests {
 
         let coeffs_real: Vec<f64> = (0..basis_size).map(|i| i as f64 * 0.4).collect();
 
-        let values = fitter_c2r.evaluate(None, &coeffs_real);
+        let values = fitter_c2r.evaluate(None, &coeffs_real).unwrap();
 
-        let fitted_complex = fitter_complex.fit(None, &values);
+        let fitted_complex = fitter_complex.fit(None, &values).unwrap();
 
         for (i, &coeff_real) in coeffs_real.iter().enumerate() {
             let diff_re = (coeff_real - fitted_complex[i].re).abs();

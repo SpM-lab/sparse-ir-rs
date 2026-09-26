@@ -686,7 +686,7 @@ fn check_tau_condition_number<S: StatisticsType + 'static>() {
         basis.size(),
         sampling.n_sampling_points()
     );
-    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+    assert_condition_number_close(&label, sampling.condition_number().unwrap(), oracle);
 }
 
 #[test]
@@ -889,7 +889,7 @@ fn test_from_matrix_rejects_zero_columns() {
     let matrix = DTensor::<f64, 2>::zeros([3, 0]);
     let sampling = TauSampling::<Fermionic>::from_matrix(vec![0.1, 0.2, 0.3], matrix);
     // Not reached after the fix; crashed before it
-    sampling.condition_number();
+    sampling.condition_number().unwrap();
 }
 
 /// A tau sampling point outside [-β, β] or NaN is OutOfDomain (from
@@ -974,4 +974,59 @@ fn test_tau_nd_methods_check_the_axis_and_the_input() {
             actual: vec![np + 1, 3],
         })
     );
+}
+
+/// The 1-D methods of TauSampling report values or coefficients of the
+/// wrong length, and an `out` of the wrong length, as ShapeMismatch (they
+/// panicked), writing nothing.
+#[test]
+fn test_tau_1d_methods_check_the_lengths() {
+    use crate::error::{ArrayRole, Error};
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let sampling = TauSampling::new(&basis).unwrap();
+    let (l, np) = (sampling.basis_size(), sampling.n_sampling_points());
+    let input = |expected: usize, actual: usize| Error::ShapeMismatch {
+        which: ArrayRole::Input,
+        expected: vec![expected],
+        actual: vec![actual],
+    };
+
+    assert_eq!(sampling.evaluate(&vec![0.0; l + 1]), Err(input(l, l + 1)));
+    assert_eq!(sampling.fit(&vec![0.0; np + 1]), Err(input(np, np + 1)));
+    assert_eq!(
+        sampling.evaluate_zz(&vec![Complex::new(0.0, 0.0); l - 1]),
+        Err(input(l, l - 1))
+    );
+    assert_eq!(
+        sampling.fit_zz(&vec![Complex::new(0.0, 0.0); 0]),
+        Err(input(np, 0))
+    );
+
+    let mut out = vec![-1.0; np + 2];
+    assert_eq!(
+        sampling.evaluate_to(&vec![0.0; l], &mut out),
+        Err(Error::ShapeMismatch {
+            which: ArrayRole::Output,
+            expected: vec![np],
+            actual: vec![np + 2],
+        })
+    );
+    assert!(out.iter().all(|&x| x == -1.0));
+    let mut out = vec![-1.0; l];
+    assert_eq!(
+        sampling.fit_to(&vec![0.0; np + 1], &mut out),
+        Err(input(np, np + 1))
+    );
+    assert!(out.iter().all(|&x| x == -1.0));
+
+    // The condition number of a default sampling is finite and at least 1.
+    let cond = sampling.condition_number().unwrap();
+    assert!(cond.is_finite() && cond >= 1.0, "{cond}");
 }

@@ -33,7 +33,9 @@ use num_complex::Complex;
 /// - [`Error::ShapeMismatch`] of the input if it does not have `basis_size`
 ///   (evaluate) or `n_points` (fit) along `dim`, and of the output if `out`
 ///   does not have the shape of the input with `n_points` (evaluate) or
-///   `basis_size` (fit) along `dim`.
+///   `basis_size` (fit) along `dim`;
+/// - [`Error::DecompositionFailed`] if a fit needs the singular value
+///   decomposition of the matrix and it fails.
 ///
 /// An empty input of the right shape (a batch axis of extent 0) gives
 /// `Ok(())` without computing anything.
@@ -432,8 +434,38 @@ pub(crate) fn condition_number_from_singular_values(s: &[f64]) -> f64 {
 // SVD computation functions
 // ============================================================================
 
+/// `Ok` if a slice of `len` elements has the `expected` length
+///
+/// # Errors
+///
+/// [`Error::ShapeMismatch`] of `which`, with the lengths as one-entry shapes
+pub(crate) fn check_len(which: ArrayRole, len: usize, expected: usize) -> Result<(), Error> {
+    if len == expected {
+        Ok(())
+    } else {
+        Err(Error::ShapeMismatch {
+            which,
+            expected: vec![expected],
+            actual: vec![len],
+        })
+    }
+}
+
+/// The error of an SVD of a `rows × cols` sampling matrix that failed
+fn svd_failed((rows, cols): (usize, usize), err: impl std::fmt::Display) -> Error {
+    Error::DecompositionFailed {
+        reason: format!("the SVD of the {rows} x {cols} sampling matrix failed: {err}"),
+    }
+}
+
 /// Compute SVD of a real matrix using mdarray-linalg
-pub(crate) fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
+///
+/// # Errors
+///
+/// [`Error::DecompositionFailed`] if the SVD does not converge, e.g. for a
+/// matrix with a NaN or an infinite entry (which the public constructors
+/// of the samplings reject)
+pub(crate) fn compute_real_svd(matrix: &DTensor<f64, 2>) -> Result<RealSVD, Error> {
     use mdarray_linalg::prelude::SVD;
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
@@ -442,7 +474,9 @@ pub(crate) fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
     let _guard = FpuGuard::new_protect_computation();
 
     let mut a = matrix.clone();
-    let SVDDecomp { u, s, vt } = Faer.svd(&mut *a).expect("SVD computation failed");
+    let SVDDecomp { u, s, vt } = Faer
+        .svd(&mut *a)
+        .map_err(|e| svd_failed(*matrix.shape(), e))?;
 
     // Extract singular values from first row
     let min_dim = s.shape().0.min(s.shape().1);
@@ -454,11 +488,17 @@ pub(crate) fn compute_real_svd(matrix: &DTensor<f64, 2>) -> RealSVD {
     let u_trimmed = u.view(.., ..min_dim).to_tensor();
     let vt_trimmed = vt.view(..min_dim, ..).to_tensor();
 
-    RealSVD::new(u_trimmed, s_vec, vt_trimmed)
+    Ok(RealSVD::new(u_trimmed, s_vec, vt_trimmed))
 }
 
 /// Compute SVD of a complex matrix directly
-pub(crate) fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexSVD {
+///
+/// # Errors
+///
+/// [`Error::DecompositionFailed`] if the SVD does not converge, e.g. for a
+/// matrix with a NaN or an infinite entry (which the public constructors
+/// of the samplings reject)
+pub(crate) fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> Result<ComplexSVD, Error> {
     use mdarray_linalg::prelude::SVD;
     use mdarray_linalg::svd::SVDDecomp;
     use mdarray_linalg_faer::Faer;
@@ -472,7 +512,7 @@ pub(crate) fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexS
     // Compute complex SVD directly
     let SVDDecomp { u, s, vt } = Faer
         .svd(&mut *matrix_c64)
-        .expect("Complex SVD computation failed");
+        .map_err(|e| svd_failed(*matrix.shape(), e))?;
 
     // Extract singular values from first row (they are real even though stored as Complex)
     let min_dim = s.shape().0.min(s.shape().1);
@@ -484,7 +524,7 @@ pub(crate) fn compute_complex_svd(matrix: &DTensor<Complex<f64>, 2>) -> ComplexS
     let u_trimmed = u.view(.., ..min_dim).to_tensor();
     let vt_trimmed = vt.view(..min_dim, ..).to_tensor();
 
-    ComplexSVD::new(u_trimmed, s_vec, vt_trimmed)
+    Ok(ComplexSVD::new(u_trimmed, s_vec, vt_trimmed))
 }
 
 // ============================================================================

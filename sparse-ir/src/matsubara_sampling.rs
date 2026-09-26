@@ -207,7 +207,13 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// (numerically singular matrix). The singular value decomposition is the
     /// one fitting uses: it is computed by the first call to this method or to
     /// a fit, then cached.
-    pub fn condition_number(&self) -> f64 {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DecompositionFailed`] if the singular value decomposition
+    /// fails, which a matrix of finite entries does not cause in practice
+    /// (the constructors reject non-finite entries)
+    pub fn condition_number(&self) -> Result<f64, Error> {
         self.fitter.condition_number()
     }
 
@@ -218,7 +224,12 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// # Returns
     /// Complex values at Matsubara frequencies (length = n_sampling_points)
-    pub fn evaluate(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    pub fn evaluate(&self, coeffs: &[Complex<f64>]) -> Result<Vec<Complex<f64>>, Error> {
         self.fitter.evaluate(None, coeffs)
     }
 
@@ -229,7 +240,14 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// # Returns
     /// Fitted complex basis coefficients (length = basis_size)
-    pub fn fit(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    pub fn fit(&self, values: &[Complex<f64>]) -> Result<Vec<Complex<f64>>, Error> {
         self.fitter.fit(None, values)
     }
 
@@ -391,7 +409,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// for j in 0..2 {
     ///     let real: Vec<Complex<f64>> = (0..size).map(|l| coeffs_real[&[l, j][..]].into()).collect();
     ///     let complex: Vec<Complex<f64>> = (0..size).map(|l| coeffs_complex[&[l, j][..]]).collect();
-    ///     let (expected, expected_z) = (sampling.evaluate(&real), sampling.evaluate(&complex));
+    ///     let (expected, expected_z) = (sampling.evaluate(&real).unwrap(), sampling.evaluate(&complex).unwrap());
     ///     for i in 0..n_points {
     ///         assert!((values[&[i, j][..]] - expected[i]).norm() < 1e-12);
     ///         assert!((values_z[&[i, j][..]] - expected_z[i]).norm() < 1e-12);
@@ -494,6 +512,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -527,7 +547,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
 
         // Use fitter's efficient 2D fit (GEMM-based)
         let values_2d_view = values_2d.view(.., ..);
-        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view);
+        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view)?;
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
@@ -562,6 +582,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     pub fn fit_nd_real(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -595,7 +617,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
 
         // Use fitter's fit_2d_real method
         let values_2d_view = values_2d.view(.., ..);
-        let coeffs_2d = self.fitter.fit_2d_real(backend, &values_2d_view);
+        let coeffs_2d = self.fitter.fit_2d_real(backend, &values_2d_view)?;
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
@@ -677,6 +699,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
     ///   the shape of `values` with `basis_size` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_to(
@@ -938,17 +962,35 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// (numerically singular matrix). The singular value decomposition is the
     /// one fitting uses: it is computed by the first call to this method or to
     /// a fit, then cached.
-    pub fn condition_number(&self) -> f64 {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DecompositionFailed`] if the singular value decomposition
+    /// fails, which a matrix of finite entries does not cause in practice
+    /// (the constructors reject non-finite entries)
+    pub fn condition_number(&self) -> Result<f64, Error> {
         self.fitter.condition_number()
     }
 
     /// Evaluate basis coefficients at sampling points
-    pub fn evaluate(&self, coeffs: &[f64]) -> Vec<Complex<f64>> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    pub fn evaluate(&self, coeffs: &[f64]) -> Result<Vec<Complex<f64>>, Error> {
         self.fitter.evaluate(None, coeffs)
     }
 
     /// Fit basis coefficients from values at sampling points
-    pub fn fit(&self, values: &[Complex<f64>]) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    pub fn fit(&self, values: &[Complex<f64>]) -> Result<Vec<f64>, Error> {
         self.fitter.fit(None, values)
     }
 
@@ -1034,6 +1076,8 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -1067,7 +1111,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
 
         // Use fitter's efficient 2D fit (GEMM-based)
         let values_2d_view = values_2d.view(.., ..);
-        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view);
+        let coeffs_2d = self.fitter.fit_2d(backend, &values_2d_view)?;
 
         // 4. Reshape back to N-D with basis_size at position 0
         let basis_size = self.basis_size();
@@ -1146,6 +1190,8 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
     ///   the shape of `values` with `basis_size` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_to(

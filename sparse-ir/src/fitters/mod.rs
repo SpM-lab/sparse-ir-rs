@@ -84,8 +84,8 @@ mod tests {
 
         let coeffs: Vec<f64> = (0..basis_size).map(|i| i as f64 * 0.4).collect();
 
-        let values_real = fitter_real.evaluate(None, &coeffs);
-        let values_complex = fitter_complex.evaluate(None, &coeffs);
+        let values_real = fitter_real.evaluate(None, &coeffs).unwrap();
+        let values_complex = fitter_complex.evaluate(None, &coeffs).unwrap();
 
         for (v_real, v_complex) in values_real.iter().zip(values_complex.iter()) {
             assert!((v_real - v_complex.re).abs() < 1e-14, "Real part mismatch");
@@ -95,8 +95,8 @@ mod tests {
         let values_complex_zero_im: Vec<Complex<f64>> =
             values_real.iter().map(|&v| Complex::new(v, 0.0)).collect();
 
-        let fitted_real = fitter_real.fit(None, &values_real);
-        let fitted_complex = fitter_complex.fit(None, &values_complex_zero_im);
+        let fitted_real = fitter_real.fit(None, &values_real).unwrap();
+        let fitted_complex = fitter_complex.fit(None, &values_complex_zero_im).unwrap();
 
         for (real, complex) in fitted_real.iter().zip(fitted_complex.iter()) {
             assert!((real - complex).abs() < 1e-12, "Fitted coeffs mismatch");
@@ -353,7 +353,7 @@ mod tests {
     fn test_real_fitter_svd_with_zero_columns_does_not_crash() {
         let fitter = RealMatrixFitter::new(DTensor::<f64, 2>::zeros([3, 0]));
         // No singular values: the documented convention for a zero dimension
-        assert_eq!(fitter.condition_number(), 1.0);
+        assert_eq!(fitter.condition_number().unwrap(), 1.0);
     }
 
     /// The N-D methods check the axis first, then the input, then `out`, and
@@ -407,5 +407,66 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    /// The SVD of a matrix with a NaN or an infinity does not converge. It
+    /// panicked ("SVD computation failed") at the first fit or condition
+    /// number; it is DecompositionFailed now, the same on the second call,
+    /// and a fit writes nothing. (The public constructors reject such
+    /// matrices; the fitters are built directly here.)
+    #[test]
+    fn test_fitters_report_a_failed_svd() {
+        let failed = |err: Error| {
+            assert!(
+                matches!(&err, Error::DecompositionFailed { reason } if reason.contains("SVD")),
+                "{err:?}"
+            );
+        };
+
+        let mut m = real_matrix();
+        m[[1, 1]] = f64::NAN;
+        let f = RealMatrixFitter::new(m);
+        failed(f.condition_number().unwrap_err());
+        failed(f.condition_number().unwrap_err());
+        let mut out = vec![CANARY; BASIS_SIZE];
+        failed(f.fit_to(None, &[1.0; N_POINTS], &mut out).unwrap_err());
+        assert!(out.iter().all(|&x| x == CANARY));
+        // Evaluating does not need the SVD.
+        assert_eq!(
+            f.evaluate(None, &[1.0; BASIS_SIZE]).unwrap().len(),
+            N_POINTS
+        );
+
+        let mut mc = complex_matrix();
+        mc[[2, 0]] = Complex::new(0.0, f64::INFINITY);
+        failed(
+            ComplexMatrixFitter::new(mc.clone())
+                .condition_number()
+                .unwrap_err(),
+        );
+        failed(
+            ComplexMatrixFitter::new(mc.clone())
+                .fit(None, &[Complex::new(1.0, 0.0); N_POINTS])
+                .unwrap_err(),
+        );
+        failed(
+            ComplexToRealFitter::new(&mc)
+                .condition_number()
+                .unwrap_err(),
+        );
+        failed(
+            ComplexToRealFitter::new(&mc)
+                .fit(None, &[Complex::new(1.0, 0.0); N_POINTS])
+                .unwrap_err(),
+        );
+
+        // The N-D fit writes nothing either.
+        let values = Tensor::<f64, DynRank>::from_elem(&[N_POINTS, 2][..], 1.0);
+        let mut out_nd = Tensor::<f64, DynRank>::from_elem(&[BASIS_SIZE, 2][..], CANARY);
+        failed(
+            f.fit_nd_dd_to(None, &values, 0, &mut out_nd.expr_mut())
+                .unwrap_err(),
+        );
+        assert!(out_nd.iter().all(|&x| x == CANARY));
     }
 }

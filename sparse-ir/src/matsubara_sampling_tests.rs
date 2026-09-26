@@ -44,10 +44,10 @@ fn test_matsubara_sampling_roundtrip_generic<S: StatisticsType + 'static>() {
         );
 
     // Fit to get coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -103,10 +103,10 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
         );
 
     // Fit to get real coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -337,10 +337,10 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
         );
 
     // Fit to get coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -400,10 +400,10 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic() {
         );
 
     // Fit to get coefficients (should be real)
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -785,7 +785,7 @@ fn check_positive_only_condition_number<S: StatisticsType + 'static>(
         basis.size(),
         points.len()
     );
-    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+    assert_condition_number_close(&label, sampling.condition_number().unwrap(), oracle);
 }
 
 /// Full-set sampling reports the condition number of the complex matrix `A`
@@ -804,7 +804,7 @@ fn check_full_condition_number<S: StatisticsType + 'static>(beta: f64, wmax: f64
         basis.size(),
         points.len()
     );
-    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+    assert_condition_number_close(&label, sampling.condition_number().unwrap(), oracle);
 }
 
 #[test]
@@ -858,7 +858,7 @@ fn test_positive_only_condition_number_from_matrix() {
     );
     assert_condition_number_close(
         "from_matrix positive-only",
-        sampling.condition_number(),
+        sampling.condition_number().unwrap(),
         oracle,
     );
 }
@@ -928,10 +928,10 @@ fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
     let a = uhat_matrix(&basis, &points);
     let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), a.clone());
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
-    assert!(sampling.condition_number() < 1e2);
-    let values = sampling.evaluate(&coeffs);
+    assert!(sampling.condition_number().unwrap() < 1e2);
+    let values = sampling.evaluate(&coeffs).unwrap();
     assert_rows_times(&a, &coeffs, &values);
-    let fitted = sampling.fit(&values);
+    let fitted = sampling.fit(&values).unwrap();
     for (f, c) in fitted.iter().zip(&coeffs) {
         assert!((f - c).abs() <= 1e-10, "positive-only fit: {f} vs {c}");
     }
@@ -940,10 +940,10 @@ fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
     let a = uhat_matrix(&basis, &points);
     let sampling = MatsubaraSampling::from_matrix(points.clone(), a.clone());
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
-    assert!(sampling.condition_number() < 1e2);
-    let values = sampling.evaluate(&coeffs_z);
+    assert!(sampling.condition_number().unwrap() < 1e2);
+    let values = sampling.evaluate(&coeffs_z).unwrap();
     assert_rows_times(&a, &coeffs_z, &values);
-    let fitted = sampling.fit(&values);
+    let fitted = sampling.fit(&values).unwrap();
     for (f, c) in fitted.iter().zip(&coeffs_z) {
         assert!((f - c).norm() <= 1e-10, "full fit: {f} vs {c}");
     }
@@ -978,7 +978,7 @@ fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>
     assert_rows_times(
         &uhat_matrix(&basis, &points),
         &coeffs,
-        &sampling.evaluate(&coeffs),
+        &sampling.evaluate(&coeffs).unwrap(),
     );
 
     let points = unsorted_points(&basis, false);
@@ -987,7 +987,7 @@ fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>
     assert_rows_times(
         &uhat_matrix(&basis, &points),
         &coeffs_z,
-        &sampling.evaluate(&coeffs_z),
+        &sampling.evaluate(&coeffs_z).unwrap(),
     );
 }
 
@@ -1287,4 +1287,40 @@ fn test_matsubara_nd_methods_check_the_axis_first() {
     let err = InplaceFitter::evaluate_nd_dd_to(&positive, None, &coeffs, 0, &mut out_d.expr_mut())
         .unwrap_err();
     assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+}
+
+/// Same for the 1-D methods of both Matsubara samplings.
+#[test]
+fn test_matsubara_1d_methods_check_the_lengths() {
+    use crate::error::{ArrayRole, Error};
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let full = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
+    let l = full.basis_size();
+    let zero = Complex::new(0.0, 0.0);
+    let input = |expected: usize, actual: usize| Error::ShapeMismatch {
+        which: ArrayRole::Input,
+        expected: vec![expected],
+        actual: vec![actual],
+    };
+
+    assert_eq!(full.evaluate(&vec![zero; l + 1]), Err(input(l, l + 1)));
+    let np = full.n_sampling_points();
+    assert_eq!(full.fit(&vec![zero; np - 1]), Err(input(np, np - 1)));
+    assert_eq!(positive.evaluate(&vec![0.0; l - 1]), Err(input(l, l - 1)));
+    let np = positive.n_sampling_points();
+    assert_eq!(positive.fit(&vec![zero; np + 3]), Err(input(np, np + 3)));
+    for cond in [
+        full.condition_number().unwrap(),
+        positive.condition_number().unwrap(),
+    ] {
+        assert!(cond.is_finite() && cond >= 1.0, "{cond}");
+    }
 }

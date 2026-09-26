@@ -517,8 +517,13 @@ where
             gl_2d_dyn[&[idx[0], idx[1]][..]]
         });
 
-        // Fit using fitter's generic 2D method
-        let g_dlr_2d = self.fitter.fit_2d_generic::<T>(backend, &gl_2d);
+        // Fit using fitter's generic 2D method. The fit can only fail if the
+        // SVD does; from_ir_nd returns Result in part 5 of the typed-errors
+        // work, until then this keeps the panic of the former expect.
+        let g_dlr_2d = self
+            .fitter
+            .fit_2d_generic::<T>(backend, &gl_2d)
+            .unwrap_or_else(|e| panic!("{e}"));
 
         // Reshape back
         let n_poles = self.poles.len();

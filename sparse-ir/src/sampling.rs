@@ -275,7 +275,13 @@ where
     /// (numerically singular matrix). The singular value decomposition is the
     /// one fitting uses: it is computed by the first call to this method or to
     /// a fit, then cached.
-    pub fn condition_number(&self) -> f64 {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DecompositionFailed`] if the singular value decomposition
+    /// fails, which a matrix of finite entries does not cause in practice
+    /// (the constructors reject non-finite entries)
+    pub fn condition_number(&self) -> Result<f64, Error> {
         self.fitter.condition_number()
     }
 
@@ -292,42 +298,114 @@ where
     ///
     /// # Returns
     /// Values at sampling points (length = n_sampling_points)
-    pub fn evaluate(&self, coeffs: &[f64]) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    pub fn evaluate(&self, coeffs: &[f64]) -> Result<Vec<f64>, Error> {
         self.fitter.evaluate(None, coeffs)
     }
 
     /// Evaluate basis coefficients at sampling points, writing to output slice
-    pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `n_sampling_points`
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) -> Result<(), Error> {
         self.fitter.evaluate_to(None, coeffs, out)
     }
 
     /// Fit values at sampling points to basis coefficients
-    pub fn fit(&self, values: &[f64]) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    pub fn fit(&self, values: &[f64]) -> Result<Vec<f64>, Error> {
         self.fitter.fit(None, values)
     }
 
     /// Fit values at sampling points to basis coefficients, writing to output slice
-    pub fn fit_to(&self, values: &[f64], out: &mut [f64]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `basis_size`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn fit_to(&self, values: &[f64], out: &mut [f64]) -> Result<(), Error> {
         self.fitter.fit_to(None, values, out)
     }
 
     /// Evaluate complex basis coefficients at sampling points
-    pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Result<Vec<Complex<f64>>, Error> {
         self.fitter.evaluate_zz(None, coeffs)
     }
 
     /// Evaluate complex basis coefficients, writing to output slice
-    pub fn evaluate_zz_to(&self, coeffs: &[Complex<f64>], out: &mut [Complex<f64>]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `n_sampling_points`
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn evaluate_zz_to(
+        &self,
+        coeffs: &[Complex<f64>],
+        out: &mut [Complex<f64>],
+    ) -> Result<(), Error> {
         self.fitter.evaluate_zz_to(None, coeffs, out)
     }
 
     /// Fit complex values at sampling points to basis coefficients
-    pub fn fit_zz(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    pub fn fit_zz(&self, values: &[Complex<f64>]) -> Result<Vec<Complex<f64>>, Error> {
         self.fitter.fit_zz(None, values)
     }
 
     /// Fit complex values, writing to output slice
-    pub fn fit_zz_to(&self, values: &[Complex<f64>], out: &mut [Complex<f64>]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `basis_size`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn fit_zz_to(
+        &self,
+        values: &[Complex<f64>],
+        out: &mut [Complex<f64>],
+    ) -> Result<(), Error> {
         self.fitter.fit_zz_to(None, values, out)
     }
 
@@ -399,6 +477,8 @@ where
     /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -422,6 +502,8 @@ where
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
     ///   the shape of `values` with `basis_size` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_to(
@@ -502,6 +584,8 @@ where
     /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     pub fn fit_nd_zz(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -525,6 +609,8 @@ where
     /// * [`Error::ShapeMismatch`] of the input if `values` does not have
     ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
     ///   the shape of `values` with `basis_size` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_zz_to(

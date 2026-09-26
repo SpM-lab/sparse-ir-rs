@@ -1049,6 +1049,10 @@ pub extern "C" fn spir_sampling_get_cond_num(
             SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => matsu.condition_number(),
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => matsu.condition_number(),
         };
+        let condition_number = match condition_number {
+            Ok(value) => value,
+            Err(e) => return status_from(&e),
+        };
 
         unsafe {
             *cond_num = condition_number;

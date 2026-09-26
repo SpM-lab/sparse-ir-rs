@@ -13,10 +13,10 @@ use num_complex::Complex;
 use std::sync::OnceLock;
 
 use super::common::{
-    InplaceFitter, RealSVD, check_nd_shapes, compute_real_svd,
+    InplaceFitter, RealSVD, check_len, check_nd_shapes, compute_real_svd,
     condition_number_from_singular_values,
 };
-use crate::error::Error;
+use crate::error::{ArrayRole, Error};
 
 // ============================================================================
 // Helper functions for efficient interleave/deinterleave
@@ -120,8 +120,8 @@ fn flatten_complex_to_real_cols(values: &DView<'_, Complex<f64>, 2>, out: &mut D
 /// let sampling = MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(freqs, matrix);
 ///
 /// let coeffs = vec![1.0, 2.0, 3.0, 4.0, 5.0];
-/// let values = sampling.evaluate(&coeffs); // → Vec<Complex<f64>>
-/// let fitted_coeffs = sampling.fit(&values); // ← Vec<Complex<f64>>, → Vec<f64>
+/// let values = sampling.evaluate(&coeffs).unwrap(); // → Vec<Complex<f64>>
+/// let fitted_coeffs = sampling.fit(&values).unwrap(); // ← Vec<Complex<f64>>, → Vec<f64>
 /// for (c, f) in coeffs.iter().zip(&fitted_coeffs) {
 ///     assert!((c - f).abs() < 1e-12);
 /// }
@@ -138,7 +138,7 @@ pub(crate) struct ComplexToRealFitter {
     matrix_re_t: DTensor<f64, 2>,         // (basis_size, n_points)
     matrix_im_t: DTensor<f64, 2>,         // (basis_size, n_points)
     pub matrix: DTensor<Complex<f64>, 2>, // (n_points, basis_size) - original complex matrix
-    svd: OnceLock<RealSVDExtended>,
+    svd: OnceLock<Result<RealSVDExtended, Error>>,
     n_points: usize, // Original complex point count
 }
 
@@ -154,8 +154,12 @@ struct RealSVDExtended {
 
 impl RealSVDExtended {
     /// Create extended SVD from matrix with pre-computed transposes
-    fn from_matrix(matrix: &DTensor<f64, 2>) -> Self {
-        let svd = compute_real_svd(matrix);
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DecompositionFailed`] if the SVD fails
+    fn from_matrix(matrix: &DTensor<f64, 2>) -> Result<Self, Error> {
+        let svd = compute_real_svd(matrix)?;
         let min_dim = svd.s.len();
         let (rows, cols) = *matrix.shape();
 
@@ -165,7 +169,7 @@ impl RealSVDExtended {
         // V^T = v^T: shape (min_dim, cols)
         let vt = DTensor::<f64, 2>::from_fn([min_dim, cols], |idx| svd.v[[idx[1], idx[0]]]);
 
-        Self { svd, u, vt }
+        Ok(Self { svd, u, vt })
     }
 }
 
@@ -232,8 +236,14 @@ impl ComplexToRealFitter {
     /// this is also the condition number of the stacked `[Re A; Im A]`.
     /// Uses the SVD that fitting uses (computed on first use, then cached).
     /// See [`condition_number_from_singular_values`] for edge cases.
-    pub fn condition_number(&self) -> f64 {
-        condition_number_from_singular_values(&self.get_svd().svd.s)
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DecompositionFailed`] if the SVD fails
+    pub fn condition_number(&self) -> Result<f64, Error> {
+        Ok(condition_number_from_singular_values(
+            &self.get_svd()?.svd.s,
+        ))
     }
 
     /// Evaluate: coeffs (real) → values (complex)
@@ -243,14 +253,8 @@ impl ComplexToRealFitter {
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &[f64],
-    ) -> Vec<Complex<f64>> {
-        assert_eq!(
-            coeffs.len(),
-            self.basis_size(),
-            "coeffs.len()={} must equal basis_size={}",
-            coeffs.len(),
-            self.basis_size()
-        );
+    ) -> Result<Vec<Complex<f64>>, Error> {
+        check_len(ArrayRole::Input, coeffs.len(), self.basis_size())?;
 
         // Convert coeffs to column vector and use evaluate_2d
         let basis_size = coeffs.len();
@@ -260,30 +264,28 @@ impl ComplexToRealFitter {
 
         // Extract as Vec
         let n_points = self.n_points();
-        (0..n_points).map(|i| values_2d[[i, 0]]).collect()
+        Ok((0..n_points).map(|i| values_2d[[i, 0]]).collect())
     }
 
     /// Fit: values (complex) → coeffs (real)
     ///
     /// Solves: min ||A * coeffs - values||^2 using flattened real SVD
-    pub fn fit(&self, backend: Option<&GemmBackendHandle>, values: &[Complex<f64>]) -> Vec<f64> {
-        assert_eq!(
-            values.len(),
-            self.n_points(),
-            "values.len()={} must equal n_points={}",
-            values.len(),
-            self.n_points()
-        );
+    pub fn fit(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &[Complex<f64>],
+    ) -> Result<Vec<f64>, Error> {
+        check_len(ArrayRole::Input, values.len(), self.n_points())?;
 
         // Convert complex values to 2D tensor (column vector) and use fit_2d
         let n = values.len();
         let values_2d = DTensor::<Complex<f64>, 2>::from_fn([n, 1], |idx| values[idx[0]]);
         let values_view = values_2d.view(.., ..);
-        let coeffs_2d = self.fit_2d(backend, &values_view);
+        let coeffs_2d = self.fit_2d(backend, &values_view)?;
 
         // Extract as Vec
         let basis_size = self.basis_size();
-        (0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect()
+        Ok((0..basis_size).map(|i| coeffs_2d[[i, 0]]).collect())
     }
 
     /// Evaluate 2D real tensor to complex (along dim=0) using matrix multiplication
@@ -547,7 +549,7 @@ impl ComplexToRealFitter {
         &self,
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,
-    ) -> DTensor<f64, 2> {
+    ) -> Result<DTensor<f64, 2>, Error> {
         let (n_points, extra_size) = *values_2d.shape();
         assert_eq!(
             n_points,
@@ -560,8 +562,8 @@ impl ComplexToRealFitter {
         let basis_size = self.basis_size();
         let mut out = DTensor::<f64, 2>::zeros([basis_size, extra_size]);
         let mut out_view = out.view_mut(.., ..);
-        self.fit_2d_to(backend, values_2d, &mut out_view);
-        out
+        self.fit_2d_to(backend, values_2d, &mut out_view)?;
+        Ok(out)
     }
 
     /// Fit 2D complex tensor to real coefficients (along dim=0), writing to output
@@ -574,7 +576,7 @@ impl ComplexToRealFitter {
         backend: Option<&GemmBackendHandle>,
         values_2d: &DView<'_, Complex<f64>, 2>,
         out: &mut mdarray::DViewMut<'_, f64, 2>,
-    ) {
+    ) -> Result<(), Error> {
         use crate::gemm::{matmul_par_to_viewmut, matmul_par_view};
 
         let (n_points, extra_size) = *values_2d.shape();
@@ -605,7 +607,7 @@ impl ComplexToRealFitter {
         let mut values_flat = DTensor::<f64, 2>::zeros([2 * n_points, extra_size]);
         flatten_complex_to_real_rows(values_2d, &mut values_flat);
 
-        let svd_ext = self.get_svd();
+        let svd_ext = self.get_svd()?;
         let svd = &svd_ext.svd;
 
         // coeffs = V * S^{-1} * U^T * values_flat
@@ -627,10 +629,12 @@ impl ComplexToRealFitter {
         let v_view = svd.v.view(.., ..);
         let ut_values_view = ut_values.view(.., ..);
         matmul_par_to_viewmut(&v_view, &ut_values_view, out, backend);
+        Ok(())
     }
 
-    /// Get extended SVD, computing it lazily if needed.
-    fn get_svd(&self) -> &RealSVDExtended {
+    /// Extended SVD of the flattened matrix, computed on first use and then
+    /// cached, like its error if it fails
+    fn get_svd(&self) -> Result<&RealSVDExtended, Error> {
         self.svd.get_or_init(|| {
             let n_points = self.n_points();
             let basis_size = self.basis_size();
@@ -645,6 +649,8 @@ impl ComplexToRealFitter {
             }
             RealSVDExtended::from_matrix(&self.matrix_real)
         })
+        .as_ref()
+        .map_err(Clone::clone)
     }
 
     /// Fit 2D complex tensor to real coefficients with configurable target dimension
@@ -659,14 +665,14 @@ impl ComplexToRealFitter {
         values_2d: &DView<'_, Complex<f64>, 2>,
         out: &mut mdarray::DViewMut<'_, f64, 2>,
         dim: usize,
-    ) {
+    ) -> Result<(), Error> {
         use crate::gemm::{matmul_par_to_viewmut, matmul_par_view};
 
         let (values_rows, values_cols) = *values_2d.shape();
         let (out_rows, out_cols) = *out.shape();
 
         // Compute SVD lazily
-        let svd_ext = self.get_svd();
+        let svd_ext = self.get_svd()?;
         let svd = &svd_ext.svd;
         let min_dim = svd.s.len();
         let n_points = self.n_points();
@@ -729,6 +735,7 @@ impl ComplexToRealFitter {
             let values_u_view = values_u.view(.., ..);
             matmul_par_to_viewmut(&values_u_view, &vt_view, out, backend);
         }
+        Ok(())
     }
 
     /// Fit ND complex tensor to real coefficients (along specified dim)
@@ -763,6 +770,8 @@ impl ComplexToRealFitter {
             // does out of bounds (https://github.com/fre-hu/mdarray/issues/21).
             return Ok(());
         }
+        // The fit needs the SVD: compute it (or fail) before any path writes
+        self.get_svd()?;
 
         let total = values.len();
         let extra_size = total / n_points;
@@ -779,7 +788,7 @@ impl ComplexToRealFitter {
                 mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
             };
 
-            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0);
+            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0)?;
         } else if dim == rank - 1 {
             // Fast path 2: dim == N-1
             let values_2d = unsafe {
@@ -792,10 +801,10 @@ impl ComplexToRealFitter {
                 mdarray::DViewMut::<'_, f64, 2>::new_unchecked(out.as_mut_ptr(), mapping)
             };
 
-            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 1);
+            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 1)?;
         } else {
             // General path: batched GEMM approach
-            self.fit_nd_zd_to_batched(backend, values, dim, out);
+            self.fit_nd_zd_to_batched(backend, values, dim, out)?;
         }
         Ok(())
     }
@@ -807,7 +816,7 @@ impl ComplexToRealFitter {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
+    ) -> Result<(), Error> {
         let rank = values.rank();
         let n_points = self.n_points();
         let basis_size = self.basis_size();
@@ -848,8 +857,9 @@ impl ComplexToRealFitter {
                 )
             };
 
-            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0);
+            self.fit_2d_to_dim(backend, &values_2d, &mut out_2d, 0)?;
         }
+        Ok(())
     }
 }
 
@@ -996,11 +1006,11 @@ mod tests {
 
         let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64 + 1.0) * 0.5).collect();
 
-        let values = fitter.evaluate(None, &coeffs);
+        let values = fitter.evaluate(None, &coeffs).unwrap();
         assert_eq!(values.len(), n_points);
         assert!(values.iter().any(|z| z.im.abs() > 1e-10));
 
-        let fitted_coeffs = fitter.fit(None, &values);
+        let fitted_coeffs = fitter.fit(None, &values).unwrap();
         assert_eq!(fitted_coeffs.len(), basis_size);
 
         for (orig, fitted) in coeffs.iter().zip(fitted_coeffs.iter()) {
@@ -1025,8 +1035,8 @@ mod tests {
 
         let coeffs: Vec<f64> = (0..basis_size).map(|i| (i as f64) * 0.3).collect();
 
-        let values = fitter.evaluate(None, &coeffs);
-        let fitted_coeffs = fitter.fit(None, &values);
+        let values = fitter.evaluate(None, &coeffs).unwrap();
+        let fitted_coeffs = fitter.fit(None, &values).unwrap();
 
         for (orig, fitted) in coeffs.iter().zip(fitted_coeffs.iter()) {
             let error = (orig - fitted).abs();
