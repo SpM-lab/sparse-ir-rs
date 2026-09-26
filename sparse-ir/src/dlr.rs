@@ -107,8 +107,9 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> Result<f64, Err
 /// Fermionic single-pole G(τ) for τ already in [0, β], without the sign of
 /// the antiperiodic continuation
 ///
-/// Checked callers only: β positive and finite, ω finite (except the DLR,
-/// whose poles are checked in part 5).
+/// Checked callers only: β positive and finite, ω finite (the DLR checks its
+/// poles in `with_poles`, although its public `poles` field can be changed
+/// afterwards).
 pub(crate) fn fermionic_single_pole_unchecked(tau_normalized: f64, omega: f64, beta: f64) -> f64 {
     // Avoid overflow for large negative ω by factoring out exp(βω).
     // Both branches keep the exponent non-positive.
@@ -321,16 +322,24 @@ where
     ///
     /// # Arguments
     /// * `basis` - The IR basis to construct DLR from
-    /// * `poles` - Pole positions on the real-frequency axis
+    /// * `poles` - Pole positions on the real-frequency axis, in
+    ///   [-ωmax, ωmax] of `basis`
     ///
     /// # Errors
     /// * [`Error::KernelStatisticsMismatch`] if the kernel does not support
     ///   the requested statistics (e.g. `RegularizedBoseKernel` with fermionic
     ///   statistics)
     /// * [`Error::EmptyInput`] if `poles` is empty
-    /// * [`Error::OutOfDomain`] if a pole is outside [-ωmax, ωmax] of `basis`
-    ///   or NaN (from [`Basis::evaluate_omega`](crate::basis_trait::Basis::evaluate_omega))
-    /// * [`Error::NotSupported`] if `basis` is itself a DLR
+    /// * [`Error::NonFiniteInput`] if a pole is NaN or infinite, and
+    ///   [`Error::OutOfDomain`] if a pole is outside [-ωmax, ωmax] of `basis`,
+    ///   both named `poles`, for the first such pole
+    /// * [`Error::NotSupported`] for a bosonic pole at 0 if the kernel has a
+    ///   `ypower` other than 0 or 1 (the DLR knows the limit at 0 for those
+    ///   only), or if `basis` is itself a DLR
+    ///
+    /// Duplicate poles are accepted. They make [`Self::from_ir_nd`]
+    /// ill-conditioned: the coefficients of equal poles are not unique,
+    /// although [`Self::to_ir_nd`] of them still gives the IR coefficients.
     pub fn with_poles<K>(
         basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
         poles: Vec<f64>,
@@ -358,6 +367,39 @@ where
         let wmax = basis.wmax();
         let accuracy = basis.accuracy();
         let kernel_ypower = basis.kernel().ypower();
+
+        // Each pole must be finite and in [-ωmax, ωmax], the domain of V_l.
+        // evaluate_omega below checks the domain of the basis again.
+        for (i, &pole) in poles.iter().enumerate() {
+            if !pole.is_finite() {
+                return Err(Error::NonFiniteInput {
+                    name: "poles",
+                    index: vec![i],
+                    value: pole,
+                });
+            }
+            if !(-wmax..=wmax).contains(&pole) {
+                return Err(Error::OutOfDomain {
+                    name: "poles",
+                    value: pole,
+                    domain: (-wmax, wmax),
+                });
+            }
+        }
+        // A bosonic pole at 0 is evaluated through its finite limit, which is
+        // known for ypower 0 (regularizer tanh(βω/2)) and 1 (regularizer ω)
+        // only; see zero_pole_tau_limit.
+        if S::STATISTICS == Statistics::Bosonic
+            && !(0..=1).contains(&kernel_ypower)
+            && poles.contains(&0.0)
+        {
+            return Err(Error::NotSupported {
+                what: format!(
+                    "a bosonic DLR pole at 0 for a kernel with ypower = {kernel_ypower}: \
+                     its limit is known for ypower 0 and 1 only"
+                ),
+            });
+        }
 
         // Compute fitting matrix: fitmat = -s · V(poles)
         // This transforms DLR coefficients to IR coefficients
@@ -406,6 +448,7 @@ where
             // -lim_{ω→0} w(β, ω) e^{-τω} / (1 - e^{-βω}) with w = tanh(βω/2) or ω
             0 => -0.5,
             1 => -1.0 / self.beta,
+            // with_poles rejects a bosonic pole at 0 for any other ypower.
             _ => panic!(
                 "DLR tau evaluation does not support kernel ypower = {}",
                 self.kernel_ypower
@@ -418,6 +461,7 @@ where
             // lim_{ω→0} w(β, ω) / (0 - ω) at n = 0 with w = tanh(βω/2) or ω
             0 => -0.5 * self.beta,
             1 => -1.0,
+            // with_poles rejects a bosonic pole at 0 for any other ypower.
             _ => panic!(
                 "DLR Matsubara evaluation does not support kernel ypower = {}",
                 self.kernel_ypower

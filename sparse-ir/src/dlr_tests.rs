@@ -1433,9 +1433,10 @@ fn test_dlr_basis_methods_report_errors() {
     }
 }
 
-/// with_poles evaluates the IR basis at the poles: a pole outside
-/// [-ωmax, ωmax] or NaN is OutOfDomain (it panicked, SPIR_INTERNAL_ERROR in
-/// spir_dlr_new_with_poles).
+/// with_poles checks the poles: a pole outside [-ωmax, ωmax] is OutOfDomain
+/// and NaN or an infinity NonFiniteInput, both named "poles". They panicked
+/// (SPIR_INTERNAL_ERROR in spir_dlr_new_with_poles) and were then reported
+/// as evaluate_omega's OutOfDomain of "omega". ±ωmax are valid poles.
 #[test]
 fn test_with_poles_rejects_poles_outside_the_frequency_domain() {
     let ir = FiniteTempBasis::<_, Fermionic>::new(
@@ -1445,14 +1446,230 @@ fn test_with_poles_rejects_poles_outside_the_frequency_domain() {
         None,
     )
     .unwrap();
-    for pole in [2.0, -2.0, f64::NAN, f64::INFINITY] {
+    // Λ = 10 and β = 10: ωmax = 1.
+    for pole in [2.0, -2.0] {
+        let err = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&ir, vec![0.5, pole])
+            .err()
+            .unwrap();
+        assert_eq!(
+            err,
+            Error::OutOfDomain {
+                name: "poles",
+                value: pole,
+                domain: (-1.0, 1.0),
+            }
+        );
+    }
+    for pole in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
         let err = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&ir, vec![0.5, pole])
             .err()
             .unwrap();
         assert!(
-            matches!(err, Error::OutOfDomain { name: "omega", .. }),
+            matches!(
+                &err,
+                Error::NonFiniteInput { name: "poles", index, value }
+                    if index == &vec![1] && value.to_bits() == pole.to_bits()
+            ),
             "{err:?}"
         );
     }
     DiscreteLehmannRepresentation::<Fermionic>::with_poles(&ir, vec![-1.0, 1.0]).unwrap();
+}
+
+/// Duplicate poles are accepted, like duplicate sampling points (#291):
+/// they only make the fit of from_ir_nd ill-conditioned (the coefficients of
+/// equal poles are not unique), and to_ir_nd(from_ir_nd(gl)) still gives gl.
+#[test]
+fn test_with_poles_accepts_duplicate_poles() {
+    let ir = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        10.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let mut poles = ir.default_omega_sampling_points().unwrap();
+    poles.push(poles[0]);
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::with_poles(&ir, poles.clone()).unwrap();
+    assert_eq!(dlr.poles, poles);
+
+    let l = ir.size();
+    let gl =
+        Tensor::<f64, mdarray::DynRank>::from_fn(&[l][..], |i| 1.0 / ((i[0] + 1) as f64).powi(2));
+    let g_dlr = dlr.from_ir_nd::<f64>(None, &gl, 0).unwrap();
+    assert!(g_dlr.iter().all(|x| x.is_finite()));
+    let back = dlr.to_ir_nd::<f64>(None, &g_dlr, 0).unwrap();
+    for (l, (x, y)) in back.iter().zip(gl.iter()).enumerate() {
+        assert!((x - y).abs() < 1e-10, "l = {l}: {x} vs {y}");
+    }
+}
+
+use crate::kernel::{KernelProperties, LogisticSVEHints};
+
+/// LogisticKernel that reports ypower = 2, as a kernel of another crate
+/// could; with_poles only reads its ypower and its regularizer
+#[derive(Clone, Copy)]
+struct OtherYpowerKernel(LogisticKernel);
+
+impl KernelProperties for OtherYpowerKernel {
+    type SVEHintsType<T>
+        = LogisticSVEHints<T>
+    where
+        T: Copy + std::fmt::Debug + Send + Sync + crate::CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        2
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.0.conv_radius()
+    }
+
+    fn xmax(&self) -> f64 {
+        self.0.xmax()
+    }
+
+    fn ymax(&self) -> f64 {
+        self.0.ymax()
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+        self.0.regularizer::<S>(beta, omega)
+    }
+
+    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + std::fmt::Debug + Send + Sync + crate::CustomNumeric + 'static,
+    {
+        self.0.sve_hints(epsilon)
+    }
+}
+
+/// `inner` with its kernel replaced by `kernel`
+struct WithKernel<'a, B, K> {
+    inner: &'a B,
+    kernel: K,
+}
+
+impl<S, B, K> Basis<S> for WithKernel<'_, B, K>
+where
+    S: StatisticsType,
+    B: Basis<S>,
+    K: KernelProperties,
+{
+    type Kernel = K;
+
+    fn kernel(&self) -> &Self::Kernel {
+        &self.kernel
+    }
+
+    fn beta(&self) -> f64 {
+        self.inner.beta()
+    }
+
+    fn wmax(&self) -> f64 {
+        self.inner.wmax()
+    }
+
+    fn lambda(&self) -> f64 {
+        self.inner.lambda()
+    }
+
+    fn size(&self) -> usize {
+        self.inner.size()
+    }
+
+    fn accuracy(&self) -> f64 {
+        self.inner.accuracy()
+    }
+
+    fn significance(&self) -> Vec<f64> {
+        self.inner.significance()
+    }
+
+    fn svals(&self) -> Vec<f64> {
+        self.inner.svals()
+    }
+
+    fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
+        self.inner.default_tau_sampling_points()
+    }
+
+    fn default_matsubara_sampling_points(
+        &self,
+        positive_only: bool,
+    ) -> Result<Vec<MatsubaraFreq<S>>, Error>
+    where
+        S: 'static,
+    {
+        self.inner.default_matsubara_sampling_points(positive_only)
+    }
+
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<DTensor<f64, 2>, Error> {
+        self.inner.evaluate_tau(tau)
+    }
+
+    fn evaluate_matsubara(
+        &self,
+        freqs: &[MatsubaraFreq<S>],
+    ) -> Result<DTensor<Complex<f64>, 2>, Error>
+    where
+        S: 'static,
+    {
+        self.inner.evaluate_matsubara(freqs)
+    }
+
+    fn evaluate_omega(&self, omega: &[f64]) -> Result<DTensor<f64, 2>, Error> {
+        self.inner.evaluate_omega(omega)
+    }
+
+    fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
+        self.inner.default_omega_sampling_points()
+    }
+}
+
+/// A bosonic pole at 0 is evaluated through its finite limit, which is known
+/// for ypower 0 and 1 only; for another ypower, evaluate_tau and
+/// evaluate_matsubara panicked. with_poles reports NotSupported now. Poles
+/// away from 0, and fermionic poles (which need no limit), are unaffected.
+#[test]
+fn test_with_poles_rejects_a_bosonic_zero_pole_of_other_ypower() {
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let other = OtherYpowerKernel(kernel);
+
+    let ir_b = FiniteTempBasis::<_, Bosonic>::new(kernel, 10.0, Some(1e-6), None).unwrap();
+    let b = WithKernel {
+        inner: &ir_b,
+        kernel: other,
+    };
+    for zero in [0.0, -0.0] {
+        let err = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&b, vec![-0.5, zero, 0.5])
+            .err()
+            .unwrap();
+        assert!(
+            matches!(&err, Error::NotSupported { what } if what.contains("ypower = 2")),
+            "{err:?}"
+        );
+    }
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&b, vec![-0.5, 0.5]).unwrap();
+    assert!(
+        dlr.evaluate_tau(&[0.0, 5.0])
+            .unwrap()
+            .iter()
+            .all(|x| x.is_finite())
+    );
+
+    let ir_f = FiniteTempBasis::<_, Fermionic>::new(kernel, 10.0, Some(1e-6), None).unwrap();
+    let f = WithKernel {
+        inner: &ir_f,
+        kernel: other,
+    };
+    let dlr =
+        DiscreteLehmannRepresentation::<Fermionic>::with_poles(&f, vec![-0.5, 0.0, 0.5]).unwrap();
+    assert!(
+        dlr.evaluate_tau(&[0.0, 5.0])
+            .unwrap()
+            .iter()
+            .all(|x| x.is_finite())
+    );
 }
