@@ -368,7 +368,7 @@ where
             &uhat_base_full,
             stat_marker,
             Some(conv_rad),
-        );
+        )?;
 
         // Truncate uhat to basis size
         let uhat_polyvec: Vec<_> = uhat_full.polyvec.iter().take(s.len()).cloned().collect();

@@ -52,23 +52,37 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// * `stat` - Statistics type (Fermionic or Bosonic)
     /// * `n_asymp` - Asymptotic cutoff frequency index (default: infinity)
     ///
-    /// # Panics
-    /// Panics if the polynomial domain is not [-1, 1]
-    pub fn new(poly: PiecewiseLegendrePoly, _stat: S, n_asymp: Option<f64>) -> Self {
+    /// # Errors
+    ///
+    /// * [`Error::InvalidParameter`] if the domain of `poly` is not [-1, 1]
+    ///   within 1e-12, or `n_asymp` is NaN or negative (infinity, the
+    ///   default, disables the asymptotic model)
+    pub fn new(poly: PiecewiseLegendrePoly, _stat: S, n_asymp: Option<f64>) -> Result<Self, Error> {
         // Validate domain
-        if (poly.xmin - (-1.0)).abs() > 1e-12 || (poly.xmax - 1.0).abs() > 1e-12 {
-            panic!("Only interval [-1, 1] is supported for Fourier transform");
+        if !((poly.xmin + 1.0).abs() <= 1e-12 && (poly.xmax - 1.0).abs() <= 1e-12) {
+            return Err(Error::InvalidParameter {
+                name: "poly",
+                value: format!("a polynomial on [{:?}, {:?}]", poly.xmin, poly.xmax),
+                reason: "must be defined on [-1, 1] (within 1e-12)".to_string(),
+            });
+        }
+        if let Some(n) = n_asymp.filter(|n| !(*n >= 0.0)) {
+            return Err(Error::InvalidParameter {
+                name: "n_asymp",
+                value: format!("{n:?}"),
+                reason: "must be non-negative (infinity disables the asymptotic model)".to_string(),
+            });
         }
 
         let n_asymp = n_asymp.unwrap_or(f64::INFINITY);
         let model = Self::power_model(&poly);
 
-        Self {
+        Ok(Self {
             poly,
             n_asymp,
             model,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the asymptotic cutoff frequency index
@@ -111,21 +125,29 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 
     /// Evaluate at integer Matsubara index
-    pub fn evaluate_at_n(&self, n: i64) -> Complex64 {
-        match MatsubaraFreq::<S>::new(n) {
-            Ok(omega) => self.evaluate(&omega),
-            Err(_) => Complex64::new(0.0, 0.0), // Return zero for invalid frequencies
-        }
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidMatsubaraIndex`] if `n` has the wrong parity for the
+    /// statistics (it returned 0 before)
+    pub fn evaluate_at_n(&self, n: i64) -> Result<Complex64, Error> {
+        Ok(self.evaluate(&MatsubaraFreq::<S>::new(n)?))
     }
 
     /// Evaluate at multiple Matsubara indices
-    pub fn evaluate_at_ns(&self, ns: &[i64]) -> Vec<Complex64> {
+    ///
+    /// # Errors
+    ///
+    /// The error of [`Self::evaluate_at_n`] for the first invalid index
+    pub fn evaluate_at_ns(&self, ns: &[i64]) -> Result<Vec<Complex64>, Error> {
         ns.iter().map(|&n| self.evaluate_at_n(n)).collect()
     }
 
     /// Create power model for asymptotic behavior
     fn power_model(poly: &PiecewiseLegendrePoly) -> PowerModel {
-        let deriv_x1 = poly.derivs(1.0);
+        // Evaluate at the right end of the domain: `new` accepts an xmax
+        // within 1e-12 of 1, where derivs(1.0) would be outside the domain.
+        let deriv_x1 = poly.derivs(poly.xmax);
         let moments = Self::power_moments(&deriv_x1, poly.l);
         PowerModel::new(moments)
     }
@@ -506,23 +528,27 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     }
 
     /// Create from PiecewiseLegendrePolyVector and statistics
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`PiecewiseLegendreFT::new`] for the first polynomial
+    /// that it rejects
     pub fn from_poly_vector(
         polys: &PiecewiseLegendrePolyVector,
         _stat: S,
         n_asymp: Option<f64>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut polyvec = Vec::with_capacity(polys.size());
 
-        for i in 0..polys.size() {
-            let poly = polys.get(i).unwrap().clone();
-            let ft_poly = PiecewiseLegendreFT::new(poly, _stat, n_asymp);
+        for poly in polys.get_polys() {
+            let ft_poly = PiecewiseLegendreFT::new(poly.clone(), _stat, n_asymp)?;
             polyvec.push(ft_poly);
         }
 
-        Self {
+        Ok(Self {
             polyvec,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the size of the vector
