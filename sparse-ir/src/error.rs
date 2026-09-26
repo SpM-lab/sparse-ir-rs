@@ -27,6 +27,17 @@ pub enum Error {
         /// The condition that the value violates, e.g. "must be in (0, 1)"
         reason: String,
     },
+    /// A point lies outside the domain of a function, e.g. τ outside [-β, β]
+    /// or x outside the knots of a polynomial. NaN lies outside every domain.
+    #[error("{name} = {value:?} is outside the domain [{:?}, {:?}]", .domain.0, .domain.1)]
+    OutOfDomain {
+        /// Name of the argument, as in the documentation of the function
+        name: &'static str,
+        /// The rejected point
+        value: f64,
+        /// The closed interval `(lower, upper)` of valid points
+        domain: (f64, f64),
+    },
     /// A Matsubara frequency index has the wrong parity: `n` must be odd for
     /// fermionic and even for bosonic statistics.
     #[error(
@@ -111,6 +122,7 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         match self {
             Error::InvalidParameter { .. }
+            | Error::OutOfDomain { .. }
             | Error::InvalidMatsubaraIndex { .. }
             | Error::EmptyInput { .. }
             | Error::NonFiniteInput { .. }

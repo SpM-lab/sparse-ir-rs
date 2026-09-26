@@ -106,6 +106,14 @@ mod tests {
                 },
                 SPIR_INTERNAL_ERROR,
             ),
+            (
+                Error::OutOfDomain {
+                    name: "tau",
+                    value: f64::NAN,
+                    domain: (-1.0, 1.0),
+                },
+                SPIR_INVALID_ARGUMENT,
+            ),
         ];
         for (err, status) in &table {
             assert_eq!(status_from(err), *status, "{err:?}");

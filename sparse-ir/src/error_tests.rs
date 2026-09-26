@@ -58,6 +58,15 @@ fn every_variant() -> Vec<(Error, ErrorKind, &'static str)> {
             ErrorKind::Internal,
             "decomposition failed: the SVD did not converge within 50 iterations",
         ),
+        (
+            Error::OutOfDomain {
+                name: "tau",
+                value: 1.5,
+                domain: (-1.0, 1.0),
+            },
+            ErrorKind::InvalidArgument,
+            "tau = 1.5 is outside the domain [-1.0, 1.0]",
+        ),
     ]
 }
 
@@ -107,10 +116,11 @@ fn variant_number(err: &Error) -> usize {
         Error::KernelStatisticsMismatch => 4,
         Error::InsufficientDefaultPoles { .. } => 5,
         Error::DecompositionFailed { .. } => 6,
+        Error::OutOfDomain { .. } => 7,
     }
 }
 
-const VARIANT_COUNT: usize = 7;
+const VARIANT_COUNT: usize = 8;
 
 #[test]
 fn test_every_variant_lists_each_variant_once() {
