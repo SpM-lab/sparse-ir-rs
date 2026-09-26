@@ -47,6 +47,10 @@ use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 /// assert!(FermionicFreq::new(2).is_err());
 /// assert!(BosonicFreq::new(1).is_err());
 /// ```
+///
+/// Adding or subtracting frequencies gives the statistics of the result:
+/// `FermionicFreq ± FermionicFreq` is a [`BosonicFreq`], and a fermionic and
+/// a bosonic frequency (in either order) give a [`FermionicFreq`].
 #[derive(Debug, Clone, Copy)]
 pub struct MatsubaraFreq<S: StatisticsType> {
     n: i64,
@@ -174,40 +178,41 @@ impl<S: StatisticsType> From<MatsubaraFreq<S>> for i64 {
     }
 }
 
-// Operator overloading: Addition
-// Note: For fermionic frequencies, adding two odd numbers gives an even number,
-// which is NOT a valid fermionic frequency. Use with care.
-impl<S: StatisticsType> Add for MatsubaraFreq<S> {
-    type Output = Self;
+// Operator overloading: addition and subtraction
+//
+// The parity of n + m and n - m follows from the parities of n and m, so the
+// output type carries the statistics of the result: fermionic ± fermionic is
+// bosonic, fermionic ± bosonic (either order) is fermionic, bosonic ±
+// bosonic is bosonic. The i64 arithmetic is the usual one (a panic on
+// overflow in debug builds, wrapping in release builds); wrapping keeps the
+// parity, so the output is always a valid frequency.
+macro_rules! impl_freq_arithmetic {
+    ($lhs:ty, $rhs:ty => $out:ty) => {
+        impl Add<$rhs> for $lhs {
+            type Output = $out;
 
-    fn add(self, other: Self) -> Self {
-        let result = self.n + other.n;
-        debug_assert!(
-            Self::new(result).is_ok(),
-            "MatsubaraFreq::Add produced invalid frequency n={} for {:?} statistics",
-            result,
-            S::STATISTICS,
-        );
-        unsafe { Self::new_unchecked(result) }
-    }
+            fn add(self, other: $rhs) -> $out {
+                // SAFETY: not a memory-safety requirement; the parity of the
+                // sum is that of $out (see above).
+                unsafe { <$out>::new_unchecked(self.n + other.n) }
+            }
+        }
+
+        impl Sub<$rhs> for $lhs {
+            type Output = $out;
+
+            fn sub(self, other: $rhs) -> $out {
+                // SAFETY: as for `add`
+                unsafe { <$out>::new_unchecked(self.n - other.n) }
+            }
+        }
+    };
 }
 
-// Operator overloading: Subtraction
-// Note: Same caveat as Add regarding parity.
-impl<S: StatisticsType> Sub for MatsubaraFreq<S> {
-    type Output = Self;
-
-    fn sub(self, other: Self) -> Self {
-        let result = self.n - other.n;
-        debug_assert!(
-            Self::new(result).is_ok(),
-            "MatsubaraFreq::Sub produced invalid frequency n={} for {:?} statistics",
-            result,
-            S::STATISTICS,
-        );
-        unsafe { Self::new_unchecked(result) }
-    }
-}
+impl_freq_arithmetic!(FermionicFreq, FermionicFreq => BosonicFreq);
+impl_freq_arithmetic!(FermionicFreq, BosonicFreq => FermionicFreq);
+impl_freq_arithmetic!(BosonicFreq, FermionicFreq => FermionicFreq);
+impl_freq_arithmetic!(BosonicFreq, BosonicFreq => BosonicFreq);
 
 // Operator overloading: Negation
 impl<S: StatisticsType> Neg for MatsubaraFreq<S> {
@@ -400,6 +405,35 @@ mod tests {
 
         let neg_b = -bfreq2;
         assert_eq!(neg_b.get_n(), -2);
+    }
+
+    /// Sums and differences have the statistics of their parity: fermionic ±
+    /// fermionic is bosonic, fermionic ± bosonic is fermionic. Before the
+    /// change the output had the type of the inputs, so FermionicFreq(1) +
+    /// FermionicFreq(1) was a FermionicFreq with the even n = 2 in release
+    /// builds (a debug_assert only).
+    #[test]
+    fn test_sum_and_difference_follow_the_statistics() {
+        let f1 = FermionicFreq::new(1).unwrap();
+        let f3 = FermionicFreq::new(3).unwrap();
+        let b2 = BosonicFreq::new(2).unwrap();
+
+        let sum: BosonicFreq = f1 + f3;
+        assert_eq!(sum, BosonicFreq::new(4).unwrap());
+        let diff: BosonicFreq = f1 - f3;
+        assert_eq!(diff, BosonicFreq::new(-2).unwrap());
+
+        let fb_sum: FermionicFreq = f1 + b2;
+        assert_eq!(fb_sum, FermionicFreq::new(3).unwrap());
+        let fb_diff: FermionicFreq = f3 - b2;
+        assert_eq!(fb_diff, FermionicFreq::new(1).unwrap());
+        let bf_sum: FermionicFreq = b2 + f1;
+        assert_eq!(bf_sum, FermionicFreq::new(3).unwrap());
+        let bf_diff: FermionicFreq = b2 - f3;
+        assert_eq!(bf_diff, FermionicFreq::new(-1).unwrap());
+
+        let bb: BosonicFreq = b2 + b2;
+        assert_eq!(bb, BosonicFreq::new(4).unwrap());
     }
 
     #[test]
