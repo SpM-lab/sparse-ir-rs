@@ -2172,7 +2172,8 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
  *   a size is less than 1, `epsilon` is not positive and finite or is 1 or
  *   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
- *   are not finite and strictly increasing, or the matrix has rank 0
+ *   are not finite and strictly increasing, a segment length is not finite
+ *   or is subnormal, or the matrix has rank 0
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
  *   overflows) or an internal error occurs
@@ -2214,11 +2215,13 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * * `nx` - Number of rows in the matrix
  * * `ny` - Number of columns in the matrix
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
- * * `segments_x` - X-direction segments (array of boundary points, size:
- *   n_segments_x + 1, finite and strictly increasing)
+ * * `segments_x` - X-direction segments on the half domain (array of
+ *   boundary points, size: n_segments_x + 1, finite and strictly
+ *   increasing, starting at 0)
  * * `n_segments_x` - Number of segments in x direction (boundary points - 1)
- * * `segments_y` - Y-direction segments (array of boundary points, size:
- *   n_segments_y + 1, finite and strictly increasing)
+ * * `segments_y` - Y-direction segments on the half domain (array of
+ *   boundary points, size: n_segments_y + 1, finite and strictly
+ *   increasing, starting at 0)
  * * `n_segments_y` - Number of segments in y direction (boundary points - 1)
  * * `n_gauss` - Number of Gauss points per segment
  * * `epsilon` - Target accuracy
@@ -2231,8 +2234,9 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
  *   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
  *   and finite or is 1 or more, an entry of a matrix that is read is NaN or
- *   infinite, the segments are not finite and strictly increasing, or both
- *   matrices have rank 0
+ *   infinite, the segments are not finite and strictly increasing, the
+ *   segments do not start at 0, a segment length is not finite or is
+ *   subnormal, or both matrices have rank 0
  * - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
  * - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
  *   or an internal error occurs
@@ -2283,17 +2287,19 @@ struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double
  *
  * # Arguments
  * * `n` - Number of Gauss points per segment (must be >= 1)
- * * `segments` - Array of segment boundaries (n_segments + 1 elements).
- *                Must be monotonically increasing.
+ * * `segments` - Array of segment boundaries (n_segments + 1 elements):
+ *   finite and strictly increasing, with finite segment lengths
  * * `n_segments` - Number of segments (must be >= 1)
  * * `x` - Output array for Gauss points (size n * n_segments). Must be pre-allocated.
  * * `w` - Output array for Gauss weights (size n * n_segments). Must be pre-allocated.
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Status code:
+ * Status code (also written to `*status`):
  * - SPIR_COMPUTATION_SUCCESS (0) on success
- * - Non-zero error code on failure
+ * - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
+ *   or `segments` does not meet the conditions above
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  */
 
 StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
@@ -2312,8 +2318,8 @@ StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
  *
  * # Arguments
  * * `n` - Number of Gauss points per segment (must be >= 1)
- * * `segments` - Array of segment boundaries (n_segments + 1 elements).
- *                Must be monotonically increasing.
+ * * `segments` - Array of segment boundaries (n_segments + 1 elements):
+ *   finite and strictly increasing, with finite segment lengths
  * * `n_segments` - Number of segments (must be >= 1)
  * * `x_high` - Output array for high part of Gauss points (size n * n_segments).
  *              Must be pre-allocated.
@@ -2326,9 +2332,11 @@ StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Status code:
+ * Status code (also written to `*status`):
  * - SPIR_COMPUTATION_SUCCESS (0) on success
- * - Non-zero error code on failure
+ * - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
+ *   or `segments` does not meet the conditions above
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  */
 
 StatusCode spir_gauss_legendre_rule_piecewise_ddouble(int n,

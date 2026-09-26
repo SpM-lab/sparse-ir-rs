@@ -354,6 +354,50 @@ fn basis_new_rejects_an_sve_on_another_domain() {
     spir_sve_result_release(sve);
 }
 
+/// An SVE from spir_sve_result_from_matrix whose segments end 1e-13 inside
+/// ±1 passes the domain check of spir_basis_new. Its Fourier transform then
+/// evaluated the functions at x = 1 and panicked (SPIR_INTERNAL_ERROR, -7),
+/// and its u functions ended inside [0, β]. The basis is built now, and its
+/// u functions evaluate at τ = 0 and β.
+#[test]
+fn basis_new_accepts_an_sve_just_inside_the_unit_domain() {
+    let m = logistic_full_domain_matrix();
+    let (status, sve) = sve_from_matrix(&m, &m.k_high, 1.0 - 1e-13);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let mut kernel_status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut kernel_status);
+    assert_eq!(kernel_status, SPIR_COMPUTATION_SUCCESS);
+
+    for statistics in STATISTICS {
+        let (status, basis) = try_basis_new(statistics, kernel, sve, EPS, -1);
+        assert_eq!(
+            status, SPIR_COMPUTATION_SUCCESS,
+            "statistics = {statistics}"
+        );
+        let mut size = 0;
+        assert_eq!(
+            spir_basis_get_size(basis, &mut size),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        let mut status = SPIR_INTERNAL_ERROR;
+        let u = unsafe { spir_basis_get_u(basis, &mut status) };
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut out = vec![0.0; size as usize];
+        for tau in [0.0, BETA] {
+            assert_eq!(
+                spir_funcs_eval(u, tau, out.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS,
+                "statistics = {statistics}, tau = {tau}"
+            );
+            assert!(out.iter().all(|v| v.is_finite()));
+        }
+        spir_funcs_release(u);
+        spir_basis_release(basis);
+    }
+    spir_kernel_release(kernel);
+    spir_sve_result_release(sve);
+}
+
 // ---------------------------------------------------------------------------
 // Invalid parameters of the SVE constructors
 // ---------------------------------------------------------------------------

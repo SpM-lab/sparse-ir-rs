@@ -466,7 +466,8 @@ unsafe fn validated_segments<'a>(
 /// - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
 ///   a size is less than 1, `epsilon` is not positive and finite or is 1 or
 ///   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
-///   are not finite and strictly increasing, or the matrix has rank 0
+///   are not finite and strictly increasing, a segment length is not finite
+///   or is subnormal, or the matrix has rank 0
 /// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
 /// - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
 ///   overflows) or an internal error occurs
@@ -779,11 +780,13 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// * `nx` - Number of rows in the matrix
 /// * `ny` - Number of columns in the matrix
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
-/// * `segments_x` - X-direction segments (array of boundary points, size:
-///   n_segments_x + 1, finite and strictly increasing)
+/// * `segments_x` - X-direction segments on the half domain (array of
+///   boundary points, size: n_segments_x + 1, finite and strictly
+///   increasing, starting at 0)
 /// * `n_segments_x` - Number of segments in x direction (boundary points - 1)
-/// * `segments_y` - Y-direction segments (array of boundary points, size:
-///   n_segments_y + 1, finite and strictly increasing)
+/// * `segments_y` - Y-direction segments on the half domain (array of
+///   boundary points, size: n_segments_y + 1, finite and strictly
+///   increasing, starting at 0)
 /// * `n_segments_y` - Number of segments in y direction (boundary points - 1)
 /// * `n_gauss` - Number of Gauss points per segment
 /// * `epsilon` - Target accuracy
@@ -796,8 +799,9 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
 ///   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
 ///   and finite or is 1 or more, an entry of a matrix that is read is NaN or
-///   infinite, the segments are not finite and strictly increasing, or both
-///   matrices have rank 0
+///   infinite, the segments are not finite and strictly increasing, the
+///   segments do not start at 0, a segment length is not finite or is
+///   subnormal, or both matrices have rank 0
 /// - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
 /// - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
 ///   or an internal error occurs
@@ -895,6 +899,16 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
             return std::ptr::null_mut();
         }
     };
+
+    // The centrosymmetric SVE mirrors [0, xmax] onto [-xmax, xmax]: both
+    // segment lists must start at 0. The core checks this too, but only
+    // after the SVD; reject it before any work.
+    if segs_x_slice[0] != 0.0 || segs_y_slice[0] != 0.0 {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
 
     let result = catch_unwind(|| {
         // Get xmax and ymax from segments
@@ -2177,6 +2191,81 @@ mod tests {
                 &mut status,
             );
             assert_eq!(status, SPIR_INVALID_ARGUMENT, "epsilon = {epsilon}");
+            assert!(sve.is_null());
+        }
+    }
+
+    /// The centrosymmetric variant mirrors segments that start at 0. A
+    /// negative first boundary made the mirrored knots decrease (a panic,
+    /// SPIR_INTERNAL_ERROR) and a positive one gave a wrong SVE silently.
+    /// Both are rejected before the SVD: with one row more than the segments
+    /// describe, the SVD path would index past the Gauss weights and panic.
+    #[test]
+    fn test_sve_result_from_matrix_centrosymmetric_requires_segments_from_zero() {
+        let m = logistic_kernel_matrices();
+        let extend = |k: &[f64]| {
+            let mut k = k.to_vec();
+            k.extend(std::iter::repeat_n(0.0, m.ny)); // one extra row
+            k
+        };
+        let (k_even, k_odd) = (extend(&m.even), extend(&m.odd));
+        let shift = |segs: &[f64], by: f64| segs.iter().map(|s| s + by).collect::<Vec<f64>>();
+        for (segs_x, segs_y) in [
+            (shift(&m.segs_x, -0.25), m.segs_y.clone()),
+            (shift(&m.segs_x, 0.25), m.segs_y.clone()),
+            (m.segs_x.clone(), shift(&m.segs_y, 0.25)),
+        ] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix_centrosymmetric(
+                k_even.as_ptr(),
+                ptr::null(),
+                k_odd.as_ptr(),
+                ptr::null(),
+                (m.nx + 1) as libc::c_int,
+                m.ny as libc::c_int,
+                SPIR_ORDER_ROW_MAJOR,
+                segs_x.as_ptr(),
+                (segs_x.len() - 1) as libc::c_int,
+                segs_y.as_ptr(),
+                (segs_y.len() - 1) as libc::c_int,
+                m.n_gauss,
+                1e-6,
+                &mut status,
+            );
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "{:?}, {:?}",
+                segs_x[0], segs_y[0]
+            );
+            assert!(sve.is_null());
+        }
+    }
+
+    /// Segments whose length overflows ([-1e308, 1e308]) or is subnormal
+    /// ([0, 1e-310]) passed the check of finite, strictly increasing
+    /// boundaries and gave an SVE with infinite weights or normalizations (or
+    /// a panic). They are invalid arguments now.
+    #[test]
+    fn test_sve_result_from_matrix_rejects_degenerate_segment_lengths() {
+        let k = [1.0, 0.0, 0.0, 0.5];
+        let segs_y = [-1.0, 1.0];
+        for segs_x in [[-1e308, 1e308], [0.0, 1e-310]] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix(
+                k.as_ptr(),
+                ptr::null(),
+                2,
+                2,
+                SPIR_ORDER_ROW_MAJOR,
+                segs_x.as_ptr(),
+                1,
+                segs_y.as_ptr(),
+                1,
+                2,
+                1e-10,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "{segs_x:?}");
             assert!(sve.is_null());
         }
     }

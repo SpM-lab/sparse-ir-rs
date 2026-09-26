@@ -63,7 +63,7 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> R
 /// Supports negative τ with anti-periodic boundary conditions:
 /// - G(τ + β) = -G(τ) (fermionic anti-periodicity)
 /// - Valid for τ ∈ [-β, β]; τ is normalized with
-///   [`normalize_tau`](crate::taufuncs::normalize_tau)
+///   [`normalize_tau`]
 ///
 /// # Arguments
 /// * `tau` - Imaginary time τ ∈ [-β, β]
@@ -131,7 +131,7 @@ pub(crate) fn fermionic_single_pole_unchecked(tau_normalized: f64, omega: f64, b
 /// Supports negative τ with periodic boundary conditions:
 /// - G(τ + β) = G(τ) (bosonic periodicity)
 /// - Valid for τ ∈ [-β, β]; τ is normalized with
-///   [`normalize_tau`](crate::taufuncs::normalize_tau)
+///   [`normalize_tau`]
 ///
 /// ω = 0 is a genuine pole of the Bose factor, so the result is infinite there:
 /// `-inf` for `omega = +0.0` (the ω → 0⁺ limit) and `+inf` for `omega = -0.0`.
