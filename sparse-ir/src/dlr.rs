@@ -308,6 +308,12 @@ where
         &self.pole_weights
     }
 
+    /// Number of functions of the IR basis this DLR was built from: the
+    /// extent of the IR axis of [`Self::from_ir_nd`] and [`Self::to_ir_nd`]
+    pub fn ir_basis_size(&self) -> usize {
+        self.fitmat.shape().0
+    }
+
     /// Create DLR from IR basis with custom poles
     ///
     /// The tau-domain pole basis is built from the logistic representation, while
@@ -465,13 +471,23 @@ where
     /// * `dim` - Dimension along which to transform
     ///
     /// # Returns
-    /// DLR coefficients as N-D tensor
+    /// DLR coefficients as N-D tensor, with [`Basis::size`](crate::basis_trait::Basis::size)
+    /// (the number of poles) entries along `dim`. An empty batch (a zero
+    /// extent on another axis) gives an empty result.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `gl`
+    /// * [`Error::ShapeMismatch`] of the input if `gl` does not have
+    ///   [`Self::ir_basis_size`] entries along `dim`
+    /// * [`Error::DecompositionFailed`] if the SVD of the fitting matrix fails
+    ///   (its entries are finite, since the poles are)
     pub fn from_ir_nd<T>(
         &self,
         backend: Option<&GemmBackendHandle>,
         gl: &mdarray::Tensor<T, mdarray::DynRank>,
         dim: usize,
-    ) -> mdarray::Tensor<T, mdarray::DynRank>
+    ) -> Result<mdarray::Tensor<T, mdarray::DynRank>, Error>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField
@@ -487,14 +503,9 @@ where
             gl_shape.extend_from_slice(dims);
         });
 
-        let basis_size = gl_shape[dim];
-        assert_eq!(
-            basis_size,
-            self.fitmat.shape().0,
-            "IR basis size mismatch: expected {}, got {}",
-            self.fitmat.shape().0,
-            basis_size
-        );
+        let basis_size = self.ir_basis_size();
+        // Check the axis and its extent before anything reads gl_shape[dim].
+        crate::fitters::common::check_input_shape(&gl_shape, dim, basis_size)?;
 
         if gl.is_empty() {
             // Zero-extent guard: an empty batch has nothing to convert.
@@ -503,7 +514,7 @@ where
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = crate::sampling::build_output_shape(gl.shape(), dim, self.poles.len());
-            return mdarray::Tensor::zeros(&out_shape[..]);
+            return Ok(mdarray::Tensor::zeros(&out_shape[..]));
         }
 
         // Move target dimension to position 0
@@ -517,13 +528,9 @@ where
             gl_2d_dyn[&[idx[0], idx[1]][..]]
         });
 
-        // Fit using fitter's generic 2D method. The fit can only fail if the
-        // SVD does; from_ir_nd returns Result in part 5 of the typed-errors
-        // work, until then this keeps the panic of the former expect.
-        let g_dlr_2d = self
-            .fitter
-            .fit_2d_generic::<T>(backend, &gl_2d)
-            .unwrap_or_else(|e| panic!("{e}"));
+        // Fit using fitter's generic 2D method. It fails only if the SVD of
+        // the fitting matrix does.
+        let g_dlr_2d = self.fitter.fit_2d_generic::<T>(backend, &gl_2d)?;
 
         // Reshape back
         let n_poles = self.poles.len();
@@ -535,7 +542,7 @@ where
         });
 
         let g_dlr_dim0 = g_dlr_2d.into_dyn().reshape(&g_dlr_shape[..]).to_tensor();
-        crate::sampling::movedim(&g_dlr_dim0, 0, dim)
+        Ok(crate::sampling::movedim(&g_dlr_dim0, 0, dim))
     }
 
     /// Convert DLR coefficients to IR (N-dimensional, generic over real/complex)
@@ -548,13 +555,21 @@ where
     /// * `dim` - Dimension along which to transform
     ///
     /// # Returns
-    /// IR coefficients as N-D tensor
+    /// IR coefficients as N-D tensor, with [`Self::ir_basis_size`] entries
+    /// along `dim`. An empty batch gives an empty result.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `g_dlr`
+    /// * [`Error::ShapeMismatch`] of the input if `g_dlr` does not have
+    ///   [`Basis::size`](crate::basis_trait::Basis::size) (the number of
+    ///   poles) entries along `dim`
     pub fn to_ir_nd<T>(
         &self,
         backend: Option<&GemmBackendHandle>,
         g_dlr: &mdarray::Tensor<T, mdarray::DynRank>,
         dim: usize,
-    ) -> mdarray::Tensor<T, mdarray::DynRank>
+    ) -> Result<mdarray::Tensor<T, mdarray::DynRank>, Error>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField
@@ -570,14 +585,9 @@ where
             g_dlr_shape.extend_from_slice(dims);
         });
 
-        let n_poles = g_dlr_shape[dim];
-        assert_eq!(
-            n_poles,
-            self.poles.len(),
-            "DLR size mismatch: expected {}, got {}",
-            self.poles.len(),
-            n_poles
-        );
+        let n_poles = self.poles.len();
+        // Check the axis and its extent before anything reads g_dlr_shape[dim].
+        crate::fitters::common::check_input_shape(&g_dlr_shape, dim, n_poles)?;
 
         if g_dlr.is_empty() {
             // Zero-extent guard: an empty batch has nothing to convert.
@@ -587,7 +597,7 @@ where
             // zero-size GEMMs.
             let out_shape =
                 crate::sampling::build_output_shape(g_dlr.shape(), dim, self.fitmat.shape().0);
-            return mdarray::Tensor::zeros(&out_shape[..]);
+            return Ok(mdarray::Tensor::zeros(&out_shape[..]));
         }
 
         // Move target dimension to position 0
@@ -614,7 +624,7 @@ where
         });
 
         let gl_dim0 = gl_2d.into_dyn().reshape(&gl_shape[..]).to_tensor();
-        crate::sampling::movedim(&gl_dim0, 0, dim)
+        Ok(crate::sampling::movedim(&gl_dim0, 0, dim))
     }
 }
 

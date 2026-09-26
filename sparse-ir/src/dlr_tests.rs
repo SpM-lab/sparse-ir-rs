@@ -182,8 +182,8 @@ where
         let gl_3d = crate::test_utils::movedim(&gl_ref, 0, dim);
 
         // Transform: IR → DLR → IR
-        let g_dlr = dlr.from_ir_nd::<T>(None, &gl_3d, dim);
-        let gl_reconst = dlr.to_ir_nd::<T>(None, &g_dlr, dim);
+        let g_dlr = dlr.from_ir_nd::<T>(None, &gl_3d, dim).unwrap();
+        let gl_reconst = dlr.to_ir_nd::<T>(None, &g_dlr, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let gl_reconst_dim0 = crate::test_utils::movedim(&gl_reconst, dim, 0);
@@ -520,8 +520,8 @@ where
         let gl_3d = crate::test_utils::movedim(&gl_ref, 0, dim);
 
         // Transform: IR → DLR → IR
-        let g_dlr = dlr.from_ir_nd::<T>(None, &gl_3d, dim);
-        let gl_reconst = dlr.to_ir_nd::<T>(None, &g_dlr, dim);
+        let g_dlr = dlr.from_ir_nd::<T>(None, &gl_3d, dim).unwrap();
+        let gl_reconst = dlr.to_ir_nd::<T>(None, &g_dlr, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let gl_reconst_dim0 = crate::test_utils::movedim(&gl_reconst, dim, 0);
@@ -589,7 +589,7 @@ fn test_dlr_regularized_bose_matches_ir_evaluations() {
     });
     let dlr_coeffs = dlr_coeffs_2d.clone().into_dyn().to_tensor();
 
-    let ir_coeffs = dlr.to_ir_nd::<f64>(None, &dlr_coeffs, 0);
+    let ir_coeffs = dlr.to_ir_nd::<f64>(None, &dlr_coeffs, 0).unwrap();
 
     let g_tau_ir = tau_sampling.evaluate_nd(None, &ir_coeffs, 0).unwrap();
     let dlr_tau = dlr.evaluate_tau(&tau_points).unwrap();
@@ -1263,16 +1263,69 @@ fn test_dlr_nd_with_empty_batch() {
             dims
         };
         let gl = Tensor::<f64, mdarray::DynRank>::zeros(&with_target(l)[..]);
-        let g_dlr = dlr.from_ir_nd::<f64>(None, &gl, dim);
+        let g_dlr = dlr.from_ir_nd::<f64>(None, &gl, dim).unwrap();
         assert_eq!(g_dlr.shape().dims(), &with_target(n_poles)[..]);
-        let back = dlr.to_ir_nd::<f64>(None, &g_dlr, dim);
+        let back = dlr.to_ir_nd::<f64>(None, &g_dlr, dim).unwrap();
         assert_eq!(back.shape().dims(), &with_target(l)[..]);
 
         let gl_z = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&with_target(l)[..]);
-        let g_dlr_z = dlr.from_ir_nd::<Complex<f64>>(None, &gl_z, dim);
+        let g_dlr_z = dlr.from_ir_nd::<Complex<f64>>(None, &gl_z, dim).unwrap();
         assert_eq!(g_dlr_z.shape().dims(), &with_target(n_poles)[..]);
-        let back_z = dlr.to_ir_nd::<Complex<f64>>(None, &g_dlr_z, dim);
+        let back_z = dlr.to_ir_nd::<Complex<f64>>(None, &g_dlr_z, dim).unwrap();
         assert_eq!(back_z.shape().dims(), &with_target(l)[..]);
+    }
+}
+
+/// from_ir_nd and to_ir_nd check the axis and the extent along it before
+/// anything else, also for an empty batch. They panicked: an index out of
+/// bounds for dim >= rank, an assertion for a wrong extent.
+#[test]
+fn test_dlr_transforms_report_the_axis_and_the_input_shape() {
+    use crate::ArrayRole;
+
+    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
+    let (l, n_poles) = (basis.size(), dlr.poles.len());
+    assert_eq!(dlr.ir_basis_size(), l);
+
+    let gl = Tensor::<f64, mdarray::DynRank>::zeros(&[l, 3][..]);
+    assert_eq!(
+        dlr.from_ir_nd::<f64>(None, &gl, 2).err(),
+        Some(Error::AxisOutOfRange { axis: 2, rank: 2 })
+    );
+    let g = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[3, n_poles][..]);
+    assert_eq!(
+        dlr.to_ir_nd::<Complex<f64>>(None, &g, 2).err(),
+        Some(Error::AxisOutOfRange { axis: 2, rank: 2 })
+    );
+
+    for batch in [3usize, 0] {
+        let bad_gl = Tensor::<f64, mdarray::DynRank>::zeros(&[l + 1, batch][..]);
+        assert_eq!(
+            dlr.from_ir_nd::<f64>(None, &bad_gl, 0).err(),
+            Some(Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                expected: vec![l, batch],
+                actual: vec![l + 1, batch],
+            }),
+            "batch = {batch}"
+        );
+        let bad_g = Tensor::<Complex<f64>, mdarray::DynRank>::zeros(&[batch, n_poles - 1][..]);
+        assert_eq!(
+            dlr.to_ir_nd::<Complex<f64>>(None, &bad_g, 1).err(),
+            Some(Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                expected: vec![batch, n_poles],
+                actual: vec![batch, n_poles - 1],
+            }),
+            "batch = {batch}"
+        );
     }
 }
 

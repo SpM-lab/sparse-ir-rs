@@ -411,6 +411,10 @@ pub extern "C" fn spir_ir2dlr_dd(
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Copy result to output with correct memory order
         unsafe {
@@ -502,6 +506,10 @@ pub extern "C" fn spir_ir2dlr_zz(
                 dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
+        };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
         };
 
         // Copy result to output with correct memory order
@@ -595,6 +603,10 @@ pub extern "C" fn spir_dlr2ir_dd(
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
         };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Copy result to output with correct memory order
         unsafe {
@@ -686,6 +698,10 @@ pub extern "C" fn spir_dlr2ir_zz(
                 dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
+        };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
         };
 
         // Copy result to output with correct memory order
@@ -1080,6 +1096,119 @@ mod tests {
             spir_basis_release(dlr);
             spir_basis_release(basis);
         }
+        spir_kernel_release(kernel);
+    }
+
+    /// A wrong input_dims[target_dim] made the core assert and panic
+    /// (SPIR_INTERNAL_ERROR). It is SPIR_INPUT_DIMENSION_MISMATCH now, in both
+    /// memory orders and along either axis, and `out` is not written. (The
+    /// input buffers hold every element that input_dims describes.)
+    #[test]
+    fn test_dlr_transforms_reject_a_wrong_target_extent() {
+        use crate::{SPIR_INPUT_DIMENSION_MISMATCH, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR};
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let basis = spir_basis_new(
+            SPIR_STATISTICS_FERMIONIC,
+            10.0,
+            1.0,
+            1e-6,
+            kernel,
+            ptr::null(),
+            -1,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new(basis, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut l = 0;
+        assert_eq!(spir_basis_get_size(basis, &mut l), SPIR_COMPUTATION_SUCCESS);
+        let mut n_poles = 0;
+        assert_eq!(
+            spir_dlr_get_npoles(dlr, &mut n_poles),
+            SPIR_COMPUTATION_SUCCESS
+        );
+
+        const SENTINEL: f64 = -12345.0;
+        let z_sentinel = Complex64::new(SENTINEL, -SENTINEL);
+        let n_max = 3 * (l.max(n_poles) as usize + 1);
+        let input_d = vec![1.0; n_max];
+        let input_z = vec![Complex64::new(1.0, 0.5); n_max];
+        for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+            for target_dim in [0, 1] {
+                for (name, n_in) in [("ir2dlr", l), ("dlr2ir", n_poles)] {
+                    let mut dims = [3, 3];
+                    dims[target_dim as usize] = n_in + 1;
+                    let mut out_d = vec![SENTINEL; n_max];
+                    let mut out_z = vec![z_sentinel; n_max];
+                    let (status_d, status_z) = if name == "ir2dlr" {
+                        (
+                            spir_ir2dlr_dd(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_d.as_ptr(),
+                                out_d.as_mut_ptr(),
+                            ),
+                            spir_ir2dlr_zz(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_z.as_ptr(),
+                                out_z.as_mut_ptr(),
+                            ),
+                        )
+                    } else {
+                        (
+                            spir_dlr2ir_dd(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_d.as_ptr(),
+                                out_d.as_mut_ptr(),
+                            ),
+                            spir_dlr2ir_zz(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_z.as_ptr(),
+                                out_z.as_mut_ptr(),
+                            ),
+                        )
+                    };
+                    let case =
+                        format!("{name}: order={order}, target_dim={target_dim}, dims={dims:?}");
+                    assert_eq!(status_d, SPIR_INPUT_DIMENSION_MISMATCH, "{case} (dd)");
+                    assert_eq!(status_z, SPIR_INPUT_DIMENSION_MISMATCH, "{case} (zz)");
+                    assert!(
+                        out_d.iter().all(|&x| x == SENTINEL),
+                        "{case}: out written (dd)"
+                    );
+                    assert!(
+                        out_z.iter().all(|&x| x == z_sentinel),
+                        "{case}: out written (zz)"
+                    );
+                }
+            }
+        }
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
         spir_kernel_release(kernel);
     }
 }

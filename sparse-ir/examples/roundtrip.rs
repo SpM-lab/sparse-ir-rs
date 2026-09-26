@@ -367,7 +367,7 @@ fn run_integration_example_single<K, S>(
 
     // Step 5: Convert DLR to IR
     println!("Step 5: Converting DLR coefficients to IR...");
-    let ir_coeffs = dlr.to_ir_nd(None, &dlr_coeffs, target_dim);
+    let ir_coeffs = dlr.to_ir_nd(None, &dlr_coeffs, target_dim).unwrap();
     println!("  IR coefficients shape: {:?}", ir_coeffs.shape().dims());
     println!();
 
@@ -467,7 +467,7 @@ fn run_integration_example_single<K, S>(
 
     // Step 9: Round-trip test: DLR → IR → DLR
     println!("Step 9: Round-trip test (DLR → IR → DLR)...");
-    let dlr_coeffs_recovered = dlr.from_ir_nd(None, &ir_coeffs, target_dim);
+    let dlr_coeffs_recovered = dlr.from_ir_nd(None, &ir_coeffs, target_dim).unwrap();
     let dlr_recovery_error = max_relative_error_real(&dlr_coeffs, &dlr_coeffs_recovered);
     println!(
         "  Max relative error (DLR recovery): {:.2e}",
