@@ -748,8 +748,9 @@ pub unsafe extern "C" fn spir_basis_get_u(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{BasisType, spir_funcs};
+    use crate::types::{BasisType, DlrOf, spir_funcs};
     use std::panic::catch_unwind;
+    use std::sync::Arc;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -780,20 +781,10 @@ pub unsafe extern "C" fn spir_basis_get_u(
                 spir_funcs::from_u_bosonic(basis.u().clone(), beta)
             }
             // DLR: tau-domain functions using kernel-aware pole weights
-            BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_tau_fermionic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
-            BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_tau_bosonic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
+            BasisType::DLRFermionic(dlr) => {
+                spir_funcs::from_dlr_tau(DlrOf::Fermionic(Arc::clone(dlr)))
+            }
+            BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_tau(DlrOf::Bosonic(Arc::clone(dlr))),
         };
 
         Result::<*mut spir_funcs, String>::Ok(Box::into_raw(Box::new(funcs)))
@@ -990,8 +981,9 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{BasisType, spir_funcs};
+    use crate::types::{BasisType, DlrOf, spir_funcs};
     use std::panic::catch_unwind;
+    use std::sync::Arc;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -1022,20 +1014,12 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
                 spir_funcs::from_uhat_bosonic(basis.uhat().clone(), beta)
             }
             // DLR: Matsubara-domain functions using discrete poles
-            BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_matsubara_fermionic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
-            BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_matsubara_bosonic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
+            BasisType::DLRFermionic(dlr) => {
+                spir_funcs::from_dlr_matsubara(DlrOf::Fermionic(Arc::clone(dlr)))
+            }
+            BasisType::DLRBosonic(dlr) => {
+                spir_funcs::from_dlr_matsubara(DlrOf::Bosonic(Arc::clone(dlr)))
+            }
         };
 
         Result::<*mut spir_funcs, String>::Ok(Box::into_raw(Box::new(funcs)))

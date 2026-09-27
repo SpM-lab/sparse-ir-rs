@@ -1879,8 +1879,10 @@ fn basis_new_from_sve_and_regularizer_rejects_a_regularizer_undefined_at_half_of
         let u = get_funcs(fx.basis, spir_basis_get_u);
         let v = get_funcs(fx.basis, spir_basis_get_v);
         let uhat = get_funcs(fx.basis, spir_basis_get_uhat);
+        let dlr_u = get_funcs(fx.dlr, spir_basis_get_u);
         for (name, regularizer, expected) in [
             ("u on [-1, 1]", &u, SPIR_INVALID_ARGUMENT),
+            ("DLR u on [-1, 1]", &dlr_u, SPIR_INVALID_ARGUMENT),
             ("v on [-1, 1]", &narrow_v, SPIR_INVALID_ARGUMENT),
             ("v on [-10, 10]", &v, SPIR_COMPUTATION_SUCCESS),
             ("uhat", &uhat, SPIR_COMPUTATION_SUCCESS),
