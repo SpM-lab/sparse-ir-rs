@@ -640,7 +640,7 @@ where
     /// * [`Error::EmptyInput`] if `uhat_full` is empty
     /// * [`Error::NotSupported`] if the functions have no definite parity
     ///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
-    pub fn default_matsubara_sampling_points_impl(
+    pub(crate) fn default_matsubara_sampling_points_impl(
         uhat_full: &PiecewiseLegendreFTVector<S>,
         l: usize,
         fence: bool,
@@ -893,6 +893,38 @@ pub type FermionicBasis = FiniteTempBasis<LogisticKernel, Fermionic>;
 
 /// Type alias for bosonic basis with LogisticKernel
 pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
+
+/// Default Matsubara sampling points for a basis of size `l`, from the
+/// Matsubara basis functions `uhat_full` alone
+///
+/// The points are the sign changes of `uhat_full[l]` (after the parity
+/// adjustment of `l`), or the extrema of the last function when `uhat_full`
+/// has no function `l`; bosonic sets always include n = 0. `fence` adds
+/// points near the outer frequencies. This is what
+/// [`FiniteTempBasis::default_matsubara_sampling_points`] computes, for a
+/// caller that holds the functions but not the basis.
+///
+/// # Errors
+///
+/// * [`Error::EmptyInput`] if `uhat_full` is empty
+/// * [`Error::NotSupported`] if the functions have no definite parity
+///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
+pub fn default_matsubara_sampling_points_from_uhat<S>(
+    uhat_full: &PiecewiseLegendreFTVector<S>,
+    l: usize,
+    fence: bool,
+    positive_only: bool,
+) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+where
+    S: StatisticsType + 'static,
+{
+    FiniteTempBasis::<LogisticKernel, S>::default_matsubara_sampling_points_impl(
+        uhat_full,
+        l,
+        fence,
+        positive_only,
+    )
+}
 
 #[cfg(test)]
 #[path = "basis_tests.rs"]

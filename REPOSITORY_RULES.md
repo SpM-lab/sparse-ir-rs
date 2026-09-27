@@ -22,14 +22,14 @@ defined in the top-level `Cargo.toml`:
 - **`sparse-ir/`** — the core Rust crate (`sparse_ir`, lib crate types
   `cdylib` + `rlib`). Implements the sparse IR algorithms: kernels and SVE
   (`kernel.rs`, `kernelmatrix.rs`, `tsvd.rs`), piecewise Legendre polynomials
-  and their Fourier transforms (`poly.rs`, `polyfourier.rs`), 1D/2D
-  interpolation (`interpolation1d.rs`, `interpolation2d.rs`), Gauss
-  quadrature (`gauss.rs`), the `FiniteTempBasis`/DLR basis types
+  and their Fourier transforms (`poly.rs`, `polyfourier.rs`), Legendre
+  collocation (`interpolation1d.rs`), Gauss quadrature (`gauss.rs`),
+  the `FiniteTempBasis`/DLR basis types
   (`basis.rs`, `basis_trait.rs`, `dlr.rs`), tau/Matsubara sampling
   (`sampling.rs`, `matsubara_sampling.rs`, `taufuncs.rs`, `freq.rs`),
   special functions (`special_functions.rs`), the GEMM dispatch layer
   (`gemm.rs`, `col_piv_qr.rs`), and numeric/precision plumbing
-  (`numeric.rs`, `working_buffer.rs`, `fpu_check.rs`). Test modules live
+  (`numeric.rs`, `fpu_check.rs`). Test modules live
   next to their implementation as `*_tests.rs` files included via `#[cfg(test)]`
   from the corresponding `src/*.rs` module (e.g. `basis.rs` includes
   `basis_tests.rs`); additional integration tests live in `sparse-ir/tests/`.
@@ -385,8 +385,8 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
   and aliasing facts relevant to that block. Auditing untouched legacy unsafe
   blocks requires a scoped issue or explicit maintainer approval; do not add
   perfunctory comments without re-verifying the invariant.
-- `WorkingBuffer` and similar reusable scratch storage must maintain checked
-  byte capacity and alignment before producing typed slices. A typed mutable
+- Reusable scratch storage must maintain checked byte capacity and alignment
+  before producing typed slices. A typed mutable
   slice must never outlive or alias another mutable view of the buffer.
 - Distinguish uninitialized full-overwrite storage from initialized
   read-before-write storage. Do not fix an initialization bug by unconditionally

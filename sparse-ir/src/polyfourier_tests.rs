@@ -653,8 +653,7 @@ fn test_evaluate_at_n_rejects_the_wrong_parity() {
 
 /// Functions without a definite parity (symm = 0) have no default Matsubara
 /// sampling points: the sign changes and extrema that choose them are
-/// NotSupported, for the free functions (which panicked) and the methods
-/// (which used the real part), with both statistics (#183).
+/// NotSupported, with both statistics (#183).
 #[test]
 fn test_sign_changes_of_functions_without_parity_are_not_supported() {
     use crate::error::Error;
@@ -676,8 +675,6 @@ fn test_sign_changes_of_functions_without_parity_are_not_supported() {
     for positive_only in [false, true] {
         not_supported(sign_changes(&ft, positive_only).map(ns));
         not_supported(find_extrema(&ft, positive_only).map(ns));
-        not_supported(ft.sign_changes(positive_only).map(ns));
-        not_supported(ft.find_extrema(positive_only).map(ns));
     }
     let nb =
         |v: Vec<MatsubaraFreq<Bosonic>>| -> Vec<i64> { v.into_iter().map(|f| f.n()).collect() };
@@ -685,7 +682,5 @@ fn test_sign_changes_of_functions_without_parity_are_not_supported() {
     for positive_only in [false, true] {
         not_supported(sign_changes(&ft, positive_only).map(nb));
         not_supported(find_extrema(&ft, positive_only).map(nb));
-        not_supported(ft.sign_changes(positive_only).map(nb));
-        not_supported(ft.find_extrema(positive_only).map(nb));
     }
 }

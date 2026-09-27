@@ -819,7 +819,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
 ///
 /// This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
-/// `FiniteTempBasis::default_matsubara_sampling_points_impl` (sparse-ir/src/basis.rs)
+/// `sparse_ir::basis::default_matsubara_sampling_points_from_uhat`
 /// to compute default sampling points: the sign changes of the first discarded
 /// Matsubara basis function (its extrema when that function is not available);
 /// bosonic sets always include n = 0.
@@ -871,8 +871,6 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use sparse_ir::basis::FiniteTempBasis;
-    use sparse_ir::kernel::LogisticKernel;
     use sparse_ir::traits::{Bosonic, Fermionic};
     use std::panic::catch_unwind;
 
@@ -893,34 +891,32 @@ pub extern "C" fn spir_uhat_get_default_matsus(
                 let l_usize = basis_size as usize;
 
                 // Handle Fermionic case
-                // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
                 if let Some(ref ft_fermionic) = ft_funcs.ft_fermionic {
-                    let matsubara_points = match FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
-                        ft_fermionic,
-                        l_usize,
-                        fence,
-                        positive_only,
-                    ) {
-                        Ok(points) => points,
-                        Err(e) => return status_from(&e),
-                    };
+                    let matsubara_points =
+                        match sparse_ir::basis::default_matsubara_sampling_points_from_uhat::<
+                            Fermionic,
+                        >(ft_fermionic, l_usize, fence, positive_only)
+                        {
+                            Ok(points) => points,
+                            Err(e) => return status_from(&e),
+                        };
                     matsubara_points
                         .iter()
                         .map(|freq| freq.into_i64())
                         .collect()
                 }
                 // Handle Bosonic case
-                // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
                 else if let Some(ref ft_bosonic) = ft_funcs.ft_bosonic {
-                    let matsubara_points = match FiniteTempBasis::<LogisticKernel, Bosonic>::default_matsubara_sampling_points_impl(
-                        ft_bosonic,
-                        l_usize,
-                        fence,
-                        positive_only,
-                    ) {
-                        Ok(points) => points,
-                        Err(e) => return status_from(&e),
-                    };
+                    let matsubara_points =
+                        match sparse_ir::basis::default_matsubara_sampling_points_from_uhat::<Bosonic>(
+                            ft_bosonic,
+                            l_usize,
+                            fence,
+                            positive_only,
+                        ) {
+                            Ok(points) => points,
+                            Err(e) => return status_from(&e),
+                        };
                     matsubara_points
                         .iter()
                         .map(|freq| freq.into_i64())

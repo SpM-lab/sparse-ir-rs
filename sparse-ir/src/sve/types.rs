@@ -48,7 +48,7 @@ pub enum SVDStrategy {
 ///
 /// Panics if epsilon is negative or NaN. [`compute_sve`](crate::sve::compute_sve)
 /// checks it first.
-pub fn safe_epsilon(
+pub(crate) fn safe_epsilon(
     epsilon: Option<f64>,
     twork: TworkType,
     svd_strategy: SVDStrategy,

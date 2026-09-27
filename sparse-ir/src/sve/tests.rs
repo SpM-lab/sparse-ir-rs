@@ -2,8 +2,9 @@
 // RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
 #![allow(deprecated)]
 
+use super::types::safe_epsilon;
 use super::utils::{extend_to_full_domain, merge_results, mirror_segments_to_full_domain};
-use super::{SVDStrategy, SVEResult, TworkType, compute_sve, compute_sve_general, safe_epsilon};
+use super::{SVDStrategy, SVEResult, TworkType, compute_sve, compute_sve_general};
 use crate::error::Error;
 use crate::kernel::{
     AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints,

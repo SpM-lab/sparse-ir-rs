@@ -365,7 +365,7 @@ where
 /// # Returns
 ///
 /// Tuple of (truncated_u_list, truncated_s_list, truncated_v_list)
-pub fn truncate<T: CustomNumeric>(
+pub(crate) fn truncate<T: CustomNumeric>(
     u_list: Vec<DTensor<T, 2>>,
     s_list: Vec<Vec<T>>,
     v_list: Vec<DTensor<T, 2>>,

@@ -114,10 +114,9 @@ impl SVEResult {
     ///
     /// * The errors of [`Self::from_discretized_matrix`] for each block,
     ///   except that an empty block is accepted
-    /// * The errors of
-    ///   [`extend_to_full_domain`](crate::sve::utils::extend_to_full_domain)
-    ///   and of [`merge_results`](crate::sve::utils::merge_results), in
-    ///   particular [`Error::EmptyInput`] if both blocks are empty
+    /// * The errors of the crate-internal `extend_to_full_domain` and
+    ///   `merge_results`, in particular [`Error::EmptyInput`] if both blocks
+    ///   are empty
     #[allow(clippy::too_many_arguments)]
     pub fn from_discretized_matrices_centrosymmetric(
         even: &mdarray::DTensor<f64, 2>,

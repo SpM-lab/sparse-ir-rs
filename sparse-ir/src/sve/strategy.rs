@@ -89,7 +89,8 @@ where
     ///
     /// # Errors
     ///
-    /// The errors of [`svd_to_polynomials`], and [`Error::EmptyInput`] if the
+    /// The errors of the crate-internal `svd_to_polynomials`, and
+    /// [`Error::EmptyInput`] if the
     /// SVD result has no singular values
     pub fn postprocess_single(
         &self,

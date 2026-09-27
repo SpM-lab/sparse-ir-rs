@@ -20,10 +20,10 @@ mod types;
 pub(crate) mod utils;
 
 // Re-export public API
-pub use compute::{compute_sve, compute_sve_general, truncate};
+pub use compute::{compute_sve, compute_sve_general};
 pub use result::SVEResult;
 pub use strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy, SamplingSVE};
-pub use types::{SVDStrategy, TworkType, safe_epsilon};
+pub use types::{SVDStrategy, TworkType};
 
 #[cfg(test)]
 mod tests;
