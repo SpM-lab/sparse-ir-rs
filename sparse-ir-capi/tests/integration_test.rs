@@ -17,8 +17,8 @@ use sparse_ir_capi::{
     spir_basis_get_uhat, spir_basis_new, spir_basis_release, spir_dlr_get_npoles,
     spir_dlr_get_poles, spir_dlr_new, spir_dlr_new_with_poles, spir_dlr2ir_dd, spir_dlr2ir_zz,
     spir_funcs_batch_eval, spir_funcs_batch_eval_matsu, spir_funcs_eval, spir_funcs_eval_matsu,
-    spir_funcs_get_size, spir_funcs_release, spir_ir2dlr_dd, spir_ir2dlr_zz, spir_kernel,
-    spir_kernel_release, spir_logistic_kernel_new, spir_matsu_sampling_new,
+    spir_funcs_get_size, spir_funcs_get_slice, spir_funcs_release, spir_ir2dlr_dd, spir_ir2dlr_zz,
+    spir_kernel, spir_kernel_release, spir_logistic_kernel_new, spir_matsu_sampling_new,
     spir_matsu_sampling_new_with_matrix, spir_reg_bose_kernel_new, spir_sampling,
     spir_sampling_eval_dd, spir_sampling_eval_dz, spir_sampling_eval_zz, spir_sampling_fit_dd,
     spir_sampling_fit_zd, spir_sampling_fit_zz, spir_sampling_get_cond_num, spir_sampling_release,
@@ -2155,4 +2155,178 @@ fn test_dlr2ir_zz_validates_input_dims() {
             )
         },
     );
+}
+
+/// The DLR functions of the C API give the values of the core DLR bit for
+/// bit, for every pole and for a reordered selection of poles
+/// (spir_funcs_get_slice), including the limit of a bosonic pole at 0.
+#[test]
+fn test_dlr_funcs_equal_the_core_dlr_bit_for_bit() {
+    use sparse_ir::basis_trait::Basis;
+    use sparse_ir::dlr::DiscreteLehmannRepresentation;
+    use sparse_ir::freq::MatsubaraFreq;
+    use sparse_ir::traits::{Bosonic, Fermionic, StatisticsType};
+    use sparse_ir::{FiniteTempBasis, LogisticKernel, RegularizedBoseKernel};
+
+    let (beta, wmax, eps) = (10.0, 1.0, 1e-8);
+
+    fn check<S: StatisticsType + 'static>(
+        name: &str,
+        c_dlr: *const spir_basis,
+        dlr: &DiscreteLehmannRepresentation<S>,
+        beta: f64,
+    ) {
+        let n_poles = dlr.poles.len();
+        let mut status = SPIR_INTERNAL_ERROR;
+        let u = unsafe { spir_basis_get_u(c_dlr, &mut status) };
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let uhat = unsafe { spir_basis_get_uhat(c_dlr, &mut status) };
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        // A reordered selection of poles: the last, the first and the second
+        let selection = [n_poles as i32 - 1, 0, 1];
+        let u_slice = spir_funcs_get_slice(u, 3, selection.as_ptr(), &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let uhat_slice = spir_funcs_get_slice(uhat, 3, selection.as_ptr(), &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let taus: Vec<f64> = (0..=1000)
+            .map(|i| -beta + 2.0 * beta * f64::from(i) / 1000.0)
+            .chain([0.0, -0.0, beta, -beta])
+            .collect();
+        let core_tau = dlr.evaluate_tau(&taus).unwrap();
+        let odd = i64::from(S::STATISTICS == sparse_ir::traits::Statistics::Fermionic);
+        let ns: Vec<i64> = (-500..=500).map(|k| 2 * k + odd).collect();
+        let freqs: Vec<MatsubaraFreq<S>> =
+            ns.iter().map(|&n| MatsubaraFreq::new(n).unwrap()).collect();
+        let core_matsu = dlr.evaluate_matsubara(&freqs).unwrap();
+
+        for (funcs, poles) in [
+            (u, (0..n_poles).collect::<Vec<_>>()),
+            (u_slice, selection.iter().map(|&i| i as usize).collect()),
+        ] {
+            let mut out = vec![0.0; poles.len()];
+            for (j, &tau) in taus.iter().enumerate() {
+                assert_eq!(spir_funcs_eval(funcs, tau, out.as_mut_ptr()), 0);
+                for (k, &i) in poles.iter().enumerate() {
+                    assert_eq!(
+                        out[k].to_bits(),
+                        core_tau[[j, i]].to_bits(),
+                        "{name}: u_{i}({tau})"
+                    );
+                }
+            }
+            let mut batch = vec![0.0; poles.len() * taus.len()];
+            assert_eq!(
+                spir_funcs_batch_eval(
+                    funcs,
+                    SPIR_ORDER_ROW_MAJOR,
+                    taus.len() as i32,
+                    taus.as_ptr(),
+                    batch.as_mut_ptr()
+                ),
+                0
+            );
+            for j in 0..taus.len() {
+                for (k, &i) in poles.iter().enumerate() {
+                    assert_eq!(
+                        batch[j * poles.len() + k].to_bits(),
+                        core_tau[[j, i]].to_bits()
+                    );
+                }
+            }
+        }
+        for (funcs, poles) in [
+            (uhat, (0..n_poles).collect::<Vec<_>>()),
+            (uhat_slice, selection.iter().map(|&i| i as usize).collect()),
+        ] {
+            let mut out = vec![num_complex::Complex64::new(0.0, 0.0); poles.len()];
+            for (j, &n) in ns.iter().enumerate() {
+                assert_eq!(spir_funcs_eval_matsu(funcs, n, out.as_mut_ptr()), 0);
+                for (k, &i) in poles.iter().enumerate() {
+                    let (c, r) = (out[k], core_matsu[[j, i]]);
+                    assert_eq!(
+                        (c.re.to_bits(), c.im.to_bits()),
+                        (r.re.to_bits(), r.im.to_bits()),
+                        "{name}: uhat_{i}({n})"
+                    );
+                }
+            }
+        }
+        for funcs in [u, uhat, u_slice, uhat_slice] {
+            spir_funcs_release(funcs);
+        }
+    }
+
+    // (kernel, statistics) of the C bases and the same core bases
+    let mut status = SPIR_INTERNAL_ERROR;
+    for (kernel_name, statistics) in [
+        ("logistic", SPIR_STATISTICS_FERMIONIC),
+        ("logistic", SPIR_STATISTICS_BOSONIC),
+        ("regularized bose", SPIR_STATISTICS_BOSONIC),
+    ] {
+        let kernel = if kernel_name == "logistic" {
+            spir_logistic_kernel_new(beta * wmax, &mut status)
+        } else {
+            spir_reg_bose_kernel_new(beta * wmax, &mut status)
+        };
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let c_basis = spir_basis_new(
+            statistics,
+            beta,
+            wmax,
+            eps,
+            kernel,
+            std::ptr::null(),
+            -1,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let c_dlr = spir_dlr_new(c_basis, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut n_poles = 0;
+        assert_eq!(spir_dlr_get_npoles(c_dlr, &mut n_poles), 0);
+        let mut poles = vec![0.0; n_poles as usize];
+        assert_eq!(spir_dlr_get_poles(c_dlr, poles.as_mut_ptr()), 0);
+        // The default poles, and the default poles with one at 0
+        let mut with_zero = poles.clone();
+        with_zero.push(0.0);
+        let c_dlr_zero = spir_dlr_new_with_poles(
+            c_basis,
+            with_zero.len() as i32,
+            with_zero.as_ptr(),
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        macro_rules! compare {
+            ($kernel:expr, $S:ty) => {{
+                let basis = FiniteTempBasis::<_, $S>::new($kernel, beta, Some(eps), None).unwrap();
+                let dlr = DiscreteLehmannRepresentation::with_poles(&basis, poles.clone()).unwrap();
+                check(&format!("{kernel_name} {statistics}"), c_dlr, &dlr, beta);
+                let dlr =
+                    DiscreteLehmannRepresentation::with_poles(&basis, with_zero.clone()).unwrap();
+                check(
+                    &format!("{kernel_name} {statistics} with 0"),
+                    c_dlr_zero,
+                    &dlr,
+                    beta,
+                );
+            }};
+        }
+        match (kernel_name, statistics) {
+            ("logistic", SPIR_STATISTICS_FERMIONIC) => {
+                compare!(LogisticKernel::new(beta * wmax).unwrap(), Fermionic)
+            }
+            ("logistic", _) => compare!(LogisticKernel::new(beta * wmax).unwrap(), Bosonic),
+            _ => {
+                #[allow(deprecated)]
+                let kernel = RegularizedBoseKernel::new(beta * wmax).unwrap();
+                compare!(kernel, Bosonic)
+            }
+        }
+        spir_basis_release(c_dlr_zero);
+        spir_basis_release(c_dlr);
+        spir_basis_release(c_basis);
+        spir_kernel_release(kernel);
+    }
 }
