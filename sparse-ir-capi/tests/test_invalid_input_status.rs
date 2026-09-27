@@ -1898,3 +1898,87 @@ fn basis_new_from_sve_and_regularizer_rejects_a_regularizer_undefined_at_half_of
     spir_basis_release(narrow);
     spir_kernel_release(kernel);
 }
+
+// ---------------------------------------------------------------------------
+// Scalar arguments that the core checks as well
+// ---------------------------------------------------------------------------
+
+/// Invalid scalars of the constructors are invalid arguments, also when a
+/// second argument is invalid too.
+#[test]
+fn constructor_scalars_checked_by_the_core_keep_their_statuses() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    for lambda in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        let kernel = spir_logistic_kernel_new(lambda, &mut status);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "logistic, lambda = {lambda}");
+        assert!(kernel.is_null());
+        let kernel = spir_reg_bose_kernel_new(lambda, &mut status);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "regularized bose, lambda = {lambda}"
+        );
+        assert!(kernel.is_null());
+    }
+
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    for epsilon in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        for twork in [SPIR_TWORK_AUTO, 5] {
+            let sve = spir_sve_result_new(kernel, epsilon, -1, -1, twork, &mut status);
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "epsilon = {epsilon}, twork = {twork}"
+            );
+            assert!(sve.is_null());
+        }
+    }
+
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    for epsilon in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        for max_size in [-1, 0] {
+            let truncated = spir_sve_result_truncate(sve, epsilon, max_size, &mut status);
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "epsilon = {epsilon}, max_size = {max_size}"
+            );
+            assert!(truncated.is_null());
+        }
+    }
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+
+    // Boundaries that do not increase
+    for segments in [[0.0, 0.0, 1.0], [0.0, 1.0, 0.5], [1.0, 0.0, 2.0]] {
+        let (mut x, mut w) = ([0.0; 8], [0.0; 8]);
+        let ret = spir_gauss_legendre_rule_piecewise_double(
+            4,
+            segments.as_ptr(),
+            2,
+            x.as_mut_ptr(),
+            w.as_mut_ptr(),
+            &mut status,
+        );
+        assert_eq!(
+            (ret, status),
+            (SPIR_INVALID_ARGUMENT, SPIR_INVALID_ARGUMENT),
+            "{segments:?}"
+        );
+        let (mut xh, mut xl, mut wh, mut wl) = ([0.0; 8], [0.0; 8], [0.0; 8], [0.0; 8]);
+        let ret = spir_gauss_legendre_rule_piecewise_ddouble(
+            4,
+            segments.as_ptr(),
+            2,
+            xh.as_mut_ptr(),
+            xl.as_mut_ptr(),
+            wh.as_mut_ptr(),
+            wl.as_mut_ptr(),
+            &mut status,
+        );
+        assert_eq!(
+            (ret, status),
+            (SPIR_INVALID_ARGUMENT, SPIR_INVALID_ARGUMENT),
+            "ddouble, {segments:?}"
+        );
+    }
+}
