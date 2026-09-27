@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::status::status_from;
-use crate::types::{BasisType, SamplingType, is_in_domain, spir_basis, spir_sampling, tau_domain};
+use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
 use crate::utils::{
     MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd, validate_dims,
     validate_transform_dims,
@@ -138,13 +138,6 @@ pub extern "C" fn spir_tau_sampling_new(
 
         let basis_ref = unsafe { &*b };
         let points_slice = unsafe { std::slice::from_raw_parts(points, num_points as usize) };
-
-        // Check every point before building the sampling object: the core
-        // asserts τ ∈ [-β, β] (#266).
-        let domain = tau_domain(basis_ref.beta());
-        if !points_slice.iter().all(|&tau| is_in_domain(tau, domain)) {
-            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
-        }
 
         // Convert points to Vec
         let tau_points: Vec<f64> = points_slice.to_vec();
@@ -481,11 +474,6 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
         // passes `checked_len::<f64>`; the caller guarantees that `matrix` holds
         // `num_points * basis_size` elements.
         let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
-        // The fitter factorizes the matrix: reject NaN and infinities here
-        // rather than in a panicking SVD at the first fit.
-        if !dyn_tensor.iter().all(|x| x.is_finite()) {
-            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
-        }
 
         // Convert DynRank to fixed 2D shape using from_fn (safe conversion)
         let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
@@ -695,14 +683,6 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
         // passes `checked_len::<Complex64>`; the caller guarantees that `matrix`
         // holds `num_points * basis_size` elements.
         let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
-        // The fitter factorizes the matrix: reject NaN and infinities here
-        // rather than in a panicking SVD at the first fit.
-        if !dyn_tensor
-            .iter()
-            .all(|z| z.re.is_finite() && z.im.is_finite())
-        {
-            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
-        }
         let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
         debug_println!(
             "spir_matsu_sampling_new_with_matrix: dyn_tensor created, shape = {:?}",

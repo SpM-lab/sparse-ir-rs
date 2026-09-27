@@ -7,18 +7,6 @@ use crate::utils::MemoryOrder;
 use sparse_ir::traits::Statistics;
 use std::sync::Arc;
 
-/// Whether `n` is a Matsubara index of the statistics: odd for fermions and
-/// even for bosons, the rule of `MatsubaraFreq::new`.
-fn is_matsubara_index(n: i64, statistics: Statistics) -> bool {
-    use sparse_ir::freq::MatsubaraFreq;
-    use sparse_ir::traits::{Bosonic, Fermionic};
-
-    match statistics {
-        Statistics::Fermionic => MatsubaraFreq::<Fermionic>::new(n).is_ok(),
-        Statistics::Bosonic => MatsubaraFreq::<Bosonic>::new(n).is_ok(),
-    }
-}
-
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_funcs_release(funcs: *mut spir_funcs) {
@@ -262,25 +250,6 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         let segments_slice = unsafe { std::slice::from_raw_parts(segments, n_knots) };
         let knots = segments_slice.to_vec();
 
-        // The boundaries must be finite and strictly increasing, and every
-        // segment length b - a a normal double (#266): a test on `<=` alone
-        // lets NaN through (every comparison with NaN is false), an infinite
-        // boundary or length makes the core's normalization 2 / (b - a) zero,
-        // so that every value would be 0, and a subnormal length makes it
-        // infinite.
-        let valid = knots.iter().all(|x| x.is_finite())
-            && knots.windows(2).all(|w| {
-                let length = w[1] - w[0];
-                length > 0.0 && length.is_normal()
-            });
-        if !valid {
-            // SAFETY: `status` is non-null (checked on entry) and caller-provided.
-            unsafe {
-                *status = SPIR_INVALID_ARGUMENT;
-            }
-            return std::ptr::null_mut();
-        }
-
         // Create coefficient matrix: data is (nfuncs, n_segments)
         // Each column represents one segment's coefficients
         let mut data = mdarray::DTensor::<f64, 2>::zeros([nfuncs_usize, n_segments_usize]);
@@ -301,8 +270,9 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         // Note: knots.len() is guaranteed to be n_segments + 1 because knots is created
         // from segments_slice which has (n_segments + 1) elements
 
-        // Create PiecewiseLegendrePoly (l=-1 means not specified). The knots
-        // were checked above with the same conditions as the core.
+        // Create PiecewiseLegendrePoly (l=-1 means not specified). It checks
+        // the knots: finite, strictly increasing, and segment lengths that are
+        // normal doubles.
         let poly = match PiecewiseLegendrePoly::new(data, knots, -1, None, 0) {
             Ok(p) => p,
             Err(e) => {
@@ -583,7 +553,6 @@ pub extern "C" fn spir_funcs_eval(
     out: *mut f64,
 ) -> crate::StatusCode {
     use crate::status::status_from;
-    use crate::types::is_in_domain;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -597,14 +566,6 @@ pub extern "C" fn spir_funcs_eval(
     // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
-        // Check the point before evaluating: the core panics outside the
-        // domain and passes NaN through (#266).
-        let Some(domain) = f.continuous_domain() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !is_in_domain(x, domain) {
-            return SPIR_INVALID_ARGUMENT;
-        }
         match f.eval_continuous(x) {
             Some(Ok(values)) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
@@ -657,14 +618,6 @@ pub extern "C" fn spir_funcs_eval_matsu(
     // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
-        // A wrong-parity index is invalid input, not an unsupported
-        // operation (#266).
-        let Some(statistics) = f.matsubara_statistics() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !is_matsubara_index(n, statistics) {
-            return SPIR_INVALID_ARGUMENT;
-        }
         match f.eval_matsubara(n) {
             Some(Ok(values)) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
@@ -713,7 +666,6 @@ pub extern "C" fn spir_funcs_batch_eval(
     out: *mut f64,
 ) -> crate::StatusCode {
     use crate::status::status_from;
-    use crate::types::is_in_domain;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -734,14 +686,8 @@ pub extern "C" fn spir_funcs_batch_eval(
         let f = &*funcs;
         let xs_slice = std::slice::from_raw_parts(xs, num_points as usize);
 
-        // Check every point before evaluating any (#266).
-        let Some(domain) = f.continuous_domain() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !xs_slice.iter().all(|&x| is_in_domain(x, domain)) {
-            return SPIR_INVALID_ARGUMENT;
-        }
-
+        // The core checks every point before evaluating any; nothing is
+        // written to `out` on an error.
         match f.batch_eval_continuous(xs_slice) {
             Some(Ok(result_matrix)) => {
                 // result_matrix is Vec<Vec<f64>> where outer index is function, inner is point
@@ -830,14 +776,8 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
         let f = &*funcs;
         let ns_slice = std::slice::from_raw_parts(ns, num_freqs as usize);
 
-        // Check every index before evaluating any (#266).
-        let Some(statistics) = f.matsubara_statistics() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !ns_slice.iter().all(|&n| is_matsubara_index(n, statistics)) {
-            return SPIR_INVALID_ARGUMENT;
-        }
-
+        // The core checks every index before evaluating any; nothing is
+        // written to `out` on an error.
         match f.batch_eval_matsubara(ns_slice) {
             Some(Ok(result_matrix)) => {
                 // result_matrix is Vec<Vec<Complex64>> where outer index is function, inner is freq
@@ -927,7 +867,7 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     n_points_total: *mut libc::c_int,
 ) -> crate::StatusCode {
     use crate::status::status_from;
-    use crate::types::{FuncsType, has_definite_parity};
+    use crate::types::FuncsType;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -951,17 +891,6 @@ pub extern "C" fn spir_uhat_get_default_matsus(
         let points_vec: Vec<i64> = match inner {
             FuncsType::FTVector(ft_funcs) => {
                 let l_usize = basis_size as usize;
-
-                // The default points need functions of definite parity (#183);
-                // detect their absence here instead of letting the core panic.
-                let parity = match (&ft_funcs.ft_fermionic, &ft_funcs.ft_bosonic) {
-                    (Some(ft), _) => has_definite_parity(ft),
-                    (None, Some(ft)) => has_definite_parity(ft),
-                    (None, None) => true, // rejected below
-                };
-                if !parity {
-                    return SPIR_NOT_SUPPORTED;
-                }
 
                 // Handle Fermionic case
                 // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)

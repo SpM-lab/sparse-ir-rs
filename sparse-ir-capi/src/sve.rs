@@ -106,13 +106,6 @@ pub extern "C" fn spir_sve_result_new(
         return std::ptr::null_mut();
     }
 
-    if epsilon <= 0.0 || !epsilon.is_finite() {
-        unsafe {
-            *status = SPIR_INVALID_ARGUMENT;
-        }
-        return std::ptr::null_mut();
-    }
-
     // Convert twork
     let twork_type = match twork {
         0 => TworkType::Float64,
@@ -286,13 +279,6 @@ pub extern "C" fn spir_sve_result_truncate(
     }
 
     if sve.is_null() {
-        unsafe {
-            *status = SPIR_INVALID_ARGUMENT;
-        }
-        return std::ptr::null_mut();
-    }
-
-    if epsilon < 0.0 || !epsilon.is_finite() {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }

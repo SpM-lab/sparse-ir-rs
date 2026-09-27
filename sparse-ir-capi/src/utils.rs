@@ -303,7 +303,24 @@ pub(crate) fn validate_transform_dims<Tin, Tout>(
         return Err(SPIR_INVALID_ARGUMENT);
     }
     let dims = validate_dims::<Tin>(input_dims)?;
-    let (input, target_dim) = convert_dims_for_row_major(&dims, target_dim, order);
+    transform_dims::<Tout>(&dims, target_dim, order, n_in, n_out)
+}
+
+/// [`validate_transform_dims`] for extents that [`validate_dims`] has
+/// accepted, with `target_dim` an axis of `dims`
+///
+/// # Errors
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `dims[target_dim] != n_in`
+/// * `SPIR_INVALID_DIMENSION` if the output array does not pass
+///   [`checked_len`]
+pub(crate) fn transform_dims<Tout>(
+    dims: &[usize],
+    target_dim: usize,
+    order: MemoryOrder,
+    n_in: usize,
+    n_out: usize,
+) -> Result<TransformDims, StatusCode> {
+    let (input, target_dim) = convert_dims_for_row_major(dims, target_dim, order);
     if input[target_dim] != n_in {
         return Err(SPIR_INPUT_DIMENSION_MISMATCH);
     }
@@ -440,16 +457,6 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
             unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
         let segs_vec = segments_slice.to_vec();
 
-        // Verify segments are monotonically increasing
-        for i in 1..segs_vec.len() {
-            if segs_vec[i] <= segs_vec[i - 1] {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
-                }
-                return SPIR_INVALID_ARGUMENT;
-            }
-        }
-
         // Generate base rule with DDouble precision, then convert to double
         let rule_dd = legendre::<sparse_ir::Df64>(n as usize);
         let rule = sparse_ir::gauss::Rule::from_vectors(
@@ -460,8 +467,8 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
         )
         .expect("a Gauss-Legendre rule has one weight per point");
 
-        // Create piecewise rule; the core rejects NaN or infinite boundaries
-        // and segment lengths that overflow, which the check above lets through
+        // Create piecewise rule; the core rejects boundaries that are not
+        // finite and strictly increasing, and segment lengths that overflow
         let piecewise_rule = match rule.piecewise(&segs_vec) {
             Ok(rule) => rule,
             Err(e) => {
@@ -571,21 +578,11 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
             .map(|&x| sparse_ir::Df64::new(x))
             .collect();
 
-        // Verify segments are monotonically increasing
-        for i in 1..segs_vec.len() {
-            if segs_vec[i] <= segs_vec[i - 1] {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
-                }
-                return SPIR_INVALID_ARGUMENT;
-            }
-        }
-
         // Generate base rule with DDouble precision
         let rule_dd = legendre::<sparse_ir::Df64>(n as usize);
 
-        // Create piecewise rule; the core rejects NaN or infinite boundaries
-        // and segment lengths that overflow, which the check above lets through
+        // Create piecewise rule; the core rejects boundaries that are not
+        // finite and strictly increasing, and segment lengths that overflow
         let piecewise_rule = match rule_dd.piecewise(&segs_vec) {
             Ok(rule) => rule,
             Err(e) => {

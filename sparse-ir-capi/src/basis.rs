@@ -571,6 +571,9 @@ pub extern "C" fn spir_basis_get_singular_values(
 /// * `b` - Basis object
 /// * `num_points` - Pointer to store the number of points
 ///
+/// A DLR has no default τ sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
@@ -612,6 +615,9 @@ pub extern "C" fn spir_basis_get_n_default_taus(
 /// * `b` - Basis object
 /// * `points` - Pre-allocated array to store tau points
 ///
+/// A DLR has no default τ sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
@@ -650,6 +656,9 @@ pub extern "C" fn spir_basis_get_default_taus(
 ///   sets include n = 0)
 /// * `num_points` - Pointer to store the number of points
 ///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
@@ -670,11 +679,6 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
         let points = match basis.default_matsubara_sampling_points(positive_only) {
             Ok(points) => points,
             Err(e) => return status_from(&e),
@@ -694,6 +698,9 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 ///   sets include n = 0)
 /// * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
 ///   (iν = iπn/β)
+///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -715,11 +722,6 @@ pub extern "C" fn spir_basis_get_default_matsus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
         let matsu_points = match basis.default_matsubara_sampling_points(positive_only) {
             Ok(points) => points,
             Err(e) => return status_from(&e),
@@ -1152,6 +1154,9 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
 /// * `points` - Pre-allocated array to store tau points (size >= n_points)
 /// * `n_points_returned` - Pointer to store actual number of points returned
 ///
+/// A DLR has no default τ sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
@@ -1209,6 +1214,9 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 ///   of `b`.
 /// * `n_points_total` - Pointer to store the number of sampling points
 ///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
@@ -1242,11 +1250,6 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
         let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,
@@ -1278,6 +1281,9 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// * `points` - Buffer for the Matsubara indices, or NULL to query the number
 ///   of points only
 /// * `n_points_total` - Pointer to store the number of sampling points
+///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success, including a count query
@@ -1316,11 +1322,6 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
         let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,

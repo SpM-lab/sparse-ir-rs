@@ -43,13 +43,6 @@ pub extern "C" fn spir_logistic_kernel_new(
         return std::ptr::null_mut();
     }
 
-    if lambda <= 0.0 || !lambda.is_finite() {
-        unsafe {
-            *status = SPIR_INVALID_ARGUMENT;
-        }
-        return std::ptr::null_mut();
-    }
-
     // Catch panics to prevent unwinding across FFI boundary
     let result = catch_unwind(|| {
         spir_kernel::new_logistic(lambda).map(|kernel| Box::into_raw(Box::new(kernel)))
@@ -96,13 +89,6 @@ pub extern "C" fn spir_reg_bose_kernel_new(
     status: *mut StatusCode,
 ) -> *mut spir_kernel {
     if status.is_null() {
-        return std::ptr::null_mut();
-    }
-
-    if lambda <= 0.0 || !lambda.is_finite() {
-        unsafe {
-            *status = SPIR_INVALID_ARGUMENT;
-        }
         return std::ptr::null_mut();
     }
 

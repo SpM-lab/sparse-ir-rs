@@ -42,35 +42,6 @@ pub(crate) fn statistics_from_c(value: i32) -> Result<Statistics, i32> {
     }
 }
 
-/// The imaginary-time domain [-β, β] accepted by the C API.
-///
-/// `normalize_tau` folds a negative τ onto [0, β] with the statistics sign;
-/// it returns an error for a point outside [-β, β], and `TauSampling` panics
-/// on one.
-pub(crate) fn tau_domain(beta: f64) -> (f64, f64) {
-    (-beta, beta)
-}
-
-/// Whether `x` is finite and lies in the closed interval `[lo, hi]`.
-pub(crate) fn is_in_domain(x: f64, (lo, hi): (f64, f64)) -> bool {
-    x.is_finite() && lo <= x && x <= hi
-}
-
-/// Whether every function of `uhat` has a definite parity (`symm` = ±1)
-///
-/// The default Matsubara sampling points are the sign changes (or extrema) of
-/// the real or the imaginary part of a basis function in Matsubara space,
-/// chosen by its parity. Only the singular functions of a centrosymmetric SVE
-/// have a parity; those of an SVE from `spir_sve_result_from_matrix` have
-/// `symm = 0`, for which the core panics (#183).
-pub(crate) fn has_definite_parity<S: sparse_ir::traits::StatisticsType>(
-    uhat: &PiecewiseLegendreFTVector<S>,
-) -> bool {
-    uhat.polyvec
-        .iter()
-        .all(|f| matches!(f.get_poly().symm(), 1 | -1))
-}
-
 /// Function domain type for continuous functions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FunctionDomain {
@@ -410,7 +381,7 @@ impl spir_basis {
             BasisType::LogisticBosonic(b) => b.default_tau_sampling_points(),
             BasisType::RegularizedBoseFermionic(b) => b.default_tau_sampling_points(),
             BasisType::RegularizedBoseBosonic(b) => b.default_tau_sampling_points(),
-            // DLR: no default tau sampling points
+            // A DLR has no default points; the C API reports none (success)
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => Ok(vec![]),
         }
     }
@@ -432,22 +403,8 @@ impl spir_basis {
             BasisType::RegularizedBoseBosonic(b) => {
                 b.default_tau_sampling_points_size_requested(size_requested)
             }
-            // DLR: no default tau sampling points
+            // A DLR has no default points; the C API reports none (success)
             BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => Ok(vec![]),
-        }
-    }
-
-    /// Whether the default Matsubara sampling points of this basis are
-    /// defined: false for an IR basis whose functions have no definite parity
-    /// (see [`has_definite_parity`]). A DLR has no default Matsubara points
-    /// (it returns none) and reports true.
-    pub(crate) fn has_default_matsubara_sampling_points(&self) -> bool {
-        match self.inner_type() {
-            BasisType::LogisticFermionic(b) => has_definite_parity(b.uhat_full()),
-            BasisType::LogisticBosonic(b) => has_definite_parity(b.uhat_full()),
-            BasisType::RegularizedBoseFermionic(b) => has_definite_parity(b.uhat_full()),
-            BasisType::RegularizedBoseBosonic(b) => has_definite_parity(b.uhat_full()),
-            BasisType::DLRFermionic(_) | BasisType::DLRBosonic(_) => true,
         }
     }
 
@@ -633,13 +590,6 @@ impl DlrOf {
         match self {
             Self::Fermionic(dlr) => dlr.poles.len(),
             Self::Bosonic(dlr) => dlr.poles.len(),
-        }
-    }
-
-    fn statistics(&self) -> Statistics {
-        match self {
-            Self::Fermionic(_) => Statistics::Fermionic,
-            Self::Bosonic(_) => Statistics::Bosonic,
         }
     }
 
@@ -914,39 +864,6 @@ impl spir_funcs {
                 Some(all_knots)
             }
             _ => None, // FT vectors don't have knots in the traditional sense
-        }
-    }
-
-    /// The closed interval of valid points for `eval_continuous` and
-    /// `batch_eval_continuous`, or None if the functions are not continuous
-    ///
-    /// τ functions accept `tau_domain(beta)`. ω functions accept the interval
-    /// shared by all their polynomials, outside which `PiecewiseLegendrePoly`
-    /// panics.
-    pub(crate) fn continuous_domain(&self) -> Option<(f64, f64)> {
-        match self.inner_type() {
-            FuncsType::PolyVector(pv) => match pv.domain {
-                FunctionDomain::Tau(_) => Some(tau_domain(self.beta)),
-                FunctionDomain::Omega => Some(
-                    pv.poly
-                        .polyvec
-                        .iter()
-                        .fold((f64::NEG_INFINITY, f64::INFINITY), |(lo, hi), p| {
-                            (lo.max(p.xmin), hi.min(p.xmax))
-                        }),
-                ),
-            },
-            FuncsType::DLRTau(dlr) => Some(tau_domain(dlr.dlr.beta())),
-            FuncsType::FTVector(_) | FuncsType::DLRMatsubara(_) => None,
-        }
-    }
-
-    /// The statistics of Matsubara-domain functions, or None for τ/ω functions
-    pub(crate) fn matsubara_statistics(&self) -> Option<Statistics> {
-        match self.inner_type() {
-            FuncsType::FTVector(ftv) => Some(ftv.statistics),
-            FuncsType::DLRMatsubara(dlr) => Some(dlr.dlr.statistics()),
-            FuncsType::PolyVector(_) | FuncsType::DLRTau(_) => None,
         }
     }
 

@@ -319,6 +319,9 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `b` - Basis object
  * * `num_points` - Pointer to store the number of points
  *
+ * A DLR has no default τ sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points.
+ *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
@@ -342,6 +345,9 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `b` - Basis object
  * * `points` - Pre-allocated array to store tau points
  *
+ * A DLR has no default τ sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+ *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
@@ -361,6 +367,9 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
  *   sets include n = 0)
  * * `num_points` - Pointer to store the number of points
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -385,6 +394,9 @@ StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
  *   sets include n = 0)
  * * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
  *   (iν = iπn/β)
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -528,6 +540,9 @@ StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
  * * `points` - Pre-allocated array to store tau points (size >= n_points)
  * * `n_points_returned` - Pointer to store actual number of points returned
  *
+ * A DLR has no default τ sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+ *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
@@ -559,6 +574,9 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
  *   an augmented basis, pass the augmented size; it may differ from the size
  *   of `b`.
  * * `n_points_total` - Pointer to store the number of sampling points
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -598,6 +616,9 @@ StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * * `points` - Buffer for the Matsubara indices, or NULL to query the number
  *   of points only
  * * `n_points_total` - Pointer to store the number of sampling points
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success, including a count query

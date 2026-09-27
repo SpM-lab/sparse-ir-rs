@@ -17,7 +17,7 @@ use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::status::status_from;
 use crate::types::{BasisType, spir_basis};
 use crate::utils::{
-    MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, validate_dims, validate_transform_dims,
+    MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, transform_dims, validate_dims,
 };
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
 use sparse_ir::dlr::DiscreteLehmannRepresentation;
@@ -415,13 +415,9 @@ pub extern "C" fn spir_ir2dlr_dd(
         let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
             return SPIR_NOT_SUPPORTED; // Not a DLR
         };
-        if let Err(code) = validate_transform_dims::<f64, f64>(
-            dims_slice,
-            target_dim as usize,
-            mem_order,
-            ir_size,
-            n_poles,
-        ) {
+        if let Err(code) =
+            transform_dims::<f64>(&orig_dims, target_dim as usize, mem_order, ir_size, n_poles)
+        {
             return code;
         }
 
@@ -529,8 +525,8 @@ pub extern "C" fn spir_ir2dlr_zz(
         let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
             return SPIR_NOT_SUPPORTED; // Not a DLR
         };
-        if let Err(code) = validate_transform_dims::<Complex64, Complex64>(
-            dims_slice,
+        if let Err(code) = transform_dims::<Complex64>(
+            &orig_dims,
             target_dim as usize,
             mem_order,
             ir_size,
@@ -643,13 +639,9 @@ pub extern "C" fn spir_dlr2ir_dd(
         let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
             return SPIR_NOT_SUPPORTED; // Not a DLR
         };
-        if let Err(code) = validate_transform_dims::<f64, f64>(
-            dims_slice,
-            target_dim as usize,
-            mem_order,
-            n_poles,
-            ir_size,
-        ) {
+        if let Err(code) =
+            transform_dims::<f64>(&orig_dims, target_dim as usize, mem_order, n_poles, ir_size)
+        {
             return code;
         }
 
@@ -757,8 +749,8 @@ pub extern "C" fn spir_dlr2ir_zz(
         let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
             return SPIR_NOT_SUPPORTED; // Not a DLR
         };
-        if let Err(code) = validate_transform_dims::<Complex64, Complex64>(
-            dims_slice,
+        if let Err(code) = transform_dims::<Complex64>(
+            &orig_dims,
             target_dim as usize,
             mem_order,
             n_poles,
