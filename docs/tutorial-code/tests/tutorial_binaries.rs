@@ -27,6 +27,8 @@ const EXAMPLES: &[(&str, &str)] = &[
         "second_order_perturbation",
         env!("CARGO_BIN_EXE_second_order_perturbation"),
     ),
+    ("gw", env!("CARGO_BIN_EXE_gw")),
+    ("liechtenstein", env!("CARGO_BIN_EXE_liechtenstein")),
 ];
 
 #[test]

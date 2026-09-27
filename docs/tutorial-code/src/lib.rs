@@ -23,7 +23,7 @@ pub mod spectra;
 pub use csv::{Table, read_table, write_table};
 pub use elliptic::{ellipe, ellipk};
 pub use linalg::{Eigen2, Hermitian2};
-pub use mesh::{IrMesh, MomentumGrid, reverse_tau_rows, tau_reversal};
+pub use mesh::{IrMesh, MomentumGrid, evaluate_rows, reverse_tau_rows, tau_reversal};
 pub use optimize::{FistaReport, fista, soft_threshold, soft_threshold_nonneg};
 pub use quad::integrate_segments;
 pub use semicircle::{

@@ -24,7 +24,7 @@ use std::error::Error as StdError;
 use num_complex::Complex64;
 use sparse_ir::{Basis, Bosonic, Fermionic, FiniteTempBasis, LogisticKernel};
 use sparse_ir_tutorial::{
-    IrMesh, Table, output_path, provenance, semicircle_coefficients, write_table,
+    IrMesh, Table, evaluate_rows, output_path, provenance, semicircle_coefficients, write_table,
 };
 
 const EXAMPLE: &str = "gw";
@@ -38,24 +38,6 @@ const U: f64 = 0.5;
 /// is down to 10⁻¹⁶ well before the last one, so the answer below is the fixed
 /// point rather than a snapshot of a walk towards it.
 const ITERATIONS: usize = 20;
-
-/// `Σₗ cₗ f(τᵢ)` for a matrix of basis functions `f[i][l]` and complex
-/// coefficients — the one operation this example does over and over.
-fn contract(values: &mdarray::DTensor<f64, 2>, coefficients: &[Complex64]) -> Vec<Complex64> {
-    let (n_points, size) = *values.shape();
-    assert_eq!(
-        size,
-        coefficients.len(),
-        "one coefficient per basis function"
-    );
-    (0..n_points)
-        .map(|i| {
-            (0..size)
-                .map(|l| coefficients[l] * values[[i, l]])
-                .sum::<Complex64>()
-        })
-        .collect()
-}
 
 fn main() -> Result<(), Box<dyn StdError>> {
     let basis_f = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
@@ -118,7 +100,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
         let g_tau_f = mesh_f.l_to_tau(&g_l_f, 1)?;
 
         // --- into bosonic statistics ----------------------------------------
-        let g_tau_b = contract(&uf_at_tau_b, &g_l_f);
+        let g_tau_b = evaluate_rows(&uf_at_tau_b, &g_l_f, 1);
         // P(τ) = G(τ) G(β − τ), with G(β − τ) = −G(−τ): the reversed array
         // with the *fermionic* sign, even though the times are the bosonic
         // ones. This grid also carries a point at exactly τ = β/2, whose
@@ -138,13 +120,13 @@ fn main() -> Result<(), Box<dyn StdError>> {
         let w_iw_b: Vec<Complex64> = p_iw_b.iter().map(|p| U / (1.0 - U * p) - U).collect();
         let w_l_b = mesh_b.wn_to_l(&w_iw_b, 1)?;
         // --- and back into fermionic statistics -------------------------------
-        let w_tau_f = contract(&ub_at_tau_f, &w_l_b);
+        let w_tau_f = evaluate_rows(&ub_at_tau_f, &w_l_b, 1);
 
         // --- the self-energy ---------------------------------------------------
         let e_tau_f: Vec<Complex64> = g_tau_f.iter().zip(&w_tau_f).map(|(g, w)| g * w).collect();
         let e_l_f = mesh_f.tau_to_l(&e_tau_f, 1)?;
         let e_iw_f = mesh_f.l_to_wn(&e_l_f, 1)?;
-        let hartree: Complex64 = U * contract(&uf_at_beta, &g_l_f)[0];
+        let hartree: Complex64 = U * evaluate_rows(&uf_at_beta, &g_l_f, 1)[0];
         let e_iw_f_hartree: Vec<Complex64> = e_iw_f.iter().map(|e| e - hartree).collect();
 
         if let Some(previous) = &previous {

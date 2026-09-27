@@ -740,3 +740,87 @@ fn gw_matches_the_python_reference() {
     assert_exact_integers(&actual, &expected, "iteration");
     assert_close(&actual, &expected, "difference", 1e-13); // measured 2.2e-14
 }
+
+/// `liechtenstein`: exchange interactions of a square-lattice ferromagnet at
+/// β = 50 on a 36 × 36 momentum grid, with an effective field B = 3.
+///
+/// The interesting comparison here is internal as much as external: `J₀`
+/// through the basis against `J₀` summed over 200 to 3200 Matsubara
+/// frequencies. Those columns are checked against Python too, because a
+/// truncated sum is a well-defined number and the two implementations should
+/// arrive at the same one.
+#[test]
+fn liechtenstein_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "liechtenstein";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "t",
+        "beta",
+        "wmax",
+        "eps",
+        "lambda",
+        "b_eff",
+        "nk_lin",
+        "basis_size",
+        "n_matsubara",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+
+    // --- J₀(μ), both ways ---------------------------------------------------
+    let (actual, expected) = (output(example, "j0"), reference(example, "j0"));
+    assert_close(&actual, &expected, "mu", 1e-15); // measured 0
+    // Through the basis. The fit is the one step with any conditioning in it,
+    // and at ε = 10⁻⁷ it still agrees to 13 digits.
+    assert_close(&actual, &expected, "j0", 1e-11); // measured 4.5e-13
+    for nm in [100, 200, 400, 800, 1600] {
+        // A truncated sum is plain arithmetic in a different order; the
+        // deviation is the reassociation, nothing else.
+        assert_close(&actual, &expected, &format!("j0_nm{nm}"), 1e-12); // measured ≤ 1.5e-14
+    }
+
+    // The point of the example: the truncated sums walk towards the basis
+    // answer like 1/N_M, and the basis answer is the limit. Asserted outright,
+    // because it is a claim about the method rather than a comparison.
+    let j0 = actual.expect_column("j0");
+    let mut previous = f64::INFINITY;
+    for nm in [100, 200, 400, 800, 1600] {
+        let naive = actual.expect_column(&format!("j0_nm{nm}"));
+        let worst = naive
+            .iter()
+            .zip(j0)
+            .fold(0.0_f64, |acc, (a, b)| acc.max((a - b).abs()));
+        assert!(
+            worst < 0.55 * previous,
+            "doubling the Matsubara grid to {nm} should roughly halve the error, \
+             but it went from {previous:.3e} to {worst:.3e}"
+        );
+        previous = worst;
+    }
+
+    // --- J_ij at half filling -----------------------------------------------
+    let (actual, expected) = (output(example, "jij"), reference(example, "jij"));
+    assert_close(&actual, &expected, "distance", 1e-15); // measured 0
+    // Two FFTs and a fit. The deviation would be of order one if either
+    // transform went the wrong way round.
+    assert_close(&actual, &expected, "j_ij", 1e-12); // measured 5.3e-15
+
+    // --- and the sum rule ---------------------------------------------------
+    let (actual, expected) = (output(example, "sum_rule"), reference(example, "sum_rule"));
+    assert_close(&actual, &expected, "j0_direct", 1e-11); // measured 4.7e-14
+    assert_close(&actual, &expected, "j0_from_jij", 1e-12); // measured 2.6e-15
+    // J₀ = Σ_j J_0j, computed two different ways in the same run. The k-space
+    // route sums 1296 real-space terms; the direct route never leaves k. They
+    // agree to the accuracy of the basis, ε = 10⁻⁷, not to machine precision.
+    let direct = actual.expect_column("j0_direct")[0];
+    let from_jij = actual.expect_column("j0_from_jij")[0];
+    assert!(
+        (direct - from_jij).abs() < 1e-7 * direct.abs().max(1.0),
+        "the sum rule is broken: {direct} from J₀ against {from_jij} from J_ij"
+    );
+}

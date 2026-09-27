@@ -342,6 +342,43 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
     }
 }
 
+/// `Σₗ cₗ f(xᵢ)` for a matrix of basis functions `f[i][l]` and a row-major
+/// `(size, ncols)` block of IR coefficients.
+///
+/// This is how the applied examples leave the basis for points the sampling
+/// did not choose: a fermionic function at the bosonic sampling times, or the
+/// Matsubara sum of a product, which is that product at `τ = 0`. The matrix
+/// comes from [`Basis::evaluate_tau`] or [`Basis::evaluate_matsubara`], both
+/// of which apply the statistics of the basis they belong to — which is what
+/// makes a cross-statistics evaluation safe.
+pub fn evaluate_rows(
+    functions: &mdarray::DTensor<f64, 2>,
+    coefficients: &[Complex64],
+    ncols: usize,
+) -> Vec<Complex64> {
+    let (n_points, size) = *functions.shape();
+    assert!(ncols > 0, "a row needs at least one column");
+    assert_eq!(
+        coefficients.len(),
+        size * ncols,
+        "expected {size} rows of {ncols} coefficients, got {} values",
+        coefficients.len()
+    );
+    let mut out = vec![Complex64::default(); n_points * ncols];
+    for i in 0..n_points {
+        for l in 0..size {
+            let f = functions[[i, l]];
+            if f == 0.0 {
+                continue;
+            }
+            for column in 0..ncols {
+                out[i * ncols + column] += coefficients[l * ncols + column] * f;
+            }
+        }
+    }
+    out
+}
+
 /// Wraps `values` as an `nrows × ncols` tensor, taking the number of rows
 /// from the length — which is how many IR coefficients there turned out to be.
 fn to_tensor_rows(values: &[Complex64], ncols: usize) -> Tensor<Complex64, DynRank> {

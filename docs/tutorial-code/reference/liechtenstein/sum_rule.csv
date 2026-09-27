@@ -1,0 +1,3 @@
+# example=liechtenstein sparse-ir=2.1.4 pylibsparseir=0.9.1 numpy=2.5.3
+mu,j0_direct,j0_from_jij
+0.0,-0.2954589907676699,-0.29545903319187433
