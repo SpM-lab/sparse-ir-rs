@@ -126,23 +126,28 @@ impl MomentumGrid {
             .collect()
     }
 
-    /// `A(r) = Σ_k e^{−ik·r} A(k)`, with no prefactor.
+    /// `A(r) = (1/nk) Σ_k e^{−ik·r} A(k)`: the zone average.
     ///
-    /// Matches `np.fft.fftn(..., axes=(1, 2))` of the Python notebooks.
+    /// Matches `np.fft.fftn(..., axes=(1, 2)) / nk` of the Python notebooks.
+    /// The `1/nk` belongs here rather than in [`r_to_k`], because it is the
+    /// momentum sum that is an average over the zone; with it, a product in
+    /// real space is the convolution `(1/nk) Σ_q A(q) B(k − q)` that the
+    /// diagrams are written with, and the two transforms are inverses.
+    ///
+    /// [`r_to_k`]: Self::r_to_k
     pub fn k_to_r(&self, values: &[Complex64]) -> Vec<Complex64> {
-        self.transform(values, Direction::Forward, 1.0)
+        let nk = self.len() as f64;
+        self.transform(values, Direction::Forward, 1.0 / nk)
     }
 
-    /// `A(k) = (1/nk²) Σ_r e^{ik·r} A(r)`.
+    /// `A(k) = Σ_r e^{ik·r} A(r)`, with no prefactor.
     ///
-    /// Matches `np.fft.ifftn(..., axes=(1, 2)) / nk`: the `1/nk` of the inverse
-    /// transform and one more, so that the product of two [`k_to_r`] arrays
-    /// comes back as the convolution `(1/nk) Σ_q A(q) B(k − q)`.
+    /// Matches `np.fft.ifftn(..., axes=(1, 2)) * nk` of the Python notebooks,
+    /// and undoes [`k_to_r`] exactly.
     ///
     /// [`k_to_r`]: Self::k_to_r
     pub fn r_to_k(&self, values: &[Complex64]) -> Vec<Complex64> {
-        let nk = self.len() as f64;
-        self.transform(values, Direction::Inverse, 1.0 / (nk * nk))
+        self.transform(values, Direction::Inverse, 1.0)
     }
 
     fn transform(&self, values: &[Complex64], direction: Direction, scale: f64) -> Vec<Complex64> {
@@ -243,18 +248,12 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
 
     /// `G(τ) → G(iν)`, one column at a time, through the IR coefficients.
     pub fn tau_to_wn(&self, values: &[Complex64], ncols: usize) -> Result<Vec<Complex64>, Error> {
-        let input = to_tensor(values, self.n_tau(), ncols);
-        let coeffs = self.tau.fit_nd_zz(None, &input.expr(), 0)?;
-        let out = self.wn.evaluate_nd(None, &coeffs.expr(), 0)?;
-        Ok(from_tensor(&out))
+        self.l_to_wn(&self.tau_to_l(values, ncols)?, ncols)
     }
 
     /// `G(iν) → G(τ)`, the inverse of [`tau_to_wn`](Self::tau_to_wn).
     pub fn wn_to_tau(&self, values: &[Complex64], ncols: usize) -> Result<Vec<Complex64>, Error> {
-        let input = to_tensor(values, self.n_wn(), ncols);
-        let coeffs = self.wn.fit_nd(None, &input, 0)?;
-        let out = self.tau.evaluate_nd_zz(None, &coeffs.expr(), 0)?;
-        Ok(from_tensor(&out))
+        self.l_to_tau(&self.wn_to_l(values, ncols)?, ncols)
     }
 
     /// The IR coefficients behind values given at the sampling frequencies.
@@ -269,10 +268,39 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
         Ok(from_tensor(&self.tau.fit_nd_zz(None, &input.expr(), 0)?))
     }
 
+    /// IR coefficients → values at the sampling times.
+    pub fn l_to_tau(&self, coeffs: &[Complex64], ncols: usize) -> Result<Vec<Complex64>, Error> {
+        let input = to_tensor_rows(coeffs, ncols);
+        Ok(from_tensor(&self.tau.evaluate_nd_zz(
+            None,
+            &input.expr(),
+            0,
+        )?))
+    }
+
+    /// IR coefficients → values at the sampling frequencies.
+    pub fn l_to_wn(&self, coeffs: &[Complex64], ncols: usize) -> Result<Vec<Complex64>, Error> {
+        let input = to_tensor_rows(coeffs, ncols);
+        Ok(from_tensor(&self.wn.evaluate_nd(None, &input.expr(), 0)?))
+    }
+
     /// `G(τ) → G(β − τ)`; see [`reverse_tau_rows`].
     pub fn reverse_tau(&self, values: &[Complex64], ncols: usize) -> Vec<Complex64> {
         reverse_tau_rows::<S, Complex64>(self.tau_points(), values, ncols)
     }
+}
+
+/// Wraps `values` as an `nrows × ncols` tensor, taking the number of rows
+/// from the length — which is how many IR coefficients there turned out to be.
+fn to_tensor_rows(values: &[Complex64], ncols: usize) -> Tensor<Complex64, DynRank> {
+    assert!(ncols > 0, "a row needs at least one column");
+    assert_eq!(
+        values.len() % ncols,
+        0,
+        "expected whole rows of {ncols} values, got {} values",
+        values.len()
+    );
+    to_tensor(values, values.len() / ncols, ncols)
 }
 
 fn to_tensor(values: &[Complex64], nrows: usize, ncols: usize) -> Tensor<Complex64, DynRank> {

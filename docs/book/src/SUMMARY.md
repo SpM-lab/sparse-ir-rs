@@ -14,3 +14,7 @@
 - [Discrete Lehmann representation](tutorials/dlr.md)
 - [Sparse modeling](tutorials/spm.md)
 - [Analytic continuation](tutorials/analytic_continuation.md)
+
+# Applied examples
+
+- [Second-order perturbation](tutorials/second_order_perturbation.md)

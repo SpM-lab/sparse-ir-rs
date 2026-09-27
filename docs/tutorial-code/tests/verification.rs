@@ -471,3 +471,106 @@ fn analytic_continuation_matches_the_python_reference() {
         assert_close(&actual, &expected, &format!("k_{m}"), 1e-10); // measured 3.0e-12
     }
 }
+
+/// `second_order_perturbation`: the Hubbard model on a 256 × 256 square
+/// lattice at β = 10³, Λ = 10⁵, ε = 10⁻⁷, U = 2.
+///
+/// This is the first example whose answer depends on the τ convention and on
+/// the momentum Fourier convention at once. Getting either wrong changes Σ by
+/// a sign or by a power of nk, so the agreement below is what says both are
+/// right — a picture would not have said it.
+#[test]
+fn second_order_perturbation_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "second_order_perturbation";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "beta",
+        "wmax",
+        "eps",
+        "lambda",
+        "u",
+        "nk_lin",
+        "basis_size",
+        "n_tau",
+        "n_matsubara",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    assert_close(&actual, &expected, "cond_tau", 1e-8); // measured 3.6e-10
+    assert_close(&actual, &expected, "cond_matsubara", 1e-8); // measured 3.4e-11
+
+    // --- G₀ on the Matsubara axis: a formula, so this is only arithmetic ----
+    let (actual, expected) = (
+        output(example, "green_matsubara"),
+        reference(example, "green_matsubara"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "nu", 1e-15);
+    assert_close(&actual, &expected, "g_gamma_im", 1e-14); // measured 1.1e-16
+    assert_close(&actual, &expected, "g_gamma_re", 1e-14); // measured 1.1e-16
+
+    let (actual, expected) = (
+        output(example, "green_coefficients"),
+        reference(example, "green_coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "s_l", 1e-12); // measured 5.4e-14
+    assert_close(&actual, &expected, "g_gamma_abs", 1e-11); // measured 3.7e-13
+
+    // --- on the sampling times, and in real space ---------------------------
+    // The sampling times are roots of the first discarded basis function,
+    // located by bisection; at Λ = 10⁵ the two implementations place them to
+    // about 10⁻¹¹ relative, and everything sampled there inherits that. The
+    // reference file has them folded onto [−β/2, β/2] to match this example.
+    let (actual, expected) = (
+        output(example, "green_tau"),
+        reference(example, "green_tau"),
+    );
+    assert_close(&actual, &expected, "tau", 1e-10); // measured 2.6e-11
+    assert_close(&actual, &expected, "g_gamma", 1e-10); // measured 1.1e-11
+    assert_close(&actual, &expected, "g_m", 1e-10); // measured 1.1e-11
+    assert_close(&actual, &expected, "g_origin", 1e-10); // measured 9.9e-12
+
+    // --- the self-energy ----------------------------------------------------
+    // Σ(τ, r) = U² G(τ, r)² G(β − τ, r). A wrong sign in the reversal, or a
+    // reversal that permuted the rows without it, would show up here as a
+    // deviation of order one rather than of order 10⁻¹¹.
+    let (actual, expected) = (
+        output(example, "self_energy_tau"),
+        reference(example, "self_energy_tau"),
+    );
+    assert_close(&actual, &expected, "tau", 1e-10); // measured 2.6e-11
+    assert_close(&actual, &expected, "sigma_origin", 1e-10); // measured 1.0e-11
+
+    let (actual, expected) = (
+        output(example, "self_energy_coefficients"),
+        reference(example, "self_energy_coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "sigma_origin_abs", 1e-11); // measured 3.4e-13
+    // The momentum transform is the one place a factor of nk = 65536 could
+    // hide; it would be visible here, not subtle.
+    assert_close(&actual, &expected, "sigma_gamma_abs", 1e-11); // measured 3.4e-13
+
+    let (actual, expected) = (
+        output(example, "self_energy_matsubara"),
+        reference(example, "self_energy_matsubara"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "sigma_gamma_im", 1e-11); // measured 5.3e-13
+    assert_close(&actual, &expected, "sigma_gamma_re", 1e-11); // measured 1.8e-12
+
+    // --- and on frequencies nobody sampled ----------------------------------
+    let (actual, expected) = (
+        output(example, "self_energy_far"),
+        reference(example, "self_energy_far"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "sigma_gamma_im", 1e-11); // measured 6.3e-14
+    assert_close(&actual, &expected, "sigma_gamma_re", 1e-11); // measured 1.3e-12
+}

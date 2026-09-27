@@ -1,10 +1,11 @@
 //! The momentum-space Fourier convention, checked against a plain DFT.
 //!
 //! The applied notebooks rely on the two transforms being each other's
-//! inverse *up to a factor of nk*, which is what makes the product of two
-//! real-space arrays come back as the momentum convolution `(1/nk) Σ_q A(q)
-//! B(k − q)`. A sign or a factor in the wrong place changes χ₀ and Σ by a
-//! constant and is very hard to spot in a picture, so it is pinned here.
+//! inverse, with the `1/nk` sitting on the momentum sum, which is what makes
+//! the product of two real-space arrays come back as the momentum convolution
+//! `(1/nk) Σ_q A(q) B(k − q)`. A sign or a factor in the wrong place changes
+//! χ₀ and Σ by a constant and is very hard to spot in a picture, so it is
+//! pinned here.
 
 use std::f64::consts::TAU;
 
@@ -58,28 +59,22 @@ fn assert_close(actual: &[Complex64], expected: &[Complex64], tol: f64) {
 }
 
 #[test]
-fn k_to_r_is_the_forward_dft_with_no_prefactor() {
-    let grid = MomentumGrid::new(NK1, NK2);
-    let values = sample_rows(3, grid.len());
-    assert_close(
-        &grid.k_to_r(&values),
-        &dft_forward(&values, NK1, NK2),
-        1e-13,
-    );
-}
-
-#[test]
-fn r_to_k_undoes_k_to_r_up_to_one_factor_of_nk() {
-    // `r_to_k` carries 1/nk more than the inverse transform needs, so the
-    // round trip comes back scaled by 1/nk. That extra factor is what turns a
-    // product in real space into the convolution the notebooks want.
+fn k_to_r_is_the_forward_dft_averaged_over_the_zone() {
     let grid = MomentumGrid::new(NK1, NK2);
     let nk = grid.len() as f64;
     let values = sample_rows(3, grid.len());
+    let expected: Vec<Complex64> = dft_forward(&values, NK1, NK2)
+        .iter()
+        .map(|v| v / nk)
+        .collect();
+    assert_close(&grid.k_to_r(&values), &expected, 1e-13);
+}
 
-    let round_trip = grid.r_to_k(&grid.k_to_r(&values));
-    let expected: Vec<Complex64> = values.iter().map(|v| v / nk).collect();
-    assert_close(&round_trip, &expected, 1e-13);
+#[test]
+fn r_to_k_undoes_k_to_r() {
+    let grid = MomentumGrid::new(NK1, NK2);
+    let values = sample_rows(3, grid.len());
+    assert_close(&grid.r_to_k(&grid.k_to_r(&values)), &values, 1e-13);
 }
 
 #[test]

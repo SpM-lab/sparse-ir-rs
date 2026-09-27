@@ -23,6 +23,10 @@ const EXAMPLES: &[(&str, &str)] = &[
         "analytic_continuation",
         env!("CARGO_BIN_EXE_analytic_continuation"),
     ),
+    (
+        "second_order_perturbation",
+        env!("CARGO_BIN_EXE_second_order_perturbation"),
+    ),
 ];
 
 #[test]
