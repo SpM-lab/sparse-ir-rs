@@ -1,0 +1,28 @@
+# The tutorial code is deliberately kept out of the main workspace: it must be
+# able to pin its own dependencies (plotting helpers, FFT, ...) without moving
+# a single byte of the library's own Cargo.lock.
+[package]
+name = "sparse-ir-tutorial"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Runnable examples for the sparse-ir Rust tutorial"
+
+[workspace]
+
+[dependencies]
+sparse-ir = { path = "../../sparse-ir" }
+mdarray = "0.7.2"
+faer = "0.23"
+num-complex = "0.4"
+
+[profile.ci]
+# Same code generation as `release`, minus the parts that only cost build time.
+# Task 2 checks that the numbers this profile produces are bit-identical to the
+# ones `release` produces.
+inherits = "release"
+lto = false
+incremental = false
+strip = "symbols"

@@ -1,0 +1,16 @@
+[book]
+title = "sparse-ir for Rust"
+description = "A tutorial for the Rust implementation of the sparse intermediate representation"
+authors = ["SparseIR Team"]
+language = "en"
+src = "src"
+
+[output.html]
+git-repository-url = "https://github.com/SpM-lab/sparse-ir-rs"
+edit-url-template = "https://github.com/SpM-lab/sparse-ir-rs/edit/main/docs/book/{path}"
+mathjax-support = true
+
+[output.html.playground]
+# The examples depend on `sparse-ir`, which the playground cannot fetch, so a
+# "Run" button on them would only ever show an error.
+runnable = false

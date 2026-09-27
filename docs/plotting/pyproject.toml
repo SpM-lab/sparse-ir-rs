@@ -1,0 +1,12 @@
+[project]
+name = "sparse-ir-tutorial-plotting"
+version = "0.0.0"
+description = "Draws the figures of the sparse-ir Rust tutorial from the CSV files the examples write"
+requires-python = ">=3.10"
+dependencies = [
+    "matplotlib>=3.8",
+    "numpy>=1.26",
+]
+
+[tool.uv]
+package = false
