@@ -407,9 +407,9 @@ class TestIntegrationErrorHandling:
             # Use a much larger wrong size to increase chance of error detection
             wrong_dims = np.array([n_poles.value * 100], dtype=np.int32)  # Very wrong size
             dlr_coeffs = np.random.randn(n_poles.value).astype(np.float64)
-            ir_coeffs = np.zeros(ir_size.value, dtype=np.float64)
+            sentinel = -12345.5
+            ir_coeffs = np.full(ir_size.value, sentinel, dtype=np.float64)
 
-            # This may or may not fail depending on C implementation robustness
             status = _lib.spir_dlr2ir_dd(
                 dlr,
                 _blas_backend,  # Use SciPy BLAS backend
@@ -421,16 +421,9 @@ class TestIntegrationErrorHandling:
                 ir_coeffs.ctypes.data_as(POINTER(c_double))
             )
 
-            # The C implementation might be robust enough to handle this gracefully
-            # So we just verify the function completed (either success or specific error)
-            # This tests that the API doesn't crash, which is the main goal
-            # Note: Rust panic may result in SPIR_INTERNAL_ERROR (-7), which is also acceptable
-            # as it indicates the error was detected (even if via panic rather than graceful error handling)
-            assert status in [COMPUTATION_SUCCESS,
-                            SPIR_INPUT_DIMENSION_MISMATCH,
-                            SPIR_OUTPUT_DIMENSION_MISMATCH,
-                            SPIR_INVALID_DIMENSION,
-                            SPIR_INTERNAL_ERROR]
+            # The target extent is checked before the input is read
+            assert status == SPIR_INPUT_DIMENSION_MISMATCH
+            assert np.all(ir_coeffs == sentinel)
 
         # Cleanup
         _lib.spir_basis_release(dlr)
