@@ -115,3 +115,110 @@ fn sparse_sampling_demo_matches_the_python_reference() {
         );
     }
 }
+
+/// `transformation`: the routes into the basis and back out of it, at β = 10,
+/// ωmax = 10, ε = 10⁻¹⁰ (and a bosonic basis at β = 15 for the pole section).
+///
+/// As above, every tolerance carries the deviation that was actually measured.
+/// The whole example agrees with Python to within a few units in the last
+/// place, which is what it should: the two implementations run the same
+/// algorithms on the same basis.
+#[test]
+fn transformation_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "transformation";
+
+    // --- the two bases ------------------------------------------------------
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "pole_beta",
+        "pole_wmax",
+        "pole_basis_size",
+        "beta",
+        "wmax",
+        "eps",
+        "basis_size",
+        "narrow_wmax",
+        "narrow_basis_size",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    assert_close(&actual, &expected, "accuracy", 1e-14); // measured 0
+
+    // --- from poles ---------------------------------------------------------
+    // No quadrature is involved: ρₗ is vₗ at the pole times a weight, so this
+    // is the basis itself being compared, and it agrees bit for bit.
+    let (actual, expected) = (
+        output(example, "pole_coefficients"),
+        reference(example, "pole_coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "rho_l", 1e-14); // measured 0
+    assert_close(&actual, &expected, "g_l", 1e-14); // measured 0
+    // The DLR must reproduce the same Gₗ from the same pole weights; that it
+    // does so to the last bit says the two take the same route.
+    assert_close(&actual, &expected, "g_l_dlr", 1e-14); // measured 0
+
+    // --- from a smooth spectral function ------------------------------------
+    let (actual, expected) = (
+        output(example, "smooth_coefficients"),
+        reference(example, "smooth_coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "s_l", 1e-14); // measured 0
+    // Python integrates adaptively, this example by a fixed high-order rule on
+    // the same segments; both are exact to rounding for a smooth ρ.
+    assert_close(&actual, &expected, "rho_l", 1e-13); // measured 7.6e-16
+    assert_close(&actual, &expected, "g_l", 1e-13); // measured 4.0e-16
+
+    let (actual, expected) = (output(example, "spectrum"), reference(example, "spectrum"));
+    assert_close(&actual, &expected, "omega", 1e-15); // measured 0
+    assert_close(&actual, &expected, "rho_exact", 1e-15); // measured 0
+    assert_close(&actual, &expected, "rho_reconstructed", 1e-13); // measured 9.8e-16
+
+    // --- from IR to imaginary time ------------------------------------------
+    let (actual, expected) = (output(example, "gtau"), reference(example, "gtau"));
+    assert_close(&actual, &expected, "tau", 1e-15); // measured 0
+    assert_close(&actual, &expected, "g_tau_direct", 1e-13); // measured 4.4e-16
+    assert_close(&actual, &expected, "g_tau_sampling", 1e-13); // measured 5.6e-16
+
+    // The two routes to G(τ) are the same matrix applied the same way, so they
+    // must agree far more closely than either agrees with Python.
+    let direct = actual.expect_column("g_tau_direct");
+    let sampled = actual.expect_column("g_tau_sampling");
+    let largest = direct.iter().fold(0.0_f64, |acc, g| acc.max(g.abs()));
+    let worst = direct
+        .iter()
+        .zip(sampled)
+        .fold(0.0_f64, |acc, (a, b)| acc.max((a - b).abs()));
+    assert!(
+        worst < 1e-14 * largest,
+        "the direct and sampled G(τ) differ by {worst:.3e}, which is more than rounding"
+    );
+
+    // --- and back again -----------------------------------------------------
+    let (actual, expected) = (
+        output(example, "roundtrip"),
+        reference(example, "roundtrip"),
+    );
+    assert_close(&actual, &expected, "g_l", 1e-13); // measured 4.0e-16
+    assert_close(&actual, &expected, "g_l_reconstructed", 1e-13); // measured 1.1e-15
+    // The error column is the residual of the round trip: rounding error in
+    // both implementations, with no reason for the two to agree digit by
+    // digit. What matters is that it is rounding error.
+    for table in [&actual, &expected] {
+        assert_negligible(table, "error", "g_l", 1e-14);
+    }
+
+    // --- what a too-small ωmax looks like -----------------------------------
+    let (actual, expected) = (
+        output(example, "narrow_basis"),
+        reference(example, "narrow_basis"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "s_l", 1e-14); // measured 0
+    assert_close(&actual, &expected, "g_l", 1e-13); // measured 9.8e-16
+}

@@ -11,10 +11,13 @@ use std::process::Command;
 /// One entry per binary in `src/bin/`. `env!("CARGO_BIN_EXE_…")` makes Cargo
 /// build it for this test, so the list cannot go stale without a compile
 /// error.
-const EXAMPLES: &[(&str, &str)] = &[(
-    "sparse_sampling_demo",
-    env!("CARGO_BIN_EXE_sparse_sampling_demo"),
-)];
+const EXAMPLES: &[(&str, &str)] = &[
+    (
+        "sparse_sampling_demo",
+        env!("CARGO_BIN_EXE_sparse_sampling_demo"),
+    ),
+    ("transformation", env!("CARGO_BIN_EXE_transformation")),
+];
 
 #[test]
 fn every_example_runs() {

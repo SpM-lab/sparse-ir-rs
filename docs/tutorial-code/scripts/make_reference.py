@@ -12,9 +12,11 @@ from __future__ import annotations
 import sys
 
 import reference_sparse_sampling_demo
+import reference_transformation
 
 EXAMPLES = {
     "sparse_sampling_demo": reference_sparse_sampling_demo.write,
+    "transformation": reference_transformation.write,
 }
 
 
