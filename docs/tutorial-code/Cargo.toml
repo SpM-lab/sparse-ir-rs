@@ -17,6 +17,7 @@ sparse-ir = { path = "../../sparse-ir" }
 mdarray = "0.7.2"
 faer = "0.23"
 num-complex = "0.4"
+rustfft = "6"
 
 [profile.ci]
 # Same code generation as `release`, minus the parts that only cost build time.
