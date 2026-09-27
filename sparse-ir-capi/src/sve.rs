@@ -1114,12 +1114,12 @@ mod tests {
 
                 assert_eq!(
                     svals,
-                    reference(2.0 * machine_eps).s,
+                    reference(2.0 * machine_eps).s(),
                     "default cutoff must be 2 * machine epsilon \
                      (lambda={lambda}, twork={twork}, bosonic={bosonic})"
                 );
                 assert_eq!(
-                    reference(machine_eps).s.len(),
+                    reference(machine_eps).s().len(),
                     svals.len() + 1,
                     "precondition: one singular value must lie in [1, 2) machine epsilons \
                      times s[0] (lambda={lambda}, twork={twork}, bosonic={bosonic})"
@@ -1870,7 +1870,7 @@ mod tests {
             TworkType::Auto,
         )
         .unwrap();
-        (largest_singular_value(sve) - reference.s[0]).abs() / reference.s[0]
+        (largest_singular_value(sve) - reference.s()[0]).abs() / reference.s()[0]
     }
 
     /// A NaN or an infinity in the matrix made the SVD iterate forever:

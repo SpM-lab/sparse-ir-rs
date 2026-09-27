@@ -932,16 +932,15 @@ mod tests {
     where
         K: CentrosymmKernel + KernelProperties + Clone + 'static,
     {
-        let SVEResult { u, s, v, epsilon } =
-            compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
-        assert!(s.len() > TRUNCATED_BASIS_SIZE);
-        let v0 = v.get_polys()[0].clone();
+        let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
+        assert!(sve.s().len() > TRUNCATED_BASIS_SIZE);
+        let v0 = sve.v().get_polys()[0].clone();
         SVEResult::new(
-            PiecewiseLegendrePolyVector::new(u.get_polys()[..TRUNCATED_BASIS_SIZE].to_vec())
+            PiecewiseLegendrePolyVector::new(sve.u().get_polys()[..TRUNCATED_BASIS_SIZE].to_vec())
                 .unwrap(),
-            s[..TRUNCATED_BASIS_SIZE].to_vec(),
+            sve.s()[..TRUNCATED_BASIS_SIZE].to_vec(),
             PiecewiseLegendrePolyVector::new(vec![v0; TRUNCATED_BASIS_SIZE]).unwrap(),
-            epsilon,
+            sve.epsilon(),
         )
         .unwrap()
     }

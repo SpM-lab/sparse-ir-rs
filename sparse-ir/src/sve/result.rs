@@ -7,16 +7,36 @@ use crate::poly::PiecewiseLegendrePolyVector;
 #[derive(Debug, Clone)]
 pub struct SVEResult {
     /// Left singular functions (u)
-    pub u: PiecewiseLegendrePolyVector,
+    pub(crate) u: PiecewiseLegendrePolyVector,
     /// Singular values in non-increasing order
-    pub s: Vec<f64>,
+    pub(crate) s: Vec<f64>,
     /// Right singular functions (v)
-    pub v: PiecewiseLegendrePolyVector,
+    pub(crate) v: PiecewiseLegendrePolyVector,
     /// Accuracy parameter used for computation
-    pub epsilon: f64,
+    pub(crate) epsilon: f64,
 }
 
 impl SVEResult {
+    /// Left singular functions, one per singular value
+    pub fn u(&self) -> &PiecewiseLegendrePolyVector {
+        &self.u
+    }
+
+    /// Singular values, in non-increasing order
+    pub fn s(&self) -> &[f64] {
+        &self.s
+    }
+
+    /// Right singular functions, one per singular value
+    pub fn v(&self) -> &PiecewiseLegendrePolyVector {
+        &self.v
+    }
+
+    /// Accuracy the expansion was computed to
+    pub fn epsilon(&self) -> f64 {
+        self.epsilon
+    }
+
     /// Build an SVE from a kernel matrix discretized on the Gauss points of
     /// `segments_x` x `segments_y`
     ///

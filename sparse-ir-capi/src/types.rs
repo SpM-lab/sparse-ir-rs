@@ -214,16 +214,16 @@ impl spir_sve_result {
     }
 
     pub(crate) fn size(&self) -> usize {
-        self.inner_arc().s.len()
+        self.inner_arc().s().len()
     }
 
     pub(crate) fn svals(&self) -> &[f64] {
-        &self.inner_arc().s
+        self.inner_arc().s()
     }
 
     #[allow(dead_code)]
     pub(crate) fn epsilon(&self) -> f64 {
-        self.inner_arc().epsilon
+        self.inner_arc().epsilon()
     }
 
     /// Get inner SVEResult for basis construction

@@ -70,7 +70,7 @@ fn main() -> Result<(), sparse_ir::Error> {
     // Compute the SVE to an accuracy of 1e-12, keeping at most 100 singular values
     let sve_result = compute_sve(kernel, Some(1e-12), None, Some(100), TworkType::Auto)?;
 
-    println!("SVE computed with {} singular values", sve_result.s.len());
+    println!("SVE computed with {} singular values", sve_result.s().len());
     Ok(())
 }
 ```

@@ -110,7 +110,7 @@ where
     // The untruncated SVE, whose functions a size-limited basis must keep.
     let n_sve = compute_sve(kernel.clone(), Some(group.eps), None, None, TworkType::Auto)
         .unwrap()
-        .s
+        .s()
         .len();
     let mut failures = Vec::new();
     for case in group.cases {
@@ -162,7 +162,7 @@ fn check_case<K, S>(
         fail(format!("size {} (SparseIR.jl {})", basis.size(), case.size));
     }
 
-    let (n_svals, n_uhat_full) = (basis.sve_result().s.len(), basis.uhat_full().len());
+    let (n_svals, n_uhat_full) = (basis.sve_result().s().len(), basis.uhat_full().len());
     if n_svals != n_sve || n_uhat_full != n_sve {
         fail(format!(
             "SVE truncated: sve_result has {n_svals} and uhat_full {n_uhat_full} functions, \

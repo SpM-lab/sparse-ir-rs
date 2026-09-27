@@ -37,10 +37,10 @@ fn test_sve_example() -> Result<(), Error> {
     // Compute the SVE to an accuracy of 1e-12, keeping at most 100 singular values
     let sve_result = compute_sve(kernel, Some(1e-12), None, Some(100), TworkType::Auto)?;
 
-    println!("SVE computed with {} singular values", sve_result.s.len());
+    println!("SVE computed with {} singular values", sve_result.s().len());
 
     // Verify that we got some singular values
-    assert!(!sve_result.s.is_empty());
-    assert!(sve_result.s.len() <= 100);
+    assert!(!sve_result.s().is_empty());
+    assert!(sve_result.s().len() <= 100);
     Ok(())
 }
