@@ -25,6 +25,7 @@ test_user_install.*
 
 # Build artifacts (any directory with _build or _install subdirectories)
 */_build/
+*/_build_*/
 */_install/
 */build/
 
