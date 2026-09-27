@@ -776,8 +776,8 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
         let f = &*funcs;
         let ns_slice = std::slice::from_raw_parts(ns, num_freqs as usize);
 
-        // The core checks every index before evaluating any; nothing is
-        // written to `out` on an error.
+        // The first invalid index decides the error, and nothing is written
+        // to `out` unless every index is valid.
         match f.batch_eval_matsubara(ns_slice) {
             Some(Ok(result_matrix)) => {
                 // result_matrix is Vec<Vec<Complex64>> where outer index is function, inner is freq

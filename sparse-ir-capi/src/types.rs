@@ -870,8 +870,8 @@ impl spir_funcs {
     /// Evaluate at a single tau/omega point (for continuous functions only)
     ///
     /// # Arguments
-    /// * `x` - A point in `continuous_domain()`: for u, tau ∈ [-beta, beta];
-    ///   for v, omega ∈ [-omega_max, omega_max]
+    /// * `x` - A point in the domain of the functions: for u,
+    ///   tau ∈ [-beta, beta]; for v, omega ∈ [-omega_max, omega_max]
     ///
     /// # Returns
     /// `None` if the functions are not of this kind; `Some(Err(..))` for a
