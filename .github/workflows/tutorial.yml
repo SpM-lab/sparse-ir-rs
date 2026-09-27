@@ -100,7 +100,13 @@ jobs:
           # A cache that restores but does not actually save a rebuild is worse
           # than no cache: it hides the cost. Fail loudly if sparse-ir is not
           # among the artifacts after a build.
-          if ! ls target/ci/deps/libsparse_ir-*.rlib >/dev/null 2>&1; then
+          #
+          # A path dependency with a single version gets no metadata hash, so
+          # the file is plain libsparse_ir.rlib; a hashed name is still valid.
+          # libsparse_ir_tutorial-*.rlib must not count, which is why the two
+          # patterns are spelled out rather than globbed as libsparse_ir*.
+          if ! ls target/ci/deps/libsparse_ir.rlib >/dev/null 2>&1 \
+            && ! ls target/ci/deps/libsparse_ir-*.rlib >/dev/null 2>&1; then
             echo "::error::the tutorial build produced no sparse-ir rlib"
             exit 1
           fi
