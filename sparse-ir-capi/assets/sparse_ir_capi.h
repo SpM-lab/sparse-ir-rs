@@ -2188,8 +2188,10 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  *   finite entries)
  * * `K_low` - Low part of the kernel matrix (optional, nullptr for double
  *   precision; finite entries)
- * * `nx` - Number of rows in the matrix
- * * `ny` - Number of columns in the matrix
+ * * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+ *   the number of Gauss points of the segments)
+ * * `ny` - Number of columns in the matrix (must be `n_segments_y *
+ *   n_gauss`, the number of Gauss points of the segments)
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `segments_x` - X-direction segments (array of boundary points, size:
  *   n_segments_x + 1, finite and strictly increasing)
@@ -2209,8 +2211,9 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  *   a size is less than 1, `epsilon` is not positive and finite or is 1 or
  *   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
  *   are not finite and strictly increasing, a segment length is not finite
- *   or is subnormal, the sum of the ends of a segment overflows, or the
- *   matrix has rank 0
+ *   or is subnormal, the sum of the ends of a segment overflows, `nx` is
+ *   not `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`,
+ *   or the matrix has rank 0
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
  *   overflows) or an internal error occurs
@@ -2249,8 +2252,10 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  *   size: nx * ny, finite entries)
  * * `K_odd_low` - Low part of the odd-symmetry kernel matrix (optional,
  *   nullptr for double precision; finite entries)
- * * `nx` - Number of rows in the matrix
- * * `ny` - Number of columns in the matrix
+ * * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+ *   the number of Gauss points of the segments on [0, xmax])
+ * * `ny` - Number of columns in the matrix (must be `n_segments_y *
+ *   n_gauss`, the number of Gauss points of the segments on [0, ymax])
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `segments_x` - X-direction segments on the half domain (array of
  *   boundary points, size: n_segments_x + 1, finite and strictly
@@ -2273,8 +2278,9 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  *   and finite or is 1 or more, an entry of a matrix that is read is NaN or
  *   infinite, the segments are not finite and strictly increasing, the
  *   segments do not start at 0, a segment length is not finite or is
- *   subnormal, the sum of the ends of a segment overflows, or both
- *   matrices have rank 0
+ *   subnormal, the sum of the ends of a segment overflows, `nx` is not
+ *   `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`, or
+ *   both matrices have rank 0
  * - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
  * - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
  *   or an internal error occurs

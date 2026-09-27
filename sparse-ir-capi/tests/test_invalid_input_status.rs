@@ -1748,3 +1748,73 @@ fn tau_sampling_new_keeps_the_given_point_order() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Matrix sizes of spir_sve_result_from_matrix*
+// ---------------------------------------------------------------------------
+
+/// A stand-in kernel matrix of `nx * ny` finite entries, row-major
+fn stand_in_kernel_matrix(nx: i32, ny: i32) -> Vec<f64> {
+    (0..nx * ny)
+        .map(|k| 0.1 * (1.0 + f64::from(k).sin()))
+        .collect()
+}
+
+/// The rows (columns) of the matrix are the Gauss points of the x (y)
+/// segments. With one more row than the segments have points, the weights
+/// were indexed out of bounds (SPIR_INTERNAL_ERROR, -7); with one less, the
+/// missing rows were filled with zeros and a wrong SVE came back (success).
+#[test]
+fn sve_result_from_matrix_rejects_sizes_other_than_the_gauss_points() {
+    let n_gauss = 2;
+    let full = [-1.0, 0.0, 1.0]; // 2 segments: 4 Gauss points
+    let half = [0.0, 0.5, 1.0];
+    for (nx, ny) in [(4, 4), (5, 4), (3, 4), (4, 5), (4, 3), (8, 8), (2, 2)] {
+        let k = stand_in_kernel_matrix(nx, ny);
+        let expected = if (nx, ny) == (4, 4) {
+            SPIR_COMPUTATION_SUCCESS
+        } else {
+            SPIR_INVALID_ARGUMENT
+        };
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_from_matrix(
+            k.as_ptr(),
+            ptr::null(),
+            nx,
+            ny,
+            SPIR_ORDER_ROW_MAJOR,
+            full.as_ptr(),
+            2,
+            full.as_ptr(),
+            2,
+            n_gauss,
+            1e-8,
+            &mut status,
+        );
+        assert_eq!(status, expected, "from_matrix, nx = {nx}, ny = {ny}");
+        assert_eq!(sve.is_null(), expected != SPIR_COMPUTATION_SUCCESS);
+        spir_sve_result_release(sve);
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_from_matrix_centrosymmetric(
+            k.as_ptr(),
+            ptr::null(),
+            k.as_ptr(),
+            ptr::null(),
+            nx,
+            ny,
+            SPIR_ORDER_ROW_MAJOR,
+            half.as_ptr(),
+            2,
+            half.as_ptr(),
+            2,
+            n_gauss,
+            1e-8,
+            &mut status,
+        );
+        assert_eq!(status, expected, "centrosymmetric, nx = {nx}, ny = {ny}");
+        assert_eq!(sve.is_null(), expected != SPIR_COMPUTATION_SUCCESS);
+        spir_sve_result_release(sve);
+    }
+}

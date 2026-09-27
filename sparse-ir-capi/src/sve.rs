@@ -434,6 +434,16 @@ unsafe fn validated_segments<'a>(
     }
 }
 
+/// Whether `n` rows (or columns) are the Gauss points of `n_segments`
+/// segments with `n_gauss` points each
+///
+/// The weights of those points are removed from the singular vectors, one
+/// per row: a matrix of another size would index them out of bounds or
+/// leave rows of the polynomials unset.
+fn is_gauss_point_count(n: libc::c_int, n_segments: libc::c_int, n_gauss: libc::c_int) -> bool {
+    n_segments.checked_mul(n_gauss) == Some(n)
+}
+
 /// Create a SVE result from a discretized kernel matrix
 ///
 /// This function performs singular value expansion (SVE) on a discretized kernel
@@ -446,8 +456,10 @@ unsafe fn validated_segments<'a>(
 ///   finite entries)
 /// * `K_low` - Low part of the kernel matrix (optional, nullptr for double
 ///   precision; finite entries)
-/// * `nx` - Number of rows in the matrix
-/// * `ny` - Number of columns in the matrix
+/// * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+///   the number of Gauss points of the segments)
+/// * `ny` - Number of columns in the matrix (must be `n_segments_y *
+///   n_gauss`, the number of Gauss points of the segments)
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `segments_x` - X-direction segments (array of boundary points, size:
 ///   n_segments_x + 1, finite and strictly increasing)
@@ -467,8 +479,9 @@ unsafe fn validated_segments<'a>(
 ///   a size is less than 1, `epsilon` is not positive and finite or is 1 or
 ///   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
 ///   are not finite and strictly increasing, a segment length is not finite
-///   or is subnormal, the sum of the ends of a segment overflows, or the
-///   matrix has rank 0
+///   or is subnormal, the sum of the ends of a segment overflows, `nx` is
+///   not `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`,
+///   or the matrix has rank 0
 /// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
 /// - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
 ///   overflows) or an internal error occurs
@@ -553,6 +566,17 @@ pub extern "C" fn spir_sve_result_from_matrix(
             return std::ptr::null_mut();
         }
     };
+
+    // The rows and columns must be the Gauss points of the segments; check
+    // it before the SVD.
+    if !is_gauss_point_count(nx, n_segments_x, n_gauss)
+        || !is_gauss_point_count(ny, n_segments_y, n_gauss)
+    {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
 
     let result = catch_unwind(|| {
         // Reconstruct Gauss rules
@@ -778,8 +802,10 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ///   size: nx * ny, finite entries)
 /// * `K_odd_low` - Low part of the odd-symmetry kernel matrix (optional,
 ///   nullptr for double precision; finite entries)
-/// * `nx` - Number of rows in the matrix
-/// * `ny` - Number of columns in the matrix
+/// * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+///   the number of Gauss points of the segments on [0, xmax])
+/// * `ny` - Number of columns in the matrix (must be `n_segments_y *
+///   n_gauss`, the number of Gauss points of the segments on [0, ymax])
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `segments_x` - X-direction segments on the half domain (array of
 ///   boundary points, size: n_segments_x + 1, finite and strictly
@@ -802,8 +828,9 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ///   and finite or is 1 or more, an entry of a matrix that is read is NaN or
 ///   infinite, the segments are not finite and strictly increasing, the
 ///   segments do not start at 0, a segment length is not finite or is
-///   subnormal, the sum of the ends of a segment overflows, or both
-///   matrices have rank 0
+///   subnormal, the sum of the ends of a segment overflows, `nx` is not
+///   `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`, or
+///   both matrices have rank 0
 /// - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
 /// - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
 ///   or an internal error occurs
@@ -906,6 +933,17 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
     // segment lists must start at 0. The core checks this too, but only
     // after the SVD; reject it before any work.
     if segs_x_slice[0] != 0.0 || segs_y_slice[0] != 0.0 {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
+    // The rows and columns must be the Gauss points of the segments; check
+    // it before the SVD.
+    if !is_gauss_point_count(nx, n_segments_x, n_gauss)
+        || !is_gauss_point_count(ny, n_segments_y, n_gauss)
+    {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -2162,18 +2200,13 @@ mod tests {
         assert!(sve.is_null());
     }
 
-    /// epsilon >= 1 is rejected before the matrices are decomposed: with one
-    /// row more than the segments describe, the SVD path would index past the
-    /// Gauss weights and panic (SPIR_INTERNAL_ERROR, -7).
+    /// epsilon >= 1 is rejected before the matrices are decomposed: it used
+    /// to reach the SVD, where a matrix of this size indexed past the Gauss
+    /// weights and panicked (SPIR_INTERNAL_ERROR, -7).
     #[test]
     fn test_sve_result_from_matrix_centrosymmetric_rejects_epsilon_before_the_svd() {
         let m = logistic_kernel_matrices();
-        let extend = |k: &[f64]| {
-            let mut k = k.to_vec();
-            k.extend(std::iter::repeat_n(0.0, m.ny)); // one extra row
-            k
-        };
-        let (k_even, k_odd) = (extend(&m.even), extend(&m.odd));
+        let (k_even, k_odd) = (&m.even, &m.odd);
         for epsilon in [1.0, 2.0] {
             let mut status = SPIR_INTERNAL_ERROR;
             let sve = spir_sve_result_from_matrix_centrosymmetric(
@@ -2181,7 +2214,7 @@ mod tests {
                 ptr::null(),
                 k_odd.as_ptr(),
                 ptr::null(),
-                (m.nx + 1) as libc::c_int,
+                m.nx as libc::c_int,
                 m.ny as libc::c_int,
                 SPIR_ORDER_ROW_MAJOR,
                 m.segs_x.as_ptr(),
@@ -2200,17 +2233,11 @@ mod tests {
     /// The centrosymmetric variant mirrors segments that start at 0. A
     /// negative first boundary made the mirrored knots decrease (a panic,
     /// SPIR_INTERNAL_ERROR) and a positive one gave a wrong SVE silently.
-    /// Both are rejected before the SVD: with one row more than the segments
-    /// describe, the SVD path would index past the Gauss weights and panic.
+    /// Both are rejected before the SVD.
     #[test]
     fn test_sve_result_from_matrix_centrosymmetric_requires_segments_from_zero() {
         let m = logistic_kernel_matrices();
-        let extend = |k: &[f64]| {
-            let mut k = k.to_vec();
-            k.extend(std::iter::repeat_n(0.0, m.ny)); // one extra row
-            k
-        };
-        let (k_even, k_odd) = (extend(&m.even), extend(&m.odd));
+        let (k_even, k_odd) = (&m.even, &m.odd);
         let shift = |segs: &[f64], by: f64| segs.iter().map(|s| s + by).collect::<Vec<f64>>();
         for (segs_x, segs_y) in [
             (shift(&m.segs_x, -0.25), m.segs_y.clone()),
@@ -2223,7 +2250,7 @@ mod tests {
                 ptr::null(),
                 k_odd.as_ptr(),
                 ptr::null(),
-                (m.nx + 1) as libc::c_int,
+                m.nx as libc::c_int,
                 m.ny as libc::c_int,
                 SPIR_ORDER_ROW_MAJOR,
                 segs_x.as_ptr(),

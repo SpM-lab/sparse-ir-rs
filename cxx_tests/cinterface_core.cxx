@@ -541,20 +541,20 @@ TEST_CASE("Test spir_sve_result_from_matrix", "[cinterface]")
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
 
     // Get Gauss points and weights
-    // Note: n_segments_x and n_segments_y are the number of boundary points (n_segments + 1),
-    // but spir_gauss_legendre_rule_piecewise_double expects the number of segments (n_segments)
-    int nx = n_gauss * (n_segments_x - 1);  // n_segments_x - 1 is the number of segments
-    int ny = n_gauss * (n_segments_y - 1);  // n_segments_y - 1 is the number of segments
+    // Note: n_segments_x and n_segments_y are the numbers of segments; the
+    // segment arrays hold one more boundary each.
+    int nx = n_gauss * n_segments_x;
+    int ny = n_gauss * n_segments_y;
     std::vector<double> x(nx), w_x(nx);
     std::vector<double> y(ny), w_y(ny);
 
     int status_gauss;
     status_gauss = spir_gauss_legendre_rule_piecewise_double(
-        n_gauss, segments_x.data(), n_segments_x - 1, x.data(), w_x.data(), &status_gauss);  // n_segments_x - 1 is the number of segments
+        n_gauss, segments_x.data(), n_segments_x, x.data(), w_x.data(), &status_gauss);
     REQUIRE(status_gauss == SPIR_COMPUTATION_SUCCESS);
 
     status_gauss = spir_gauss_legendre_rule_piecewise_double(
-        n_gauss, segments_y.data(), n_segments_y - 1, y.data(), w_y.data(), &status_gauss);  // n_segments_y - 1 is the number of segments
+        n_gauss, segments_y.data(), n_segments_y, y.data(), w_y.data(), &status_gauss);
     REQUIRE(status_gauss == SPIR_COMPUTATION_SUCCESS);
 
     // Create a simple test kernel matrix
@@ -577,7 +577,9 @@ TEST_CASE("Test spir_sve_result_from_matrix", "[cinterface]")
 
     // Note: The test matrix is very simple, so the SVE result may not be meaningful
     // But we can at least verify the function doesn't crash and returns a valid result
-    if (status == SPIR_COMPUTATION_SUCCESS && sve_from_matrix != nullptr) {
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(sve_from_matrix != nullptr);
+    {
         int sve_size;
         status = spir_sve_result_get_size(sve_from_matrix, &sve_size);
         REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
@@ -611,9 +613,9 @@ TEST_CASE("Test spir_sve_result_from_matrix", "[cinterface]")
             segments_y.data(), n_segments_y,
             n_gauss, epsilon, &status);
 
-        if (status == SPIR_COMPUTATION_SUCCESS && sve_col != nullptr) {
-            spir_sve_result_release(sve_col);
-        }
+        REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+        REQUIRE(sve_col != nullptr);
+        spir_sve_result_release(sve_col);
     }
 
     spir_kernel_release(kernel);
