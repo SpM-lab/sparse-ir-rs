@@ -95,8 +95,7 @@ sampling.evaluate_nd_to(&coeffs_view, dim, &mut out_view);
 
 | コンポーネント | 追加内容 |
 |--------------|---------|
-| `working_buffer.rs` | `copy_to_contiguous()` - strided → 連続コピー |
-| `working_buffer.rs` | `copy_from_contiguous()` - 連続 → strided コピー |
+| `fitters/common.rs` | `copy_from_contiguous()` - 連続 → strided コピー |
 | `sampling.rs` | `evaluate_nd_inplace()` - uninit Vecを使用した効率的な実装 |
 
 **追加されたメソッド (TauSampling):**
