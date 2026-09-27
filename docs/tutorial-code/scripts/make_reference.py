@@ -13,6 +13,7 @@ import sys
 
 import reference_analytic_continuation
 import reference_dlr
+import reference_dmft_ipt
 import reference_sparse_sampling_demo
 import reference_gw
 import reference_liechtenstein
@@ -24,6 +25,8 @@ import reference_transformation
 EXAMPLES = {
     "analytic_continuation": reference_analytic_continuation.write,
     "dlr": reference_dlr.write,
+    "dmft_ipt": reference_dmft_ipt.write,
+    "dmft_ipt_scan": reference_dmft_ipt.write_scan,
     "sparse_sampling_demo": reference_sparse_sampling_demo.write,
     "gw": reference_gw.write,
     "liechtenstein": reference_liechtenstein.write,

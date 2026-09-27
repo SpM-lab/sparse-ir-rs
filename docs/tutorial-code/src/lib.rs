@@ -12,6 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub mod csv;
+pub mod dmft;
 pub mod elliptic;
 pub mod linalg;
 pub mod mesh;

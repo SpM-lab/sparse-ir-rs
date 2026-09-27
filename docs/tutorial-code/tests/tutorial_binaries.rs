@@ -33,7 +33,14 @@ const EXAMPLES: &[(&str, &str)] = &[
         "orbital_magnetic_susceptibility",
         env!("CARGO_BIN_EXE_orbital_magnetic_susceptibility"),
     ),
+    ("dmft_ipt", env!("CARGO_BIN_EXE_dmft_ipt")),
 ];
+
+/// The examples that repeat a whole self-consistent calculation over a grid of
+/// parameters. They are minutes rather than seconds, so they run in the
+/// scheduled applied-examples job instead of on every pull request; see
+/// `common::scans_requested`.
+const SCANS: &[(&str, &str)] = &[("dmft_ipt_scan", env!("CARGO_BIN_EXE_dmft_ipt_scan"))];
 
 #[test]
 fn every_example_runs() {
@@ -42,7 +49,21 @@ fn every_example_runs() {
         return;
     }
 
-    for (name, binary) in EXAMPLES {
+    run(EXAMPLES);
+}
+
+#[test]
+fn every_scan_runs() {
+    if !common::scans_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_SCANS=1 to run the parameter scans");
+        return;
+    }
+
+    run(SCANS);
+}
+
+fn run(examples: &[(&str, &str)]) {
+    for (name, binary) in examples {
         let output = Command::new(binary)
             .output()
             .unwrap_or_else(|e| panic!("could not start `{name}` ({binary}): {e}"));

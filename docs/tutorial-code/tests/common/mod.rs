@@ -20,6 +20,17 @@ pub fn examples_requested() -> bool {
     std::env::var_os("SPARSEIR_TUTORIAL_RUN").is_some_and(|value| value != "0")
 }
 
+/// Whether the `_scan` examples should run as well.
+///
+/// The scans repeat a self-consistent calculation over a grid of parameters,
+/// which costs minutes rather than seconds. They run in the scheduled
+/// applied-examples job and under `scripts/check.sh --run --scans`, never on a
+/// pull request.
+pub fn scans_requested() -> bool {
+    examples_requested()
+        && std::env::var_os("SPARSEIR_TUTORIAL_SCANS").is_some_and(|value| value != "0")
+}
+
 pub fn crate_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
 }

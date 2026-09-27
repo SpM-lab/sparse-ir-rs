@@ -13,6 +13,7 @@ mod common;
 
 use common::{
     assert_close, assert_exact_integers, assert_negligible, examples_requested, output, reference,
+    scans_requested,
 };
 
 /// `sparse_sampling_demo`: a semicircular spectral function at β = 10⁴,
@@ -970,4 +971,250 @@ fn orbital_magnetic_susceptibility_matches_the_python_reference() {
              n = {n0} and n = {n1} it falls off as ν^{slope:.2}"
         );
     }
+}
+
+/// `dmft_ipt`: the Bethe lattice at `D = 2`, `β = 20`, `U = 5`, `ε = 10⁻¹⁵`,
+/// stopped where the notebook stops it.
+///
+/// The tolerances here are loose by the standards of this file — parts in
+/// `10⁷` rather than parts in `10¹³` — and that is the example's subject
+/// rather than a concession. The notebook stops when the *change* of `Σ` from
+/// one iteration to the next falls below `10⁻⁵`, which happens while the
+/// trajectory is still passing the unstable fixed point that separates the
+/// metal from the insulator. Near that point a difference grows by about 40%
+/// per iteration, so the `10⁻¹⁶` by which two implementations differ in their
+/// starting `G⁰` has become `10⁻⁷` by iteration 65. The fixed points
+/// themselves are reproducible to machine precision; this snapshot of the walk
+/// towards one is not, and `dmft_ipt_scan` is where the converged numbers are.
+#[test]
+fn dmft_ipt_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "dmft_ipt";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "d",
+        "wmax",
+        "beta",
+        "u",
+        "eps",
+        "mix",
+        "sfc_tol",
+        "maxiter",
+        "basis_size",
+        "n_tau",
+        "n_wn",
+        // The iteration count is exact because the residual crosses `10⁻⁵`
+        // with 1% to spare, far more than the trajectories differ by there.
+        "iterations",
+        // The unconstrained run has no criterion to cross at all, and it ends
+        // on the insulator from either implementation.
+        "long_iterations",
+        "long_z",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    // measured 1.1e-7
+    assert_close(&actual, &expected, "z", 1e-6);
+
+    let (actual, expected) = (output(example, "green"), reference(example, "green"));
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "g_im", 5e-6); // measured 3.3e-7
+    // Half filling with a symmetric density of states: the real part vanishes
+    // by particle-hole symmetry, which the loop preserves exactly. What is
+    // left of it is the same amplified rounding error as above.
+    assert_negligible(&actual, "g_re", "g_im", 5e-6); // measured 4.9e-7
+
+    let (actual, expected) = (
+        output(example, "self_energy"),
+        reference(example, "self_energy"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "sigma_im", 5e-6); // measured 3.2e-7
+    assert_negligible(&actual, "sigma_re", "sigma_im", 5e-6); // measured 4.7e-7
+
+    // `Σ(τ)` is real, and the Python reference reports it on `[0, β)`: the
+    // reference script folds its grid onto `[−β/2, β/2]` with the fermionic
+    // sign before the comparison.
+    let (actual, expected) = (
+        output(example, "self_energy_tau"),
+        reference(example, "self_energy_tau"),
+    );
+    assert_close(&actual, &expected, "tau", 1e-15); // measured 0
+    assert_close(&actual, &expected, "sigma_re", 5e-6); // measured 3.1e-7
+    assert_negligible(&actual, "sigma_im", "sigma_re", 5e-6); // measured 3.0e-7
+
+    let (actual, expected) = (
+        output(example, "convergence"),
+        reference(example, "convergence"),
+    );
+    assert_exact_integers(&actual, &expected, "iteration");
+    assert_close(&actual, &expected, "residual", 1e-7); // measured 1.1e-9
+
+    // The long run's trajectory is not compared value by value, and cannot be:
+    // it leaves an unstable fixed point at a moment that rounding decides, so
+    // the two implementations peak two iterations and a factor of two apart.
+    // What both do is climb back to order one after the criterion above was
+    // satisfied, and then converge for real.
+    let (actual, expected) = (
+        output(example, "long_convergence"),
+        reference(example, "long_convergence"),
+    );
+    for table in [&actual, &expected] {
+        let residual = table.expect_column("residual");
+        let rebound = residual[65..].iter().fold(0.0_f64, |acc, &r| acc.max(r));
+        assert!(
+            rebound > 0.1,
+            "the loop must leave the unstable fixed point it was stopped next to, \
+             but the change never rose above {rebound:.1e} again"
+        );
+        assert!(
+            residual[3000..].iter().all(|&r| r < 1e-15),
+            "the long run must actually converge"
+        );
+    }
+
+    // --- and the physics ----------------------------------------------------
+    let summary = output(example, "summary");
+    let z = summary.expect_column("z")[0];
+    assert!(
+        (0.0..=1.0).contains(&z),
+        "the quasiparticle weight must lie in [0, 1], got {z}"
+    );
+
+    let green = output(example, "green");
+    let index = green
+        .expect_column("n")
+        .iter()
+        .position(|&n| n == 1.0)
+        .expect("the fermionic sampling frequencies include n = 1");
+    let g_im = green.expect_column("g_im")[index];
+    assert!(
+        g_im < 0.0,
+        "Im G(iν) must be negative at positive frequency, got {g_im}"
+    );
+
+    // The criterion stopped the loop the first time it was satisfied, and the
+    // residual fell every single step on the way there.
+    let convergence = output(example, "convergence");
+    let residual = convergence.expect_column("residual");
+    let tolerance = summary.expect_column("sfc_tol")[0];
+    assert!(
+        residual[residual.len() - 1] < tolerance && residual[residual.len() - 2] >= tolerance,
+        "the loop must stop at the first iteration below {tolerance:.0e}"
+    );
+    assert!(
+        residual.windows(2).all(|w| w[1] < w[0]),
+        "the residual must fall at every iteration"
+    );
+}
+
+/// `dmft_ipt_scan`: `Z(U)` over 66 interaction strengths from three starting
+/// points, each run for a fixed 5000 iterations.
+///
+/// These are fixed points rather than snapshots of a walk towards one, and
+/// they agree to parts in `10¹⁵` — the contrast with `dmft_ipt` above is the
+/// whole reason the scan does not stop on a threshold.
+#[test]
+fn dmft_ipt_scan_matches_the_python_reference() {
+    if !scans_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_SCANS=1 to check the parameter scans");
+        return;
+    }
+    let example = "dmft_ipt_scan";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "d",
+        "beta",
+        "eps",
+        "u_max",
+        "u_num",
+        "iterations",
+        "basis_size",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+
+    let (actual, expected) = (
+        output(example, "renormalisation"),
+        reference(example, "renormalisation"),
+    );
+    assert_exact_integers(&actual, &expected, "u");
+    for column in ["from_g0", "metal", "insulator"] {
+        assert_close(&actual, &expected, column, 1e-12); // measured ≤ 3.9e-15
+    }
+
+    let (actual, expected) = (
+        output(example, "self_energy"),
+        reference(example, "self_energy"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    for column in [
+        "sigma_im_u30",
+        "sigma_im_u32",
+        "sigma_im_u34",
+        "sigma_im_u35",
+        "sigma_im_u40",
+    ] {
+        assert_close(&actual, &expected, column, 1e-12); // measured ≤ 1.4e-14
+    }
+
+    // --- and the physics ----------------------------------------------------
+    let table = output(example, "renormalisation");
+    let u = table.expect_column("u");
+    let from_g0 = table.expect_column("from_g0");
+    let metal = table.expect_column("metal");
+    let insulator = table.expect_column("insulator");
+
+    // Starting from `G⁰` is starting in the metal's basin, so that sweep has
+    // to land on the metallic branch wherever the metallic branch exists —
+    // and where it does not, both have to fall to the same insulator. The two
+    // sweeps take entirely different routes to each point, so their agreeing
+    // to the last few bits is a statement about the fixed points and not about
+    // the arithmetic.
+    for (index, (&a, &b)) in from_g0.iter().zip(metal).enumerate() {
+        assert!(
+            (a - b).abs() < 1e-12,
+            "row {index} (U = {}): the run from G⁰ gives Z = {a} but the metallic \
+             sweep gives {b}",
+            u[index]
+        );
+    }
+
+    for name in ["from_g0", "metal", "insulator"] {
+        let z = table.expect_column(name);
+        assert!(
+            (z[0] - 1.0).abs() < 1e-12,
+            "`{name}`: the non-interacting limit must have Z = 1, got {}",
+            z[0]
+        );
+        assert!(
+            z.iter().all(|z| (0.0..=1.0).contains(z)),
+            "`{name}`: every quasiparticle weight must lie in [0, 1]"
+        );
+    }
+
+    // The metal is destroyed continuously in `U` until it stops existing, and
+    // the insulator appears first: a coexistence window, which is what makes
+    // the transition first order.
+    let collapse = |z: &[f64]| z.iter().position(|&z| z == 0.0).expect("Z reaches zero");
+    let (uc2, uc1) = (collapse(metal), collapse(insulator));
+    assert!(
+        uc1 < uc2,
+        "the insulator must appear below U_c2 = {}, but it appears at {}",
+        u[uc2],
+        u[uc1]
+    );
+    assert!(
+        metal[..uc2].windows(2).all(|w| w[1] < w[0]),
+        "the metal's quasiparticle weight must fall with U"
+    );
+    assert!(
+        insulator[uc1..].iter().all(|&z| z == 0.0),
+        "the insulating branch must stay insulating above U_c1"
+    );
 }
