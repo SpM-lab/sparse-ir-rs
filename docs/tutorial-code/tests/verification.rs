@@ -373,3 +373,101 @@ fn spm_matches_the_python_reference() {
     assert_close(&actual, &expected, "g_tau_clean", 1e-15); // measured 0
     assert_close(&actual, &expected, "g_tau_fit", 1e-13); // measured 4.4e-16
 }
+
+/// `analytic_continuation`: two semicircle-based models at β = 40, ωmax = 2,
+/// ε = 2×10⁻⁸ — a basis of 24 functions whose last singular value is 2.5×10⁻⁸
+/// of the first.
+///
+/// The two implementations integrate differently everywhere a `vₗ` overlap
+/// appears: Python's `basis.v.overlap` is adaptive, while this example
+/// substitutes the singularity away and integrates the resulting polynomial in
+/// closed form. Everything that is not an overlap agrees to rounding.
+#[test]
+fn analytic_continuation_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "analytic_continuation";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in ["beta", "wmax", "basis_size", "n_lorentz"] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    assert_close(&actual, &expected, "eps", 1e-15); // measured 0
+    assert_close(&actual, &expected, "eta", 1e-15); // measured 0
+    // The noise level is `0.3 s_{L−1}/s_0`, so it inherits the accuracy of the
+    // very last singular value — the one the truncation was about to drop.
+    assert_close(&actual, &expected, "noise", 1e-9); // measured 1.8e-11
+    assert_close(&actual, &expected, "alpha", 1e-9); // measured 1.8e-11
+
+    // --- the models and the noise put on them -------------------------------
+    let (actual, expected) = (
+        output(example, "coefficients"),
+        reference(example, "coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "s_l", 1e-14); // measured 6.2e-16
+    assert_close(&actual, &expected, "s_ratio", 1e-14); // measured 7.8e-16
+    // ρₗ of a semicircle: one quadrature against another.
+    assert_close(&actual, &expected, "rho_semielliptic", 1e-12); // measured 1.2e-14
+    // The insulating model's two semicircles are a quarter of the band wide,
+    // so their edges sit where the basis has few knots and the quadratures
+    // have the least in common.
+    assert_close(&actual, &expected, "rho_insulating", 1e-11); // measured 9.8e-13
+    assert_close(&actual, &expected, "g_semielliptic", 1e-14); // measured 7.2e-16
+    assert_close(&actual, &expected, "g_insulating", 1e-14); // measured 5.9e-16
+    assert_close(&actual, &expected, "g_semielliptic_noisy", 1e-14); // measured 7.2e-16
+    assert_close(&actual, &expected, "g_insulating_noisy", 1e-14); // measured 5.9e-16
+
+    // --- truncated-SVD regularisation ---------------------------------------
+    let (actual, expected) = (output(example, "tsvd"), reference(example, "tsvd"));
+    assert_close(&actual, &expected, "omega", 1e-15); // measured 0
+    assert_close(&actual, &expected, "semielliptic_exact", 1e-15); // measured 0
+    assert_close(&actual, &expected, "insulating_exact", 1e-15); // measured 0
+    assert_close(&actual, &expected, "semielliptic_half", 1e-12); // measured 6.2e-15
+    assert_close(&actual, &expected, "insulating_half", 1e-12); // measured 3.8e-15
+    // Dividing by the last singular value multiplies a 10⁻¹⁶ disagreement in
+    // `sₗ` by 4×10⁷. That amplification is the point of the whole page, so the
+    // tolerance here has to allow it — and it still pins the curve to eight
+    // digits.
+    assert_close(&actual, &expected, "semielliptic_full", 1e-8); // measured 3.4e-10
+    assert_close(&actual, &expected, "insulating_full", 1e-8); // measured 2.3e-10
+
+    // --- ridge regression ---------------------------------------------------
+    // The ridge filter rolls the small singular values off instead of dividing
+    // by them, which is why this is four orders of magnitude tighter than the
+    // untruncated inversion above.
+    let (actual, expected) = (output(example, "ridge"), reference(example, "ridge"));
+    assert_close(&actual, &expected, "omega", 1e-15); // measured 0
+    assert_close(&actual, &expected, "semielliptic_ridge", 1e-10); // measured 1.3e-12
+    assert_close(&actual, &expected, "insulating_ridge", 1e-10); // measured 2.9e-12
+
+    // --- the coefficients of a discrete spectrum ----------------------------
+    let (actual, expected) = (output(example, "discrete"), reference(example, "discrete"));
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "g_semielliptic", 1e-14); // measured 7.2e-16
+    assert_close(&actual, &expected, "rho_semielliptic", 1e-12); // measured 1.2e-14
+    assert_close(&actual, &expected, "g_discrete", 1e-14); // measured 1.1e-15
+    // ρₗ of four delta peaks does not decay, so the largest entry of this
+    // column is at the end, where `vₗ` itself is evaluated least accurately.
+    assert_close(&actual, &expected, "rho_discrete", 1e-8); // measured 1.8e-10
+
+    // --- the real-axis basis ------------------------------------------------
+    let (actual, expected) = (output(example, "lorentz"), reference(example, "lorentz"));
+    assert_close(&actual, &expected, "omega", 1e-15); // measured 0
+    assert_close(&actual, &expected, "f", 1e-15); // measured 0
+
+    let (actual, expected) = (
+        output(example, "lorentz_kernel"),
+        reference(example, "lorentz_kernel"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    for m in 0..21 {
+        // η is a hundredth of the knot spacing, so both sides are integrating a
+        // near-delta: Python by telling the adaptive rule where the peak is,
+        // this example by mapping the peak onto the whole interval. The worst
+        // column is the one whose centre falls nearest a knot.
+        assert_close(&actual, &expected, &format!("k_{m}"), 1e-10); // measured 3.0e-12
+    }
+}

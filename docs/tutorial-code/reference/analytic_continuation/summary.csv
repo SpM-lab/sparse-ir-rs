@@ -1,0 +1,3 @@
+# example=analytic_continuation sparse-ir=2.1.4 pylibsparseir=0.9.1 numpy=2.5.3
+beta,wmax,eps,basis_size,noise,alpha,eta,n_lorentz
+40.0,2.0,2e-08,24.0,7.432835868625897e-09,7.432835868625898e-07,0.007853981633974483,21.0
