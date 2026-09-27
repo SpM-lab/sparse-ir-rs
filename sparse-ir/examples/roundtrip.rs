@@ -349,7 +349,7 @@ fn run_integration_example_single<K, S>(
     // Step 3: Create DLR from IR basis
     println!("Step 3: Creating DLR representation...");
     let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).expect("failed to build DLR");
-    let n_poles = dlr.poles.len();
+    let n_poles = dlr.poles().len();
     println!("  Number of DLR poles: {}", n_poles);
     println!();
 
@@ -358,7 +358,7 @@ fn run_integration_example_single<K, S>(
     // Create N-dimensional tensor for DLR coefficients with target_dim at specified position.
     // We use a dedicated helper to avoid the `Tensor::from_fn` bug with DynRank shapes.
     let seed = 982743u64;
-    let dlr_coeffs = create_random_dlr_coeffs(n_poles, extra_dims, seed, &dlr.poles, target_dim);
+    let dlr_coeffs = create_random_dlr_coeffs(n_poles, extra_dims, seed, dlr.poles(), target_dim);
     println!(
         "  Generated DLR coefficients with shape: {:?}",
         dlr_coeffs.shape().dims()

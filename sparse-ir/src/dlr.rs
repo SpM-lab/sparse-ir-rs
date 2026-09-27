@@ -107,9 +107,8 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> Result<f64, Err
 /// Fermionic single-pole G(τ) for τ already in [0, β], without the sign of
 /// the antiperiodic continuation
 ///
-/// Checked callers only: β positive and finite, ω finite (the DLR checks its
-/// poles in `with_poles`, although its public `poles` field can be changed
-/// afterwards).
+/// Checked callers only: β positive and finite, ω finite. The DLR checks its
+/// poles in `with_poles` and they cannot be changed afterwards.
 pub(crate) fn fermionic_single_pole_unchecked(tau_normalized: f64, omega: f64, beta: f64) -> f64 {
     // Avoid overflow for large negative ω by factoring out exp(βω).
     // Both branches keep the exponent non-positive.
@@ -257,13 +256,13 @@ where
     S: StatisticsType,
 {
     /// Pole positions on the real-frequency axis ω ∈ [-ωmax, ωmax]
-    pub poles: Vec<f64>,
+    poles: Vec<f64>,
 
     /// Inverse temperature β
-    pub beta: f64,
+    beta: f64,
 
     /// Maximum frequency ωmax
-    pub wmax: f64,
+    wmax: f64,
 
     /// LogisticKernel reference basis used for Basis trait compatibility
     kernel: crate::kernel::LogisticKernel,
@@ -272,11 +271,11 @@ where
     kernel_ypower: i32,
 
     /// Accuracy of the representation
-    pub accuracy: f64,
+    accuracy: f64,
 
     /// Regularizers for each pole: regularizer[i] = w(β, ω_i)
     /// These are computed from the source IR basis kernel.
-    pub regularizers: Vec<f64>,
+    regularizers: Vec<f64>,
 
     /// Pole weights used in tau and Matsubara evaluations.
     ///
@@ -307,6 +306,18 @@ where
 
     pub fn pole_weights(&self) -> &[f64] {
         &self.pole_weights
+    }
+
+    /// Pole positions on the real-frequency axis, in the order they were
+    /// given to [`Self::with_poles`] or chosen by [`Self::new`]
+    pub fn poles(&self) -> &[f64] {
+        &self.poles
+    }
+
+    /// Regularizers of the poles: `regularizers[i] = w(β, poles[i])` of the
+    /// kernel of the IR basis this DLR was built from
+    pub fn regularizers(&self) -> &[f64] {
+        &self.regularizers
     }
 
     /// Number of functions of the IR basis this DLR was built from: the
@@ -449,7 +460,9 @@ where
             // -lim_{ω→0} w(β, ω) e^{-τω} / (1 - e^{-βω}) with w = tanh(βω/2) or ω
             0 => -0.5,
             1 => -1.0 / self.beta,
-            // with_poles rejects a bosonic pole at 0 for any other ypower.
+            // Unreachable: with_poles rejects a bosonic pole at 0 for any
+            // other ypower, and neither the poles nor the kernel can be
+            // changed afterwards.
             _ => panic!(
                 "DLR tau evaluation does not support kernel ypower = {}",
                 self.kernel_ypower
@@ -462,7 +475,9 @@ where
             // lim_{ω→0} w(β, ω) / (0 - ω) at n = 0 with w = tanh(βω/2) or ω
             0 => -0.5 * self.beta,
             1 => -1.0,
-            // with_poles rejects a bosonic pole at 0 for any other ypower.
+            // Unreachable: with_poles rejects a bosonic pole at 0 for any
+            // other ypower, and neither the poles nor the kernel can be
+            // changed afterwards.
             _ => panic!(
                 "DLR Matsubara evaluation does not support kernel ypower = {}",
                 self.kernel_ypower

@@ -280,8 +280,8 @@ pub extern "C" fn spir_dlr_get_npoles(
 
         // Get number of poles based on DLR type
         let npoles = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.poles.len(),
-            BasisType::DLRBosonic(dlr) => dlr.poles.len(),
+            BasisType::DLRFermionic(dlr) => dlr.poles().len(),
+            BasisType::DLRBosonic(dlr) => dlr.poles().len(),
             _ => return SPIR_INVALID_ARGUMENT, // Not a DLR
         };
 
@@ -316,8 +316,8 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 
         // Get poles based on DLR type
         let pole_vec = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => &dlr.poles,
-            BasisType::DLRBosonic(dlr) => &dlr.poles,
+            BasisType::DLRFermionic(dlr) => dlr.poles(),
+            BasisType::DLRBosonic(dlr) => dlr.poles(),
             _ => return SPIR_INVALID_ARGUMENT, // Not a DLR
         };
 
@@ -341,8 +341,8 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 /// IR basis size and number of poles of a DLR, or `None` if `b` is not a DLR
 fn dlr_sizes(b: &spir_basis) -> Option<(usize, usize)> {
     match b.inner() {
-        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size(), dlr.poles.len())),
-        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size(), dlr.poles.len())),
+        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
+        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
         _ => None,
     }
 }

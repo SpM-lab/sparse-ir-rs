@@ -324,8 +324,8 @@ impl spir_basis {
             BasisType::LogisticBosonic(b) => b.size(),
             BasisType::RegularizedBoseFermionic(b) => b.size(),
             BasisType::RegularizedBoseBosonic(b) => b.size(),
-            BasisType::DLRFermionic(dlr) => dlr.poles.len(),
-            BasisType::DLRBosonic(dlr) => dlr.poles.len(),
+            BasisType::DLRFermionic(dlr) => dlr.poles().len(),
+            BasisType::DLRBosonic(dlr) => dlr.poles().len(),
         }
     }
 
@@ -358,8 +358,8 @@ impl spir_basis {
             BasisType::LogisticBosonic(b) => b.beta(),
             BasisType::RegularizedBoseFermionic(b) => b.beta(),
             BasisType::RegularizedBoseBosonic(b) => b.beta(),
-            BasisType::DLRFermionic(dlr) => dlr.beta,
-            BasisType::DLRBosonic(dlr) => dlr.beta,
+            BasisType::DLRFermionic(dlr) => dlr.beta(),
+            BasisType::DLRBosonic(dlr) => dlr.beta(),
         }
     }
 
@@ -370,8 +370,8 @@ impl spir_basis {
             BasisType::LogisticBosonic(b) => b.wmax(),
             BasisType::RegularizedBoseFermionic(b) => b.wmax(),
             BasisType::RegularizedBoseBosonic(b) => b.wmax(),
-            BasisType::DLRFermionic(dlr) => dlr.wmax,
-            BasisType::DLRBosonic(dlr) => dlr.wmax,
+            BasisType::DLRFermionic(dlr) => dlr.wmax(),
+            BasisType::DLRBosonic(dlr) => dlr.wmax(),
         }
     }
 
@@ -470,8 +470,8 @@ impl spir_basis {
             BasisType::RegularizedBoseFermionic(b) => b.default_omega_sampling_points(),
             BasisType::RegularizedBoseBosonic(b) => b.default_omega_sampling_points(),
             // DLR: return poles as omega sampling points
-            BasisType::DLRFermionic(dlr) => Ok(dlr.poles.clone()),
-            BasisType::DLRBosonic(dlr) => Ok(dlr.poles.clone()),
+            BasisType::DLRFermionic(dlr) => Ok(dlr.poles().to_vec()),
+            BasisType::DLRBosonic(dlr) => Ok(dlr.poles().to_vec()),
         }
     }
 }
@@ -581,15 +581,15 @@ pub(crate) enum DlrOf {
 impl DlrOf {
     pub(crate) fn beta(&self) -> f64 {
         match self {
-            Self::Fermionic(dlr) => dlr.beta,
-            Self::Bosonic(dlr) => dlr.beta,
+            Self::Fermionic(dlr) => dlr.beta(),
+            Self::Bosonic(dlr) => dlr.beta(),
         }
     }
 
     fn n_poles(&self) -> usize {
         match self {
-            Self::Fermionic(dlr) => dlr.poles.len(),
-            Self::Bosonic(dlr) => dlr.poles.len(),
+            Self::Fermionic(dlr) => dlr.poles().len(),
+            Self::Bosonic(dlr) => dlr.poles().len(),
         }
     }
 

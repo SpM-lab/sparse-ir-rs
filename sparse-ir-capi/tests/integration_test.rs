@@ -2176,7 +2176,7 @@ fn test_dlr_funcs_equal_the_core_dlr_bit_for_bit() {
         dlr: &DiscreteLehmannRepresentation<S>,
         beta: f64,
     ) {
-        let n_poles = dlr.poles.len();
+        let n_poles = dlr.poles().len();
         let mut status = SPIR_INTERNAL_ERROR;
         let u = unsafe { spir_basis_get_u(c_dlr, &mut status) };
         assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
