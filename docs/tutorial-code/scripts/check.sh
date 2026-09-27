@@ -8,7 +8,6 @@
 set -euo pipefail
 
 TUTORIAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-REPO_ROOT="$(cd "$TUTORIAL_DIR/../.." && pwd)"
 cd "$TUTORIAL_DIR"
 
 RUN_EXAMPLES=0
@@ -33,24 +32,15 @@ step "cargo test"
 cargo test
 
 if [[ $RUN_EXAMPLES -eq 1 ]]; then
-    step "examples (--profile $PROFILE)"
-    for manifest_bin in src/bin/*.rs; do
-        [[ -e "$manifest_bin" ]] || continue
-        name="$(basename "$manifest_bin" .rs)"
-        printf -- '--- %s\n' "$name"
-        cargo run --profile "$PROFILE" --bin "$name"
-    done
-
-    step "verification"
-    SPARSEIR_TUTORIAL_VERIFY=1 cargo test --test verification -- --nocapture
+    # `tutorial_binaries` runs every example, `verification` checks the
+    # numbers they wrote against the committed reference values. Both are
+    # skipped without SPARSEIR_TUTORIAL_RUN, so `cargo test` above stayed fast.
+    step "examples and verification (--profile $PROFILE)"
+    SPARSEIR_TUTORIAL_RUN=1 cargo test --profile "$PROFILE" \
+        --test tutorial_binaries --test verification -- --nocapture --test-threads=1
 fi
 
-if [[ -d "$REPO_ROOT/docs/book-tests" ]]; then
-    step "mdbook test"
-    "$REPO_ROOT/docs/tutorial-code/scripts/test-mdbook.sh"
-else
-    step "mdbook test"
-    echo "skipped: docs/book-tests does not exist yet"
-fi
+step "mdbook test"
+SPARSEIR_TUTORIAL_PROFILE="$PROFILE" "$TUTORIAL_DIR/scripts/test-mdbook.sh"
 
 printf '\nall checks passed\n'

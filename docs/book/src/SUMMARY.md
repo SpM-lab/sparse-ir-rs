@@ -9,4 +9,4 @@
 
 # Tutorials
 
-<!-- The five basics land here, one per task, in this order. -->
+- [Sparse sampling](tutorials/sparse_sampling.md)

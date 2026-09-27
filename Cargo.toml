@@ -3,11 +3,10 @@ members = [
     "sparse-ir",
     "sparse-ir-capi",
 ]
-# The tutorial crates pin their own dependencies and must never move this
-# workspace's Cargo.lock, so they are workspaces of their own.
+# The tutorial crate pins its own dependencies and must never move this
+# workspace's Cargo.lock, so it is a workspace of its own.
 exclude = [
     "docs/tutorial-code",
-    "docs/book-tests",
 ]
 resolver = "2"
 

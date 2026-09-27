@@ -14,6 +14,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402  (must follow the backend choice)
+
+__all__ = ["data_dir", "figure_dir", "plt", "read_table", "save"]
 import numpy as np  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

@@ -5,6 +5,11 @@ authors = ["SparseIR Team"]
 language = "en"
 src = "src"
 
+[rust]
+# Without this, `mdbook test` compiles the code blocks as edition 2015, where a
+# plain `use sparse_ir::…` does not resolve without an `extern crate`.
+edition = "2024"
+
 [output.html]
 git-repository-url = "https://github.com/SpM-lab/sparse-ir-rs"
 edit-url-template = "https://github.com/SpM-lab/sparse-ir-rs/edit/main/docs/book/{path}"
