@@ -1679,3 +1679,262 @@ fn flex_scan_matches_the_python_reference() {
         );
     }
 }
+
+#[test]
+fn eliashberg_holstein_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the applied examples");
+        return;
+    }
+    let example = "eliashberg_holstein";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "beta",
+        "d",
+        "u",
+        "j",
+        "omega0",
+        "lambda0",
+        "g",
+        "mu",
+        "eps",
+        "wmax",
+        "deg_leggauss",
+        "mixing",
+        "max_iterations",
+        "atol",
+        "iterations",
+        "basis_size_f",
+        "basis_size_b",
+        "n_tau_f",
+        "n_wn_f",
+        "n_wn_b",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    // measured ≤ 8.4e-13.
+    for column in ["gap", "energy"] {
+        assert_close(&actual, &expected, column, 1e-11);
+    }
+
+    let (actual, expected) = (
+        output(example, "matsubara_f"),
+        reference(example, "matsubara_f"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    // measured ≤ 1.1e-12.
+    for column in ["nu", "sigma_im", "delta_re", "g_im", "f_re"] {
+        assert_close(&actual, &expected, column, 1e-11);
+    }
+
+    let (actual, expected) = (
+        output(example, "matsubara_b"),
+        reference(example, "matsubara_b"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    for column in ["nu", "d_re", "phi_re"] {
+        assert_close(&actual, &expected, column, 1e-11);
+    }
+
+    let (actual, expected) = (output(example, "tau_b"), reference(example, "tau_b"));
+    // measured ≤ 7.6e-12; the sampling times themselves are a root-finding
+    // result, so they are compared with the same tolerance as the values.
+    for column in ["tau", "d_tau"] {
+        assert_close(&actual, &expected, column, 1e-10);
+    }
+
+    let (actual, expected) = (output(example, "basis"), reference(example, "basis"));
+    assert_exact_integers(&actual, &expected, "l");
+    for column in ["f_l", "s_ratio"] {
+        assert_close(&actual, &expected, column, 1e-11);
+    }
+
+    // --- and the physics ----------------------------------------------------
+    let summary = output(example, "summary");
+    let gap = summary.expect_column("gap")[0];
+    assert!(
+        gap > 0.05,
+        "the solution must be superconducting, got a gap of {gap}"
+    );
+
+    let table = output(example, "matsubara_f");
+    let nu = table.expect_column("nu");
+    let delta = table.expect_column("delta_re");
+    let peak = delta.len() / 2;
+    assert!(
+        (delta[peak] - gap).abs() < 1e-12,
+        "the reported gap must be the value at the lowest frequency"
+    );
+    // `Δ(iν) = Δ(−iν)`, and it falls away from `ν = 0`.
+    for (low, high) in delta.iter().zip(delta.iter().rev()) {
+        assert!(
+            (low - high).abs() <= 1e-12 * gap,
+            "the gap must be even in the frequency"
+        );
+    }
+    assert!(
+        delta.iter().all(|&value| value <= delta[peak]),
+        "the gap must be largest at the lowest frequency"
+    );
+    // The interaction is retarded, so `Δ` does not simply decay: it falls
+    // through zero and approaches its high-frequency limit from below.
+    let trough = peak
+        + delta[peak..]
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.total_cmp(b.1))
+            .expect("the grid is not empty")
+            .0;
+    assert!(
+        trough > peak && delta[trough] < 0.0,
+        "the gap must change sign above the phonon frequency"
+    );
+    assert!(
+        delta[peak..=trough].windows(2).all(|w| w[1] < w[0]),
+        "the gap must fall monotonically from the lowest frequency to its minimum"
+    );
+    // The self-energy and the Green's function both have the sign that
+    // causality demands of them.
+    for (index, (&nu, &sigma_im)) in nu.iter().zip(table.expect_column("sigma_im")).enumerate() {
+        assert!(
+            nu * sigma_im < 0.0,
+            "row {index} (ν = {nu}): Im Σ = {sigma_im} has the wrong sign"
+        );
+    }
+    for (index, (&nu, &g_im)) in nu.iter().zip(table.expect_column("g_im")).enumerate() {
+        assert!(
+            nu * g_im < 0.0,
+            "row {index} (ν = {nu}): Im G = {g_im} has the wrong sign"
+        );
+    }
+
+    let table = output(example, "matsubara_b");
+    let d_re = table.expect_column("d_re");
+    for (index, &value) in d_re.iter().enumerate() {
+        assert!(value < 0.0, "row {index}: D = {value} must be negative");
+    }
+    for (index, &value) in table.expect_column("phi_re").iter().enumerate() {
+        assert!(value < 0.0, "row {index}: Π = {value} must be negative");
+    }
+    // The electrons soften the phonon: `|D(0)|` is well above the bare
+    // `2/ω₀`.
+    let omega0 = summary.expect_column("omega0")[0];
+    let bare = 2.0 / omega0;
+    let dressed = -d_re[d_re.len() / 2];
+    assert!(
+        dressed > 2.0 * bare,
+        "the phonon must soften: |D(0)| = {dressed} against a bare {bare}"
+    );
+
+    // The point of the example: the anomalous Green's function is as compact
+    // in the basis as the singular values are small.
+    let table = output(example, "basis");
+    let f_l = table.expect_column("f_l");
+    let s_ratio = table.expect_column("s_ratio");
+    let largest = f_l.iter().copied().fold(0.0, f64::max);
+    let tail = f_l[f_l.len() - 4..].iter().copied().fold(0.0, f64::max);
+    assert!(
+        tail < 1e-6 * largest,
+        "the expansion must have converged: a tail of {tail} against {largest}"
+    );
+    assert!(
+        s_ratio.windows(2).all(|w| w[1] < w[0]),
+        "the singular values must be decreasing"
+    );
+}
+
+#[test]
+fn eliashberg_holstein_scan_matches_the_python_reference() {
+    if !scans_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_SCANS=1 to check the parameter scans");
+        return;
+    }
+    let example = "eliashberg_holstein_scan";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "d",
+        "u",
+        "j",
+        "omega0",
+        "lambda0",
+        "g",
+        "mu",
+        "eps",
+        "lambda_ir",
+        "deg_leggauss",
+        "mixing",
+        "max_iterations",
+        "atol",
+        "t_num",
+        "dt",
+        "basis_size_f",
+        "n_wn_f",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+
+    let (actual, expected) = (
+        output(example, "temperature"),
+        reference(example, "temperature"),
+    );
+    // The two implementations only reach the same fixed point if they take
+    // the same walk towards it, so the iteration counts are compared exactly.
+    for column in ["temperature", "beta", "iterations"] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    assert_close(&actual, &expected, "energy", 1e-11); // measured ≤ 6.1e-13
+
+    let (actual, expected) = (
+        output(example, "specific_heat"),
+        reference(example, "specific_heat"),
+    );
+    assert_exact_integers(&actual, &expected, "temperature");
+    // measured ≤ 1.7e-9; a difference quotient over `dt = 1e-5` loses five
+    // digits of whatever the energies disagree by.
+    for column in ["specific_heat", "c_over_t"] {
+        assert_close(&actual, &expected, column, 1e-7);
+    }
+
+    // --- and the physics ----------------------------------------------------
+    let table = output(example, "temperature");
+    let temperature = table.expect_column("temperature");
+    let energy = table.expect_column("energy");
+    assert!(
+        temperature.windows(2).all(|w| w[1] > w[0]),
+        "the sweep must run from low to high temperature"
+    );
+    assert!(
+        energy.windows(2).all(|w| w[1] > w[0]),
+        "the internal energy must grow with the temperature"
+    );
+
+    let table = output(example, "specific_heat");
+    let c_over_t = table.expect_column("c_over_t");
+    for (index, &value) in table.expect_column("specific_heat").iter().enumerate() {
+        assert!(value > 0.0, "row {index}: C = {value} must be positive");
+    }
+    // `C/T` grows through the superconducting phase and drops discontinuously
+    // at the transition, which is the jump the notebook is after.
+    let peak = c_over_t
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .expect("the sweep is not empty")
+        .0;
+    assert!(
+        peak + 1 < c_over_t.len(),
+        "the transition must fall inside the temperature window"
+    );
+    assert!(
+        c_over_t[..=peak].windows(2).all(|w| w[1] > w[0]),
+        "C/T must grow up to the transition"
+    );
+    assert!(
+        c_over_t[peak + 1] < 0.2 * c_over_t[peak],
+        "C/T must drop sharply across the transition, {} against {}",
+        c_over_t[peak + 1],
+        c_over_t[peak]
+    );
+}

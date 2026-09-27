@@ -23,13 +23,12 @@ pub fn sve_for(beta: f64, wmax: f64, eps: f64) -> Result<(LogisticKernel, SVERes
     Ok((kernel, sve))
 }
 
-/// Everything about the lattice and the basis that does not depend on `U`.
+/// The fermionic and bosonic bases of one inverse temperature, and the
+/// sampling meshes that go with them.
 ///
-/// The scan builds one of these and reuses it for every interaction strength;
-/// the single-point example builds one and uses it once.
-pub struct Lattice {
-    grid: MomentumGrid,
-    ek: Vec<f64>,
+/// This is `FiniteTempBasisSet` of the Python implementation: both statistics
+/// out of a single expansion, which is what makes their τ grids identical.
+pub struct Bases {
     basis_f: FiniteTempBasis<LogisticKernel, Fermionic>,
     basis_b: FiniteTempBasis<LogisticKernel, Bosonic>,
     mesh_f: IrMesh<Fermionic>,
@@ -44,22 +43,13 @@ pub struct Lattice {
     iw0_b: usize,
 }
 
-impl Lattice {
-    /// `nk1 × nk2` square lattice with nearest-neighbour hopping `t`, at
-    /// inverse temperature `beta`.
-    pub fn new(
-        nk1: usize,
-        nk2: usize,
-        t: f64,
-        beta: f64,
-        wmax: f64,
-        eps: f64,
-    ) -> Result<Self, Error> {
+impl Bases {
+    pub fn new(beta: f64, wmax: f64, eps: f64) -> Result<Self, Error> {
         let (kernel, sve) = sve_for(beta, wmax, eps)?;
-        Self::from_sve(kernel, sve, nk1, nk2, t, beta, eps)
+        Self::from_sve(kernel, sve, beta, eps)
     }
 
-    /// The same lattice, but from an expansion computed elsewhere.
+    /// The same pair of bases, but from an expansion computed elsewhere.
     ///
     /// A scan that holds `Λ = β ω_max` fixed while `β` varies keeps one
     /// expansion for the whole sweep: the basis functions are the same, only
@@ -69,9 +59,6 @@ impl Lattice {
     pub fn from_sve(
         kernel: LogisticKernel,
         sve: SVEResult,
-        nk1: usize,
-        nk2: usize,
-        t: f64,
         beta: f64,
         eps: f64,
     ) -> Result<Self, Error> {
@@ -91,10 +78,11 @@ impl Lattice {
         )?;
         let mesh_f = IrMesh::<Fermionic>::new(&basis_f)?;
         let mesh_b = IrMesh::<Bosonic>::new(&basis_b)?;
-        // χ⁰ is built from `G` at the fermionic times and then fitted as a
-        // bosonic function, which is only meaningful because the two grids
-        // agree. They do, because the logistic kernel gives both statistics
-        // the same imaginary-time basis functions.
+        // Several of the examples build a quantity from `G` at the fermionic
+        // times and then fit it as a bosonic function, which is only
+        // meaningful because the two grids agree. They do, because the
+        // logistic kernel gives both statistics the same imaginary-time basis
+        // functions.
         assert_eq!(
             mesh_f.tau_points(),
             mesh_b.tau_points(),
@@ -118,12 +106,7 @@ impl Lattice {
             .iter()
             .position(|w| w.n() == 0)
             .expect("the bosonic grid contains n = 0");
-
-        let grid = MomentumGrid::new(nk1, nk2);
-        let ek = grid.square_lattice_dispersion(t);
         Ok(Self {
-            grid,
-            ek,
             basis_f,
             basis_b,
             mesh_f,
@@ -136,10 +119,6 @@ impl Lattice {
         })
     }
 
-    pub fn grid(&self) -> &MomentumGrid {
-        &self.grid
-    }
-
     /// `u^F_l(0)`, the row that turns a fermionic Matsubara sum into one
     /// evaluation.
     pub fn uf_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
@@ -149,10 +128,6 @@ impl Lattice {
     /// `u^B_l(0)`, the same for a bosonic sum.
     pub fn ub_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
         &self.ub_at_zero
-    }
-
-    pub fn dispersion(&self) -> &[f64] {
-        &self.ek
     }
 
     pub fn basis_f(&self) -> &FiniteTempBasis<LogisticKernel, Fermionic> {
@@ -184,6 +159,97 @@ impl Lattice {
     /// Index of `ν = 0`, the lowest bosonic frequency.
     pub fn iw0_b(&self) -> usize {
         self.iw0_b
+    }
+}
+
+/// Everything about the lattice and the basis that does not depend on `U`.
+///
+/// The scan builds one of these and reuses it for every interaction strength;
+/// the single-point example builds one and uses it once.
+pub struct Lattice {
+    grid: MomentumGrid,
+    ek: Vec<f64>,
+    bases: Bases,
+}
+
+impl Lattice {
+    /// `nk1 × nk2` square lattice with nearest-neighbour hopping `t`, at
+    /// inverse temperature `beta`.
+    pub fn new(
+        nk1: usize,
+        nk2: usize,
+        t: f64,
+        beta: f64,
+        wmax: f64,
+        eps: f64,
+    ) -> Result<Self, Error> {
+        let (kernel, sve) = sve_for(beta, wmax, eps)?;
+        Self::from_sve(kernel, sve, nk1, nk2, t, beta, eps)
+    }
+
+    /// The same lattice, but from an expansion computed elsewhere.
+    pub fn from_sve(
+        kernel: LogisticKernel,
+        sve: SVEResult,
+        nk1: usize,
+        nk2: usize,
+        t: f64,
+        beta: f64,
+        eps: f64,
+    ) -> Result<Self, Error> {
+        let bases = Bases::from_sve(kernel, sve, beta, eps)?;
+        let grid = MomentumGrid::new(nk1, nk2);
+        let ek = grid.square_lattice_dispersion(t);
+        Ok(Self { grid, ek, bases })
+    }
+
+    pub fn grid(&self) -> &MomentumGrid {
+        &self.grid
+    }
+
+    /// The bases and meshes of this lattice.
+    pub fn bases(&self) -> &Bases {
+        &self.bases
+    }
+
+    pub fn uf_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+        self.bases.uf_at_zero()
+    }
+
+    pub fn ub_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+        self.bases.ub_at_zero()
+    }
+
+    pub fn dispersion(&self) -> &[f64] {
+        &self.ek
+    }
+
+    pub fn basis_f(&self) -> &FiniteTempBasis<LogisticKernel, Fermionic> {
+        self.bases.basis_f()
+    }
+
+    pub fn basis_b(&self) -> &FiniteTempBasis<LogisticKernel, Bosonic> {
+        self.bases.basis_b()
+    }
+
+    pub fn mesh_f(&self) -> &IrMesh<Fermionic> {
+        self.bases.mesh_f()
+    }
+
+    pub fn mesh_b(&self) -> &IrMesh<Bosonic> {
+        self.bases.mesh_b()
+    }
+
+    pub fn nu(&self) -> &[f64] {
+        self.bases.nu()
+    }
+
+    pub fn iw0_f(&self) -> usize {
+        self.bases.iw0_f()
+    }
+
+    pub fn iw0_b(&self) -> usize {
+        self.bases.iw0_b()
     }
 
     /// Number of momentum points, `nk1 × nk2`.

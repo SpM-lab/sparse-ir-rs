@@ -26,15 +26,31 @@ where
         "the edges must be strictly increasing, got {edges:?}"
     );
 
-    let rule = legendre::<f64>(order);
     let mut total = 0.0;
     for pair in edges.windows(2) {
-        let segment = rule.reseat(pair[0], pair[1]);
-        for (&x, &w) in segment.x().iter().zip(segment.w()) {
+        let (x, w) = gauss_legendre(order, pair[0], pair[1]);
+        for (&x, &w) in x.iter().zip(&w) {
             total += w * f(x);
         }
     }
     total
+}
+
+/// The nodes and weights of an `order`-point Gauss-Legendre rule on
+/// `[xmin, xmax]`.
+///
+/// [`integrate_segments`] is the right tool when the integrand is a closure.
+/// This one is for the examples that need the nodes themselves — an integral
+/// over a density of states, say, that is evaluated against a whole array of
+/// frequencies at once.
+pub fn gauss_legendre(order: usize, xmin: f64, xmax: f64) -> (Vec<f64>, Vec<f64>) {
+    assert!(order > 0, "a quadrature rule needs at least one point");
+    assert!(
+        xmin < xmax,
+        "the interval must be non-empty, got [{xmin}, {xmax}]"
+    );
+    let rule = legendre::<f64>(order).reseat(xmin, xmax);
+    (rule.x().to_vec(), rule.w().to_vec())
 }
 
 #[cfg(test)]

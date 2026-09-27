@@ -39,6 +39,10 @@ const EXAMPLES: &[(&str, &str)] = &[
     // fraction of a second, so it stays where pull requests can see it.
     ("tpsc_scan", env!("CARGO_BIN_EXE_tpsc_scan")),
     ("flex", env!("CARGO_BIN_EXE_flex")),
+    (
+        "eliashberg_holstein",
+        env!("CARGO_BIN_EXE_eliashberg_holstein"),
+    ),
 ];
 
 /// The examples that repeat a whole self-consistent calculation over a grid of
@@ -48,6 +52,10 @@ const EXAMPLES: &[(&str, &str)] = &[
 const SCANS: &[(&str, &str)] = &[
     ("dmft_ipt_scan", env!("CARGO_BIN_EXE_dmft_ipt_scan")),
     ("flex_scan", env!("CARGO_BIN_EXE_flex_scan")),
+    (
+        "eliashberg_holstein_scan",
+        env!("CARGO_BIN_EXE_eliashberg_holstein_scan"),
+    ),
 ];
 
 #[test]

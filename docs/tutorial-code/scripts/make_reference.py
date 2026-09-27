@@ -20,6 +20,7 @@ import reference_liechtenstein
 import reference_orbital_magnetic_susceptibility
 import reference_second_order_perturbation
 import reference_spm
+import reference_eliashberg_holstein
 import reference_flex
 import reference_tpsc
 import reference_transformation
@@ -35,6 +36,8 @@ EXAMPLES = {
     "orbital_magnetic_susceptibility": reference_orbital_magnetic_susceptibility.write,
     "second_order_perturbation": reference_second_order_perturbation.write,
     "spm": reference_spm.write,
+    "eliashberg_holstein": reference_eliashberg_holstein.write,
+    "eliashberg_holstein_scan": reference_eliashberg_holstein.write_scan,
     "flex": reference_flex.write,
     "flex_scan": reference_flex.write_scan,
     "tpsc": reference_tpsc.write,

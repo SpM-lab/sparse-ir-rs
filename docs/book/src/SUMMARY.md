@@ -24,3 +24,4 @@
 - [DMFT with an IPT solver](tutorials/dmft_ipt.md)
 - [Two-particle self-consistency](tutorials/tpsc.md)
 - [Fluctuation exchange](tutorials/flex.md)
+- [Eliashberg theory](tutorials/eliashberg_holstein.md)
