@@ -181,12 +181,17 @@ extern "C" {
  * * Status code:
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
  *   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
- *     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
- *     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+ *     `beta`, `omega_max` or `epsilon` is not positive and finite,
+ *     `epsilon` is 1 or more, `max_size` is 0, the lambda of `k` differs
+ *     from `beta * omega_max` by more than 1e-10, `sve` is not an SVE on
+ *     [-1, 1] × [-1, 1] (e.g. from `spir_sve_result_from_matrix` with other
+ *     segments), or `sve` is NULL and the discretized kernel has a
+ *     non-finite entry (e.g. a `RegularizedBoseKernel` with a tiny lambda)
  *   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
  *     `statistics` is fermionic: that kernel supports bosonic statistics
  *     only
- *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
+ *   - `SPIR_INTERNAL_ERROR` (-7) if the SVE cannot be computed (an SVD does
+ *     not converge) or an internal panic occurs
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
@@ -228,8 +233,12 @@ struct spir_basis *spir_basis_new(int statistics,
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
  *   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
  *     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
- *     `lambda` is not positive and finite, or `lambda` differs from
- *     `beta * omega_max` by more than 1e-10
+ *     `lambda` is not positive and finite, `epsilon` is 1 or more,
+ *     `max_size` is 0, `lambda` differs from `beta * omega_max` by more than
+ *     1e-10, `sve` is not an SVE on [-1, 1] × [-1, 1], or
+ *     `regularizer_funcs` holds τ or ω functions that are not defined at
+ *     `omega_max / 2`, the point at which they are evaluated for validity
+ *     (e.g. the u of a basis whose β is less than `omega_max / 2`)
  *   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
  *     and `statistics` is fermionic: that kernel supports bosonic statistics
  *     only
@@ -310,9 +319,16 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `b` - Basis object
  * * `num_points` - Pointer to store the number of points
  *
+ * A DLR has no default τ sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points.
+ *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last one has no
+ *   extrema to stand in for the roots of the missing one (e.g. an SVE from
+ *   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
  StatusCode spir_basis_get_n_default_taus(const struct spir_basis *b, int *num_points);
@@ -329,9 +345,16 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `b` - Basis object
  * * `points` - Pre-allocated array to store tau points
  *
+ * A DLR has no default τ sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+ *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last one has no
+ *   extrema to stand in for the roots of the missing one (e.g. an SVE from
+ *   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
  StatusCode spir_basis_get_default_taus(const struct spir_basis *b, double *points);
@@ -344,6 +367,9 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
  *   sets include n = 0)
  * * `num_points` - Pointer to store the number of points
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -368,6 +394,9 @@ StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
  *   sets include n = 0)
  * * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
  *   (iν = iπn/β)
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -423,7 +452,13 @@ StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
  * * `num_points` - Pointer to store the number of sampling points
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success)
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last v has no
+ *   extrema to stand in for the roots of the missing one. Nothing is
+ *   written.
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Safety
  * The caller must ensure that `b` and `num_points` are valid pointers
@@ -438,7 +473,13 @@ StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
  * * `points` - Pre-allocated array to store the omega sampling points
  *
  * # Returns
- * Status code (SPIR_COMPUTATION_SUCCESS on success)
+ * * `SPIR_COMPUTATION_SUCCESS` (0) on success
+ * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+ * * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+ *   `b`: its SVE has so few singular functions that the last v has no
+ *   extrema to stand in for the roots of the missing one. Nothing is
+ *   written.
+ * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Safety
  * The caller must ensure that `points` has size >= `spir_basis_get_n_default_ws(b)`
@@ -499,9 +540,17 @@ StatusCode spir_basis_get_default_matsus(const struct spir_basis *b,
  * * `points` - Pre-allocated array to store tau points (size >= n_points)
  * * `n_points_returned` - Pointer to store actual number of points returned
  *
+ * A DLR has no default τ sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+ *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+ * * `SPIR_NOT_SUPPORTED` (-5) if `n_points` is at least the number of
+ *   singular functions of the SVE of `b` and the default points are not
+ *   defined for it: the last singular function has no extrema to stand in
+ *   for the roots of the missing one (e.g. an SVE from
+ *   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
@@ -525,6 +574,9 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
  *   an augmented basis, pass the augmented size; it may differ from the size
  *   of `b`.
  * * `n_points_total` - Pointer to store the number of sampling points
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -564,6 +616,9 @@ StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * * `points` - Buffer for the Matsubara indices, or NULL to query the number
  *   of points only
  * * `n_points_total` - Pointer to store the number of sampling points
+ *
+ * A DLR has no default Matsubara sampling points: for a DLR this returns
+ * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success, including a count query
@@ -614,8 +669,9 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  *     can lose poles, e.g. for `RegularizedBoseKernel` at large lambda; pass
  *     the poles explicitly with `spir_dlr_new_with_poles` instead.
  *   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
- *     statistics (`RegularizedBoseKernel` with fermionic statistics). The
- *     basis constructors already reject this combination.
+ *     statistics (`RegularizedBoseKernel` with fermionic statistics; the
+ *     basis constructors already reject this combination), or the default
+ *     poles of `b` are not defined (see `spir_basis_get_default_ws`)
  *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
  *
  * # Safety
@@ -629,7 +685,7 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  * # Arguments
  * * `b` - Pointer to a finite temperature (IR) basis object
  * * `npoles` - Number of poles to use (must be > 0)
- * * `poles` - Array of `npoles` pole locations on the real-frequency axis
+ * * `poles` - Array of `npoles` pole locations in [-omega_max, omega_max] of `b`
  * * `status` - Pointer to store the status code (may be NULL, in which case
  *   no status is written)
  *
@@ -639,11 +695,17 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  * * Status code:
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
  *   - `SPIR_INVALID_ARGUMENT` (-6) if `b` or `poles` is NULL, `npoles <= 0`,
- *     or `b` is already a DLR
+ *     or `b` is already a DLR, or a pole is outside [-omega_max, omega_max]
+ *     of `b` or not finite
  *   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
  *     statistics (`RegularizedBoseKernel` with fermionic statistics). The
  *     basis constructors already reject this combination.
  *   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
+ *
+ * Duplicate poles are accepted. They make `spir_ir2dlr_dd` and
+ * `spir_ir2dlr_zz` ill-conditioned: the coefficients of equal poles are not
+ * unique, although the round trip through `spir_dlr2ir_dd` /
+ * `spir_dlr2ir_zz` still recovers the IR coefficients.
  *
  * # Safety
  * Caller must ensure `b` is valid and `poles` has `npoles` elements
@@ -701,10 +763,11 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   size of the IR basis of `dlr`
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the IR basis size
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
@@ -738,10 +801,11 @@ StatusCode spir_ir2dlr_dd(const struct spir_basis *dlr,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   size of the IR basis of `dlr`
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the IR basis size
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
@@ -775,10 +839,11 @@ StatusCode spir_ir2dlr_zz(const struct spir_basis *dlr,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   number of poles of `dlr` (`spir_dlr_get_npoles`)
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the number of poles
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
@@ -812,10 +877,11 @@ StatusCode spir_dlr2ir_dd(const struct spir_basis *dlr,
  * * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
  *   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
  * * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
- *   or the input array is too large to be addressed
+ *   or the input or output array is too large to be addressed
+ * * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+ *   number of poles of `dlr` (`spir_dlr_get_npoles`)
  * * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
- * * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
- *   `input_dims[target_dim]` is not the number of poles
+ * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
@@ -1124,7 +1190,7 @@ StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
  *
  * This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
- * `FiniteTempBasis::default_matsubara_sampling_points_impl` (sparse-ir/src/basis.rs)
+ * `sparse_ir::basis::default_matsubara_sampling_points_from_uhat`
  * to compute default sampling points: the sign changes of the first discarded
  * Matsubara basis function (its extrema when that function is not available);
  * bosonic sets always include n = 0.
@@ -2031,6 +2097,15 @@ StatusCode spir_sampling_fit_zd(const struct spir_sampling *s,
  *
  * # Returns
  * * Pointer to SVE result, or NULL on failure
+ * * Status code:
+ *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `epsilon` is not
+ *     positive and finite or is 1 or more, `Twork` is invalid, or the
+ *     discretized kernel has a NaN or infinite entry (e.g. a
+ *     `RegularizedBoseKernel` whose lambda is so small that 1/lambda
+ *     overflows)
+ *   - `SPIR_INTERNAL_ERROR` (-7) if an SVD does not converge or an internal
+ *     panic occurs
  *
  * # Safety
  * The caller must ensure `status` is a valid pointer.
@@ -2082,7 +2157,9 @@ struct spir_sve_result *spir_sve_result_new(const struct spir_kernel *k,
  * * Pointer to new truncated SVE result, or NULL on failure
  * * Status code:
  *   - `SPIR_COMPUTATION_SUCCESS` (0) on success
- *   - `SPIR_INVALID_ARGUMENT` (-6) if sve or status is null, or epsilon is invalid
+ *   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` is NULL, `epsilon` is not
+ *     finite, negative or 1 or more (0 keeps every singular value), or
+ *     `max_size` is 0
  *   - `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Safety
@@ -2135,8 +2212,10 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  *   finite entries)
  * * `K_low` - Low part of the kernel matrix (optional, nullptr for double
  *   precision; finite entries)
- * * `nx` - Number of rows in the matrix
- * * `ny` - Number of columns in the matrix
+ * * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+ *   the number of Gauss points of the segments)
+ * * `ny` - Number of columns in the matrix (must be `n_segments_y *
+ *   n_gauss`, the number of Gauss points of the segments)
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
  * * `segments_x` - X-direction segments (array of boundary points, size:
  *   n_segments_x + 1, finite and strictly increasing)
@@ -2153,11 +2232,15 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * non-NULL, `*status` is set to:
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
- *   a size is less than 1, `epsilon` is not positive and finite, an entry of
- *   `K_high` or `K_low` is NaN or infinite, or the segments are not finite
- *   and strictly increasing
+ *   a size is less than 1, `epsilon` is not positive and finite or is 1 or
+ *   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
+ *   are not finite and strictly increasing, a segment length is not finite
+ *   or is subnormal, the sum of the ends of a segment overflows, `nx` is
+ *   not `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`,
+ *   or the matrix has rank 0
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
- * - SPIR_INTERNAL_ERROR if an internal error occurs
+ * - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
+ *   overflows) or an internal error occurs
  *
  * The arrays are validated before the SVE is computed.
  */
@@ -2193,14 +2276,18 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  *   size: nx * ny, finite entries)
  * * `K_odd_low` - Low part of the odd-symmetry kernel matrix (optional,
  *   nullptr for double precision; finite entries)
- * * `nx` - Number of rows in the matrix
- * * `ny` - Number of columns in the matrix
+ * * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+ *   the number of Gauss points of the segments on [0, xmax])
+ * * `ny` - Number of columns in the matrix (must be `n_segments_y *
+ *   n_gauss`, the number of Gauss points of the segments on [0, ymax])
  * * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
- * * `segments_x` - X-direction segments (array of boundary points, size:
- *   n_segments_x + 1, finite and strictly increasing)
+ * * `segments_x` - X-direction segments on the half domain (array of
+ *   boundary points, size: n_segments_x + 1, finite and strictly
+ *   increasing, starting at 0)
  * * `n_segments_x` - Number of segments in x direction (boundary points - 1)
- * * `segments_y` - Y-direction segments (array of boundary points, size:
- *   n_segments_y + 1, finite and strictly increasing)
+ * * `segments_y` - Y-direction segments on the half domain (array of
+ *   boundary points, size: n_segments_y + 1, finite and strictly
+ *   increasing, starting at 0)
  * * `n_segments_y` - Number of segments in y direction (boundary points - 1)
  * * `n_gauss` - Number of Gauss points per segment
  * * `epsilon` - Target accuracy
@@ -2212,10 +2299,15 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
  *   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
- *   and finite, an entry of a matrix that is read is NaN or infinite, or the
- *   segments are not finite and strictly increasing
+ *   and finite or is 1 or more, an entry of a matrix that is read is NaN or
+ *   infinite, the segments are not finite and strictly increasing, the
+ *   segments do not start at 0, a segment length is not finite or is
+ *   subnormal, the sum of the ends of a segment overflows, `nx` is not
+ *   `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`, or
+ *   both matrices have rank 0
  * - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
- * - SPIR_INTERNAL_ERROR if an internal error occurs
+ * - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
+ *   or an internal error occurs
  *
  * The low parts are read only if both are non-NULL. The arrays are validated
  * before the SVE is computed.
@@ -2263,17 +2355,20 @@ struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double
  *
  * # Arguments
  * * `n` - Number of Gauss points per segment (must be >= 1)
- * * `segments` - Array of segment boundaries (n_segments + 1 elements).
- *                Must be monotonically increasing.
+ * * `segments` - Array of segment boundaries (n_segments + 1 elements):
+ *   finite and strictly increasing, with finite segment lengths and a
+ *   finite sum of the ends of each segment
  * * `n_segments` - Number of segments (must be >= 1)
  * * `x` - Output array for Gauss points (size n * n_segments). Must be pre-allocated.
  * * `w` - Output array for Gauss weights (size n * n_segments). Must be pre-allocated.
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Status code:
+ * Status code (also written to `*status`):
  * - SPIR_COMPUTATION_SUCCESS (0) on success
- * - Non-zero error code on failure
+ * - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
+ *   or `segments` does not meet the conditions above
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  */
 
 StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
@@ -2292,8 +2387,9 @@ StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
  *
  * # Arguments
  * * `n` - Number of Gauss points per segment (must be >= 1)
- * * `segments` - Array of segment boundaries (n_segments + 1 elements).
- *                Must be monotonically increasing.
+ * * `segments` - Array of segment boundaries (n_segments + 1 elements):
+ *   finite and strictly increasing, with finite segment lengths and a
+ *   finite sum of the ends of each segment
  * * `n_segments` - Number of segments (must be >= 1)
  * * `x_high` - Output array for high part of Gauss points (size n * n_segments).
  *              Must be pre-allocated.
@@ -2306,9 +2402,11 @@ StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
  * * `status` - Pointer to store the status code
  *
  * # Returns
- * Status code:
+ * Status code (also written to `*status`):
  * - SPIR_COMPUTATION_SUCCESS (0) on success
- * - Non-zero error code on failure
+ * - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
+ *   or `segments` does not meet the conditions above
+ * - SPIR_INTERNAL_ERROR if an internal error occurs
  */
 
 StatusCode spir_gauss_legendre_rule_piecewise_ddouble(int n,

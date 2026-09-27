@@ -1,17 +1,13 @@
 use super::*;
 use crate::Df64;
-use crate::interpolation1d::{
-    evaluate_interpolated_polynomial, interpolate_1d_legendre, legendre_collocation_matrix,
-};
 use crate::numeric::CustomNumeric;
-use mdarray::DTensor;
 
 #[test]
 fn test_rule_constructor() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::new(x.clone(), w.clone(), -1.0, 1.0);
+    let rule = Rule::new(x.clone(), w.clone(), -1.0, 1.0).unwrap();
     assert_eq!(rule.x, x);
     assert_eq!(rule.w, w);
     assert_eq!(rule.a, -1.0);
@@ -23,7 +19,7 @@ fn test_rule_from_vectors() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::from_vectors(x.clone(), w.clone(), -1.0, 1.0);
+    let rule = Rule::from_vectors(x.clone(), w.clone(), -1.0, 1.0).unwrap();
     assert_eq!(rule.x, x);
     assert_eq!(rule.w, w);
 }
@@ -42,7 +38,7 @@ fn test_rule_validation() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::new(x, w, -1.0, 1.0);
+    let rule = Rule::new(x, w, -1.0, 1.0).unwrap();
     assert!(rule.validate());
 }
 
@@ -74,7 +70,7 @@ fn test_rule_scale() {
     let x = vec![0.0, 1.0];
     let w = vec![1.0, 1.0];
 
-    let rule = Rule::new(x, w, -1.0, 1.0);
+    let rule = Rule::new(x, w, -1.0, 1.0).unwrap();
     let scaled = rule.scale(2.0);
 
     assert_eq!(scaled.w[0], 2.0);
@@ -84,7 +80,7 @@ fn test_rule_scale() {
 #[test]
 fn test_rule_piecewise() {
     let edges = vec![-4.0, -1.0, 1.0, 3.0];
-    let rule = legendre::<f64>(20).piecewise(&edges);
+    let rule = legendre::<f64>(20).piecewise(&edges).unwrap();
 
     assert!(rule.validate());
     assert_eq!(rule.a, -4.0);
@@ -128,8 +124,8 @@ fn test_rule_constructor_with_defaults() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule1 = Rule::new(x.clone(), w.clone(), -1.0, 1.0);
-    let rule2 = Rule::new(x, w, -1.0, 1.0);
+    let rule1 = Rule::new(x.clone(), w.clone(), -1.0, 1.0).unwrap();
+    let rule2 = Rule::new(x, w, -1.0, 1.0).unwrap();
 
     assert_eq!(rule1.a, rule2.a);
     assert_eq!(rule1.b, rule2.b);
@@ -166,7 +162,7 @@ fn test_join_functionality() {
 fn test_piecewise_like_cpp() {
     // Test piecewise functionality like C++ test
     let edges = vec![-4.0, -1.0, 1.0, 3.0];
-    let rule = legendre::<f64>(20).piecewise(&edges);
+    let rule = legendre::<f64>(20).piecewise(&edges).unwrap();
 
     assert!(rule.validate());
     assert_eq!(rule.a, -4.0);
@@ -241,7 +237,7 @@ fn test_rule_custom_methods() {
     let x = vec![0.0, 1.0];
     let w = vec![0.5, 0.5];
 
-    let rule = Rule::new_custom(x.clone(), w.clone(), -1.0, 1.0);
+    let rule = Rule::new_custom(x.clone(), w.clone(), -1.0, 1.0).unwrap();
     assert!(rule.validate_custom());
 
     let reseated = rule.reseat_custom(-2.0, 0.0);
@@ -261,7 +257,7 @@ fn test_rule_twofloat_methods() {
     let x_tf = vec![Df64::from(0.0), Df64::from(1.0)];
     let w_tf = vec![Df64::from(0.5), Df64::from(0.5)];
 
-    let rule_tf = Rule::new_twofloat(x_tf, w_tf, Df64::from(-1.0), Df64::from(1.0));
+    let rule_tf = Rule::new_twofloat(x_tf, w_tf, Df64::from(-1.0), Df64::from(1.0)).unwrap();
     assert!(rule_tf.validate_twofloat());
 }
 
@@ -445,197 +441,6 @@ fn test_legendre_vandermonde_basic() {
         let expected = (3.0 * x[i] * x[i] - 1.0) / 2.0;
         assert!((v[[i, 2]] - expected).abs() < 1e-12);
     }
-}
-
-/// Generic test function for 1D Legendre interpolation of sin(x) - MOVED TO interpolation1d_tests.rs
-fn test_interpolate_1d_legendre_sin_generic<T: CustomNumeric + 'static>(
-    n_points: usize,
-    tolerance: T,
-    test_points: Vec<T>,
-) where
-    T: std::fmt::Display,
-{
-    // Create Gauss rule using generic function
-    let gauss_rule = legendre_generic::<T>(n_points)
-        .reseat(T::from_f64_unchecked(-1.0), T::from_f64_unchecked(1.0));
-
-    // Sample sin(x) at Gauss points
-    let values: Vec<T> = gauss_rule.x.iter().map(|&x| x.sin()).collect();
-
-    // Get interpolation coefficients
-    let coeffs = interpolate_1d_legendre(&values, &gauss_rule);
-
-    // Test interpolation at grid points (should be exact)
-    for &x_grid in &gauss_rule.x {
-        let expected = x_grid.sin();
-        let interpolated = evaluate_interpolated_polynomial(x_grid, &coeffs);
-        assert!(
-            (interpolated - expected).abs_as_same_type() < T::from_f64_unchecked(1e-12),
-            "Interpolation failed at grid point {}: expected {}, got {}",
-            x_grid,
-            expected,
-            interpolated
-        );
-    }
-
-    // Test interpolation at interior points
-    for &x_test in &test_points {
-        let expected = x_test.sin();
-        let interpolated = evaluate_interpolated_polynomial(x_test, &coeffs);
-        let error = (interpolated - expected).abs_as_same_type();
-        assert!(
-            error < tolerance,
-            "High-precision interpolation failed at point {}: expected {}, got {}, error={} > tolerance={}",
-            x_test,
-            expected,
-            interpolated,
-            error,
-            tolerance
-        );
-    }
-}
-
-#[test]
-#[ignore] // MOVED TO interpolation1d_tests.rs
-fn _test_interpolate_1d_legendre_sin_f64_high_precision() {
-    // Test high-precision interpolation of sin(x) with f64
-    test_interpolate_1d_legendre_sin_generic::<f64>(
-        100,                                        // n_points
-        f64::EPSILON * 100.0,                       // tolerance: EPSILON * 100
-        vec![-0.8, -0.5, -0.2, 0.1, 0.4, 0.7, 0.9], // test_points
-    );
-}
-
-#[test]
-#[ignore] // MOVED TO interpolation1d_tests.rs
-fn _test_interpolate_1d_legendre_sin_twofloat_ultra_high_precision() {
-    // Test ultra high-precision interpolation of sin(x) with Df64
-    test_interpolate_1d_legendre_sin_generic::<Df64>(
-        200,                             // n_points (higher for better precision)
-        Df64::from_f64_unchecked(1e-19), // tolerance: 1e-19 (achieved maximum precision)
-        vec![
-            Df64::from_f64_unchecked(-0.8),
-            Df64::from_f64_unchecked(-0.5),
-            Df64::from_f64_unchecked(-0.2),
-            Df64::from_f64_unchecked(0.1),
-            Df64::from_f64_unchecked(0.4),
-            Df64::from_f64_unchecked(0.7),
-            Df64::from_f64_unchecked(0.9),
-        ], // test_points
-    );
-}
-
-/// Test that the collocation matrix is approximately the inverse of the Vandermonde matrix - MOVED TO interpolation1d_tests.rs
-#[test]
-#[ignore] // MOVED TO interpolation1d_tests.rs
-fn _test_legendre_collocation_matrix_inverse() {
-    // Test with different sizes
-    for n in [2, 3, 5, 10] {
-        let gauss_rule = legendre_generic::<f64>(n).reseat(-1.0, 1.0);
-
-        // Create Vandermonde matrix
-        let vandermonde = legendre_vandermonde(&gauss_rule.x.to_vec(), n - 1);
-
-        // Create collocation matrix
-        let collocation = legendre_collocation_matrix(&gauss_rule);
-
-        // Compute V * C and check if it's approximately the identity matrix
-        let mut product = DTensor::<f64, 2>::from_elem([n, n], 0.0);
-        for i in 0..n {
-            for j in 0..n {
-                for k in 0..n {
-                    product[[i, j]] += vandermonde[[i, k]] * collocation[[k, j]];
-                }
-            }
-        }
-
-        // Check that V * C ≈ I
-        let mut error = 0.0;
-        for i in 0..n {
-            for j in 0..n {
-                let expected = if i == j { 1.0 } else { 0.0 };
-                error += (product[[i, j]] - expected).abs();
-            }
-        }
-        error /= (n * n) as f64;
-
-        println!("n={}, error={}", n, error);
-        assert!(
-            error < 1e-10,
-            "Collocation matrix is not inverse of Vandermonde matrix for n={}: error={}",
-            n,
-            error
-        );
-    }
-}
-
-/// Test the new fast interpolation method - MOVED TO interpolation1d_tests.rs
-#[test]
-#[ignore] // MOVED TO interpolation1d_tests.rs
-fn _test_interpolate_1d_legendre_fast() {
-    // Test with different sizes and functions
-    for n in [2, 3, 5] {
-        let gauss_rule = legendre_generic::<f64>(n).reseat(-1.0, 1.0);
-
-        // Test different functions
-        let test_functions = vec![
-            |x: f64| x,         // Linear
-            |x: f64| x * x,     // Quadratic
-            |x: f64| x * x * x, // Cubic
-            |x: f64| x.sin(),   // Sine
-        ];
-
-        for (func_idx, func) in test_functions.iter().enumerate() {
-            // Sample function at Gauss points
-            let values: Vec<f64> = gauss_rule.x.iter().map(|&x| func(x)).collect();
-
-            // Get coefficients using the fast method
-            let coeffs = interpolate_1d_legendre(&values, &gauss_rule);
-
-            // Test interpolation at grid points (should be exact)
-            for (i, &x_grid) in gauss_rule.x.iter().enumerate() {
-                let expected = func(x_grid);
-                let interpolated = evaluate_interpolated_polynomial(x_grid, &coeffs);
-                let error = (interpolated - expected).abs_as_same_type();
-
-                assert!(
-                    error < 1e-12,
-                    "Interpolation failed for n={}, func={}, point={}: expected {}, got {}, error={}",
-                    n,
-                    func_idx,
-                    x_grid,
-                    expected,
-                    interpolated,
-                    error
-                );
-            }
-
-            println!("n={}, func={}: interpolation successful", n, func_idx);
-        }
-    }
-}
-
-/// Helper function to check if two vectors are approximately equal within tolerance
-fn vecs_approx_equal<T>(a: &[T], b: &[T], tolerance: T) -> bool
-where
-    T: Copy + std::ops::Sub<Output = T> + PartialOrd,
-    T: std::fmt::Display,
-{
-    if a.len() != b.len() {
-        return false;
-    }
-
-    for i in 0..a.len() {
-        let diff = if a[i] > b[i] {
-            a[i] - b[i]
-        } else {
-            b[i] - a[i]
-        };
-        if diff > tolerance {
-            return false;
-        }
-    }
-    true
 }
 
 /// Helper function to compute Legendre polynomial P_n(x)
@@ -954,7 +759,7 @@ fn test_large_legendre_rule_high_precision() {
 #[test]
 fn test_piecewise_high_precision() {
     let edges = vec![-4.0, -1.0, 1.0, 3.0];
-    let rule = legendre_custom::<f64>(20).piecewise(&edges);
+    let rule = legendre_custom::<f64>(20).piecewise(&edges).unwrap();
 
     assert!(rule.validate_custom());
     assert_eq!(rule.a, -4.0);
@@ -977,4 +782,96 @@ fn test_piecewise_high_precision() {
         "Sum of weights should be 7.0, got {}",
         weight_sum
     );
+}
+
+/// The rule constructors reject x and w of different lengths, and piecewise
+/// rejects fewer than 2 edges, non-finite edges and non-increasing edges or
+/// segment lengths that overflow. Before the change these panicked (NaN
+/// edges in the sort of the points), or gave infinite or NaN points.
+#[test]
+fn test_rule_constructors_check_their_input() {
+    use crate::error::Error;
+
+    let invalid = |name: &'static str, value: &str, reason: &str| Error::InvalidParameter {
+        name,
+        value: value.to_string(),
+        reason: reason.to_string(),
+    };
+    let lengths = invalid("w", "1 weights", "must have one weight per point (2)");
+    assert_eq!(
+        Rule::new(vec![0.0, 1.0], vec![1.0], -1.0, 1.0).unwrap_err(),
+        lengths
+    );
+    assert_eq!(
+        Rule::from_vectors(vec![0.0, 1.0], vec![1.0], -1.0, 1.0).unwrap_err(),
+        lengths
+    );
+    assert_eq!(
+        Rule::new_custom(vec![0.0, 1.0], vec![1.0], -1.0, 1.0).unwrap_err(),
+        lengths
+    );
+    let dd = |x: f64| Df64::from(x);
+    assert_eq!(
+        Rule::new_twofloat(vec![dd(0.0), dd(1.0)], vec![dd(1.0)], dd(-1.0), dd(1.0)).unwrap_err(),
+        lengths
+    );
+
+    let rule = legendre::<f64>(3);
+    assert_eq!(
+        rule.piecewise(&[0.0]).unwrap_err(),
+        invalid("edges", "1 edges", "must have at least 2 entries")
+    );
+    assert_eq!(
+        rule.piecewise(&[0.0, f64::NAN, 1.0]).unwrap_err(),
+        invalid("edges", "NaN at index 1", "must be finite")
+    );
+    assert_eq!(
+        rule.piecewise(&[0.0, 1.0, 1.0]).unwrap_err(),
+        invalid(
+            "edges",
+            "1.0 after 1.0 at index 2",
+            "must be strictly increasing, with finite segment lengths"
+        )
+    );
+    for edges in [
+        vec![0.0, f64::INFINITY],
+        vec![-1e308, 1e308],
+        vec![1.0, -1.0],
+    ] {
+        let err = rule.piecewise(&edges).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidParameter { name: "edges", .. }),
+            "{edges:?}: {err:?}"
+        );
+    }
+    let rule_dd = legendre::<Df64>(3);
+    let err = rule_dd.piecewise(&[dd(-1e308), dd(1e308)]).unwrap_err();
+    assert!(
+        matches!(err, Error::InvalidParameter { name: "edges", .. }),
+        "{err:?}"
+    );
+
+    // Valid input is unchanged
+    assert_eq!(rule.piecewise(&[-1.0, 1.0]).unwrap().x, rule.x);
+}
+
+/// Edges whose segment length is finite but whose midpoint a + b overflows
+/// gave infinite points. They are rejected as well.
+#[test]
+fn test_piecewise_rejects_an_overflowing_midpoint() {
+    use crate::error::Error;
+
+    for edges in [[1e308, 1.7e308], [-1.7e308, -1e308]] {
+        let err = legendre::<f64>(3).piecewise(&edges).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidParameter { name: "edges", .. }),
+            "{edges:?}: {err:?}"
+        );
+        let dd = [Df64::from(edges[0]), Df64::from(edges[1])];
+        let err = legendre::<Df64>(3).piecewise(&dd).unwrap_err();
+        assert!(
+            matches!(err, Error::InvalidParameter { name: "edges", .. }),
+            "{edges:?}: {err:?}"
+        );
+    }
 }

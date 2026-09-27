@@ -416,7 +416,7 @@ fn test_logistic_kernel_precision_critical_points() {
 
     // Test with Df64 test points
     test_kernel_precision_different_lambdas::<LogisticKernel, _, Df64>(
-        |lambda| LogisticKernel::new(lambda),
+        |lambda| LogisticKernel::new(lambda).unwrap(),
         "LogisticKernel",
         &test_points_dd,
         &lambdas,
@@ -428,7 +428,7 @@ fn test_logistic_kernel_precision_critical_points() {
         test_points_dd.map(|(x_dd, y_dd)| (x_dd.hi() + x_dd.lo(), y_dd.hi() + y_dd.lo()));
 
     test_kernel_precision_different_lambdas::<LogisticKernel, _, f64>(
-        |lambda| LogisticKernel::new(lambda),
+        |lambda| LogisticKernel::new(lambda).unwrap(),
         "LogisticKernel",
         &test_points_f64,
         &lambdas,
@@ -446,7 +446,7 @@ fn test_regularized_bose_kernel_discretized_matrix_y0() {
 
     let lambda = 1e5;
     let epsilon = 1e-10;
-    let kernel = RegularizedBoseKernel::new(lambda);
+    let kernel = RegularizedBoseKernel::new(lambda).unwrap();
 
     // Get SVE hints to obtain segments and Gauss rules
     let hints = kernel.sve_hints::<f64>(epsilon);
@@ -456,8 +456,8 @@ fn test_regularized_bose_kernel_discretized_matrix_y0() {
 
     // Create composite Gauss rules
     let rule = crate::gauss::legendre_generic::<f64>(n_gauss);
-    let gauss_x = rule.piecewise(&segments_x);
-    let gauss_y = rule.piecewise(&segments_y);
+    let gauss_x = rule.piecewise(&segments_x).unwrap();
+    let gauss_y = rule.piecewise(&segments_y).unwrap();
 
     // Compute discretized kernel matrix for even symmetry
     let discretized =
@@ -549,7 +549,7 @@ fn test_regularized_bose_kernel_precision_critical_points() {
 
     // Test with Df64 test points
     test_kernel_precision_different_lambdas::<RegularizedBoseKernel, _, Df64>(
-        |lambda| RegularizedBoseKernel::new(lambda),
+        |lambda| RegularizedBoseKernel::new(lambda).unwrap(),
         "RegularizedBoseKernel",
         &test_points_dd,
         &lambdas,
@@ -561,7 +561,7 @@ fn test_regularized_bose_kernel_precision_critical_points() {
         test_points_dd.map(|(x_dd, y_dd)| (x_dd.hi() + x_dd.lo(), y_dd.hi() + y_dd.lo()));
 
     test_kernel_precision_different_lambdas::<RegularizedBoseKernel, _, f64>(
-        |lambda| RegularizedBoseKernel::new(lambda),
+        |lambda| RegularizedBoseKernel::new(lambda).unwrap(),
         "RegularizedBoseKernel",
         &test_points_f64,
         &lambdas,
@@ -615,23 +615,37 @@ fn test_noncentrosymm_kernel_compute() {
     assert!((result3 - result4).abs() > 1e-10); // Should be different (1.0 vs -1.0)
 }
 
-/// Λ = 0 makes the kernel 1/Λ = ∞ at y = 0, so the SVE of the discretized
-/// kernel never converged (compute_sve did not return). `new` rejects it
-/// like a negative or non-finite Λ.
+/// Both kernel constructors reject a cutoff that is not positive and finite.
+/// Before the change LogisticKernel::new accepted any value (NaN failed only
+/// in the SVE, Λ ≤ 0 gave a silently wrong SVE) and RegularizedBoseKernel::new
+/// panicked. Λ = 0 makes the regularized Bose kernel 1/Λ = ∞ at y = 0.
 #[test]
-#[should_panic(expected = "Kernel cutoff Λ must be positive and finite, got 0")]
-fn test_regularized_bose_kernel_rejects_zero_lambda() {
-    RegularizedBoseKernel::new(0.0);
-}
+fn test_kernels_reject_a_cutoff_that_is_not_positive_and_finite() {
+    use crate::error::Error;
 
-#[test]
-#[should_panic(expected = "Kernel cutoff Λ must be positive and finite, got -1")]
-fn test_regularized_bose_kernel_rejects_negative_lambda() {
-    RegularizedBoseKernel::new(-1.0);
+    for (lambda, shown) in [
+        (0.0, "0.0"),
+        (-1.0, "-1.0"),
+        (f64::NAN, "NaN"),
+        (f64::INFINITY, "inf"),
+        (f64::NEG_INFINITY, "-inf"),
+    ] {
+        let expected = Error::InvalidParameter {
+            name: "lambda",
+            value: shown.to_string(),
+            reason: "must be positive and finite".to_string(),
+        };
+        assert_eq!(LogisticKernel::new(lambda).unwrap_err(), expected);
+        assert_eq!(RegularizedBoseKernel::new(lambda).unwrap_err(), expected);
+    }
+    assert_eq!(
+        LogisticKernel::new(f64::MIN_POSITIVE).unwrap().lambda(),
+        f64::MIN_POSITIVE
+    );
 }
 
 #[test]
 fn test_regularized_bose_kernel_accepts_positive_lambda() {
-    let kernel = RegularizedBoseKernel::new(f64::MIN_POSITIVE);
+    let kernel = RegularizedBoseKernel::new(f64::MIN_POSITIVE).unwrap();
     assert_eq!(kernel.lambda, f64::MIN_POSITIVE);
 }

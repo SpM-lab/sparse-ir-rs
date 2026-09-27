@@ -3,23 +3,25 @@
 //! This module provides high-performance piecewise Legendre polynomial
 //! functionality compatible with the C++ implementation.
 
+use crate::error::Error;
+
 /// A single piecewise Legendre polynomial
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendrePoly {
     /// Polynomial order (degree of Legendre polynomials in each segment)
-    pub polyorder: usize,
+    pub(crate) polyorder: usize,
     /// Minimum x value of the domain
-    pub xmin: f64,
+    pub(crate) xmin: f64,
     /// Maximum x value of the domain
-    pub xmax: f64,
+    pub(crate) xmax: f64,
     /// Knot points defining the segments
-    pub knots: Vec<f64>,
+    pub(crate) knots: Vec<f64>,
     /// Segment widths (for numerical stability)
-    pub delta_x: Vec<f64>,
+    pub(crate) delta_x: Vec<f64>,
     /// Coefficient matrix: [degree][segment_index]
-    pub data: mdarray::DTensor<f64, 2>,
+    pub(crate) data: mdarray::DTensor<f64, 2>,
     /// Symmetry parameter
-    pub symm: i32,
+    pub(crate) symm: i32,
     /// Index of this function in the sequence of singular functions it belongs
     /// to (0-based, in order of non-increasing singular value)
     ///
@@ -29,52 +31,128 @@ pub struct PiecewiseLegendrePoly {
     /// from it for the asymptotic expansion used at |n| >= n_asymp. For the
     /// centrosymmetric kernels of this crate the even and odd singular
     /// functions interlace, so that parity equals `symm`.
-    pub l: i32,
+    pub(crate) l: i32,
     /// Segment midpoints
-    pub xm: Vec<f64>,
+    pub(crate) xm: Vec<f64>,
     /// Inverse segment widths
-    pub inv_xs: Vec<f64>,
+    pub(crate) inv_xs: Vec<f64>,
     /// Normalization factors
-    pub norms: Vec<f64>,
+    pub(crate) norms: Vec<f64>,
+}
+
+/// `Ok` if there are `nsegments + 1` finite knots and every segment length is
+/// a positive normal double (so that `2 / length` is finite)
+fn check_knots(knots: &[f64], nsegments: usize) -> Result<(), Error> {
+    if knots.len() != nsegments + 1 {
+        return Err(Error::InvalidParameter {
+            name: "knots",
+            value: format!("{} knots", knots.len()),
+            reason: format!(
+                "must have {} entries, one more than the segments of data",
+                nsegments + 1
+            ),
+        });
+    }
+    if let Some((i, k)) = knots.iter().enumerate().find(|(_, k)| !k.is_finite()) {
+        return Err(Error::InvalidParameter {
+            name: "knots",
+            value: format!("{k:?} at index {i}"),
+            reason: "must be finite".to_string(),
+        });
+    }
+    for i in 1..knots.len() {
+        let length = knots[i] - knots[i - 1];
+        if !(length > 0.0 && length.is_normal()) {
+            return Err(Error::InvalidParameter {
+                name: "knots",
+                value: format!("{:?} after {:?} at index {i}", knots[i], knots[i - 1]),
+                reason: "must be strictly increasing, with each segment length a normal double"
+                    .to_string(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// `Ok` if `delta_x` has one entry per segment, each equal to the knot
+/// spacing `e = knots[i + 1] - knots[i]` within
+/// `max(1e-10 * |e|, 8 * f64::EPSILON * max(|knots[i]|, |knots[i + 1]|))`
+/// (NaN is rejected)
+///
+/// The first term is a relative tolerance on the segment length. The second
+/// covers the rounding of the knots, which grows with their magnitude: knots
+/// and widths scaled separately (as `FiniteTempBasis::from_sve_result` does,
+/// by β / 2) differ by a few units in the last place of the knots, which next
+/// to large knots can exceed 1e-10 times a narrow segment.
+fn check_delta_x(delta_x: &[f64], knots: &[f64]) -> Result<(), Error> {
+    let nsegments = knots.len() - 1;
+    if delta_x.len() != nsegments {
+        return Err(Error::InvalidParameter {
+            name: "delta_x",
+            value: format!("{} entries", delta_x.len()),
+            reason: format!("must have one entry per segment ({nsegments})"),
+        });
+    }
+    for (i, &d) in delta_x.iter().enumerate() {
+        let expected = knots[i + 1] - knots[i];
+        let rounding = 8.0 * f64::EPSILON * knots[i].abs().max(knots[i + 1].abs());
+        let tolerance = (1e-10 * expected.abs()).max(rounding);
+        if !((d - expected).abs() <= tolerance) {
+            return Err(Error::InvalidParameter {
+                name: "delta_x",
+                value: format!("{d:?} at index {i}"),
+                reason: format!(
+                    "must equal the knot spacing {expected:?} to a relative 1e-10, or to 8 machine epsilons times the magnitude of the knots"
+                ),
+            });
+        }
+    }
+    Ok(())
 }
 
 impl PiecewiseLegendrePoly {
     /// Create a new PiecewiseLegendrePoly from data and knots
+    ///
+    /// `data` holds the Legendre coefficients, one column per segment; the
+    /// `nsegments + 1` knots bound the segments. `delta_x` (the segment
+    /// widths) is computed from the knots when `None`. `symm` is the parity of
+    /// the polynomial: 1 (even), -1 (odd) or 0 (no definite parity).
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `data` has no row or no column
+    /// * [`Error::InvalidParameter`] if `knots` does not have one entry more
+    ///   than `data` has columns, a knot is not finite, or a segment length
+    ///   `knots[i] - knots[i - 1]` is not a positive normal double (this
+    ///   includes decreasing knots, NaN, lengths that overflow and subnormal
+    ///   lengths); or if `delta_x` does not have one entry per segment or
+    ///   differs from the knot spacing `e` by more than
+    ///   `max(1e-10 * |e|, 8 * f64::EPSILON * max(|knots[i]|, |knots[i + 1]|))`
+    /// * [`Error::InvalidParameter`] if `symm` is not -1, 0 or 1
     pub fn new(
         data: mdarray::DTensor<f64, 2>,
         knots: Vec<f64>,
         l: i32,
         delta_x: Option<Vec<f64>>,
         symm: i32,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let polyorder = data.shape().0;
         let nsegments = data.shape().1;
-
-        if knots.len() != nsegments + 1 {
-            panic!(
-                "Invalid knots array: expected {} knots, got {}",
-                nsegments + 1,
-                knots.len()
-            );
+        if polyorder == 0 || nsegments == 0 {
+            return Err(Error::EmptyInput { name: "data" });
         }
-
-        // Validate knots are sorted
-        for i in 1..knots.len() {
-            if knots[i] <= knots[i - 1] {
-                panic!("Knots must be monotonically increasing");
-            }
-        }
+        check_knots(&knots, nsegments)?;
 
         // Compute delta_x if not provided
         let delta_x =
             delta_x.unwrap_or_else(|| (1..knots.len()).map(|i| knots[i] - knots[i - 1]).collect());
-
-        // Validate delta_x matches knots
-        for i in 0..delta_x.len() {
-            let expected = knots[i + 1] - knots[i];
-            if (delta_x[i] - expected).abs() > 1e-10 {
-                panic!("delta_x must match knots");
-            }
+        check_delta_x(&delta_x, &knots)?;
+        if !matches!(symm, -1..=1) {
+            return Err(Error::InvalidParameter {
+                name: "symm",
+                value: symm.to_string(),
+                reason: "must be -1, 0 or 1".to_string(),
+            });
         }
 
         // Compute segment midpoints
@@ -88,7 +166,7 @@ impl PiecewiseLegendrePoly {
         // Compute normalization factors
         let norms: Vec<f64> = inv_xs.iter().map(|&inv_x| inv_x.sqrt()).collect();
 
-        Self {
+        Ok(Self {
             polyorder,
             xmin: knots[0],
             xmax: knots[knots.len() - 1],
@@ -100,11 +178,14 @@ impl PiecewiseLegendrePoly {
             xm,
             inv_xs,
             norms,
-        }
+        })
     }
 
     /// Create a new PiecewiseLegendrePoly with new data but same structure
-    pub fn with_data(&self, new_data: mdarray::DTensor<f64, 2>) -> Self {
+    ///
+    /// Crate-internal: `new_data` is not checked against the knots, so a
+    /// caller could break the invariants of the type.
+    pub(crate) fn with_data(&self, new_data: mdarray::DTensor<f64, 2>) -> Self {
         Self {
             data: new_data,
             ..self.clone()
@@ -116,17 +197,15 @@ impl PiecewiseLegendrePoly {
         self.symm
     }
 
-    /// Create a new PiecewiseLegendrePoly with new data and symmetry
-    pub fn with_data_and_symmetry(
-        &self,
-        new_data: mdarray::DTensor<f64, 2>,
-        new_symm: i32,
-    ) -> Self {
-        Self {
-            data: new_data,
-            symm: new_symm,
-            ..self.clone()
-        }
+    /// The polynomial with every coefficient negated
+    ///
+    /// Knots, widths and normalizations are those of `self`, so this equals
+    /// `new` on the negated data without repeating its checks.
+    pub(crate) fn negated(&self) -> Self {
+        self.with_data(mdarray::DTensor::<f64, 2>::from_fn(
+            *self.data.shape(),
+            |idx| -self.data[idx],
+        ))
     }
 
     /// Rescale domain: create a new polynomial with the same data but different knots
@@ -143,12 +222,16 @@ impl PiecewiseLegendrePoly {
     /// # Returns
     ///
     /// New polynomial with rescaled domain
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`new`](Self::new) for the new knots and widths
     pub fn rescale_domain(
         &self,
         new_knots: Vec<f64>,
         new_delta_x: Option<Vec<f64>>,
         new_symm: Option<i32>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         Self::new(
             self.data.clone(),
             new_knots,
@@ -177,9 +260,41 @@ impl PiecewiseLegendrePoly {
         )
     }
 
+    /// `Ok` if `x` lies in [xmin, xmax] (NaN does not)
+    fn check_in_domain(&self, name: &'static str, x: f64) -> Result<(), Error> {
+        if x >= self.xmin && x <= self.xmax {
+            Ok(())
+        } else {
+            Err(Error::OutOfDomain {
+                name,
+                value: x,
+                domain: (self.xmin, self.xmax),
+            })
+        }
+    }
+
     /// Evaluate the polynomial at a given point
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside [xmin, xmax] or NaN; see [`Self::try_evaluate`].
     pub fn evaluate(&self, x: f64) -> f64 {
-        let (i, x_tilde) = self.split(x);
+        self.try_evaluate(x).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside [xmin, xmax] or NaN
+    pub fn try_evaluate(&self, x: f64) -> Result<f64, Error> {
+        self.check_in_domain("x", x)?;
+        Ok(self.evaluate_in_domain(x))
+    }
+
+    /// [`Self::evaluate`] for an `x` already checked to lie in the domain
+    fn evaluate_in_domain(&self, x: f64) -> f64 {
+        let (i, x_tilde) = self.split_in_domain(x);
         // Extract column i into a Vec
         let coeffs: Vec<f64> = (0..self.data.shape().0)
             .map(|row| self.data[[row, i]])
@@ -189,16 +304,49 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Evaluate the polynomial at multiple points
+    ///
+    /// # Panics
+    ///
+    /// Panics if a point is outside [xmin, xmax] or NaN; see
+    /// [`Self::try_evaluate_many`].
     pub fn evaluate_many(&self, xs: &[f64]) -> Vec<f64> {
-        xs.iter().map(|&x| self.evaluate(x)).collect()
+        self.try_evaluate_many(xs).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate_many`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] for the first point of `xs` that is outside
+    /// [xmin, xmax] or NaN; no point is evaluated then
+    pub fn try_evaluate_many(&self, xs: &[f64]) -> Result<Vec<f64>, Error> {
+        for &x in xs {
+            self.check_in_domain("xs", x)?;
+        }
+        Ok(xs.iter().map(|&x| self.evaluate_in_domain(x)).collect())
     }
 
     /// Split x into segment index and normalized x
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside [xmin, xmax] or NaN; see [`Self::try_split`].
     pub fn split(&self, x: f64) -> (usize, f64) {
-        if x < self.xmin || x > self.xmax {
-            panic!("x = {} is outside domain [{}, {}]", x, self.xmin, self.xmax);
-        }
+        self.try_split(x).unwrap_or_else(|e| panic!("{e}"))
+    }
 
+    /// [`Self::split`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside [xmin, xmax] or NaN
+    pub fn try_split(&self, x: f64) -> Result<(usize, f64), Error> {
+        self.check_in_domain("x", x)?;
+        Ok(self.split_in_domain(x))
+    }
+
+    /// [`Self::split`] for an `x` already checked to lie in the domain
+    fn split_in_domain(&self, x: f64) -> (usize, f64) {
         // Find the segment containing x
         for i in 0..self.knots.len() - 1 {
             if x >= self.knots[i] && x <= self.knots[i + 1] {
@@ -245,6 +393,9 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Compute derivative of the polynomial
+    ///
+    /// The result has `polyorder` equal to the number of its coefficient rows
+    /// (at least 1).
     pub fn deriv(&self, n: usize) -> Self {
         if n == 0 {
             return self.clone();
@@ -269,6 +420,7 @@ impl PiecewiseLegendrePoly {
         let new_symm = if n % 2 == 0 { self.symm } else { -self.symm };
 
         Self {
+            polyorder: ddata.shape().0,
             data: ddata,
             symm: new_symm,
             ..self.clone()
@@ -320,16 +472,33 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Compute derivatives at a point x
+    ///
+    /// Returns the values of the derivatives of order 0 to `polyorder - 1`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside [xmin, xmax] or NaN; see [`Self::try_derivs`].
     pub fn derivs(&self, x: f64) -> Vec<f64> {
+        self.try_derivs(x).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::derivs`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside [xmin, xmax] or NaN
+    pub fn try_derivs(&self, x: f64) -> Result<Vec<f64>, Error> {
+        self.check_in_domain("x", x)?;
         let mut results = Vec::new();
 
         // Compute up to polyorder derivatives
+        // The derivatives have the knots of self, so x lies in their domain.
         for n in 0..self.polyorder {
             let deriv_poly = self.deriv(n);
-            results.push(deriv_poly.evaluate(x));
+            results.push(deriv_poly.evaluate_in_domain(x));
         }
 
-        results
+        Ok(results)
     }
 
     /// Compute overlap integral with a function
@@ -582,18 +751,42 @@ impl PiecewiseLegendrePoly {
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendrePolyVector {
     /// Individual polynomials
-    pub polyvec: Vec<PiecewiseLegendrePoly>,
+    pub(crate) polyvec: Vec<PiecewiseLegendrePoly>,
 }
 
 impl PiecewiseLegendrePolyVector {
     /// Constructor with a vector of PiecewiseLegendrePoly
     ///
-    /// # Panics
-    /// Panics if the input vector is empty, as empty PiecewiseLegendrePolyVector is not meaningful
-    pub fn new(polyvec: Vec<PiecewiseLegendrePoly>) -> Self {
-        if polyvec.is_empty() {
-            panic!("Cannot create empty PiecewiseLegendrePolyVector");
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `polyvec` is empty
+    /// * [`Error::InvalidParameter`] if a polynomial has other knots or
+    ///   another data shape than the first: the accessors of the vector
+    ///   (`get_knots`, `get_data`, ...) describe all of them by the first
+    pub fn new(polyvec: Vec<PiecewiseLegendrePoly>) -> Result<Self, Error> {
+        let Some(first) = polyvec.first() else {
+            return Err(Error::EmptyInput { name: "polyvec" });
+        };
+        if let Some(i) = polyvec
+            .iter()
+            .position(|p| p.knots != first.knots || p.data.shape() != first.data.shape())
+        {
+            return Err(Error::InvalidParameter {
+                name: "polyvec",
+                value: format!("polynomial {i}"),
+                reason: "must have the knots and the data shape of polynomial 0".to_string(),
+            });
         }
+        Ok(Self { polyvec })
+    }
+
+    /// Constructor that skips the checks of [`Self::new`]
+    ///
+    /// For the SVE, which builds every polynomial of a vector from the same
+    /// knots and the same data shape and may legitimately build an empty
+    /// vector (a symmetrized half of an expansion with no singular value of
+    /// that parity).
+    pub(crate) fn from_polys_unchecked(polyvec: Vec<PiecewiseLegendrePoly>) -> Self {
         Self { polyvec }
     }
 
@@ -603,17 +796,34 @@ impl PiecewiseLegendrePolyVector {
     }
 
     /// Constructor with a 3D array, knots, and symmetry vector
+    ///
+    /// `data3d` has the shape `(polyorder, nsegments, npolys)`; polynomial `i`
+    /// gets `l = i` and the symmetry `symm[i]` (0 if `symm` is `None`).
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `data3d` has no polynomial
+    /// * [`Error::InvalidParameter`] if `symm` does not have one entry per
+    ///   polynomial
+    /// * The errors of [`PiecewiseLegendrePoly::new`] for the data and knots
     pub fn from_3d_data(
         data3d: mdarray::DTensor<f64, 3>,
         knots: Vec<f64>,
         symm: Option<Vec<i32>>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let npolys = data3d.shape().2;
+        if npolys == 0 {
+            return Err(Error::EmptyInput { name: "data3d" });
+        }
         let mut polyvec = Vec::with_capacity(npolys);
 
         if let Some(ref symm_vec) = symm {
             if symm_vec.len() != npolys {
-                panic!("Sizes of data and symm don't match");
+                return Err(Error::InvalidParameter {
+                    name: "symm",
+                    value: format!("{} entries", symm_vec.len()),
+                    reason: format!("must have one entry per polynomial ({npolys})"),
+                });
             }
         }
 
@@ -637,12 +847,12 @@ impl PiecewiseLegendrePolyVector {
                 i as i32,
                 Some(delta_x.clone()),
                 symm.as_ref().map_or(0, |s| s[i]),
-            );
+            )?;
 
             polyvec.push(poly);
         }
 
-        Self { polyvec }
+        Ok(Self { polyvec })
     }
 
     /// Get the size of the vector
@@ -664,12 +874,30 @@ impl PiecewiseLegendrePolyVector {
     /// # Returns
     ///
     /// New vector with rescaled domains
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::InvalidParameter`] if `new_symm` does not have one entry per
+    ///   polynomial
+    /// * The errors of [`PiecewiseLegendrePoly::rescale_domain`]
     pub fn rescale_domain(
         &self,
         new_knots: Vec<f64>,
         new_delta_x: Option<Vec<f64>>,
         new_symm: Option<Vec<i32>>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
+        if let Some(symm) = &new_symm {
+            if symm.len() != self.polyvec.len() {
+                return Err(Error::InvalidParameter {
+                    name: "new_symm",
+                    value: format!("{} entries", symm.len()),
+                    reason: format!(
+                        "must have one entry per polynomial ({})",
+                        self.polyvec.len()
+                    ),
+                });
+            }
+        }
         let polyvec = self
             .polyvec
             .iter()
@@ -678,9 +906,8 @@ impl PiecewiseLegendrePolyVector {
                 let symm = new_symm.as_ref().map(|s| s[i]);
                 poly.rescale_domain(new_knots.clone(), new_delta_x.clone(), symm)
             })
-            .collect();
-
-        Self { polyvec }
+            .collect::<Result<_, _>>()?;
+        Ok(Self { polyvec })
     }
 
     /// Scale all data values by a constant factor
@@ -724,23 +951,35 @@ impl PiecewiseLegendrePolyVector {
         })
     }
 
-    /// Extract multiple polynomials by indices
-    pub fn slice_multi(&self, indices: &[usize]) -> Self {
-        // Validate indices
-        for &idx in indices {
-            if idx >= self.polyvec.len() {
-                panic!("Index {} out of range", idx);
-            }
+    /// Extract multiple polynomials by indices, in the order of `indices`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `indices` is empty
+    /// * [`Error::InvalidParameter`] for the first index that is out of range
+    ///   or repeats an earlier one
+    pub fn slice_multi(&self, indices: &[usize]) -> Result<Self, Error> {
+        if indices.is_empty() {
+            return Err(Error::EmptyInput { name: "indices" });
         }
-
-        // Check for duplicates
-        {
-            let mut unique_indices = indices.to_vec();
-            unique_indices.sort();
-            unique_indices.dedup();
-            if unique_indices.len() != indices.len() {
-                panic!("Duplicate indices not allowed");
+        let len = self.polyvec.len();
+        let mut seen = vec![false; len];
+        for &idx in indices {
+            if idx >= len {
+                return Err(Error::InvalidParameter {
+                    name: "indices",
+                    value: format!("{idx}"),
+                    reason: format!("must be less than the size {len}"),
+                });
             }
+            if seen[idx] {
+                return Err(Error::InvalidParameter {
+                    name: "indices",
+                    value: format!("{idx}"),
+                    reason: "must not repeat".to_string(),
+                });
+            }
+            seen[idx] = true;
         }
 
         let new_polyvec: Vec<_> = indices
@@ -748,29 +987,73 @@ impl PiecewiseLegendrePolyVector {
             .map(|&idx| self.polyvec[idx].clone())
             .collect();
 
-        Self {
+        Ok(Self {
             polyvec: new_polyvec,
-        }
+        })
     }
 
     /// Evaluate all polynomials at a single point
+    ///
+    /// # Panics
+    ///
+    /// Panics if `x` is outside the domain of a polynomial or NaN; see
+    /// [`Self::try_evaluate_at`].
     pub fn evaluate_at(&self, x: f64) -> Vec<f64> {
-        self.polyvec.iter().map(|poly| poly.evaluate(x)).collect()
+        self.try_evaluate_at(x).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate_at`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if `x` is outside the domain of a polynomial
+    /// or NaN
+    pub fn try_evaluate_at(&self, x: f64) -> Result<Vec<f64>, Error> {
+        self.polyvec
+            .iter()
+            .map(|poly| poly.try_evaluate(x))
+            .collect()
     }
 
     /// Evaluate all polynomials at multiple points
+    ///
+    /// The result has the shape `(size, xs.len())`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a point is outside the domain of a polynomial or NaN; see
+    /// [`Self::try_evaluate_at_many`].
     pub fn evaluate_at_many(&self, xs: &[f64]) -> mdarray::DTensor<f64, 2> {
+        self.try_evaluate_at_many(xs)
+            .unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// [`Self::evaluate_at_many`] returning an error instead of panicking
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] for the first point of `xs` that is outside
+    /// the domain of a polynomial or NaN; every point is checked before any
+    /// is evaluated
+    pub fn try_evaluate_at_many(&self, xs: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
+        // `new` gives every polynomial the knots of the first, so checking the
+        // points against the first checks them against all of them.
+        if let Some(first) = self.polyvec.first() {
+            for &x in xs {
+                first.check_in_domain("xs", x)?;
+            }
+        }
         let n_funcs = self.polyvec.len();
         let n_points = xs.len();
         let mut results = mdarray::DTensor::<f64, 2>::from_elem([n_funcs, n_points], 0.0);
 
         for (i, poly) in self.polyvec.iter().enumerate() {
             for (j, &x) in xs.iter().enumerate() {
-                results[[i, j]] = poly.evaluate(x);
+                results[[i, j]] = poly.evaluate_in_domain(x);
             }
         }
 
-        results
+        Ok(results)
     }
 
     // Accessor methods to match C++ interface
@@ -925,11 +1208,28 @@ impl std::ops::Index<usize> for PiecewiseLegendrePolyVector {
 /// roots of the L'th polynomial by the extrema of the last basis function,
 /// which is sensible due to the strong interleaving property of these
 /// functions' roots.
-pub fn default_sampling_points(u: &PiecewiseLegendrePolyVector, l: usize) -> Vec<f64> {
+///
+/// `name` names `u` in the errors (`"u"` or `"v"`).
+///
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] named `name` if `u` is not on [-1, 1]
+///   (1e-10), i.e. not the unscaled functions of an SVE
+/// * [`Error::NotSupported`] if the extrema are needed and the last function
+///   has none (e.g. an SVE truncated to 2 functions, whose u_1 is monotonic)
+pub(crate) fn default_sampling_points(
+    u: &PiecewiseLegendrePolyVector,
+    name: &'static str,
+    l: usize,
+) -> Result<Vec<f64>, Error> {
     // C++: if (u.xmin() != -1.0 || u.xmax() != 1.0)
     //          throw std::runtime_error("Expecting unscaled functions here.");
     if (u.xmin() - (-1.0)).abs() > 1e-10 || (u.xmax() - 1.0).abs() > 1e-10 {
-        panic!("Expecting unscaled functions here.");
+        return Err(Error::InvalidParameter {
+            name,
+            value: format!("functions on [{:?}, {:?}]", u.xmin(), u.xmax()),
+            reason: "must be the unscaled functions of an SVE, on [-1, 1]".to_string(),
+        });
     }
 
     let x0 = if l < u.polyvec.len() {
@@ -942,11 +1242,24 @@ pub fn default_sampling_points(u: &PiecewiseLegendrePolyVector, l: usize) -> Vec
         let poly_deriv = poly.deriv(1);
         let maxima = poly_deriv.roots();
 
+        // C++ reads maxima[0] without a check; SparseIR.jl's first(maxima)
+        // fails the same way.
+        let (Some(&first), Some(&last)) = (maxima.first(), maxima.last()) else {
+            return Err(Error::NotSupported {
+                what: format!(
+                    "default sampling points for {l} basis functions: the last singular \
+                     function (l = {}) has no extrema to stand in for the roots of the \
+                     missing function l = {l} (an SVE truncated to too few functions)",
+                    poly.l
+                ),
+            });
+        };
+
         // C++: double left = (maxima[0] + poly.xmin) / 2.0;
-        let left = (maxima[0] + poly.xmin) / 2.0;
+        let left = (first + poly.xmin) / 2.0;
 
         // C++: double right = (maxima[maxima.size() - 1] + poly.xmax) / 2.0;
-        let right = (maxima[maxima.len() - 1] + poly.xmax) / 2.0;
+        let right = (last + poly.xmax) / 2.0;
 
         // C++: Eigen::VectorXd x0(maxima.size() + 2);
         //      x0[0] = left;
@@ -969,7 +1282,7 @@ pub fn default_sampling_points(u: &PiecewiseLegendrePolyVector, l: usize) -> Vec
         );
     }
 
-    x0
+    Ok(x0)
 }
 
 // IndexMut implementation removed - PiecewiseLegendrePolyVector is designed to be immutable

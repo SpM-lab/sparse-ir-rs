@@ -24,14 +24,15 @@ fn test_matsubara_sampling_roundtrip_generic<S: StatisticsType + 'static>() {
     let epsilon = 1e-6;
 
     // Create basis
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Create symmetric Matsubara sampling points (positive and negative)
-    let sampling_points = basis.default_matsubara_sampling_points(false);
+    let sampling_points = basis.default_matsubara_sampling_points(false).unwrap();
 
     // Create sampling
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone());
+    let sampling =
+        MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone()).unwrap();
 
     // Generate test data (we only need Matsubara values)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -43,10 +44,10 @@ fn test_matsubara_sampling_roundtrip_generic<S: StatisticsType + 'static>() {
         );
 
     // Fit to get coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -80,16 +81,17 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
     let epsilon = 1e-6;
 
     // Create basis
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Use positive-only sampling points
-    let sampling_points = basis.default_matsubara_sampling_points(true);
+    let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
     let _n_matsubara = sampling_points.len();
 
     // Create sampling
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     // Generate test data (we only need Matsubara values)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -101,10 +103,10 @@ fn test_matsubara_sampling_positive_only_roundtrip_generic<S: StatisticsType + '
         );
 
     // Fit to get real coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -128,13 +130,14 @@ fn test_matsubara_sampling_dimensions() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
-    let sampling_points = basis.default_matsubara_sampling_points(true);
+    let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
 
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     assert_eq!(sampling.basis_size(), basis.size());
     assert_eq!(sampling.n_sampling_points(), sampling_points.len());
@@ -160,12 +163,13 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
-    let sampling_points = basis.default_matsubara_sampling_points(false); // Symmetric (positive and negative)
+    let sampling_points = basis.default_matsubara_sampling_points(false).unwrap(); // Symmetric (positive and negative)
 
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone());
+    let sampling =
+        MatsubaraSampling::with_sampling_points(&basis, sampling_points.clone()).unwrap();
 
     let n_k = 4;
     let n_omega = 5;
@@ -185,8 +189,8 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
@@ -231,14 +235,15 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     // Use positive-only sampling points
-    let sampling_points = basis.default_matsubara_sampling_points(true);
+    let sampling_points = basis.default_matsubara_sampling_points(true).unwrap();
 
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     let n_k = 4;
     let n_omega = 5;
@@ -258,8 +263,8 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
         let coeffs_dim = crate::test_utils::movedim(&coeffs_0, 0, dim);
 
         // Evaluate and fit along target dimension
-        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim);
-        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim);
+        let values_dim = sampling.evaluate_nd(None, &coeffs_dim, dim).unwrap();
+        let coeffs_fitted_dim = sampling.fit_nd(None, &values_dim, dim).unwrap();
 
         // Move back to dim=0 for comparison
         let coeffs_fitted_0 = crate::test_utils::movedim(&coeffs_fitted_dim, dim, 0);
@@ -297,8 +302,8 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
     let epsilon = 1e-4; // Looser tolerance for RegularizedBoseKernel
 
     // Create basis
-    let kernel = RegularizedBoseKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let kernel = RegularizedBoseKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let basis_size = basis.size();
 
@@ -319,7 +324,8 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
     println!("Sampling points (symmetric): {}", symmetric_points.len());
 
     // Create sampling
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, symmetric_points.clone());
+    let sampling =
+        MatsubaraSampling::with_sampling_points(&basis, symmetric_points.clone()).unwrap();
 
     // Generate test data (we only need Matsubara values)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -331,10 +337,10 @@ fn test_regularized_bose_matsubara_sampling_roundtrip_generic() {
         );
 
     // Fit to get coefficients
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -365,8 +371,8 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic() {
     let epsilon = 1e-4; // Looser tolerance for RegularizedBoseKernel
 
     // Create basis
-    let kernel = RegularizedBoseKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None);
+    let kernel = RegularizedBoseKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(epsilon), None).unwrap();
 
     let basis_size = basis.size();
 
@@ -381,7 +387,8 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic() {
 
     // Create sampling
     let sampling =
-        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone());
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, sampling_points.clone())
+            .unwrap();
 
     // Generate test data (real coefficients for positive-only)
     let (_coeffs_random, _gtau_values, giwn_values) =
@@ -393,10 +400,10 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip_generic() {
         );
 
     // Fit to get coefficients (should be real)
-    let coeffs_fitted = sampling.fit(&giwn_values);
+    let coeffs_fitted = sampling.fit(&giwn_values).unwrap();
 
     // Evaluate back
-    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted);
+    let giwn_reconstructed = sampling.evaluate(&coeffs_fitted).unwrap();
 
     // Check roundtrip accuracy
     let max_error = giwn_values
@@ -441,9 +448,9 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
-    let sampling = MatsubaraSampling::new(&basis);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -460,13 +467,15 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[n_points, n_k, n_omega][..],
         Complex::new(0.0, 0.0),
     );
-    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+    sampling
+        .evaluate_nd_to(None, &coeffs, 0, &mut actual)
+        .unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -500,9 +509,9 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
-    let sampling = MatsubaraSampling::new(&basis);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -519,13 +528,13 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[basis_size, n_k, n_omega][..],
         Complex::new(0.0, 0.0),
     );
-    sampling.fit_nd_to(None, &values, 0, &mut actual);
+    sampling.fit_nd_to(None, &values, 0, &mut actual).unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -559,9 +568,9 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
-    let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -574,13 +583,15 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
     });
 
     // Test for dim = 0
-    let expected = sampling.evaluate_nd(None, &coeffs, 0);
+    let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
     let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
         &[n_points, n_k, n_omega][..],
         Complex::new(0.0, 0.0),
     );
-    sampling.evaluate_nd_to(None, &coeffs, 0, &mut actual);
+    sampling
+        .evaluate_nd_to(None, &coeffs, 0, &mut actual)
+        .unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -614,9 +625,9 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
     let wmax = 10.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(wmax * beta);
-    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None);
-    let sampling = MatsubaraSamplingPositiveOnly::new(&basis);
+    let kernel = LogisticKernel::new(wmax * beta).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(epsilon), None).unwrap();
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
 
     let basis_size = basis.size();
     let n_points = sampling.n_sampling_points();
@@ -633,10 +644,10 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
         });
 
     // Test for dim = 0
-    let expected = sampling.fit_nd(None, &values, 0);
+    let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
     let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
-    sampling.fit_nd_to(None, &values, 0, &mut actual);
+    sampling.fit_nd_to(None, &values, 0, &mut actual).unwrap();
 
     // Compare
     let expected_shape = expected.shape().with_dims(|d| d.to_vec());
@@ -679,16 +690,16 @@ fn test_matsubara_sampling_debug_parameters() {
     // Fermionic Basis
     // Step 1: Create kernel
     let lambda_ = beta * wmax;
-    let kernel = LogisticKernel::new(lambda_);
+    let kernel = LogisticKernel::new(lambda_).unwrap();
 
     // Step 2: Compute SVE and create basis
     // FiniteTempBasis::new automatically computes SVE internally
     let eps = f64::EPSILON;
     let basisf: FiniteTempBasis<LogisticKernel, Fermionic> =
-        FiniteTempBasis::new(kernel, beta, Some(eps), None);
+        FiniteTempBasis::new(kernel, beta, Some(eps), None).unwrap();
 
     // Step 3: Create Matsubara sampling
-    let matsf = MatsubaraSampling::new(&basisf);
+    let matsf = MatsubaraSampling::new(&basisf).unwrap();
 
     // Verify expected values (matching C++ implementation)
     // Basis size should be 19 for these parameters
@@ -761,10 +772,11 @@ fn check_positive_only_condition_number<S: StatisticsType + 'static>(
 ) {
     use crate::test_utils::{assert_condition_number_close, oracle_condition_number, stack_re_im};
 
-    let kernel = LogisticKernel::new(beta * wmax);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
-    let points = basis.default_matsubara_sampling_points(true);
-    let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
+    let points = basis.default_matsubara_sampling_points(true).unwrap();
+    let sampling =
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone()).unwrap();
 
     let oracle = oracle_condition_number(&stack_re_im(&uhat_matrix(&basis, &points)));
     let label = format!(
@@ -773,17 +785,17 @@ fn check_positive_only_condition_number<S: StatisticsType + 'static>(
         basis.size(),
         points.len()
     );
-    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+    assert_condition_number_close(&label, sampling.condition_number().unwrap(), oracle);
 }
 
 /// Full-set sampling reports the condition number of the complex matrix `A`
 fn check_full_condition_number<S: StatisticsType + 'static>(beta: f64, wmax: f64, epsilon: f64) {
     use crate::test_utils::{assert_condition_number_close, oracle_condition_number, realify};
 
-    let kernel = LogisticKernel::new(beta * wmax);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None);
-    let points = basis.default_matsubara_sampling_points(false);
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(epsilon), None).unwrap();
+    let points = basis.default_matsubara_sampling_points(false).unwrap();
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone()).unwrap();
 
     let oracle = oracle_condition_number(&realify(&uhat_matrix(&basis, &points)));
     let label = format!(
@@ -792,7 +804,7 @@ fn check_full_condition_number<S: StatisticsType + 'static>(beta: f64, wmax: f64
         basis.size(),
         points.len()
     );
-    assert_condition_number_close(&label, sampling.condition_number(), oracle);
+    assert_condition_number_close(&label, sampling.condition_number().unwrap(), oracle);
 }
 
 #[test]
@@ -836,7 +848,7 @@ fn test_positive_only_condition_number_from_matrix() {
     let points: Vec<MatsubaraFreq<Bosonic>> = (0..n as i64)
         .map(|k| MatsubaraFreq::new(2 * k).unwrap())
         .collect();
-    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points, a.clone());
+    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points, a.clone()).unwrap();
 
     let oracle = oracle_condition_number(&stack_re_im(&a));
     let cond_complex = oracle_condition_number(&realify(&a));
@@ -846,7 +858,7 @@ fn test_positive_only_condition_number_from_matrix() {
     );
     assert_condition_number_close(
         "from_matrix positive-only",
-        sampling.condition_number(),
+        sampling.condition_number().unwrap(),
         oracle,
     );
 }
@@ -857,7 +869,9 @@ fn unsorted_points<S: StatisticsType + 'static>(
     basis: &FiniteTempBasis<LogisticKernel, S>,
     positive_only: bool,
 ) -> Vec<MatsubaraFreq<S>> {
-    let sorted = basis.default_matsubara_sampling_points(positive_only);
+    let sorted = basis
+        .default_matsubara_sampling_points(positive_only)
+        .unwrap();
     let mut points: Vec<_> = sorted.iter().step_by(2).cloned().collect();
     points.extend(sorted.iter().skip(1).step_by(2).rev().cloned());
     assert_eq!(points.len(), sorted.len());
@@ -899,8 +913,8 @@ fn assert_rows_times<T>(
 /// not depend on the order. Before the fix, a `debug_assert!` rejected
 /// unsorted points in debug builds only.
 fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
-    let kernel = LogisticKernel::new(10.0);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None);
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None).unwrap();
     let l = basis.size();
     // The data are exact values of these coefficients, and the default
     // points give a condition number below 1e2, so a backward-stable fit
@@ -912,24 +926,24 @@ fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
 
     let points = unsorted_points(&basis, true);
     let a = uhat_matrix(&basis, &points);
-    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), a.clone());
+    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), a.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
-    assert!(sampling.condition_number() < 1e2);
-    let values = sampling.evaluate(&coeffs);
+    assert!(sampling.condition_number().unwrap() < 1e2);
+    let values = sampling.evaluate(&coeffs).unwrap();
     assert_rows_times(&a, &coeffs, &values);
-    let fitted = sampling.fit(&values);
+    let fitted = sampling.fit(&values).unwrap();
     for (f, c) in fitted.iter().zip(&coeffs) {
         assert!((f - c).abs() <= 1e-10, "positive-only fit: {f} vs {c}");
     }
 
     let points = unsorted_points(&basis, false);
     let a = uhat_matrix(&basis, &points);
-    let sampling = MatsubaraSampling::from_matrix(points.clone(), a.clone());
+    let sampling = MatsubaraSampling::from_matrix(points.clone(), a.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
-    assert!(sampling.condition_number() < 1e2);
-    let values = sampling.evaluate(&coeffs_z);
+    assert!(sampling.condition_number().unwrap() < 1e2);
+    let values = sampling.evaluate(&coeffs_z).unwrap();
     assert_rows_times(&a, &coeffs_z, &values);
-    let fitted = sampling.fit(&values);
+    let fitted = sampling.fit(&values).unwrap();
     for (f, c) in fitted.iter().zip(&coeffs_z) {
         assert!((f - c).norm() <= 1e-10, "full fit: {f} vs {c}");
     }
@@ -951,28 +965,29 @@ fn test_from_matrix_keeps_the_given_order_bosonic() {
 /// so that values fitted in the caller's order were taken at the wrong
 /// frequencies.
 fn check_with_sampling_points_keeps_the_given_order<S: StatisticsType + 'static>() {
-    let kernel = LogisticKernel::new(10.0);
-    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None);
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None).unwrap();
     let l = basis.size();
     let coeffs: Vec<f64> = (0..l).map(|j| 1.0 / (1.0 + j as f64)).collect();
     let coeffs_z: Vec<Complex<f64>> = coeffs.iter().map(|&c| Complex::new(c, 0.5 * c)).collect();
 
     let points = unsorted_points(&basis, true);
-    let sampling = MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone());
+    let sampling =
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert_rows_times(
         &uhat_matrix(&basis, &points),
         &coeffs,
-        &sampling.evaluate(&coeffs),
+        &sampling.evaluate(&coeffs).unwrap(),
     );
 
     let points = unsorted_points(&basis, false);
-    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone());
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points.clone()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert_rows_times(
         &uhat_matrix(&basis, &points),
         &coeffs_z,
-        &sampling.evaluate(&coeffs_z),
+        &sampling.evaluate(&coeffs_z).unwrap(),
     );
 }
 
@@ -1010,10 +1025,15 @@ fn with_target(batch: &[usize], dim: usize, n: usize) -> Vec<usize> {
 fn test_matsubara_nd_with_empty_batch() {
     use mdarray::{DynRank, Tensor};
 
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
-    let sampling = MatsubaraSampling::new(&basis);
-    let positive = MatsubaraSamplingPositiveOnly::new(&basis);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
     let l = sampling.basis_size();
 
     for (batch, dim) in empty_batches() {
@@ -1024,19 +1044,21 @@ fn test_matsubara_nd_with_empty_batch() {
         for (s_np, values) in [
             (
                 sampling.n_sampling_points(),
-                sampling.evaluate_nd::<f64>(None, &coeffs, dim),
+                sampling.evaluate_nd::<f64>(None, &coeffs, dim).unwrap(),
             ),
             (
                 sampling.n_sampling_points(),
-                sampling.evaluate_nd::<Complex<f64>>(None, &coeffs_z, dim),
+                sampling
+                    .evaluate_nd::<Complex<f64>>(None, &coeffs_z, dim)
+                    .unwrap(),
             ),
             (
                 sampling.n_sampling_points(),
-                sampling.evaluate_nd_real(None, &coeffs, dim),
+                sampling.evaluate_nd_real(None, &coeffs, dim).unwrap(),
             ),
             (
                 positive.n_sampling_points(),
-                positive.evaluate_nd(None, &coeffs, dim),
+                positive.evaluate_nd(None, &coeffs, dim).unwrap(),
             ),
         ] {
             assert_eq!(values.shape().dims(), &with_target(&batch, dim, s_np)[..]);
@@ -1045,22 +1067,28 @@ fn test_matsubara_nd_with_empty_batch() {
         let dims_np = with_target(&batch, dim, sampling.n_sampling_points());
         let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
         assert_eq!(
-            sampling.fit_nd(None, &values, dim).shape().dims(),
+            sampling.fit_nd(None, &values, dim).unwrap().shape().dims(),
             &dims_l[..]
         );
         assert_eq!(
-            sampling.fit_nd_real(None, &values, dim).shape().dims(),
+            sampling
+                .fit_nd_real(None, &values, dim)
+                .unwrap()
+                .shape()
+                .dims(),
             &dims_l[..]
         );
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
-        sampling.evaluate_nd_to::<f64>(None, &coeffs, dim, &mut out);
+        sampling
+            .evaluate_nd_to::<f64>(None, &coeffs, dim, &mut out)
+            .unwrap();
         let mut out_l = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
-        sampling.fit_nd_to(None, &values, dim, &mut out_l);
+        sampling.fit_nd_to(None, &values, dim, &mut out_l).unwrap();
 
         let dims_np = with_target(&batch, dim, positive.n_sampling_points());
         let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
         assert_eq!(
-            positive.fit_nd(None, &values, dim).shape().dims(),
+            positive.fit_nd(None, &values, dim).unwrap().shape().dims(),
             &dims_l[..]
         );
     }
@@ -1075,10 +1103,15 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
     use crate::fitters::InplaceFitter;
     use mdarray::{DynRank, Tensor};
 
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
-    let full = MatsubaraSampling::new(&basis);
-    let positive = MatsubaraSamplingPositiveOnly::new(&basis);
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let full = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
 
     fn check<F: InplaceFitter>(f: &F, batch: &[usize], dim: usize) {
         let (l, np) = (f.basis_size(), f.n_points());
@@ -1089,10 +1122,14 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
         let mut out_np = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
         let mut out_l = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
         let mut out_l_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
-        assert!(f.evaluate_nd_dz_to(None, &coeffs, dim, &mut out_np.expr_mut()));
-        assert!(f.evaluate_nd_zz_to(None, &coeffs_z, dim, &mut out_np.expr_mut()));
-        assert!(f.fit_nd_zd_to(None, &values_z, dim, &mut out_l.expr_mut()));
-        assert!(f.fit_nd_zz_to(None, &values_z, dim, &mut out_l_z.expr_mut()));
+        f.evaluate_nd_dz_to(None, &coeffs, dim, &mut out_np.expr_mut())
+            .unwrap();
+        f.evaluate_nd_zz_to(None, &coeffs_z, dim, &mut out_np.expr_mut())
+            .unwrap();
+        f.fit_nd_zd_to(None, &values_z, dim, &mut out_l.expr_mut())
+            .unwrap();
+        f.fit_nd_zz_to(None, &values_z, dim, &mut out_l_z.expr_mut())
+            .unwrap();
     }
 
     for (batch, dim) in empty_batches() {
@@ -1101,35 +1138,316 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
     }
 }
 
+/// No sampling points is an error: the sampling matrix would have no rows.
+/// It was a panic ("No sampling points given").
 #[test]
-#[should_panic(expected = "No sampling points given")]
 fn test_matsubara_sampling_rejects_empty_sampling_points() {
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
-    MatsubaraSampling::with_sampling_points(&basis, vec![]);
-}
+    use crate::error::Error;
 
-#[test]
-#[should_panic(expected = "No sampling points given")]
-fn test_matsubara_sampling_positive_only_rejects_empty_sampling_points() {
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::new(LogisticKernel::new(10.0), 1.0, Some(1e-6), None);
-    MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, vec![]);
-}
-
-#[test]
-#[should_panic(expected = "Matrix must have at least one column")]
-fn test_matsubara_from_matrix_rejects_zero_columns() {
-    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
-    MatsubaraSampling::<Fermionic>::from_matrix(vec![MatsubaraFreq::new(1).unwrap()], matrix);
-}
-
-#[test]
-#[should_panic(expected = "Matrix must have at least one column")]
-fn test_matsubara_positive_only_from_matrix_rejects_zero_columns() {
-    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
-    MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(
-        vec![MatsubaraFreq::new(1).unwrap()],
-        matrix,
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        MatsubaraSampling::with_sampling_points(&basis, vec![]).err(),
+        Some(Error::EmptyInput {
+            name: "sampling_points"
+        })
     );
+}
+
+/// Same for the positive-only sampling.
+#[test]
+fn test_matsubara_sampling_positive_only_rejects_empty_sampling_points() {
+    use crate::error::Error;
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, vec![]).err(),
+        Some(Error::EmptyInput {
+            name: "sampling_points"
+        })
+    );
+}
+
+/// A negative frequency in a positive-only sampling is an invalid Matsubara
+/// index (spec §3); it was a panic (#247).
+#[test]
+fn test_matsubara_sampling_positive_only_rejects_negative_points() {
+    use crate::error::Error;
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let points = vec![
+        MatsubaraFreq::<Fermionic>::new(1).unwrap(),
+        MatsubaraFreq::<Fermionic>::new(-3).unwrap(),
+    ];
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points).err(),
+        Some(Error::InvalidMatsubaraIndex {
+            n: -3,
+            statistics: crate::traits::Statistics::Fermionic,
+        })
+    );
+}
+
+/// A matrix without columns is EmptyInput (it was a panic, mdarray#21).
+#[test]
+fn test_matsubara_from_matrix_rejects_zero_columns() {
+    use crate::error::Error;
+
+    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
+    assert_eq!(
+        MatsubaraSampling::<Fermionic>::from_matrix(vec![MatsubaraFreq::new(1).unwrap()], matrix)
+            .err(),
+        Some(Error::EmptyInput { name: "matrix" })
+    );
+}
+
+#[test]
+fn test_matsubara_positive_only_from_matrix_rejects_zero_columns() {
+    use crate::error::Error;
+
+    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(
+            vec![MatsubaraFreq::new(1).unwrap()],
+            matrix,
+        )
+        .err(),
+        Some(Error::EmptyInput { name: "matrix" })
+    );
+}
+
+/// The N-D methods of both Matsubara samplings check the axis first: the
+/// `*_to` methods read out.shape().dim(dim) before checking the rank and
+/// panicked. The InplaceFitter methods a sampling does not support are
+/// NotSupported (they returned false).
+#[test]
+fn test_matsubara_nd_methods_check_the_axis_first() {
+    use crate::error::{ArrayRole, Error};
+    use crate::fitters::InplaceFitter;
+    use mdarray::{DynRank, Tensor};
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let full = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
+    let l = full.basis_size();
+    let axis = Some(Error::AxisOutOfRange { axis: 1, rank: 1 });
+
+    let coeffs = Tensor::<f64, DynRank>::zeros(&[l][..]);
+    let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&[l][..]);
+    let values = Tensor::<Complex<f64>, DynRank>::zeros(&[full.n_sampling_points()][..]);
+    let values_p = Tensor::<Complex<f64>, DynRank>::zeros(&[positive.n_sampling_points()][..]);
+    assert_eq!(full.evaluate_nd::<f64>(None, &coeffs, 1).err(), axis);
+    assert_eq!(
+        full.evaluate_nd::<Complex<f64>>(None, &coeffs_z, 1).err(),
+        axis
+    );
+    assert_eq!(full.evaluate_nd_real(None, &coeffs, 1).err(), axis);
+    assert_eq!(full.fit_nd(None, &values, 1).err(), axis);
+    assert_eq!(full.fit_nd_real(None, &values, 1).err(), axis);
+    assert_eq!(positive.evaluate_nd(None, &coeffs, 1).err(), axis);
+    assert_eq!(positive.fit_nd(None, &values_p, 1).err(), axis);
+
+    // `out` of rank 2 for rank-1 data, and an axis past both ranks
+    let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&[full.n_sampling_points(), 1][..]);
+    assert_eq!(
+        full.evaluate_nd_to::<f64>(None, &coeffs, 0, &mut out),
+        Err(Error::ShapeMismatch {
+            which: ArrayRole::Output,
+            expected: vec![full.n_sampling_points()],
+            actual: vec![full.n_sampling_points(), 1],
+        })
+    );
+    assert_eq!(
+        full.evaluate_nd_to::<f64>(None, &coeffs, 5, &mut out).err(),
+        Some(Error::AxisOutOfRange { axis: 5, rank: 1 })
+    );
+    let mut out_l = Tensor::<f64, DynRank>::zeros(&[l][..]);
+    assert_eq!(
+        positive.fit_nd_to(None, &values_p, 5, &mut out_l).err(),
+        Some(Error::AxisOutOfRange { axis: 5, rank: 1 })
+    );
+
+    // Unsupported pairs of types
+    let mut out_d = Tensor::<f64, DynRank>::zeros(&[full.n_sampling_points()][..]);
+    let err = InplaceFitter::evaluate_nd_dd_to(&full, None, &coeffs, 0, &mut out_d.expr_mut())
+        .unwrap_err();
+    assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+    let err = InplaceFitter::evaluate_nd_dd_to(&positive, None, &coeffs, 0, &mut out_d.expr_mut())
+        .unwrap_err();
+    assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+}
+
+/// Same for the 1-D methods of both Matsubara samplings.
+#[test]
+fn test_matsubara_1d_methods_check_the_lengths() {
+    use crate::error::{ArrayRole, Error};
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let full = MatsubaraSampling::new(&basis).unwrap();
+    let positive = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
+    let l = full.basis_size();
+    let zero = Complex::new(0.0, 0.0);
+    let input = |expected: usize, actual: usize| Error::ShapeMismatch {
+        which: ArrayRole::Input,
+        expected: vec![expected],
+        actual: vec![actual],
+    };
+
+    assert_eq!(full.evaluate(&vec![zero; l + 1]), Err(input(l, l + 1)));
+    let np = full.n_sampling_points();
+    assert_eq!(full.fit(&vec![zero; np - 1]), Err(input(np, np - 1)));
+    assert_eq!(positive.evaluate(&vec![0.0; l - 1]), Err(input(l, l - 1)));
+    let np = positive.n_sampling_points();
+    assert_eq!(positive.fit(&vec![zero; np + 3]), Err(input(np, np + 3)));
+    for cond in [
+        full.condition_number().unwrap(),
+        positive.condition_number().unwrap(),
+    ] {
+        assert!(cond.is_finite() && cond >= 1.0, "{cond}");
+    }
+}
+
+/// from_matrix of both Matsubara samplings checks its arguments (spec D5):
+/// no points, rows that are not the points, a non-finite part of an entry,
+/// and a negative point of a positive-only sampling (#247; it was accepted).
+#[test]
+fn test_matsubara_from_matrix_checks_its_arguments() {
+    use crate::error::{ArrayRole, Error};
+    use mdarray::DTensor;
+
+    let freqs = |ns: &[i64]| -> Vec<MatsubaraFreq<Fermionic>> {
+        ns.iter().map(|&n| MatsubaraFreq::new(n).unwrap()).collect()
+    };
+    let matrix = |rows: usize| {
+        DTensor::<Complex<f64>, 2>::from_fn([rows, 2], |idx| {
+            Complex::new(
+                1.0 / (1.0 + idx[0] as f64 + idx[1] as f64),
+                0.1 * idx[0] as f64,
+            )
+        })
+    };
+
+    for positive_only in [false, true] {
+        let from = |points: Vec<MatsubaraFreq<Fermionic>>, m: DTensor<Complex<f64>, 2>| {
+            if positive_only {
+                MatsubaraSamplingPositiveOnly::from_matrix(points, m).err()
+            } else {
+                MatsubaraSampling::from_matrix(points, m).err()
+            }
+        };
+        assert_eq!(
+            from(vec![], DTensor::<Complex<f64>, 2>::zeros([0, 2])),
+            Some(Error::EmptyInput {
+                name: "sampling_points"
+            })
+        );
+        assert_eq!(
+            from(freqs(&[1, 3]), matrix(3)),
+            Some(Error::ShapeMismatch {
+                which: ArrayRole::Input,
+                expected: vec![2, 2],
+                actual: vec![3, 2],
+            })
+        );
+        let mut bad = matrix(2);
+        bad[[1, 0]] = Complex::new(0.5, f64::INFINITY);
+        assert_eq!(
+            from(freqs(&[1, 3]), bad),
+            Some(Error::NonFiniteInput {
+                name: "matrix",
+                index: vec![1, 0],
+                value: f64::INFINITY,
+            })
+        );
+        assert_eq!(from(freqs(&[3, 1]), matrix(2)), None);
+    }
+
+    assert_eq!(
+        MatsubaraSamplingPositiveOnly::from_matrix(freqs(&[1, -3]), matrix(2)).err(),
+        Some(Error::InvalidMatsubaraIndex {
+            n: -3,
+            statistics: crate::traits::Statistics::Fermionic,
+        })
+    );
+    // The full sampling takes negative frequencies.
+    MatsubaraSampling::from_matrix(freqs(&[1, -3]), matrix(2)).unwrap();
+}
+
+/// Duplicate sampling points are accepted and kept, as on main since #291
+/// (spec D6): row i belongs to sampling_points[i] also for a repeated point.
+/// They only raise the condition number.
+#[test]
+fn test_duplicate_sampling_points_are_kept() {
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(10.0).unwrap(),
+        1.0,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+
+    let mut points = MatsubaraSampling::new(&basis)
+        .unwrap()
+        .sampling_points()
+        .to_vec();
+    points.push(points[0]);
+    let full = MatsubaraSampling::with_sampling_points(&basis, points.clone()).unwrap();
+    assert_eq!(full.sampling_points(), &points[..]);
+    let (last, l) = (points.len() - 1, full.basis_size());
+    for j in 0..l {
+        assert_eq!(full.matrix()[[last, j]], full.matrix()[[0, j]]);
+    }
+
+    let mut points = MatsubaraSamplingPositiveOnly::new(&basis)
+        .unwrap()
+        .sampling_points()
+        .to_vec();
+    points.insert(1, points[0]);
+    let positive =
+        MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone()).unwrap();
+    assert_eq!(positive.sampling_points(), &points[..]);
+    for j in 0..l {
+        assert_eq!(positive.matrix()[[1, j]], positive.matrix()[[0, j]]);
+    }
+
+    let mut taus = crate::sampling::TauSampling::new(&basis)
+        .unwrap()
+        .sampling_points()
+        .to_vec();
+    taus.push(taus[2]);
+    let tau = crate::sampling::TauSampling::with_sampling_points(&basis, taus.clone()).unwrap();
+    assert_eq!(tau.sampling_points(), &taus[..]);
+    let last = taus.len() - 1;
+    for j in 0..l {
+        assert_eq!(tau.matrix()[[last, j]], tau.matrix()[[2, j]]);
+    }
 }

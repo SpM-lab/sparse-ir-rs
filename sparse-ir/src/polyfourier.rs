@@ -15,7 +15,7 @@ use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 /// Power model for asymptotic behavior
 #[derive(Debug, Clone)]
 pub struct PowerModel {
-    pub moments: Vec<f64>,
+    pub(crate) moments: Vec<f64>,
 }
 
 impl PowerModel {
@@ -32,11 +32,11 @@ impl PowerModel {
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendreFT<S: StatisticsType> {
     /// The underlying piecewise Legendre polynomial
-    pub poly: PiecewiseLegendrePoly,
+    pub(crate) poly: PiecewiseLegendrePoly,
     /// Asymptotic cutoff frequency index
-    pub n_asymp: f64,
+    pub(crate) n_asymp: f64,
     /// Power model for asymptotic behavior
-    pub model: PowerModel,
+    pub(crate) model: PowerModel,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -52,23 +52,37 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// * `stat` - Statistics type (Fermionic or Bosonic)
     /// * `n_asymp` - Asymptotic cutoff frequency index (default: infinity)
     ///
-    /// # Panics
-    /// Panics if the polynomial domain is not [-1, 1]
-    pub fn new(poly: PiecewiseLegendrePoly, _stat: S, n_asymp: Option<f64>) -> Self {
+    /// # Errors
+    ///
+    /// * [`Error::InvalidParameter`] if the domain of `poly` is not [-1, 1]
+    ///   within 1e-12, or `n_asymp` is NaN or negative (infinity, the
+    ///   default, disables the asymptotic model)
+    pub fn new(poly: PiecewiseLegendrePoly, _stat: S, n_asymp: Option<f64>) -> Result<Self, Error> {
         // Validate domain
-        if (poly.xmin - (-1.0)).abs() > 1e-12 || (poly.xmax - 1.0).abs() > 1e-12 {
-            panic!("Only interval [-1, 1] is supported for Fourier transform");
+        if !((poly.xmin + 1.0).abs() <= 1e-12 && (poly.xmax - 1.0).abs() <= 1e-12) {
+            return Err(Error::InvalidParameter {
+                name: "poly",
+                value: format!("a polynomial on [{:?}, {:?}]", poly.xmin, poly.xmax),
+                reason: "must be defined on [-1, 1] (within 1e-12)".to_string(),
+            });
+        }
+        if let Some(n) = n_asymp.filter(|n| !(*n >= 0.0)) {
+            return Err(Error::InvalidParameter {
+                name: "n_asymp",
+                value: format!("{n:?}"),
+                reason: "must be non-negative (infinity disables the asymptotic model)".to_string(),
+            });
         }
 
         let n_asymp = n_asymp.unwrap_or(f64::INFINITY);
         let model = Self::power_model(&poly);
 
-        Self {
+        Ok(Self {
             poly,
             n_asymp,
             model,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the asymptotic cutoff frequency index
@@ -111,21 +125,29 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 
     /// Evaluate at integer Matsubara index
-    pub fn evaluate_at_n(&self, n: i64) -> Complex64 {
-        match MatsubaraFreq::<S>::new(n) {
-            Ok(omega) => self.evaluate(&omega),
-            Err(_) => Complex64::new(0.0, 0.0), // Return zero for invalid frequencies
-        }
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidMatsubaraIndex`] if `n` has the wrong parity for the
+    /// statistics (it returned 0 before)
+    pub fn evaluate_at_n(&self, n: i64) -> Result<Complex64, Error> {
+        Ok(self.evaluate(&MatsubaraFreq::<S>::new(n)?))
     }
 
     /// Evaluate at multiple Matsubara indices
-    pub fn evaluate_at_ns(&self, ns: &[i64]) -> Vec<Complex64> {
+    ///
+    /// # Errors
+    ///
+    /// The error of [`Self::evaluate_at_n`] for the first invalid index
+    pub fn evaluate_at_ns(&self, ns: &[i64]) -> Result<Vec<Complex64>, Error> {
         ns.iter().map(|&n| self.evaluate_at_n(n)).collect()
     }
 
     /// Create power model for asymptotic behavior
     fn power_model(poly: &PiecewiseLegendrePoly) -> PowerModel {
-        let deriv_x1 = poly.derivs(1.0);
+        // Evaluate at the right end of the domain: `new` accepts an xmax
+        // within 1e-12 of 1, where derivs(1.0) would be outside the domain.
+        let deriv_x1 = poly.derivs(poly.xmax);
         let moments = Self::power_moments(&deriv_x1, poly.l);
         PowerModel::new(moments)
     }
@@ -269,183 +291,6 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
         phase_wi
     }
 
-    /// Find sign changes in the Fourier transform
-    ///
-    /// # Arguments
-    /// * `positive_only` - If true, only return non-negative frequency sign changes
-    ///
-    /// # Returns
-    /// Vector of Matsubara frequencies where sign changes occur
-    pub fn sign_changes(&self, positive_only: bool) -> Vec<MatsubaraFreq<S>> {
-        let f = Self::func_for_part(self);
-        let x0 = Self::find_all_roots(&f, DEFAULT_GRID);
-
-        // Transform grid indices to Matsubara frequencies
-        let mut matsubara_indices: Vec<i64> = x0.into_iter().map(|x| 2 * x + self.zeta()).collect();
-
-        if !positive_only {
-            symmetrize_matsubara_inplace(&mut matsubara_indices);
-        }
-
-        matsubara_indices
-            .into_iter()
-            .filter_map(|n| MatsubaraFreq::<S>::new(n).ok())
-            .collect()
-    }
-
-    /// Find extrema in the Fourier transform
-    ///
-    /// # Arguments
-    /// * `positive_only` - If true, only return non-negative frequency extrema
-    ///
-    /// # Returns
-    /// Vector of Matsubara frequencies where extrema occur
-    pub fn find_extrema(&self, positive_only: bool) -> Vec<MatsubaraFreq<S>> {
-        let f = Self::func_for_part(self);
-        let x0 = Self::discrete_extrema(&f, DEFAULT_GRID);
-
-        // Transform grid indices to Matsubara frequencies
-        let mut matsubara_indices: Vec<i64> = x0.into_iter().map(|x| 2 * x + self.zeta()).collect();
-
-        if !positive_only {
-            symmetrize_matsubara_inplace(&mut matsubara_indices);
-        }
-
-        matsubara_indices
-            .into_iter()
-            .filter_map(|n| MatsubaraFreq::<S>::new(n).ok())
-            .collect()
-    }
-
-    /// Create function for extracting real or imaginary part based on parity
-    ///
-    /// Takes a grid index and converts to the corresponding Matsubara frequency
-    /// index (2*n + zeta) before evaluating.
-    fn func_for_part(&self) -> impl Fn(i64) -> f64 + '_ {
-        let parity = self.poly.symm;
-        let poly_ft = self.clone();
-        let zeta = self.zeta();
-
-        move |n| {
-            // Convert grid index to Matsubara frequency index
-            let matsubara_n = 2 * n + zeta;
-            let omega = match MatsubaraFreq::<S>::new(matsubara_n) {
-                Ok(omega) => omega,
-                Err(_) => return 0.0,
-            };
-            let value = poly_ft.evaluate(&omega);
-
-            match parity {
-                1 => match S::STATISTICS {
-                    Statistics::Fermionic => value.im,
-                    Statistics::Bosonic => value.re,
-                },
-                -1 => match S::STATISTICS {
-                    Statistics::Fermionic => value.re,
-                    Statistics::Bosonic => value.im,
-                },
-                0 => {
-                    // For symm = 0, use real part for both statistics
-                    value.re
-                }
-                _ => panic!("Cannot detect parity for symm = {}", parity),
-            }
-        }
-    }
-
-    /// Find all roots using the same algorithm as the poly module
-    fn find_all_roots<F>(f: &F, xgrid: &[i64]) -> Vec<i64>
-    where
-        F: Fn(i64) -> f64,
-    {
-        if xgrid.is_empty() {
-            return Vec::new();
-        }
-
-        // Evaluate function at all grid points
-        let fx: Vec<f64> = xgrid.iter().map(|&x| f(x)).collect();
-
-        // Find exact zeros (direct hits)
-        let mut x_hit = Vec::new();
-        for i in 0..fx.len() {
-            if fx[i] == 0.0 {
-                x_hit.push(xgrid[i]);
-            }
-        }
-
-        // Find sign changes
-        let mut sign_change = Vec::new();
-        for i in 0..fx.len() - 1 {
-            let has_sign_change = fx[i].signum() != fx[i + 1].signum();
-            let not_hit = fx[i] != 0.0 && fx[i + 1] != 0.0;
-            let both_nonzero = fx[i].abs() > 1e-12 && fx[i + 1].abs() > 1e-12;
-            sign_change.push(has_sign_change && not_hit && both_nonzero);
-        }
-
-        // If no sign changes, return only direct hits
-        if sign_change.iter().all(|&sc| !sc) {
-            x_hit.sort();
-            return x_hit;
-        }
-
-        // Find intervals with sign changes
-        let mut a_intervals = Vec::new();
-        let mut b_intervals = Vec::new();
-        let mut fa_values = Vec::new();
-
-        for i in 0..sign_change.len() {
-            if sign_change[i] {
-                a_intervals.push(xgrid[i]);
-                b_intervals.push(xgrid[i + 1]);
-                fa_values.push(fx[i]);
-            }
-        }
-
-        // Use bisection for each interval with sign change
-        for i in 0..a_intervals.len() {
-            let root = Self::bisect(&f, a_intervals[i], b_intervals[i], fa_values[i]);
-            x_hit.push(root);
-        }
-
-        // Sort and return
-        x_hit.sort();
-        x_hit
-    }
-
-    /// Bisection method for integer grid
-    fn bisect<F>(f: &F, a: i64, b: i64, fa: f64) -> i64
-    where
-        F: Fn(i64) -> f64,
-    {
-        let mut a = a;
-        let mut b = b;
-        let mut fa = fa;
-
-        loop {
-            if (b - a).abs() <= 1 {
-                return a;
-            }
-
-            let mid = (a + b) / 2;
-            let fmid = f(mid);
-
-            if fa.signum() != fmid.signum() {
-                b = mid;
-            } else {
-                a = mid;
-                fa = fmid;
-            }
-        }
-    }
-
-    /// Find discrete extrema (matches Julia v1 / Python 1.x algorithm)
-    fn discrete_extrema<F>(f: &F, xgrid: &[i64]) -> Vec<i64>
-    where
-        F: Fn(i64) -> f64,
-    {
-        discrete_extrema(f, xgrid)
-    }
-
     /// Get T_nl coefficient (special function)
     ///
     /// This implements the T_nl function which is related to spherical Bessel functions:
@@ -470,7 +315,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 /// Vector of PiecewiseLegendreFT polynomials
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendreFTVector<S: StatisticsType> {
-    pub polyvec: Vec<PiecewiseLegendreFT<S>>,
+    pub(crate) polyvec: Vec<PiecewiseLegendreFT<S>>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -506,28 +351,37 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     }
 
     /// Create from PiecewiseLegendrePolyVector and statistics
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`PiecewiseLegendreFT::new`] for the first polynomial
+    /// that it rejects
     pub fn from_poly_vector(
         polys: &PiecewiseLegendrePolyVector,
         _stat: S,
         n_asymp: Option<f64>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         let mut polyvec = Vec::with_capacity(polys.size());
 
-        for i in 0..polys.size() {
-            let poly = polys.get(i).unwrap().clone();
-            let ft_poly = PiecewiseLegendreFT::new(poly, _stat, n_asymp);
+        for poly in polys.get_polys() {
+            let ft_poly = PiecewiseLegendreFT::new(poly.clone(), _stat, n_asymp)?;
             polyvec.push(ft_poly);
         }
 
-        Self {
+        Ok(Self {
             polyvec,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the size of the vector
     pub fn size(&self) -> usize {
         self.polyvec.len()
+    }
+
+    /// The transformed polynomials, in order
+    pub fn get_polys(&self) -> &[PiecewiseLegendreFT<S>] {
+        &self.polyvec
     }
 
     /// Get element by index (immutable)
@@ -665,11 +519,15 @@ const DEFAULT_GRID: &[i64] = &[
 /// Find sign changes of a Matsubara basis function
 ///
 /// Returns Matsubara frequencies where the function changes sign.
-pub fn sign_changes<S: StatisticsType + 'static>(
+///
+/// # Errors
+///
+/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0, #183)
+pub(crate) fn sign_changes<S: StatisticsType + 'static>(
     u_hat: &PiecewiseLegendreFT<S>,
     positive_only: bool,
-) -> Vec<MatsubaraFreq<S>> {
-    let f = func_for_part(u_hat);
+) -> Result<Vec<MatsubaraFreq<S>>, Error> {
+    let f = func_for_part(u_hat)?;
     let x0 = find_all(&f, DEFAULT_GRID);
 
     // Convert to Matsubara indices: n = 2*x + zeta
@@ -679,20 +537,24 @@ pub fn sign_changes<S: StatisticsType + 'static>(
         symmetrize_matsubara_inplace(&mut indices);
     }
 
-    indices
+    Ok(indices
         .iter()
         .filter_map(|&n| MatsubaraFreq::<S>::new(n).ok())
-        .collect()
+        .collect())
 }
 
 /// Find extrema of a Matsubara basis function
 ///
 /// Returns Matsubara frequencies where the function has local extrema.
-pub fn find_extrema<S: StatisticsType + 'static>(
+///
+/// # Errors
+///
+/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0, #183)
+pub(crate) fn find_extrema<S: StatisticsType + 'static>(
     u_hat: &PiecewiseLegendreFT<S>,
     positive_only: bool,
-) -> Vec<MatsubaraFreq<S>> {
-    let f = func_for_part(u_hat);
+) -> Result<Vec<MatsubaraFreq<S>>, Error> {
+    let f = func_for_part(u_hat)?;
     let x0 = discrete_extrema(&f, DEFAULT_GRID);
 
     // Convert to Matsubara indices: n = 2*x + zeta
@@ -702,51 +564,64 @@ pub fn find_extrema<S: StatisticsType + 'static>(
         symmetrize_matsubara_inplace(&mut indices);
     }
 
-    indices
+    Ok(indices
         .iter()
         .filter_map(|&n| MatsubaraFreq::<S>::new(n).ok())
-        .collect()
+        .collect())
 }
 
-/// Create a function that extracts the appropriate part (real/imag) based on parity
+/// The part of a Matsubara basis function whose sign changes choose the
+/// default sampling points
+#[derive(Clone, Copy)]
+enum Part {
+    Real,
+    Imaginary,
+}
+
+/// The part of `û(iν)` that carries its sign changes, from the parity `symm`
+/// of `u` and the statistics: for an even `u` (symm = 1) the fermionic `û`
+/// is imaginary and the bosonic `û` real, for an odd `u` (symm = -1) the
+/// other way round
+///
+/// # Errors
+///
+/// [`Error::NotSupported`] if `symm` is not ±1: the singular functions of an
+/// SVE that is not centrosymmetric have no parity (#183).
+fn part_with_the_sign_changes<S: StatisticsType>(symm: i32) -> Result<Part, Error> {
+    match (symm, S::STATISTICS) {
+        (1, Statistics::Bosonic) | (-1, Statistics::Fermionic) => Ok(Part::Real),
+        (1, Statistics::Fermionic) | (-1, Statistics::Bosonic) => Ok(Part::Imaginary),
+        _ => Err(Error::NotSupported {
+            what: format!(
+                "default Matsubara sampling points, which need basis functions of definite \
+                 parity (symm = ±1, from a centrosymmetric SVE); got symm = {symm}"
+            ),
+        }),
+    }
+}
+
+impl Part {
+    fn of(self, value: Complex64) -> f64 {
+        match self {
+            Part::Real => value.re,
+            Part::Imaginary => value.im,
+        }
+    }
+}
+
+/// Create a function that extracts the part of `poly_ft` that carries its
+/// sign changes (see [`part_with_the_sign_changes`])
 fn func_for_part<S: StatisticsType + 'static>(
     poly_ft: &PiecewiseLegendreFT<S>,
-) -> Box<dyn Fn(i64) -> f64> {
-    let parity = poly_ft.poly.symm();
+) -> Result<Box<dyn Fn(i64) -> f64>, Error> {
+    let part = part_with_the_sign_changes::<S>(poly_ft.poly.symm())?;
     let zeta = poly_ft.zeta();
-
-    // Clone what we need
     let poly_ft_clone = poly_ft.clone();
 
-    Box::new(move |n: i64| {
+    Ok(Box::new(move |n: i64| {
         let omega = MatsubaraFreq::<S>::new(2 * n + zeta).unwrap();
-        let value = poly_ft_clone.evaluate(&omega);
-
-        // Select real or imaginary part based on parity and statistics
-        if parity == 1 {
-            // Even parity
-            if S::STATISTICS == Statistics::Bosonic {
-                value.re
-            } else {
-                value.im
-            }
-        } else if parity == -1 {
-            // Odd parity
-            if S::STATISTICS == Statistics::Bosonic {
-                value.im
-            } else {
-                value.re
-            }
-        } else {
-            // The singular functions of an SVE that is not centrosymmetric
-            // (e.g. from a general kernel matrix) have no parity (#183).
-            panic!(
-                "Cannot detect parity: default Matsubara sampling points need basis \
-                 functions of definite parity (symm = ±1, from a centrosymmetric SVE), \
-                 got symm = {parity}"
-            );
-        }
-    })
+        part.of(poly_ft_clone.evaluate(&omega))
+    }))
 }
 
 /// Integer bisection: find the zero crossing of f in [a, b] where f(a) and f(b)

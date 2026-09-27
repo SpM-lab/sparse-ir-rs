@@ -16,7 +16,9 @@ use std::sync::Arc;
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::status::status_from;
 use crate::types::{BasisType, spir_basis};
-use crate::utils::{MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, validate_dims};
+use crate::utils::{
+    MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, transform_dims, validate_dims,
+};
 use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
 use sparse_ir::dlr::DiscreteLehmannRepresentation;
 
@@ -45,8 +47,9 @@ use sparse_ir::dlr::DiscreteLehmannRepresentation;
 ///     can lose poles, e.g. for `RegularizedBoseKernel` at large lambda; pass
 ///     the poles explicitly with `spir_dlr_new_with_poles` instead.
 ///   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
-///     statistics (`RegularizedBoseKernel` with fermionic statistics). The
-///     basis constructors already reject this combination.
+///     statistics (`RegularizedBoseKernel` with fermionic statistics; the
+///     basis constructors already reject this combination), or the default
+///     poles of `b` are not defined (see `spir_basis_get_default_ws`)
 ///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
 ///
 /// # Safety
@@ -133,7 +136,7 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
 /// # Arguments
 /// * `b` - Pointer to a finite temperature (IR) basis object
 /// * `npoles` - Number of poles to use (must be > 0)
-/// * `poles` - Array of `npoles` pole locations on the real-frequency axis
+/// * `poles` - Array of `npoles` pole locations in [-omega_max, omega_max] of `b`
 /// * `status` - Pointer to store the status code (may be NULL, in which case
 ///   no status is written)
 ///
@@ -143,11 +146,17 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
 /// * Status code:
 ///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
 ///   - `SPIR_INVALID_ARGUMENT` (-6) if `b` or `poles` is NULL, `npoles <= 0`,
-///     or `b` is already a DLR
+///     or `b` is already a DLR, or a pole is outside [-omega_max, omega_max]
+///     of `b` or not finite
 ///   - `SPIR_NOT_SUPPORTED` (-5) if the kernel of `b` does not support its
 ///     statistics (`RegularizedBoseKernel` with fermionic statistics). The
 ///     basis constructors already reject this combination.
 ///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
+///
+/// Duplicate poles are accepted. They make `spir_ir2dlr_dd` and
+/// `spir_ir2dlr_zz` ill-conditioned: the coefficients of equal poles are not
+/// unique, although the round trip through `spir_dlr2ir_dd` /
+/// `spir_dlr2ir_zz` still recovers the IR coefficients.
 ///
 /// # Safety
 /// Caller must ensure `b` is valid and `poles` has `npoles` elements
@@ -271,8 +280,8 @@ pub extern "C" fn spir_dlr_get_npoles(
 
         // Get number of poles based on DLR type
         let npoles = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => dlr.poles.len(),
-            BasisType::DLRBosonic(dlr) => dlr.poles.len(),
+            BasisType::DLRFermionic(dlr) => dlr.poles().len(),
+            BasisType::DLRBosonic(dlr) => dlr.poles().len(),
             _ => return SPIR_INVALID_ARGUMENT, // Not a DLR
         };
 
@@ -307,8 +316,8 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 
         // Get poles based on DLR type
         let pole_vec = match dlr_ref.inner() {
-            BasisType::DLRFermionic(dlr) => &dlr.poles,
-            BasisType::DLRBosonic(dlr) => &dlr.poles,
+            BasisType::DLRFermionic(dlr) => dlr.poles(),
+            BasisType::DLRBosonic(dlr) => dlr.poles(),
             _ => return SPIR_INVALID_ARGUMENT, // Not a DLR
         };
 
@@ -329,6 +338,15 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 // Conversion Functions
 // ============================================================================
 
+/// IR basis size and number of poles of a DLR, or `None` if `b` is not a DLR
+fn dlr_sizes(b: &spir_basis) -> Option<(usize, usize)> {
+    match b.inner() {
+        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
+        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
+        _ => None,
+    }
+}
+
 /// Convert IR coefficients to DLR (real-valued)
 ///
 /// # Arguments
@@ -345,10 +363,11 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   size of the IR basis of `dlr`
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the IR basis size
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -389,6 +408,19 @@ pub extern "C" fn spir_ir2dlr_dd(
             Err(code) => return code,
         };
 
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) =
+            transform_dims::<f64>(&orig_dims, target_dim as usize, mem_order, ir_size, n_poles)
+        {
+            return code;
+        }
+
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
@@ -408,6 +440,10 @@ pub extern "C" fn spir_ir2dlr_dd(
                 dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
+        };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
         };
 
         // Copy result to output with correct memory order
@@ -437,10 +473,11 @@ pub extern "C" fn spir_ir2dlr_dd(
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   size of the IR basis of `dlr`
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the IR basis size
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -481,6 +518,23 @@ pub extern "C" fn spir_ir2dlr_zz(
             Err(code) => return code,
         };
 
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) = transform_dims::<Complex64>(
+            &orig_dims,
+            target_dim as usize,
+            mem_order,
+            ir_size,
+            n_poles,
+        ) {
+            return code;
+        }
+
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
@@ -500,6 +554,10 @@ pub extern "C" fn spir_ir2dlr_zz(
                 dlr.from_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
+        };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
         };
 
         // Copy result to output with correct memory order
@@ -529,10 +587,11 @@ pub extern "C" fn spir_ir2dlr_zz(
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   number of poles of `dlr` (`spir_dlr_get_npoles`)
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the number of poles
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -573,6 +632,19 @@ pub extern "C" fn spir_dlr2ir_dd(
             Err(code) => return code,
         };
 
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) =
+            transform_dims::<f64>(&orig_dims, target_dim as usize, mem_order, n_poles, ir_size)
+        {
+            return code;
+        }
+
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
@@ -592,6 +664,10 @@ pub extern "C" fn spir_dlr2ir_dd(
                 dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
+        };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
         };
 
         // Copy result to output with correct memory order
@@ -621,10 +697,11 @@ pub extern "C" fn spir_dlr2ir_dd(
 /// * `SPIR_INVALID_ARGUMENT` if `dlr`, `input_dims`, `input` or `out` is null,
 ///   `order` is invalid, `ndim < 1`, or `target_dim` is not in `[0, ndim)`
 /// * `SPIR_INVALID_DIMENSION` if an element of `input_dims` is zero or negative,
-///   or the input array is too large to be addressed
+///   or the input or output array is too large to be addressed
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `input_dims[target_dim]` is not the
+///   number of poles of `dlr` (`spir_dlr_get_npoles`)
 /// * `SPIR_NOT_SUPPORTED` if `dlr` is not a DLR basis
-/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs, for example when
-///   `input_dims[target_dim]` is not the number of poles
+/// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
@@ -665,6 +742,23 @@ pub extern "C" fn spir_dlr2ir_zz(
             Err(code) => return code,
         };
 
+        // The target extent and the size of `out`, before `input` is read.
+        // Only the check is used: the conversion below reads `input` in the
+        // caller's order and axis numbering (read_tensor_nd), not in the
+        // row-major frame of TransformDims.
+        let Some((ir_size, n_poles)) = dlr_sizes(dlr_ref) else {
+            return SPIR_NOT_SUPPORTED; // Not a DLR
+        };
+        if let Err(code) = transform_dims::<Complex64>(
+            &orig_dims,
+            target_dim as usize,
+            mem_order,
+            n_poles,
+            ir_size,
+        ) {
+            return code;
+        }
+
         // Read input tensor using the unified helper function
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
@@ -684,6 +778,10 @@ pub extern "C" fn spir_dlr2ir_zz(
                 dlr.to_ir_nd(backend_handle, &input_tensor, target_dim as usize)
             }
             _ => return SPIR_NOT_SUPPORTED, // Not a DLR
+        };
+        let result_tensor = match result_tensor {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
         };
 
         // Copy result to output with correct memory order
@@ -821,7 +919,8 @@ mod tests {
     const TRUNCATED_BASIS_SIZE: usize = 6;
 
     /// The SVE result of `kernel`, truncated to `TRUNCATED_BASIS_SIZE`
-    /// singular values, with every right singular function replaced by v_0.
+    /// singular values and left singular functions, with every right singular
+    /// function replaced by v_0.
     ///
     /// A basis built from it uses all of its functions, so its default
     /// real-frequency sampling points (the default DLR poles) are the extrema
@@ -833,16 +932,17 @@ mod tests {
     where
         K: CentrosymmKernel + KernelProperties + Clone + 'static,
     {
-        let SVEResult { u, s, v, epsilon } =
-            compute_sve(kernel, 1e-6, None, None, TworkType::Float64);
-        assert!(s.len() > TRUNCATED_BASIS_SIZE);
-        let v0 = v.get_polys()[0].clone();
+        let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
+        assert!(sve.s().len() > TRUNCATED_BASIS_SIZE);
+        let v0 = sve.v().get_polys()[0].clone();
         SVEResult::new(
-            u,
-            s[..TRUNCATED_BASIS_SIZE].to_vec(),
-            PiecewiseLegendrePolyVector::new(vec![v0; TRUNCATED_BASIS_SIZE]),
-            epsilon,
+            PiecewiseLegendrePolyVector::new(sve.u().get_polys()[..TRUNCATED_BASIS_SIZE].to_vec())
+                .unwrap(),
+            sve.s()[..TRUNCATED_BASIS_SIZE].to_vec(),
+            PiecewiseLegendrePolyVector::new(vec![v0; TRUNCATED_BASIS_SIZE]).unwrap(),
+            sve.epsilon(),
         )
+        .unwrap()
     }
 
     /// `spir_dlr_new` on a basis with fewer default poles than basis functions
@@ -898,17 +998,17 @@ mod tests {
         let beta = 10.0;
         let lambda = 10.0; // wmax = 1
 
-        let kernel = LogisticKernel::new(lambda);
+        let kernel = LogisticKernel::new(lambda).unwrap();
         let sve = sve_with_too_few_default_poles(kernel);
         let fermionic: FiniteTempBasis<LogisticKernel, Fermionic> =
-            FiniteTempBasis::from_sve_result(kernel, beta, sve.clone(), Some(1e-6), None);
+            FiniteTempBasis::from_sve_result(kernel, beta, sve.clone(), Some(1e-6), None).unwrap();
         let bosonic: FiniteTempBasis<LogisticKernel, Bosonic> =
-            FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None);
+            FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None).unwrap();
 
-        let kernel = RegularizedBoseKernel::new(lambda);
+        let kernel = RegularizedBoseKernel::new(lambda).unwrap();
         let sve = sve_with_too_few_default_poles(kernel);
         let reg_bose: FiniteTempBasis<RegularizedBoseKernel, Bosonic> =
-            FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None);
+            FiniteTempBasis::from_sve_result(kernel, beta, sve, Some(1e-6), None).unwrap();
 
         let handles = [
             (
@@ -938,8 +1038,13 @@ mod tests {
     fn test_dlr_rejects_fermionic_regularized_bose_status() {
         let beta = 1.0;
         let lambda = 10.0;
-        let ir_basis: FiniteTempBasis<RegularizedBoseKernel, Fermionic> =
-            FiniteTempBasis::new(RegularizedBoseKernel::new(lambda), beta, Some(1e-6), None);
+        let ir_basis: FiniteTempBasis<RegularizedBoseKernel, Fermionic> = FiniteTempBasis::new(
+            RegularizedBoseKernel::new(lambda).unwrap(),
+            beta,
+            Some(1e-6),
+            None,
+        )
+        .unwrap();
         // The C basis constructors reject this combination (#241), so build
         // the handle directly to reach the defensive dispatch arms.
         let basis = Box::into_raw(Box::new(spir_basis::new_regularized_bose_fermionic(
@@ -1030,6 +1135,236 @@ mod tests {
             spir_basis_release(dlr);
             spir_basis_release(basis);
         }
+        spir_kernel_release(kernel);
+    }
+
+    /// A pole outside [-omega_max, omega_max] of the basis, NaN or an
+    /// infinity made the core evaluate v outside its domain and panic
+    /// (SPIR_INTERNAL_ERROR). It is an invalid argument now; ±omega_max are
+    /// valid poles.
+    #[test]
+    fn test_dlr_new_with_poles_rejects_poles_outside_the_frequency_domain() {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        for statistics in [SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new(
+                statistics,
+                10.0,
+                1.0,
+                1e-6,
+                kernel,
+                ptr::null(),
+                -1,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+            for pole in [2.0, -1.5, f64::NAN, f64::INFINITY] {
+                let poles = [0.5, pole];
+                let mut status = SPIR_COMPUTATION_SUCCESS;
+                let dlr = spir_dlr_new_with_poles(basis, 2, poles.as_ptr(), &mut status);
+                assert_eq!(status, SPIR_INVALID_ARGUMENT, "pole = {pole}");
+                assert!(dlr.is_null());
+            }
+            let poles = [-1.0, 1.0];
+            let mut status = SPIR_INTERNAL_ERROR;
+            let dlr = spir_dlr_new_with_poles(basis, 2, poles.as_ptr(), &mut status);
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            spir_basis_release(dlr);
+            spir_basis_release(basis);
+        }
+        spir_kernel_release(kernel);
+    }
+
+    /// A wrong input_dims[target_dim] made the core assert and panic
+    /// (SPIR_INTERNAL_ERROR). It is SPIR_INPUT_DIMENSION_MISMATCH now, in both
+    /// memory orders and along either axis, and `out` is not written. (The
+    /// input buffers hold every element that input_dims describes.)
+    #[test]
+    fn test_dlr_transforms_reject_a_wrong_target_extent() {
+        use crate::{SPIR_INPUT_DIMENSION_MISMATCH, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR};
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let basis = spir_basis_new(
+            SPIR_STATISTICS_FERMIONIC,
+            10.0,
+            1.0,
+            1e-6,
+            kernel,
+            ptr::null(),
+            -1,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new(basis, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut l = 0;
+        assert_eq!(spir_basis_get_size(basis, &mut l), SPIR_COMPUTATION_SUCCESS);
+        let mut n_poles = 0;
+        assert_eq!(
+            spir_dlr_get_npoles(dlr, &mut n_poles),
+            SPIR_COMPUTATION_SUCCESS
+        );
+
+        const SENTINEL: f64 = -12345.0;
+        let z_sentinel = Complex64::new(SENTINEL, -SENTINEL);
+        let n_max = 3 * (l.max(n_poles) as usize + 1);
+        let input_d = vec![1.0; n_max];
+        let input_z = vec![Complex64::new(1.0, 0.5); n_max];
+        for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+            for target_dim in [0, 1] {
+                for (name, n_in) in [("ir2dlr", l), ("dlr2ir", n_poles)] {
+                    let mut dims = [3, 3];
+                    dims[target_dim as usize] = n_in + 1;
+                    let mut out_d = vec![SENTINEL; n_max];
+                    let mut out_z = vec![z_sentinel; n_max];
+                    let (status_d, status_z) = if name == "ir2dlr" {
+                        (
+                            spir_ir2dlr_dd(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_d.as_ptr(),
+                                out_d.as_mut_ptr(),
+                            ),
+                            spir_ir2dlr_zz(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_z.as_ptr(),
+                                out_z.as_mut_ptr(),
+                            ),
+                        )
+                    } else {
+                        (
+                            spir_dlr2ir_dd(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_d.as_ptr(),
+                                out_d.as_mut_ptr(),
+                            ),
+                            spir_dlr2ir_zz(
+                                dlr,
+                                ptr::null(),
+                                order,
+                                2,
+                                dims.as_ptr(),
+                                target_dim,
+                                input_z.as_ptr(),
+                                out_z.as_mut_ptr(),
+                            ),
+                        )
+                    };
+                    let case =
+                        format!("{name}: order={order}, target_dim={target_dim}, dims={dims:?}");
+                    assert_eq!(status_d, SPIR_INPUT_DIMENSION_MISMATCH, "{case} (dd)");
+                    assert_eq!(status_z, SPIR_INPUT_DIMENSION_MISMATCH, "{case} (zz)");
+                    assert!(
+                        out_d.iter().all(|&x| x == SENTINEL),
+                        "{case}: out written (dd)"
+                    );
+                    assert!(
+                        out_z.iter().all(|&x| x == z_sentinel),
+                        "{case}: out written (zz)"
+                    );
+                }
+            }
+        }
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
+        spir_kernel_release(kernel);
+    }
+
+    /// spir_ir2dlr_* maps L IR coefficients to n_poles DLR coefficients, and
+    /// n_poles may exceed L, so the output can be too large to address when
+    /// the input is not. That is SPIR_INVALID_DIMENSION, checked before
+    /// `input` is read (the buffers here are tiny) and `out` written. Before,
+    /// the conversion read input_dims worth of elements.
+    #[test]
+    fn test_ir2dlr_rejects_an_output_too_large_to_address() {
+        use crate::{SPIR_INVALID_DIMENSION, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR};
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(10.0, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let basis = spir_basis_new(
+            SPIR_STATISTICS_FERMIONIC,
+            10.0,
+            1.0,
+            1e-6,
+            kernel,
+            ptr::null(),
+            -1,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut l = 0;
+        assert_eq!(spir_basis_get_size(basis, &mut l), SPIR_COMPUTATION_SUCCESS);
+
+        // 16 L distinct poles in [-omega_max, omega_max] = [-1, 1].
+        let n_poles = 16 * l as usize;
+        let poles: Vec<f64> = (0..n_poles)
+            .map(|i| -1.0 + 2.0 * i as f64 / (n_poles - 1) as f64)
+            .collect();
+        let mut status = SPIR_INTERNAL_ERROR;
+        let dlr = spir_dlr_new_with_poles(basis, n_poles as i32, poles.as_ptr(), &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        // The input has l * 2^30 * (2^28 / l) <= 2^58 elements (at most 2^62
+        // bytes of complex); the output 16 times as many, more than
+        // isize::MAX bytes.
+        let dims = [l, 1 << 30, (1 << 28) / l];
+        const SENTINEL: f64 = -12345.0;
+        let z_sentinel = Complex64::new(SENTINEL, -SENTINEL);
+        let input_d = [1.0; 4];
+        let input_z = [Complex64::new(1.0, 0.5); 4];
+        for order in [SPIR_ORDER_ROW_MAJOR, SPIR_ORDER_COLUMN_MAJOR] {
+            let mut out_d = [SENTINEL; 4];
+            let mut out_z = [z_sentinel; 4];
+            let status_d = spir_ir2dlr_dd(
+                dlr,
+                ptr::null(),
+                order,
+                3,
+                dims.as_ptr(),
+                0,
+                input_d.as_ptr(),
+                out_d.as_mut_ptr(),
+            );
+            let status_z = spir_ir2dlr_zz(
+                dlr,
+                ptr::null(),
+                order,
+                3,
+                dims.as_ptr(),
+                0,
+                input_z.as_ptr(),
+                out_z.as_mut_ptr(),
+            );
+            assert_eq!(status_d, SPIR_INVALID_DIMENSION, "order={order} (dd)");
+            assert_eq!(status_z, SPIR_INVALID_DIMENSION, "order={order} (zz)");
+            assert!(out_d.iter().all(|&x| x == SENTINEL));
+            assert!(out_z.iter().all(|&x| x == z_sentinel));
+        }
+        spir_basis_release(dlr);
+        spir_basis_release(basis);
         spir_kernel_release(kernel);
     }
 }

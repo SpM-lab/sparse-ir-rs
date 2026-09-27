@@ -541,20 +541,20 @@ TEST_CASE("Test spir_sve_result_from_matrix", "[cinterface]")
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
 
     // Get Gauss points and weights
-    // Note: n_segments_x and n_segments_y are the number of boundary points (n_segments + 1),
-    // but spir_gauss_legendre_rule_piecewise_double expects the number of segments (n_segments)
-    int nx = n_gauss * (n_segments_x - 1);  // n_segments_x - 1 is the number of segments
-    int ny = n_gauss * (n_segments_y - 1);  // n_segments_y - 1 is the number of segments
+    // Note: n_segments_x and n_segments_y are the numbers of segments; the
+    // segment arrays hold one more boundary each.
+    int nx = n_gauss * n_segments_x;
+    int ny = n_gauss * n_segments_y;
     std::vector<double> x(nx), w_x(nx);
     std::vector<double> y(ny), w_y(ny);
 
     int status_gauss;
     status_gauss = spir_gauss_legendre_rule_piecewise_double(
-        n_gauss, segments_x.data(), n_segments_x - 1, x.data(), w_x.data(), &status_gauss);  // n_segments_x - 1 is the number of segments
+        n_gauss, segments_x.data(), n_segments_x, x.data(), w_x.data(), &status_gauss);
     REQUIRE(status_gauss == SPIR_COMPUTATION_SUCCESS);
 
     status_gauss = spir_gauss_legendre_rule_piecewise_double(
-        n_gauss, segments_y.data(), n_segments_y - 1, y.data(), w_y.data(), &status_gauss);  // n_segments_y - 1 is the number of segments
+        n_gauss, segments_y.data(), n_segments_y, y.data(), w_y.data(), &status_gauss);
     REQUIRE(status_gauss == SPIR_COMPUTATION_SUCCESS);
 
     // Create a simple test kernel matrix
@@ -577,7 +577,9 @@ TEST_CASE("Test spir_sve_result_from_matrix", "[cinterface]")
 
     // Note: The test matrix is very simple, so the SVE result may not be meaningful
     // But we can at least verify the function doesn't crash and returns a valid result
-    if (status == SPIR_COMPUTATION_SUCCESS && sve_from_matrix != nullptr) {
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(sve_from_matrix != nullptr);
+    {
         int sve_size;
         status = spir_sve_result_get_size(sve_from_matrix, &sve_size);
         REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
@@ -611,9 +613,9 @@ TEST_CASE("Test spir_sve_result_from_matrix", "[cinterface]")
             segments_y.data(), n_segments_y,
             n_gauss, epsilon, &status);
 
-        if (status == SPIR_COMPUTATION_SUCCESS && sve_col != nullptr) {
-            spir_sve_result_release(sve_col);
-        }
+        REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+        REQUIRE(sve_col != nullptr);
+        spir_sve_result_release(sve_col);
     }
 
     spir_kernel_release(kernel);
@@ -779,4 +781,292 @@ TEST_CASE("Test spir_basis_get_default_matsus_ext with fence", "[cinterface]")
     spir_basis_release(basis);
     spir_sve_result_release(sve);
     spir_kernel_release(kernel);
+}
+
+// ---------------------------------------------------------------------------
+// Statuses of invalid input (one case per test)
+// ---------------------------------------------------------------------------
+
+// A stand-in kernel matrix of nx * ny finite entries, row-major
+static std::vector<double> stand_in_kernel_matrix(int nx, int ny)
+{
+    std::vector<double> k(static_cast<size_t>(nx) * ny);
+    for (size_t i = 0; i < k.size(); ++i) {
+        k[i] = 0.1 * (1.0 + std::sin(static_cast<double>(i)));
+    }
+    return k;
+}
+
+// The SVE of the stand-in matrix on the given segments, n_gauss = 2
+static spir_sve_result* stand_in_sve(const double* segments, int* status)
+{
+    std::vector<double> k = stand_in_kernel_matrix(4, 4);
+    return spir_sve_result_from_matrix(k.data(), nullptr, 4, 4,
+                                       SPIR_ORDER_ROW_MAJOR, segments, 2,
+                                       segments, 2, 2, 1e-8, status);
+}
+
+// A fermionic basis with beta = 10, omega_max = 1 and the given max_size
+static spir_basis* fermionic_basis(int max_size, int* status)
+{
+    spir_kernel* kernel = spir_logistic_kernel_new(10.0, status);
+    REQUIRE(*status == SPIR_COMPUTATION_SUCCESS);
+    spir_basis* basis = spir_basis_new(SPIR_STATISTICS_FERMIONIC, 10.0, 1.0, 1e-6,
+                                       kernel, nullptr, max_size, status);
+    spir_kernel_release(kernel);
+    return basis;
+}
+
+TEST_CASE("Status: a kernel matrix with a NaN entry", "[status]")
+{
+    const double segs[3] = {-1.0, 0.0, 1.0};
+    std::vector<double> k = stand_in_kernel_matrix(4, 4);
+    k[0] = std::numeric_limits<double>::quiet_NaN();
+
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_sve_result* sve = spir_sve_result_from_matrix(
+        k.data(), nullptr, 4, 4, SPIR_ORDER_ROW_MAJOR, segs, 2, segs, 2, 2, 1e-8,
+        &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(sve == nullptr);
+}
+
+TEST_CASE("Status: from_matrix needs a row per Gauss point", "[status]")
+{
+    const double segs[3] = {-1.0, 0.0, 1.0}; // 2 segments, 2 Gauss points each
+    for (int nx : {5, 3}) {
+        std::vector<double> k = stand_in_kernel_matrix(nx, 4);
+        int status = SPIR_COMPUTATION_SUCCESS;
+        spir_sve_result* sve = spir_sve_result_from_matrix(
+            k.data(), nullptr, nx, 4, SPIR_ORDER_ROW_MAJOR, segs, 2, segs, 2, 2,
+            1e-8, &status);
+        REQUIRE(status == SPIR_INVALID_ARGUMENT);
+        REQUIRE(sve == nullptr);
+    }
+}
+
+TEST_CASE("Status: the size and the accuracy of a basis", "[status]")
+{
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_kernel* kernel = spir_logistic_kernel_new(10.0, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+
+    spir_basis* empty = spir_basis_new(SPIR_STATISTICS_FERMIONIC, 10.0, 1.0, 1e-6,
+                                       kernel, nullptr, 0, &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(empty == nullptr);
+
+    spir_basis* inaccurate = spir_basis_new(SPIR_STATISTICS_FERMIONIC, 10.0, 1.0,
+                                            1.0, kernel, nullptr, -1, &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(inaccurate == nullptr);
+
+    spir_basis* smallest = spir_basis_new(SPIR_STATISTICS_FERMIONIC, 10.0, 1.0,
+                                          1e-6, kernel, nullptr, 1, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(smallest != nullptr);
+    int size = -1;
+    REQUIRE(spir_basis_get_size(smallest, &size) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(size == 1);
+
+    spir_basis_release(smallest);
+    spir_kernel_release(kernel);
+}
+
+TEST_CASE("Status: the accuracy and the size of a truncated SVE", "[status]")
+{
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_kernel* kernel = spir_logistic_kernel_new(10.0, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_sve_result* sve =
+        spir_sve_result_new(kernel, 1e-6, -1, -1, SPIR_TWORK_AUTO, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+
+    spir_sve_result* inaccurate = spir_sve_result_truncate(sve, 2.0, -1, &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(inaccurate == nullptr);
+
+    spir_sve_result* empty = spir_sve_result_truncate(sve, 1e-6, 0, &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(empty == nullptr);
+
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
+TEST_CASE("Status: a basis needs an SVE on the unit square", "[status]")
+{
+    const double wide[3] = {-2.0, 0.0, 2.0};
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_sve_result* sve = stand_in_sve(wide, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(sve != nullptr);
+
+    spir_kernel* kernel = spir_logistic_kernel_new(10.0, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_basis* basis = spir_basis_new(SPIR_STATISTICS_FERMIONIC, 10.0, 1.0, 1e-6,
+                                       kernel, sve, -1, &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(basis == nullptr);
+
+    spir_kernel_release(kernel);
+    spir_sve_result_release(sve);
+}
+
+TEST_CASE("Status: the poles of a DLR", "[status]")
+{
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_basis* basis = fermionic_basis(1, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+
+    // A pole outside [-omega_max, omega_max], and a pole that is not a number
+    const double outside[2] = {0.1, 2.0};
+    const double nan_pole[2] = {0.1, std::numeric_limits<double>::quiet_NaN()};
+    for (const double* poles : {outside, nan_pole}) {
+        spir_basis* dlr = spir_dlr_new_with_poles(basis, 2, poles, &status);
+        REQUIRE(status == SPIR_INVALID_ARGUMENT);
+        REQUIRE(dlr == nullptr);
+    }
+
+    spir_basis_release(basis);
+}
+
+TEST_CASE("Status: the segments of a Gauss-Legendre rule", "[status]")
+{
+    const double segments[2] = {0.0, std::numeric_limits<double>::quiet_NaN()};
+    double x[4] = {0.0, 0.0, 0.0, 0.0};
+    double w[4] = {0.0, 0.0, 0.0, 0.0};
+    int status = SPIR_COMPUTATION_SUCCESS;
+    int ret = spir_gauss_legendre_rule_piecewise_double(4, segments, 1, x, w,
+                                                        &status);
+    REQUIRE(ret == SPIR_INVALID_ARGUMENT);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+}
+
+TEST_CASE("Status: a sampling matrix with a NaN entry", "[status]")
+{
+    const double nan_value = std::numeric_limits<double>::quiet_NaN();
+    int status = SPIR_COMPUTATION_SUCCESS;
+
+    const double taus[2] = {0.1, 0.2};
+    double tau_matrix[4] = {1.0, nan_value, 1.0, 1.0};
+    spir_sampling* tau_sampling = spir_tau_sampling_new_with_matrix(
+        SPIR_ORDER_ROW_MAJOR, SPIR_STATISTICS_FERMIONIC, 2, 2, taus, tau_matrix,
+        &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(tau_sampling == nullptr);
+
+    const int64_t ns[2] = {1, 3};
+    Complex64 matsu_matrix[4] = {
+        {1.0, 0.0}, {nan_value, 0.0}, {1.0, 0.0}, {1.0, 0.0}};
+    spir_sampling* matsu_sampling = spir_matsu_sampling_new_with_matrix(
+        SPIR_ORDER_ROW_MAJOR, SPIR_STATISTICS_FERMIONIC, 2, false, 2, ns,
+        matsu_matrix, &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(matsu_sampling == nullptr);
+}
+
+TEST_CASE("Status: default Matsubara points need a definite parity", "[status]")
+{
+    const double segs[3] = {-1.0, 0.0, 1.0};
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_sve_result* sve = stand_in_sve(segs, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+
+    spir_kernel* kernel = spir_logistic_kernel_new(10.0, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_basis* basis = spir_basis_new(SPIR_STATISTICS_FERMIONIC, 10.0, 1.0, 1e-6,
+                                       kernel, sve, -1, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(basis != nullptr);
+
+    int n_points = -12345;
+    REQUIRE(spir_basis_get_n_default_matsus(basis, false, &n_points) ==
+            SPIR_NOT_SUPPORTED);
+    REQUIRE(n_points == -12345);
+
+    spir_basis_release(basis);
+    spir_kernel_release(kernel);
+    spir_sve_result_release(sve);
+}
+
+TEST_CASE("Status: a DLR transform checks the target extent first", "[status]")
+{
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_basis* basis = fermionic_basis(1, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_basis* dlr = spir_dlr_new(basis, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+
+    int n_poles = 0;
+    REQUIRE(spir_dlr_get_npoles(dlr, &n_poles) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n_poles > 0);
+
+    // One coefficient too many along the transformed axis
+    const int input_dims[1] = {n_poles + 1};
+    std::vector<double> input(n_poles + 1, 1.0);
+    const double sentinel = -12345.5;
+    std::vector<double> out(n_poles + 1, sentinel);
+    REQUIRE(spir_dlr2ir_dd(dlr, nullptr, SPIR_ORDER_ROW_MAJOR, 1, input_dims, 0,
+                           input.data(),
+                           out.data()) == SPIR_INPUT_DIMENSION_MISMATCH);
+    for (double value : out) {
+        REQUIRE(value == sentinel);
+    }
+
+    spir_basis_release(dlr);
+    spir_basis_release(basis);
+}
+
+TEST_CASE("Status: a regularizer undefined at omega_max / 2", "[status]")
+{
+    int status = SPIR_COMPUTATION_SUCCESS;
+    // u of a basis with omega_max = 1 is defined on [-1, 1], not at
+    // omega_max / 2 = 5 of the basis built below
+    spir_kernel* k1 = spir_logistic_kernel_new(1.0, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_basis* b1 = spir_basis_new(SPIR_STATISTICS_FERMIONIC, 1.0, 1.0, 1e-6, k1,
+                                    nullptr, -1, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_funcs* u = spir_basis_get_u(b1, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+
+    spir_kernel* k10 = spir_logistic_kernel_new(10.0, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_sve_result* sve =
+        spir_sve_result_new(k10, 1e-6, -1, -1, SPIR_TWORK_AUTO, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_basis* basis = spir_basis_new_from_sve_and_regularizer(
+        SPIR_STATISTICS_FERMIONIC, 1.0, 10.0, 1e-6, 10.0, 0, 0.0, sve, u, -1,
+        &status);
+    REQUIRE(status == SPIR_INVALID_ARGUMENT);
+    REQUIRE(basis == nullptr);
+
+    spir_sve_result_release(sve);
+    spir_kernel_release(k10);
+    spir_funcs_release(u);
+    spir_basis_release(b1);
+    spir_kernel_release(k1);
+}
+
+TEST_CASE("Status: a DLR has no default sampling points", "[status]")
+{
+    int status = SPIR_COMPUTATION_SUCCESS;
+    spir_basis* basis = fermionic_basis(1, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    spir_basis* dlr = spir_dlr_new(basis, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+
+    int n_taus = -1;
+    REQUIRE(spir_basis_get_n_default_taus(dlr, &n_taus) ==
+            SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n_taus == 0);
+
+    int n_matsus = -1;
+    REQUIRE(spir_basis_get_n_default_matsus(dlr, false, &n_matsus) ==
+            SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n_matsus == 0);
+
+    spir_basis_release(dlr);
+    spir_basis_release(basis);
 }

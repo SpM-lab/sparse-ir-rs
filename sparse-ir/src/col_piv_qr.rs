@@ -27,11 +27,9 @@
 use num_traits::Zero;
 
 use nalgebra::ComplexField;
-use nalgebra::allocator::{Allocator, Reallocator};
+use nalgebra::allocator::Allocator;
 use nalgebra::base::{Const, DefaultAllocator, Matrix, OMatrix, OVector, Unit};
-use nalgebra::constraint::{SameNumberOfRows, ShapeConstraint};
 use nalgebra::dimension::{Dim, DimMin, DimMinimum};
-use nalgebra::storage::StorageMut;
 
 use nalgebra::geometry::Reflection;
 use nalgebra::linalg::{PermutationSequence, householder};
@@ -61,11 +59,6 @@ impl<T: ComplexField, R: DimMin<C>, C: Dim> ColPivQR<T, R, C>
 where
     DefaultAllocator: Allocator<R, C> + Allocator<R> + Allocator<DimMinimum<R, C>>,
 {
-    /// Computes the `ColPivQR` decomposition using householder reflections.
-    pub fn new(matrix: OMatrix<T, R, C>) -> Self {
-        Self::new_with_rtol(matrix, None)
-    }
-
     /// Computes the `ColPivQR` decomposition using householder reflections with early termination.
     ///
     /// # Arguments
@@ -152,23 +145,6 @@ where
         res
     }
 
-    /// Retrieves the upper trapezoidal submatrix `R` of this decomposition.
-    ///
-    /// This is usually faster than `r` but consumes `self`.
-    #[inline]
-    pub fn unpack_r(self) -> OMatrix<T, DimMinimum<R, C>, C>
-    where
-        DefaultAllocator: Reallocator<T, R, C, DimMinimum<R, C>, C>,
-    {
-        let (nrows, ncols) = self.col_piv_qr.shape_generic();
-        let mut res = self
-            .col_piv_qr
-            .resize_generic(nrows.min(ncols), ncols, T::zero());
-        res.fill_lower_triangle(T::zero(), 1);
-        res.set_partial_diagonal(self.diag.iter().map(|e| T::from_real(e.clone().modulus())));
-        res
-    }
-
     /// Computes the orthogonal matrix `Q` of this decomposition.
     #[must_use]
     pub fn q(&self) -> OMatrix<T, R, DimMinimum<R, C>>
@@ -217,48 +193,10 @@ where
         &self.p
     }
 
-    /// Unpacks this decomposition into its two matrix factors.
-    pub fn unpack(
-        self,
-    ) -> (
-        OMatrix<T, R, DimMinimum<R, C>>,
-        OMatrix<T, DimMinimum<R, C>, C>,
-        PermutationSequence<DimMinimum<R, C>>,
-    )
-    where
-        DimMinimum<R, C>: DimMin<C, Output = DimMinimum<R, C>>,
-        DefaultAllocator: Allocator<R, DimMinimum<R, C>>
-            + Reallocator<T, R, C, DimMinimum<R, C>, C>
-            + Allocator<DimMinimum<R, C>>,
-    {
-        (self.q(), self.r(), self.p)
-    }
-
-    #[doc(hidden)]
-    pub const fn col_piv_qr_internal(&self) -> &OMatrix<T, R, C> {
-        &self.col_piv_qr
-    }
-
     #[must_use]
     #[allow(dead_code)] // Used in tests
     pub(crate) const fn diag_internal(&self) -> &OVector<T, DimMinimum<R, C>> {
         &self.diag
-    }
-
-    /// Multiplies the provided matrix by the transpose of the `Q` matrix of this decomposition.
-    pub fn q_tr_mul<R2: Dim, C2: Dim, S2>(&self, rhs: &mut Matrix<T, R2, C2, S2>)
-    where
-        S2: StorageMut<T, R2, C2>,
-    {
-        let dim = self.diag.len();
-
-        for i in 0..dim {
-            let axis = self.col_piv_qr.view_range(i.., i);
-            let refl = Reflection::new(Unit::new_unchecked(axis), T::zero());
-
-            let mut rhs_rows = rhs.rows_range_mut(i..);
-            refl.reflect_with_sign(&mut rhs_rows, self.diag[i].clone().signum().conjugate());
-        }
     }
 
     /// Returns the effective rank of the QR decomposition.
@@ -269,6 +207,7 @@ where
     ///
     /// # Returns
     /// * `usize` - Effective rank (number of significant diagonal elements)
+    #[allow(dead_code)] // Used in tests
     pub fn rank(&self) -> usize {
         let dim = self.diag.len();
         if dim == 0 {
@@ -303,6 +242,7 @@ where
     ///
     /// # Returns
     /// * `usize` - Effective rank
+    #[allow(dead_code)] // Used in tests
     pub fn rank_with_rtol(&self, rtol: T::RealField) -> usize
     where
         T: ComplexField,
@@ -329,149 +269,6 @@ where
         }
 
         rank
-    }
-}
-
-impl<T: ComplexField, D: DimMin<D, Output = D>> ColPivQR<T, D, D>
-where
-    DefaultAllocator: Allocator<D, D> + Allocator<D> + Allocator<DimMinimum<D, D>>,
-{
-    /// Solves the linear system `self * x = b`, where `x` is the unknown to be determined.
-    ///
-    /// Returns `None` if `self` is not invertible.
-    #[must_use = "Did you mean to use solve_mut()?"]
-    pub fn solve<R2: Dim, C2: Dim, S2>(
-        &self,
-        b: &Matrix<T, R2, C2, S2>,
-    ) -> Option<OMatrix<T, R2, C2>>
-    where
-        S2: StorageMut<T, R2, C2>,
-        ShapeConstraint: SameNumberOfRows<R2, D>,
-        DefaultAllocator: Allocator<R2, C2>,
-    {
-        let mut res = b.clone_owned();
-
-        if self.solve_mut(&mut res) {
-            Some(res)
-        } else {
-            None
-        }
-    }
-
-    /// Solves the linear system `self * x = b`, where `x` is the unknown to be determined.
-    ///
-    /// If the decomposed matrix is not invertible, this returns `false` and its input `b` is
-    /// overwritten with garbage.
-    pub fn solve_mut<R2: Dim, C2: Dim, S2>(&self, b: &mut Matrix<T, R2, C2, S2>) -> bool
-    where
-        S2: StorageMut<T, R2, C2>,
-        ShapeConstraint: SameNumberOfRows<R2, D>,
-    {
-        assert_eq!(
-            self.col_piv_qr.nrows(),
-            b.nrows(),
-            "ColPivQR solve matrix dimension mismatch."
-        );
-        assert!(
-            self.col_piv_qr.is_square(),
-            "ColPivQR solve: unable to solve a non-square system."
-        );
-
-        self.q_tr_mul(b);
-        let solved = self.solve_upper_triangular_mut(b);
-        self.p.inv_permute_rows(b);
-
-        solved
-    }
-
-    // TODO: duplicate code from the `solve` module.
-    fn solve_upper_triangular_mut<R2: Dim, C2: Dim, S2>(
-        &self,
-        b: &mut Matrix<T, R2, C2, S2>,
-    ) -> bool
-    where
-        S2: StorageMut<T, R2, C2>,
-        ShapeConstraint: SameNumberOfRows<R2, D>,
-    {
-        let dim = self.col_piv_qr.nrows();
-
-        for k in 0..b.ncols() {
-            let mut b = b.column_mut(k);
-            for i in (0..dim).rev() {
-                let coeff;
-
-                unsafe {
-                    let diag = self.diag.vget_unchecked(i).clone().modulus();
-
-                    if diag.is_zero() {
-                        return false;
-                    }
-
-                    coeff = b.vget_unchecked(i).clone().unscale(diag);
-                    *b.vget_unchecked_mut(i) = coeff.clone();
-                }
-
-                b.rows_range_mut(..i)
-                    .axpy(-coeff, &self.col_piv_qr.view_range(..i, i), T::one());
-            }
-        }
-
-        true
-    }
-
-    /// Computes the inverse of the decomposed matrix.
-    ///
-    /// Returns `None` if the decomposed matrix is not invertible.
-    #[must_use]
-    pub fn try_inverse(&self) -> Option<OMatrix<T, D, D>> {
-        assert!(
-            self.col_piv_qr.is_square(),
-            "ColPivQR inverse: unable to compute the inverse of a non-square matrix."
-        );
-
-        // TODO: is there a less naive method ?
-        let (nrows, ncols) = self.col_piv_qr.shape_generic();
-        let mut res = OMatrix::identity_generic(nrows, ncols);
-
-        if self.solve_mut(&mut res) {
-            Some(res)
-        } else {
-            None
-        }
-    }
-
-    /// Indicates if the decomposed matrix is invertible.
-    #[must_use]
-    pub fn is_invertible(&self) -> bool {
-        assert!(
-            self.col_piv_qr.is_square(),
-            "ColPivQR: unable to test the invertibility of a non-square matrix."
-        );
-
-        for i in 0..self.diag.len() {
-            if self.diag[i].is_zero() {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    /// Computes the determinant of the decomposed matrix.
-    #[must_use]
-    pub fn determinant(&self) -> T {
-        let dim = self.col_piv_qr.nrows();
-        assert!(
-            self.col_piv_qr.is_square(),
-            "ColPivQR determinant: unable to compute the determinant of a non-square matrix."
-        );
-
-        let mut res = T::one();
-        for i in 0..dim {
-            res *= unsafe { self.diag.vget_unchecked(i).clone() };
-        }
-
-        res * self.p.determinant()
     }
 }
 

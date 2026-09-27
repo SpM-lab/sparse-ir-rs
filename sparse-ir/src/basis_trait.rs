@@ -3,6 +3,7 @@
 //! This module provides a common trait for different basis representations
 //! (IR basis, DLR basis, augmented basis, etc.) in imaginary-time/frequency domains.
 
+use crate::error::Error;
 use crate::freq::MatsubaraFreq;
 use crate::kernel::KernelProperties;
 use crate::traits::StatisticsType;
@@ -103,7 +104,14 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Returns
     /// Vector of tau sampling points
-    fn default_tau_sampling_points(&self) -> Vec<f64>;
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis has no default tau sampling points:
+    /// the DLR (use those of its IR basis), or an IR basis whose SVE has too
+    /// few singular functions (see
+    /// [`FiniteTempBasis::default_tau_sampling_points`](crate::basis::FiniteTempBasis::default_tau_sampling_points))
+    fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error>;
 
     /// Get default Matsubara sampling points
     ///
@@ -115,7 +123,16 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Returns
     /// Vector of Matsubara frequency sampling points
-    fn default_matsubara_sampling_points(&self, positive_only: bool) -> Vec<MatsubaraFreq<S>>
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis is a DLR (use the points of its IR
+    /// basis), or its basis functions have no definite parity (an SVE that is
+    /// not centrosymmetric, #183)
+    fn default_matsubara_sampling_points(
+        &self,
+        positive_only: bool,
+    ) -> Result<Vec<MatsubaraFreq<S>>, Error>
     where
         S: 'static;
 
@@ -131,7 +148,14 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Returns
     /// Matrix of shape [tau.len(), self.size()] where result[i, l] = u_l(τ_i)
-    fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2>;
+    ///
+    /// An empty `tau` gives a `[0, size]` matrix.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::OutOfDomain`] if a τ is outside [-β, β] or NaN; no value is
+    /// computed then.
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error>;
 
     /// Evaluate basis functions at Matsubara frequencies
     ///
@@ -144,10 +168,20 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Returns
     /// Matrix of shape [freqs.len(), self.size()] where result[i, l] = û_l(iν_i)
+    ///
+    /// An empty `freqs` gives a `[0, size]` matrix.
+    ///
+    /// # Errors
+    ///
+    /// Implementors may return errors. The bases of this crate
+    /// ([`FiniteTempBasis`](crate::basis::FiniteTempBasis) and
+    /// [`DiscreteLehmannRepresentation`](crate::dlr::DiscreteLehmannRepresentation))
+    /// never do: every `MatsubaraFreq<S>` has the parity of the statistics, so
+    /// every frequency can be evaluated.
     fn evaluate_matsubara(
         &self,
         freqs: &[MatsubaraFreq<S>],
-    ) -> mdarray::DTensor<num_complex::Complex<f64>, 2>
+    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error>
     where
         S: 'static;
 
@@ -155,14 +189,21 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// Computes the value of spectral basis functions at given real frequencies.
     /// For IR basis: V_l(ω)
-    /// Not supported for the DLR basis, which panics
+    /// Not supported for the DLR basis (see Errors)
     ///
     /// # Arguments
     /// * `omega` - Real frequency points in [-ωmax, ωmax]
     ///
     /// # Returns
     /// Matrix of shape [omega.len(), self.size()] where result[i, l] = V_l(ω_i)
-    fn evaluate_omega(&self, omega: &[f64]) -> mdarray::DTensor<f64, 2>;
+    ///
+    /// An empty `omega` gives a `[0, size]` matrix.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::OutOfDomain`] if an ω is outside [-ωmax, ωmax] or NaN
+    /// * [`Error::NotSupported`] for the DLR basis
+    fn evaluate_omega(&self, omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error>;
 
     /// Get default omega (real frequency) sampling points
     ///
@@ -174,7 +215,12 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Returns
     /// Vector of real-frequency sampling points in [-ωmax, ωmax]
-    fn default_omega_sampling_points(&self) -> Vec<f64>;
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis is an IR basis whose SVE has too
+    /// few singular functions (the DLR returns its poles)
+    fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error>;
 }
 
 #[cfg(test)]

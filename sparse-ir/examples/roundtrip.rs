@@ -324,29 +324,32 @@ fn run_integration_example_single<K, S>(
         sve.clone(),
         Some(epsilon),
         None,
-    );
+    )
+    .unwrap();
     let basis_size = basis.size();
     println!("  Basis size: {}", basis_size);
     println!();
 
     // Step 2: Create tau and Matsubara sampling
     println!("Step 2: Creating sampling objects...");
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     let n_tau = tau_points.len();
     println!("  Number of tau points: {}", n_tau);
-    let tau_sampling = TauSampling::<S>::with_sampling_points(&basis, tau_points.clone());
+    let tau_sampling = TauSampling::<S>::with_sampling_points(&basis, tau_points.clone()).unwrap();
 
-    let matsubara_points = basis.default_matsubara_sampling_points(positive_only);
+    let matsubara_points = basis
+        .default_matsubara_sampling_points(positive_only)
+        .unwrap();
     let n_matsubara = matsubara_points.len();
     println!("  Number of Matsubara points: {}", n_matsubara);
     let matsubara_sampling =
-        MatsubaraSampling::<S>::with_sampling_points(&basis, matsubara_points.clone());
+        MatsubaraSampling::<S>::with_sampling_points(&basis, matsubara_points.clone()).unwrap();
     println!();
 
     // Step 3: Create DLR from IR basis
     println!("Step 3: Creating DLR representation...");
     let dlr = DiscreteLehmannRepresentation::<S>::new(&basis).expect("failed to build DLR");
-    let n_poles = dlr.poles.len();
+    let n_poles = dlr.poles().len();
     println!("  Number of DLR poles: {}", n_poles);
     println!();
 
@@ -355,7 +358,7 @@ fn run_integration_example_single<K, S>(
     // Create N-dimensional tensor for DLR coefficients with target_dim at specified position.
     // We use a dedicated helper to avoid the `Tensor::from_fn` bug with DynRank shapes.
     let seed = 982743u64;
-    let dlr_coeffs = create_random_dlr_coeffs(n_poles, extra_dims, seed, &dlr.poles, target_dim);
+    let dlr_coeffs = create_random_dlr_coeffs(n_poles, extra_dims, seed, dlr.poles(), target_dim);
     println!(
         "  Generated DLR coefficients with shape: {:?}",
         dlr_coeffs.shape().dims()
@@ -364,19 +367,22 @@ fn run_integration_example_single<K, S>(
 
     // Step 5: Convert DLR to IR
     println!("Step 5: Converting DLR coefficients to IR...");
-    let ir_coeffs = dlr.to_ir_nd(None, &dlr_coeffs, target_dim);
+    let ir_coeffs = dlr.to_ir_nd(None, &dlr_coeffs, target_dim).unwrap();
     println!("  IR coefficients shape: {:?}", ir_coeffs.shape().dims());
     println!();
 
     // Step 6: Evaluate on tau grid from both DLR and IR
     println!("Step 6: Evaluating on tau grid...");
     // From IR coefficients
-    let g_tau_ir = tau_sampling.evaluate_nd(None, &ir_coeffs, target_dim);
+    let g_tau_ir = tau_sampling
+        .evaluate_nd(None, &ir_coeffs, target_dim)
+        .unwrap();
     println!("  g_tau_ir shape: {:?}", g_tau_ir.shape().dims());
 
     // From DLR coefficients (evaluate DLR basis functions at tau points)
     // Use Basis trait to call evaluate_tau
-    let dlr_u_tau = <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_tau(&dlr, &tau_points);
+    let dlr_u_tau =
+        <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_tau(&dlr, &tau_points).unwrap();
     // For multi-dimensional case, we need to evaluate DLR at each tau point
     // and then contract with DLR coefficients along the target_dim
     let g_tau_dlr = contract_along_dim(&dlr_u_tau, &dlr_coeffs, target_dim);
@@ -392,13 +398,16 @@ fn run_integration_example_single<K, S>(
     // Step 7: Evaluate on Matsubara grid from both DLR and IR
     println!("Step 7: Evaluating on Matsubara grid...");
     // From IR coefficients: evaluate_nd now accepts f64 directly
-    let g_iw_ir = matsubara_sampling.evaluate_nd(None, &ir_coeffs, target_dim);
+    let g_iw_ir = matsubara_sampling
+        .evaluate_nd(None, &ir_coeffs, target_dim)
+        .unwrap();
     println!("  g_iw_ir shape: {:?}", g_iw_ir.shape().dims());
 
     // From DLR coefficients (evaluate DLR basis functions at Matsubara frequencies)
     // Use Basis trait to call evaluate_matsubara
     let dlr_uhat_matsu =
-        <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_matsubara(&dlr, &matsubara_points);
+        <DiscreteLehmannRepresentation<S> as Basis<S>>::evaluate_matsubara(&dlr, &matsubara_points)
+            .unwrap();
     // For multi-dimensional case, similar to tau evaluation
     // Convert real DLR coefficients to complex for matrix multiplication
     let dlr_coeffs_complex: Tensor<Complex<f64>, DynRank> =
@@ -419,7 +428,7 @@ fn run_integration_example_single<K, S>(
     // Step 8: Round-trip test: tau → IR → Matsubara
     println!("Step 8: Round-trip test (tau → IR → Matsubara)...");
     // Fit IR coefficients directly from g_tau_ir (values on tau grid)
-    let ir_coeffs_recovered = tau_sampling.fit_nd(None, &g_tau_ir, target_dim);
+    let ir_coeffs_recovered = tau_sampling.fit_nd(None, &g_tau_ir, target_dim).unwrap();
     println!(
         "  Recovered IR coefficients shape: {:?}",
         ir_coeffs_recovered.shape().dims()
@@ -441,8 +450,9 @@ fn run_integration_example_single<K, S>(
         expr::FromExpression::from_expr(expr::map(ir_coeffs_recovered.expr(), |x| {
             Complex::new(*x, 0.0)
         }));
-    let g_iw_ir_reconst =
-        matsubara_sampling.evaluate_nd(None, &ir_coeffs_recovered_complex, target_dim);
+    let g_iw_ir_reconst = matsubara_sampling
+        .evaluate_nd(None, &ir_coeffs_recovered_complex, target_dim)
+        .unwrap();
 
     // Compare with original g_iw_ir
     let roundtrip_error = max_relative_error_complex(&g_iw_ir, &g_iw_ir_reconst);
@@ -457,7 +467,7 @@ fn run_integration_example_single<K, S>(
 
     // Step 9: Round-trip test: DLR → IR → DLR
     println!("Step 9: Round-trip test (DLR → IR → DLR)...");
-    let dlr_coeffs_recovered = dlr.from_ir_nd(None, &ir_coeffs, target_dim);
+    let dlr_coeffs_recovered = dlr.from_ir_nd(None, &ir_coeffs, target_dim).unwrap();
     let dlr_recovery_error = max_relative_error_real(&dlr_coeffs, &dlr_coeffs_recovered);
     println!(
         "  Max relative error (DLR recovery): {:.2e}",
@@ -495,7 +505,7 @@ fn run_integration_example_single<K, S>(
 fn run_integration_example(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
     // Create kernel once for all tests
     let lambda = beta * omega_max;
-    let kernel = LogisticKernel::new(lambda);
+    let kernel = LogisticKernel::new(lambda).unwrap();
 
     // Create SVE once for all tests
     println!();
@@ -504,7 +514,7 @@ fn run_integration_example(beta: f64, omega_max: f64, epsilon: f64, tol: f64) {
         beta, omega_max, epsilon
     );
     println!("Computing SVE for all tests");
-    let sve = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
+    let sve = compute_sve(kernel.clone(), Some(epsilon), None, None, TworkType::Auto).unwrap();
     println!("SVE computed");
     println!();
 
@@ -539,7 +549,7 @@ fn run_integration_example_regularized_bose(beta: f64, omega_max: f64, epsilon: 
     //   RegularizedBoseKernel tests.
     let _lambda_physical = beta * omega_max;
     let lambda = 1e2;
-    let kernel = RegularizedBoseKernel::new(lambda);
+    let kernel = RegularizedBoseKernel::new(lambda).unwrap();
 
     // Create SVE once for all tests
     println!();
@@ -548,7 +558,7 @@ fn run_integration_example_regularized_bose(beta: f64, omega_max: f64, epsilon: 
         beta, omega_max, lambda, epsilon
     );
     println!("Computing SVE for all tests");
-    let sve = compute_sve(kernel.clone(), epsilon, None, None, TworkType::Auto);
+    let sve = compute_sve(kernel.clone(), Some(epsilon), None, None, TworkType::Auto).unwrap();
     println!("SVE computed");
     println!();
 

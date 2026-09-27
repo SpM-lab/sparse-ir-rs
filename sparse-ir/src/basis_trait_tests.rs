@@ -8,9 +8,10 @@ fn test_basis_trait_fermionic() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test Basis trait methods
     assert_eq!(basis.beta(), beta);
@@ -30,10 +31,10 @@ fn test_basis_trait_fermionic() {
     }
 
     // Test sampling points
-    let tau_points = basis.default_tau_sampling_points();
+    let tau_points = basis.default_tau_sampling_points().unwrap();
     assert_eq!(tau_points.len(), basis.size());
 
-    let matsubara_points = basis.default_matsubara_sampling_points(false);
+    let matsubara_points = basis.default_matsubara_sampling_points(false).unwrap();
     assert!(!matsubara_points.is_empty());
 }
 
@@ -43,12 +44,13 @@ fn test_basis_trait_omega_sampling() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test omega sampling via Basis trait
-    let omega_points = basis.default_omega_sampling_points();
+    let omega_points = basis.default_omega_sampling_points().unwrap();
     assert_eq!(omega_points.len(), basis.size());
 
     // All points should be in [-wmax, wmax]
@@ -71,14 +73,16 @@ fn test_basis_trait_generic() {
     let wmax = 2.0;
     let epsilon = 1e-8;
 
-    let kernel_f = LogisticKernel::new(beta * wmax);
+    let kernel_f = LogisticKernel::new(beta * wmax).unwrap();
     let basis_f =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel_f, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel_f, beta, Some(epsilon), None)
+            .unwrap();
     check_basis(&basis_f);
 
-    let kernel_b = LogisticKernel::new(beta * wmax);
+    let kernel_b = LogisticKernel::new(beta * wmax).unwrap();
     let basis_b =
-        FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel_b, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel_b, beta, Some(epsilon), None)
+            .unwrap();
     check_basis(&basis_b);
 }
 
@@ -88,13 +92,14 @@ fn test_basis_trait_evaluate_tau() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test evaluate_tau via Basis trait
     let tau_points = vec![0.0, beta / 4.0, beta / 2.0, 3.0 * beta / 4.0, beta];
-    let matrix = basis.evaluate_tau(&tau_points);
+    let matrix = basis.evaluate_tau(&tau_points).unwrap();
 
     // Check shape
     assert_eq!(*matrix.shape(), (tau_points.len(), basis.size()));
@@ -121,9 +126,10 @@ fn test_basis_trait_evaluate_matsubara() {
     let wmax = 1.0;
     let epsilon = 1e-6;
 
-    let kernel = LogisticKernel::new(beta * wmax);
+    let kernel = LogisticKernel::new(beta * wmax).unwrap();
     let basis =
-        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None);
+        FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(epsilon), None)
+            .unwrap();
 
     // Test evaluate_matsubara via Basis trait
     // For fermions, n must be odd
@@ -134,7 +140,7 @@ fn test_basis_trait_evaluate_matsubara() {
         MatsubaraFreq::new(-1).unwrap(),
     ];
 
-    let matrix = basis.evaluate_matsubara(&freqs);
+    let matrix = basis.evaluate_matsubara(&freqs).unwrap();
 
     // Check shape
     assert_eq!(*matrix.shape(), (freqs.len(), basis.size()));
@@ -152,4 +158,58 @@ fn test_basis_trait_evaluate_matsubara() {
             );
         }
     }
+}
+
+/// Basis::evaluate_* reject points outside their domain and NaN (they
+/// panicked), and return an empty matrix of the right width for no points
+/// (from_fn ran its closure for a zero extent, mdarray#21, and panicked).
+#[test]
+fn test_basis_evaluate_checks_the_points() {
+    use crate::error::Error;
+    use crate::freq::MatsubaraFreq;
+
+    let beta = 10.0;
+    let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
+        LogisticKernel::new(beta).unwrap(),
+        beta,
+        Some(1e-6),
+        None,
+    )
+    .unwrap();
+    let size = basis.size();
+    let wmax = Basis::wmax(&basis);
+
+    for tau in [2.0 * beta, f64::NAN] {
+        let err = Basis::evaluate_tau(&basis, &[0.0, tau]).unwrap_err();
+        assert!(
+            matches!(err, Error::OutOfDomain { name: "tau", .. }),
+            "{err:?}"
+        );
+    }
+    for omega in [2.0 * wmax, -2.0 * wmax, f64::NAN] {
+        let err = Basis::evaluate_omega(&basis, &[0.0, omega]).unwrap_err();
+        assert!(
+            matches!(err, Error::OutOfDomain { name: "omega", domain, .. } if domain == (-wmax, wmax)),
+            "{err:?}"
+        );
+    }
+    // The ends of the domains are inside.
+    Basis::evaluate_tau(&basis, &[-beta, beta]).unwrap();
+    Basis::evaluate_omega(&basis, &[-wmax, wmax]).unwrap();
+
+    assert_eq!(
+        *Basis::evaluate_tau(&basis, &[]).unwrap().shape(),
+        (0, size)
+    );
+    assert_eq!(
+        *Basis::evaluate_omega(&basis, &[]).unwrap().shape(),
+        (0, size)
+    );
+    let no_freqs: [MatsubaraFreq<Fermionic>; 0] = [];
+    assert_eq!(
+        *Basis::evaluate_matsubara(&basis, &no_freqs)
+            .unwrap()
+            .shape(),
+        (0, size)
+    );
 }

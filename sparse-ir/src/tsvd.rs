@@ -272,9 +272,9 @@ where
 /// * [`Error::EmptyInput`] if the matrix has no rows or no columns
 /// * [`Error::InvalidParameter`] unless `0 < config.rtol < 1` (a NaN
 ///   tolerance is rejected)
-/// * [`Error::NonFiniteInput`] if an entry of the matrix, or of its R
-///   factor, is NaN or infinite
-/// * [`Error::DecompositionFailed`] if the SVD iteration does not converge
+/// * [`Error::NonFiniteInput`] if an entry of the matrix is NaN or infinite
+/// * [`Error::DecompositionFailed`] if the QR of the matrix overflows (its R
+///   factor has a non-finite entry) or the SVD iteration does not converge
 pub fn tsvd<T>(matrix: &DMatrix<T>, config: TSVDConfig<T>) -> Result<SVDResult<T>, Error>
 where
     T: ComplexField
@@ -295,7 +295,7 @@ where
     if !(config.rtol > Zero::zero() && config.rtol < One::one()) {
         return Err(Error::InvalidParameter {
             name: "rtol",
-            value: CustomNumeric::to_f64(config.rtol).to_string(),
+            value: format!("{:?}", CustomNumeric::to_f64(config.rtol)),
             reason: "must be in (0, 1)".to_string(),
         });
     }
@@ -311,6 +311,22 @@ where
     let q_matrix = qr.q();
     let r_matrix = qr.r();
     let permutation = qr.p();
+
+    // A finite matrix can still overflow in the QR (a column norm above
+    // f64::MAX). The input is valid, so a non-finite entry of R is a failure
+    // of the decomposition, not a non-finite input.
+    match check_finite(&r_matrix) {
+        Ok(()) => {}
+        Err(Error::NonFiniteInput { index, value, .. }) => {
+            return Err(Error::DecompositionFailed {
+                reason: format!(
+                    "the R factor of the QR decomposition has the non-finite entry {value} at index {index:?}"
+                ),
+            });
+        }
+        // check_finite reports only NonFiniteInput; pass anything else on.
+        Err(other) => return Err(other),
+    }
 
     // Step 2: Apply QR-based rank estimation first
     // Use type-specific epsilon for QR diagonal elements (more conservative than rtol)
@@ -334,7 +350,6 @@ where
     // Use rtol directly as T
     let rtol_t = config.rtol;
     let rtol_f64 = rtol_t.to_f64();
-    // Also checks R: the QR of a finite matrix can still overflow
     let svd_result = try_svd_decompose(&r_truncated, rtol_f64)?;
 
     if svd_result.rank == 0 {
@@ -393,12 +408,15 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
 ///
 /// Supports both f64 and Df64 types. Uses nalgebra TSVD backend for both.
 ///
+/// # Errors
+/// The errors of [`tsvd`]: [`Error::EmptyInput`], [`Error::NonFiniteInput`]
+/// and [`Error::DecompositionFailed`]
+///
 /// # Panics
-/// Panics if [`tsvd`] fails, e.g. if the matrix is empty or has a NaN or
-/// infinite entry, or if `T` is neither `f64` nor `Df64`.
+/// Panics if `T` is neither `f64` nor `Df64`
 pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
     matrix: &DTensor<T, 2>,
-) -> (DTensor<T, 2>, Vec<T>, DTensor<T, 2>) {
+) -> Result<(DTensor<T, 2>, Vec<T>, DTensor<T, 2>), Error> {
     use nalgebra::DMatrix;
     use std::any::TypeId;
 
@@ -411,7 +429,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
 
         // Use TSVD with appropriate tolerance for f64
         let rtol = 2.0 * f64::EPSILON;
-        let result = tsvd(&matrix_f64, TSVDConfig::new(rtol)).expect("TSVD computation failed");
+        let result = tsvd(&matrix_f64, TSVDConfig::new(rtol))?;
 
         // Convert back to DTensor<T>
         let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
@@ -426,7 +444,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
             T::from_f64_unchecked(result.v[(i, j)])
         });
 
-        (u, s, v)
+        Ok((u, s, v))
     } else if TypeId::of::<T>() == TypeId::of::<Df64>() {
         // Convert to DMatrix<Df64> without going through f64 to preserve precision
         // TypeId check ensures T == Df64 at runtime, so we can safely cast
@@ -438,7 +456,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
 
         // Use TSVD with appropriate tolerance for Df64
         let rtol = Df64::from(2.0) * Df64::epsilon();
-        let result = tsvd_df64(&matrix_df64, rtol).expect("TSVD computation failed");
+        let result = tsvd_df64(&matrix_df64, rtol)?;
 
         // Convert back to DTensor<T> without going through f64 to preserve Df64 precision
         let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
@@ -453,7 +471,7 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
             T::convert_from(result.v[(i, j)])
         });
 
-        (u, s, v)
+        Ok((u, s, v))
     } else {
         panic!("SVD is only implemented for f64 and Df64");
     }
@@ -563,6 +581,62 @@ mod tests {
         let matrix_df64 = matrix.map(Df64::from);
         let err = tsvd_df64(&matrix_df64, Df64::from(f64::NAN)).unwrap_err();
         assert_eq!(err.to_string(), expected);
+    }
+
+    #[test]
+    fn test_compute_svd_dtensor_reports_errors() {
+        let empty = DTensor::<f64, 2>::zeros([0, 3]);
+        assert_eq!(
+            compute_svd_dtensor(&empty).unwrap_err(),
+            Error::EmptyInput { name: "matrix" }
+        );
+        let nan = DTensor::<f64, 2>::from_fn([2, 2], |idx| {
+            if idx[0] == 1 && idx[1] == 0 {
+                f64::NAN
+            } else {
+                1.0
+            }
+        });
+        assert!(matches!(
+            compute_svd_dtensor(&nan),
+            Err(Error::NonFiniteInput { name: "matrix", .. })
+        ));
+        let nan_df64 = DTensor::<Df64, 2>::from_fn([2, 2], |idx| {
+            Df64::from(if idx[0] == 1 && idx[1] == 0 {
+                f64::NAN
+            } else {
+                1.0
+            })
+        });
+        assert!(matches!(
+            compute_svd_dtensor(&nan_df64),
+            Err(Error::NonFiniteInput { name: "matrix", .. })
+        ));
+    }
+
+    /// A finite matrix whose QR overflows: the norm of its column, about
+    /// 2.5e308, exceeds f64::MAX. The input is valid, so this is a failure of
+    /// the decomposition. Before the fix it was reported as a non-finite
+    /// entry of the input matrix, at the index of the infinite entry of R.
+    #[test]
+    fn test_tsvd_reports_overflow_of_the_r_factor_as_decomposition_failure() {
+        let matrix = DMatrix::<f64>::from_column_slice(2, 1, &[f64::MAX, f64::MAX]);
+        match tsvd_f64(&matrix, 1e-12) {
+            Err(Error::DecompositionFailed { reason }) => assert!(
+                reason.starts_with("the R factor of the QR decomposition has the non-finite entry"),
+                "{reason}"
+            ),
+            other => panic!("expected DecompositionFailed, got {other:?}"),
+        }
+    }
+
+    /// A tolerance out of range is shown in scientific notation, not with
+    /// hundreds of digits.
+    #[test]
+    fn test_tsvd_shows_an_invalid_tolerance_compactly() {
+        let matrix = matrix_with_entry(0.5);
+        let err = tsvd_f64(&matrix, 1e300).unwrap_err();
+        assert_eq!(err.to_string(), "invalid rtol = 1e300: must be in (0, 1)");
     }
 
     /// Non-convergence of the SVD iteration is reported as an error. A NaN

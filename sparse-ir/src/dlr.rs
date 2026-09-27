@@ -4,10 +4,11 @@
 //! which represents Green's functions as a linear combination of poles on the
 //! real-frequency axis.
 
-use crate::error::Error;
+use crate::error::{Error, require_finite, require_positive_finite};
 use crate::fitters::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
+use crate::taufuncs::normalize_tau;
 use crate::traits::{Statistics, StatisticsType};
 use mdarray::DTensor;
 use num_complex::Complex;
@@ -31,21 +32,24 @@ use std::marker::PhantomData;
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
-/// # Panics
-/// Panics if `tau` is outside [-β, β]
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+///   `omega` is not finite
+/// * [`Error::OutOfDomain`] if `tau` is outside [-β, β] or NaN
 ///
 /// # Example
 /// ```
 /// use sparse_ir::traits::{Bosonic, Fermionic};
 /// use sparse_ir::{bosonic_single_pole, fermionic_single_pole, gtau_single_pole};
 ///
-/// let g_f = gtau_single_pole::<Fermionic>(0.5, 5.0, 1.0);
-/// assert_eq!(g_f, fermionic_single_pole(0.5, 5.0, 1.0));
+/// let g_f = gtau_single_pole::<Fermionic>(0.5, 5.0, 1.0).unwrap();
+/// assert_eq!(g_f, fermionic_single_pole(0.5, 5.0, 1.0).unwrap());
 ///
-/// let g_b = gtau_single_pole::<Bosonic>(0.5, 5.0, 1.0);
-/// assert_eq!(g_b, bosonic_single_pole(0.5, 5.0, 1.0));
+/// let g_b = gtau_single_pole::<Bosonic>(0.5, 5.0, 1.0).unwrap();
+/// assert_eq!(g_b, bosonic_single_pole(0.5, 5.0, 1.0).unwrap());
 /// ```
-pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f64 {
+pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> Result<f64, Error> {
     match S::STATISTICS {
         Statistics::Fermionic => fermionic_single_pole(tau, omega, beta),
         Statistics::Bosonic => bosonic_single_pole(tau, omega, beta),
@@ -59,7 +63,7 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 /// Supports negative τ with anti-periodic boundary conditions:
 /// - G(τ + β) = -G(τ) (fermionic anti-periodicity)
 /// - Valid for τ ∈ [-β, β]; τ is normalized with
-///   [`normalize_tau`](crate::taufuncs::normalize_tau)
+///   [`normalize_tau`]
 ///
 /// # Arguments
 /// * `tau` - Imaginary time τ ∈ [-β, β]
@@ -69,8 +73,11 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
-/// # Panics
-/// Panics if `tau` is outside [-β, β]
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+///   `omega` is not finite
+/// * [`Error::OutOfDomain`] if `tau` is outside [-β, β] or NaN
 ///
 /// # Example
 /// ```
@@ -79,31 +86,37 @@ pub fn gtau_single_pole<S: StatisticsType>(tau: f64, omega: f64, beta: f64) -> f
 /// let beta = 1.0;
 /// let omega = 5.0;
 /// let tau = 0.5 * beta;
-/// let g = fermionic_single_pole(tau, omega, beta);
+/// let g = fermionic_single_pole(tau, omega, beta).unwrap();
 ///
 /// let expected = -(-omega * tau).exp() / (1.0 + (-beta * omega).exp());
 /// assert!((g - expected).abs() < 1e-15);
 ///
 /// // Anti-periodicity: G(τ - β) = -G(τ)
-/// assert!((fermionic_single_pole(tau - beta, omega, beta) + g).abs() < 1e-15);
+/// assert!((fermionic_single_pole(tau - beta, omega, beta).unwrap() + g).abs() < 1e-15);
 /// ```
-pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
-    use crate::taufuncs::normalize_tau;
+pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> Result<f64, Error> {
     use crate::traits::Fermionic;
 
     // Normalize τ to [0, β] and track sign from anti-periodicity
     // G(τ + β) = -G(τ) for fermions
-    let (tau_normalized, sign) = normalize_tau::<Fermionic>(tau, beta);
+    let (tau_normalized, sign) = normalize_tau::<Fermionic>(tau, beta)?;
+    require_finite("omega", omega)?;
+    Ok(sign * fermionic_single_pole_unchecked(tau_normalized, omega, beta))
+}
 
+/// Fermionic single-pole G(τ) for τ already in [0, β], without the sign of
+/// the antiperiodic continuation
+///
+/// Checked callers only: β positive and finite, ω finite. The DLR checks its
+/// poles in `with_poles` and they cannot be changed afterwards.
+pub(crate) fn fermionic_single_pole_unchecked(tau_normalized: f64, omega: f64, beta: f64) -> f64 {
     // Avoid overflow for large negative ω by factoring out exp(βω).
     // Both branches keep the exponent non-positive.
-    let value = if omega >= 0.0 {
+    if omega >= 0.0 {
         -(-omega * tau_normalized).exp() / (1.0 + (-beta * omega).exp())
     } else {
         -(omega * (beta - tau_normalized)).exp() / (1.0 + (beta * omega).exp())
-    };
-
-    sign * value
+    }
 }
 
 /// Compute bosonic single-pole Green's function at imaginary time τ
@@ -118,7 +131,7 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// Supports negative τ with periodic boundary conditions:
 /// - G(τ + β) = G(τ) (bosonic periodicity)
 /// - Valid for τ ∈ [-β, β]; τ is normalized with
-///   [`normalize_tau`](crate::taufuncs::normalize_tau)
+///   [`normalize_tau`]
 ///
 /// ω = 0 is a genuine pole of the Bose factor, so the result is infinite there:
 /// `-inf` for `omega = +0.0` (the ω → 0⁺ limit) and `+inf` for `omega = -0.0`.
@@ -133,8 +146,11 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// # Returns
 /// Real-valued Green's function G(τ)
 ///
-/// # Panics
-/// Panics if `tau` is outside [-β, β]
+/// # Errors
+///
+/// * [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+///   `omega` is not finite
+/// * [`Error::OutOfDomain`] if `tau` is outside [-β, β] or NaN
 ///
 /// # Example
 /// ```
@@ -143,22 +159,22 @@ pub fn fermionic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 /// let beta = 1.0;
 /// let omega = 5.0;
 /// let tau = 0.5 * beta;
-/// let g = bosonic_single_pole(tau, omega, beta);
+/// let g = bosonic_single_pole(tau, omega, beta).unwrap();
 ///
 /// let expected = -(-omega * tau).exp() / (1.0 - (-beta * omega).exp());
 /// assert!((g - expected).abs() <= 1e-14 * expected.abs());
 /// assert!(g < 0.0);
 ///
 /// // Periodicity: G(τ - β) = G(τ)
-/// assert!((bosonic_single_pole(tau - beta, omega, beta) - g).abs() < 1e-15);
+/// assert!((bosonic_single_pole(tau - beta, omega, beta).unwrap() - g).abs() < 1e-15);
 /// ```
-pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
-    use crate::taufuncs::normalize_tau;
+pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> Result<f64, Error> {
     use crate::traits::Bosonic;
 
     // Normalize τ to [0, β] using periodicity
     // G(τ + β) = G(τ) for bosons
-    let tau_normalized = normalize_tau::<Bosonic>(tau, beta).0;
+    let tau_normalized = normalize_tau::<Bosonic>(tau, beta)?.0;
+    require_finite("omega", omega)?;
 
     // Avoid overflow for large negative ω by factoring out exp(βω): both
     // branches keep the exponents non-positive. expm1 keeps the Bose
@@ -168,11 +184,11 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
     if omega >= 0.0 {
         // 1 - exp(-βω) = -expm1(-βω)
         let denominator = -(-beta * omega).exp_m1();
-        -(-omega * tau_normalized).exp() / denominator
+        Ok(-(-omega * tau_normalized).exp() / denominator)
     } else {
         // -exp(-ωτ) / (1 - exp(-βω)) = exp(ω(β - τ)) / (1 - exp(βω))
         let denominator = -(beta * omega).exp_m1();
-        (omega * (beta - tau_normalized)).exp() / denominator
+        Ok((omega * (beta - tau_normalized)).exp() / denominator)
     }
 }
 
@@ -190,15 +206,22 @@ pub fn bosonic_single_pole(tau: f64, omega: f64, beta: f64) -> f64 {
 ///
 /// # Returns
 /// Complex-valued Green's function G(iν)
+///
+/// # Errors
+///
+/// [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+/// `omega` is not finite
 pub fn giwn_single_pole<S: StatisticsType>(
     matsubara_freq: &MatsubaraFreq<S>,
     omega: f64,
     beta: f64,
-) -> Complex<f64> {
+) -> Result<Complex<f64>, Error> {
+    require_positive_finite("beta", beta)?;
+    require_finite("omega", omega)?;
     // G(iν) = 1/(iν - ω)
     let wn = matsubara_freq.value(beta);
     let denominator = Complex::new(0.0, 1.0) * wn - Complex::new(omega, 0.0);
-    Complex::new(1.0, 0.0) / denominator
+    Ok(Complex::new(1.0, 0.0) / denominator)
 }
 
 // ============================================================================
@@ -233,13 +256,13 @@ where
     S: StatisticsType,
 {
     /// Pole positions on the real-frequency axis ω ∈ [-ωmax, ωmax]
-    pub poles: Vec<f64>,
+    poles: Vec<f64>,
 
     /// Inverse temperature β
-    pub beta: f64,
+    beta: f64,
 
     /// Maximum frequency ωmax
-    pub wmax: f64,
+    wmax: f64,
 
     /// LogisticKernel reference basis used for Basis trait compatibility
     kernel: crate::kernel::LogisticKernel,
@@ -248,11 +271,11 @@ where
     kernel_ypower: i32,
 
     /// Accuracy of the representation
-    pub accuracy: f64,
+    accuracy: f64,
 
     /// Regularizers for each pole: regularizer[i] = w(β, ω_i)
     /// These are computed from the source IR basis kernel.
-    pub regularizers: Vec<f64>,
+    regularizers: Vec<f64>,
 
     /// Pole weights used in tau and Matsubara evaluations.
     ///
@@ -285,6 +308,24 @@ where
         &self.pole_weights
     }
 
+    /// Pole positions on the real-frequency axis, in the order they were
+    /// given to [`Self::with_poles`] or chosen by [`Self::new`]
+    pub fn poles(&self) -> &[f64] {
+        &self.poles
+    }
+
+    /// Regularizers of the poles: `regularizers[i] = w(β, poles[i])` of the
+    /// kernel of the IR basis this DLR was built from
+    pub fn regularizers(&self) -> &[f64] {
+        &self.regularizers
+    }
+
+    /// Number of functions of the IR basis this DLR was built from: the
+    /// extent of the IR axis of [`Self::from_ir_nd`] and [`Self::to_ir_nd`]
+    pub fn ir_basis_size(&self) -> usize {
+        self.fitmat.shape().0
+    }
+
     /// Create DLR from IR basis with custom poles
     ///
     /// The tau-domain pole basis is built from the logistic representation, while
@@ -292,13 +333,25 @@ where
     ///
     /// # Arguments
     /// * `basis` - The IR basis to construct DLR from
-    /// * `poles` - Pole positions on the real-frequency axis
+    /// * `poles` - Pole positions on the real-frequency axis, in
+    ///   [-ωmax, ωmax] of `basis`
     ///
     /// # Errors
     /// * [`Error::KernelStatisticsMismatch`] if the kernel does not support
     ///   the requested statistics (e.g. `RegularizedBoseKernel` with fermionic
     ///   statistics)
     /// * [`Error::EmptyInput`] if `poles` is empty
+    /// * [`Error::NonFiniteInput`] if a pole is NaN or infinite, and
+    ///   [`Error::OutOfDomain`] if a pole is outside [-ωmax, ωmax] of `basis`,
+    ///   both named `poles`, for the first such pole
+    /// * [`Error::NotSupported`] for a bosonic pole at 0 if the kernel has a
+    ///   `ypower` other than 0 or 1 (the DLR knows the limit at 0 for those
+    ///   only), or if `basis` is itself a DLR
+    ///
+    /// Duplicate poles are accepted. They make [`Self::from_ir_nd`]
+    /// ill-conditioned: the coefficients of equal poles are not unique,
+    /// although the round trip through [`Self::to_ir_nd`] still recovers the
+    /// IR coefficients.
     pub fn with_poles<K>(
         basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
         poles: Vec<f64>,
@@ -327,9 +380,42 @@ where
         let accuracy = basis.accuracy();
         let kernel_ypower = basis.kernel().ypower();
 
+        // Each pole must be finite and in [-ωmax, ωmax], the domain of V_l.
+        // evaluate_omega below checks the domain of the basis again.
+        for (i, &pole) in poles.iter().enumerate() {
+            if !pole.is_finite() {
+                return Err(Error::NonFiniteInput {
+                    name: "poles",
+                    index: vec![i],
+                    value: pole,
+                });
+            }
+            if !(-wmax..=wmax).contains(&pole) {
+                return Err(Error::OutOfDomain {
+                    name: "poles",
+                    value: pole,
+                    domain: (-wmax, wmax),
+                });
+            }
+        }
+        // A bosonic pole at 0 is evaluated through its finite limit, which is
+        // known for ypower 0 (regularizer tanh(βω/2)) and 1 (regularizer ω)
+        // only; see zero_pole_tau_limit.
+        if S::STATISTICS == Statistics::Bosonic
+            && !(0..=1).contains(&kernel_ypower)
+            && poles.contains(&0.0)
+        {
+            return Err(Error::NotSupported {
+                what: format!(
+                    "a bosonic DLR pole at 0 for a kernel with ypower = {kernel_ypower}: \
+                     its limit is known for ypower 0 and 1 only"
+                ),
+            });
+        }
+
         // Compute fitting matrix: fitmat = -s · V(poles)
         // This transforms DLR coefficients to IR coefficients
-        let v_at_poles = basis.evaluate_omega(&poles); // shape: [n_poles, basis_size]
+        let v_at_poles = basis.evaluate_omega(&poles)?; // shape: [n_poles, basis_size]
         let s = basis.svals(); // Non-normalized singular values (same as C++)
 
         let basis_size = basis.size();
@@ -347,7 +433,7 @@ where
         let fitter = RealMatrixFitter::new(fitmat.clone());
 
         let lambda = beta * wmax;
-        let logistic_kernel = LogisticKernel::new(lambda);
+        let logistic_kernel = LogisticKernel::new(lambda)?;
         let regularizers: Vec<f64> = poles
             .iter()
             .map(|&pole| basis.kernel().regularizer::<S>(beta, pole))
@@ -374,6 +460,9 @@ where
             // -lim_{ω→0} w(β, ω) e^{-τω} / (1 - e^{-βω}) with w = tanh(βω/2) or ω
             0 => -0.5,
             1 => -1.0 / self.beta,
+            // Unreachable: with_poles rejects a bosonic pole at 0 for any
+            // other ypower, and neither the poles nor the kernel can be
+            // changed afterwards.
             _ => panic!(
                 "DLR tau evaluation does not support kernel ypower = {}",
                 self.kernel_ypower
@@ -386,6 +475,9 @@ where
             // lim_{ω→0} w(β, ω) / (0 - ω) at n = 0 with w = tanh(βω/2) or ω
             0 => -0.5 * self.beta,
             1 => -1.0,
+            // Unreachable: with_poles rejects a bosonic pole at 0 for any
+            // other ypower, and neither the poles nor the kernel can be
+            // changed afterwards.
             _ => panic!(
                 "DLR Matsubara evaluation does not support kernel ypower = {}",
                 self.kernel_ypower
@@ -406,12 +498,18 @@ where
     ///   (e.g. `RegularizedBoseKernel`) due to numerical precision limitations
     ///   in root finding.
     /// * [`Error::KernelStatisticsMismatch`] as in [`Self::with_poles`]
+    /// * [`Error::NotSupported`] as in [`Self::with_poles`]: for a default
+    ///   pole at 0 of a bosonic basis whose kernel has a `ypower` other than
+    ///   0 or 1, or if `basis` is itself a DLR
+    /// * The errors of
+    ///   [`Basis::default_omega_sampling_points`](crate::basis_trait::Basis::default_omega_sampling_points)
+    ///   (NotSupported for an SVE with too few singular functions)
     pub fn new<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Result<Self, Error>
     where
         S: 'static,
         K: crate::kernel::KernelProperties + Clone,
     {
-        let poles = basis.default_omega_sampling_points();
+        let poles = basis.default_omega_sampling_points()?;
         let basis_size = basis.size();
         if basis_size > poles.len() {
             return Err(Error::InsufficientDefaultPoles {
@@ -436,13 +534,23 @@ where
     /// * `dim` - Dimension along which to transform
     ///
     /// # Returns
-    /// DLR coefficients as N-D tensor
+    /// DLR coefficients as N-D tensor, with [`Basis::size`](crate::basis_trait::Basis::size)
+    /// (the number of poles) entries along `dim`. An empty batch (a zero
+    /// extent on another axis) gives an empty result.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `gl`
+    /// * [`Error::ShapeMismatch`] of the input if `gl` does not have
+    ///   [`Self::ir_basis_size`] entries along `dim`
+    /// * [`Error::DecompositionFailed`] if the SVD of the fitting matrix fails
+    ///   (its entries are finite, since the poles are)
     pub fn from_ir_nd<T>(
         &self,
         backend: Option<&GemmBackendHandle>,
         gl: &mdarray::Tensor<T, mdarray::DynRank>,
         dim: usize,
-    ) -> mdarray::Tensor<T, mdarray::DynRank>
+    ) -> Result<mdarray::Tensor<T, mdarray::DynRank>, Error>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField
@@ -458,14 +566,9 @@ where
             gl_shape.extend_from_slice(dims);
         });
 
-        let basis_size = gl_shape[dim];
-        assert_eq!(
-            basis_size,
-            self.fitmat.shape().0,
-            "IR basis size mismatch: expected {}, got {}",
-            self.fitmat.shape().0,
-            basis_size
-        );
+        let basis_size = self.ir_basis_size();
+        // Check the axis and its extent before anything reads gl_shape[dim].
+        crate::fitters::common::check_input_shape(&gl_shape, dim, basis_size)?;
 
         if gl.is_empty() {
             // Zero-extent guard: an empty batch has nothing to convert.
@@ -474,7 +577,7 @@ where
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape = crate::sampling::build_output_shape(gl.shape(), dim, self.poles.len());
-            return mdarray::Tensor::zeros(&out_shape[..]);
+            return Ok(mdarray::Tensor::zeros(&out_shape[..]));
         }
 
         // Move target dimension to position 0
@@ -488,8 +591,9 @@ where
             gl_2d_dyn[&[idx[0], idx[1]][..]]
         });
 
-        // Fit using fitter's generic 2D method
-        let g_dlr_2d = self.fitter.fit_2d_generic::<T>(backend, &gl_2d);
+        // Fit using fitter's generic 2D method. It fails only if the SVD of
+        // the fitting matrix does.
+        let g_dlr_2d = self.fitter.fit_2d_generic::<T>(backend, &gl_2d)?;
 
         // Reshape back
         let n_poles = self.poles.len();
@@ -501,7 +605,7 @@ where
         });
 
         let g_dlr_dim0 = g_dlr_2d.into_dyn().reshape(&g_dlr_shape[..]).to_tensor();
-        crate::sampling::movedim(&g_dlr_dim0, 0, dim)
+        Ok(crate::sampling::movedim(&g_dlr_dim0, 0, dim))
     }
 
     /// Convert DLR coefficients to IR (N-dimensional, generic over real/complex)
@@ -514,13 +618,21 @@ where
     /// * `dim` - Dimension along which to transform
     ///
     /// # Returns
-    /// IR coefficients as N-D tensor
+    /// IR coefficients as N-D tensor, with [`Self::ir_basis_size`] entries
+    /// along `dim`. An empty batch gives an empty result.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `g_dlr`
+    /// * [`Error::ShapeMismatch`] of the input if `g_dlr` does not have
+    ///   [`Basis::size`](crate::basis_trait::Basis::size) (the number of
+    ///   poles) entries along `dim`
     pub fn to_ir_nd<T>(
         &self,
         backend: Option<&GemmBackendHandle>,
         g_dlr: &mdarray::Tensor<T, mdarray::DynRank>,
         dim: usize,
-    ) -> mdarray::Tensor<T, mdarray::DynRank>
+    ) -> Result<mdarray::Tensor<T, mdarray::DynRank>, Error>
     where
         T: num_complex::ComplexFloat
             + faer_traits::ComplexField
@@ -536,14 +648,9 @@ where
             g_dlr_shape.extend_from_slice(dims);
         });
 
-        let n_poles = g_dlr_shape[dim];
-        assert_eq!(
-            n_poles,
-            self.poles.len(),
-            "DLR size mismatch: expected {}, got {}",
-            self.poles.len(),
-            n_poles
-        );
+        let n_poles = self.poles.len();
+        // Check the axis and its extent before anything reads g_dlr_shape[dim].
+        crate::fitters::common::check_input_shape(&g_dlr_shape, dim, n_poles)?;
 
         if g_dlr.is_empty() {
             // Zero-extent guard: an empty batch has nothing to convert.
@@ -552,8 +659,8 @@ where
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape =
-                crate::sampling::build_output_shape(g_dlr.shape(), dim, self.fitmat.shape().0);
-            return mdarray::Tensor::zeros(&out_shape[..]);
+                crate::sampling::build_output_shape(g_dlr.shape(), dim, self.ir_basis_size());
+            return Ok(mdarray::Tensor::zeros(&out_shape[..]));
         }
 
         // Move target dimension to position 0
@@ -571,7 +678,7 @@ where
         let gl_2d = self.fitter.evaluate_2d_generic::<T>(backend, &g_dlr_2d);
 
         // Reshape back
-        let basis_size = self.fitmat.shape().0;
+        let basis_size = self.ir_basis_size();
         let mut gl_shape = vec![basis_size];
         g_dlr_dim0.shape().with_dims(|dims| {
             for i in 1..dims.len() {
@@ -580,7 +687,7 @@ where
         });
 
         let gl_dim0 = gl_2d.into_dyn().reshape(&gl_shape[..]).to_tensor();
-        crate::sampling::movedim(&gl_dim0, 0, dim)
+        Ok(crate::sampling::movedim(&gl_dim0, 0, dim))
     }
 }
 
@@ -629,95 +736,120 @@ where
         vec![1.0; self.poles.len()]
     }
 
-    fn default_tau_sampling_points(&self) -> Vec<f64> {
+    fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
         // DLR does not own the underlying IR basis, so it cannot delegate.
         // Callers should obtain tau sampling points from the IR basis that
         // was used to construct this DLR, e.g. `ir_basis.default_tau_sampling_points()`.
-        unimplemented!(
-            "DLR does not directly support default tau sampling points; \
-             use the underlying IR basis"
-        )
+        Err(Error::NotSupported {
+            what: "default tau sampling points of a DLR, which does not own its IR basis; \
+                   use those of the IR basis"
+                .to_string(),
+        })
     }
 
     fn default_matsubara_sampling_points(
         &self,
         _positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>> {
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error> {
         // DLR does not own the underlying IR basis, so it cannot delegate.
         // Callers should obtain Matsubara sampling points from the IR basis
         // that was used to construct this DLR, e.g.
         // `ir_basis.default_matsubara_sampling_points(positive_only)`.
-        unimplemented!(
-            "DLR does not directly support default Matsubara sampling points; \
-             use the underlying IR basis"
-        )
+        Err(Error::NotSupported {
+            what: "default Matsubara sampling points of a DLR, which does not own its IR \
+                   basis; use those of the IR basis"
+                .to_string(),
+        })
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
-        use crate::taufuncs::normalize_tau;
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         use mdarray::DTensor;
 
-        let n_points = tau.len();
         let n_poles = self.poles.len();
-        DTensor::<f64, 2>::from_fn([n_points, n_poles], |idx| {
-            let tau_val = tau[idx[0]];
-            let pole = self.poles[idx[1]];
-            let pole_weight = self.pole_weights[idx[1]];
-            match S::STATISTICS {
-                Statistics::Fermionic => {
-                    gtau_single_pole::<S>(tau_val, pole, self.beta) * pole_weight
-                }
-                Statistics::Bosonic => {
-                    if pole == 0.0 {
-                        self.zero_pole_tau_limit()
-                    } else if pole > 0.0 {
-                        let tau_norm = normalize_tau::<S>(tau_val, self.beta).0;
-                        let denominator = -(-self.beta * pole).exp_m1();
-                        -(-tau_norm * pole).exp() * pole_weight / denominator
-                    } else {
-                        let tau_norm = normalize_tau::<S>(tau_val, self.beta).0;
-                        let denominator = -(self.beta * pole).exp_m1();
-                        (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
+        // Normalize every τ first: this rejects a τ outside [-β, β] and NaN
+        // for every pole, including the bosonic pole at 0, whose limit does
+        // not depend on τ.
+        let normalized = tau
+            .iter()
+            .map(|&t| normalize_tau::<S>(t, self.beta))
+            .collect::<Result<Vec<(f64, f64)>, Error>>()?;
+        if normalized.is_empty() {
+            // mdarray 0.7.2 runs the closure of from_fn for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21).
+            return Ok(DTensor::<f64, 2>::from_elem([0, n_poles], 0.0));
+        }
+        Ok(DTensor::<f64, 2>::from_fn(
+            [normalized.len(), n_poles],
+            |idx| {
+                let (tau_norm, sign) = normalized[idx[0]];
+                let pole = self.poles[idx[1]];
+                let pole_weight = self.pole_weights[idx[1]];
+                match S::STATISTICS {
+                    Statistics::Fermionic => {
+                        sign * fermionic_single_pole_unchecked(tau_norm, pole, self.beta)
+                            * pole_weight
+                    }
+                    Statistics::Bosonic => {
+                        // The bosonic sign of normalize_tau is always 1.
+                        if pole == 0.0 {
+                            self.zero_pole_tau_limit()
+                        } else if pole > 0.0 {
+                            let denominator = -(-self.beta * pole).exp_m1();
+                            -(-tau_norm * pole).exp() * pole_weight / denominator
+                        } else {
+                            let denominator = -(self.beta * pole).exp_m1();
+                            (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
+                        }
                     }
                 }
-            }
-        })
+            },
+        ))
     }
 
     fn evaluate_matsubara(
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
-    ) -> mdarray::DTensor<num_complex::Complex<f64>, 2> {
+    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error> {
         use mdarray::DTensor;
         use num_complex::Complex;
 
         let n_points = freqs.len();
         let n_poles = self.poles.len();
+        if n_points == 0 {
+            // See evaluate_tau (mdarray#21).
+            return Ok(DTensor::<Complex<f64>, 2>::from_elem(
+                [0, n_poles],
+                Complex::new(0.0, 0.0),
+            ));
+        }
 
         // Evaluate MatsubaraPoles basis functions
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, n_poles], |idx| {
-            let freq = &freqs[idx[0]];
-            let pole = self.poles[idx[1]];
-            let pole_weight = self.pole_weights[idx[1]];
+        Ok(DTensor::<Complex<f64>, 2>::from_fn(
+            [n_points, n_poles],
+            |idx| {
+                let freq = &freqs[idx[0]];
+                let pole = self.poles[idx[1]];
+                let pole_weight = self.pole_weights[idx[1]];
 
-            // iν = iπn/β, with n = freq.n() (odd for fermions, even for bosons)
-            let iv = freq.value_imaginary(self.beta);
+                // iν = iπn/β, with n = freq.n() (odd for fermions, even for bosons)
+                let iv = freq.value_imaginary(self.beta);
 
-            // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the
-            // regularizer w(β, ω_i) of the source kernel.
-            if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
-                if crate::freq::is_zero(freq) {
-                    Complex::new(self.zero_pole_matsubara_limit(), 0.0)
+                // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the
+                // regularizer w(β, ω_i) of the source kernel.
+                if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
+                    if crate::freq::is_zero(freq) {
+                        Complex::new(self.zero_pole_matsubara_limit(), 0.0)
+                    } else {
+                        Complex::new(0.0, 0.0)
+                    }
                 } else {
-                    Complex::new(0.0, 0.0)
+                    Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0))
                 }
-            } else {
-                Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0))
-            }
-        })
+            },
+        ))
     }
 
-    fn evaluate_omega(&self, _omega: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_omega(&self, _omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         // TODO(#205): For the IR basis, evaluate_omega returns V_l(omega).
         // For DLR, the "basis functions" in omega-space are single-pole
         // functions (conceptually delta functions at the pole positions),
@@ -728,16 +860,17 @@ where
         //       the IR basis), or
         //   (b) defining an appropriate discretized representation for the
         //       pole basis in omega-space.
-        // Until the semantics are clarified, this remains unimplemented.
-        unimplemented!(
-            "evaluate_omega is not well-defined for DLR; \
-             use the underlying IR basis for real-frequency evaluation"
-        )
+        // Until the semantics are clarified, this is NotSupported.
+        Err(Error::NotSupported {
+            what: "evaluate_omega of a DLR: its pole functions have no real-frequency \
+                   representation (#205); use the IR basis"
+                .to_string(),
+        })
     }
 
-    fn default_omega_sampling_points(&self) -> Vec<f64> {
+    fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
         // DLR poles ARE the omega sampling points
-        self.poles.clone()
+        Ok(self.poles.clone())
     }
 }
 
@@ -757,8 +890,8 @@ mod tests {
         // For fermions: G(τ) should equal -G(τ-β)
         // For bosons: G(τ) should equal G(τ-β)
         for tau in [0.1, 0.3, 0.7] {
-            let g_tau = gtau_single_pole::<S>(tau, omega, beta);
-            let g_tau_minus_beta = gtau_single_pole::<S>(tau - beta, omega, beta);
+            let g_tau = gtau_single_pole::<S>(tau, omega, beta).unwrap();
+            let g_tau_minus_beta = gtau_single_pole::<S>(tau - beta, omega, beta).unwrap();
 
             // For fermions: G(τ) = -G(τ-β) → G(τ-β) = -G(τ)
             // For bosons: G(τ) = G(τ-β)
@@ -795,11 +928,11 @@ mod tests {
         let tau = 0.5;
 
         // Test that generic function matches specific functions
-        let g_f_specific = fermionic_single_pole(tau, omega, beta);
-        let g_f_generic = gtau_single_pole::<Fermionic>(tau, omega, beta);
+        let g_f_specific = fermionic_single_pole(tau, omega, beta).unwrap();
+        let g_f_generic = gtau_single_pole::<Fermionic>(tau, omega, beta).unwrap();
 
-        let g_b_specific = bosonic_single_pole(tau, omega, beta);
-        let g_b_generic = gtau_single_pole::<Bosonic>(tau, omega, beta);
+        let g_b_specific = bosonic_single_pole(tau, omega, beta).unwrap();
+        let g_b_generic = gtau_single_pole::<Bosonic>(tau, omega, beta).unwrap();
 
         assert!(
             (g_f_specific - g_f_generic).abs() < 1e-14,

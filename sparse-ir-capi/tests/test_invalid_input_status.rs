@@ -1748,3 +1748,237 @@ fn tau_sampling_new_keeps_the_given_point_order() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Matrix sizes of spir_sve_result_from_matrix*
+// ---------------------------------------------------------------------------
+
+/// A stand-in kernel matrix of `nx * ny` finite entries, row-major
+fn stand_in_kernel_matrix(nx: i32, ny: i32) -> Vec<f64> {
+    (0..nx * ny)
+        .map(|k| 0.1 * (1.0 + f64::from(k).sin()))
+        .collect()
+}
+
+/// The rows (columns) of the matrix are the Gauss points of the x (y)
+/// segments. With one more row than the segments have points, the weights
+/// were indexed out of bounds (SPIR_INTERNAL_ERROR, -7); with one less, the
+/// missing rows were filled with zeros and a wrong SVE came back (success).
+#[test]
+fn sve_result_from_matrix_rejects_sizes_other_than_the_gauss_points() {
+    let n_gauss = 2;
+    let full = [-1.0, 0.0, 1.0]; // 2 segments: 4 Gauss points
+    let half = [0.0, 0.5, 1.0];
+    for (nx, ny) in [(4, 4), (5, 4), (3, 4), (4, 5), (4, 3), (8, 8), (2, 2)] {
+        let k = stand_in_kernel_matrix(nx, ny);
+        let expected = if (nx, ny) == (4, 4) {
+            SPIR_COMPUTATION_SUCCESS
+        } else {
+            SPIR_INVALID_ARGUMENT
+        };
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_from_matrix(
+            k.as_ptr(),
+            ptr::null(),
+            nx,
+            ny,
+            SPIR_ORDER_ROW_MAJOR,
+            full.as_ptr(),
+            2,
+            full.as_ptr(),
+            2,
+            n_gauss,
+            1e-8,
+            &mut status,
+        );
+        assert_eq!(status, expected, "from_matrix, nx = {nx}, ny = {ny}");
+        assert_eq!(sve.is_null(), expected != SPIR_COMPUTATION_SUCCESS);
+        spir_sve_result_release(sve);
+
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_from_matrix_centrosymmetric(
+            k.as_ptr(),
+            ptr::null(),
+            k.as_ptr(),
+            ptr::null(),
+            nx,
+            ny,
+            SPIR_ORDER_ROW_MAJOR,
+            half.as_ptr(),
+            2,
+            half.as_ptr(),
+            2,
+            n_gauss,
+            1e-8,
+            &mut status,
+        );
+        assert_eq!(status, expected, "centrosymmetric, nx = {nx}, ny = {ny}");
+        assert_eq!(sve.is_null(), expected != SPIR_COMPUTATION_SUCCESS);
+        spir_sve_result_release(sve);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// spir_basis_new_from_sve_and_regularizer
+// ---------------------------------------------------------------------------
+
+/// Build a basis with beta = 1 and omega_max = 10 from `regularizer`
+fn basis_with_regularizer(statistics: i32, regularizer: &Funcs) -> StatusCode {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let basis = spir_basis_new_from_sve_and_regularizer(
+        statistics,
+        BETA,
+        WMAX,
+        EPS,
+        BETA * WMAX,
+        0,
+        0.0,
+        sve,
+        regularizer.0,
+        -1,
+        &mut status,
+    );
+    assert_eq!(basis.is_null(), status != SPIR_COMPUTATION_SUCCESS);
+    if !basis.is_null() {
+        spir_basis_release(basis);
+    }
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+    status
+}
+
+/// The regularizer is evaluated at omega_max / 2 for validity. A τ function
+/// whose domain [-β, β] does not contain that point, or an ω function whose
+/// knots do not, panicked there (SPIR_INTERNAL_ERROR, -7); it is an invalid
+/// argument now. Matsubara functions are not evaluated, as before.
+#[test]
+fn basis_new_from_sve_and_regularizer_rejects_a_regularizer_undefined_at_half_of_wmax() {
+    // v on [-1, 1]: beta = 10, omega_max = 1
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(10.0, &mut status);
+    let narrow = spir_basis_new(
+        SPIR_STATISTICS_FERMIONIC,
+        10.0,
+        1.0,
+        EPS,
+        kernel,
+        ptr::null(),
+        -1,
+        &mut status,
+    );
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let narrow_v = get_funcs(narrow, spir_basis_get_v);
+
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let u = get_funcs(fx.basis, spir_basis_get_u);
+        let v = get_funcs(fx.basis, spir_basis_get_v);
+        let uhat = get_funcs(fx.basis, spir_basis_get_uhat);
+        let dlr_u = get_funcs(fx.dlr, spir_basis_get_u);
+        for (name, regularizer, expected) in [
+            ("u on [-1, 1]", &u, SPIR_INVALID_ARGUMENT),
+            ("DLR u on [-1, 1]", &dlr_u, SPIR_INVALID_ARGUMENT),
+            ("v on [-1, 1]", &narrow_v, SPIR_INVALID_ARGUMENT),
+            ("v on [-10, 10]", &v, SPIR_COMPUTATION_SUCCESS),
+            ("uhat", &uhat, SPIR_COMPUTATION_SUCCESS),
+        ] {
+            assert_eq!(
+                basis_with_regularizer(statistics, regularizer),
+                expected,
+                "{name}, statistics {statistics}"
+            );
+        }
+    }
+    drop(narrow_v);
+    spir_basis_release(narrow);
+    spir_kernel_release(kernel);
+}
+
+// ---------------------------------------------------------------------------
+// Scalar arguments that the core checks as well
+// ---------------------------------------------------------------------------
+
+/// Invalid scalars of the constructors are invalid arguments, also when a
+/// second argument is invalid too.
+#[test]
+fn constructor_scalars_checked_by_the_core_keep_their_statuses() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    for lambda in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        let kernel = spir_logistic_kernel_new(lambda, &mut status);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "logistic, lambda = {lambda}");
+        assert!(kernel.is_null());
+        let kernel = spir_reg_bose_kernel_new(lambda, &mut status);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "regularized bose, lambda = {lambda}"
+        );
+        assert!(kernel.is_null());
+    }
+
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    for epsilon in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+        for twork in [SPIR_TWORK_AUTO, 5] {
+            let sve = spir_sve_result_new(kernel, epsilon, -1, -1, twork, &mut status);
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "epsilon = {epsilon}, twork = {twork}"
+            );
+            assert!(sve.is_null());
+        }
+    }
+
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    for epsilon in [-1.0, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        for max_size in [-1, 0] {
+            let truncated = spir_sve_result_truncate(sve, epsilon, max_size, &mut status);
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "epsilon = {epsilon}, max_size = {max_size}"
+            );
+            assert!(truncated.is_null());
+        }
+    }
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+
+    // Boundaries that do not increase
+    for segments in [[0.0, 0.0, 1.0], [0.0, 1.0, 0.5], [1.0, 0.0, 2.0]] {
+        let (mut x, mut w) = ([0.0; 8], [0.0; 8]);
+        let ret = spir_gauss_legendre_rule_piecewise_double(
+            4,
+            segments.as_ptr(),
+            2,
+            x.as_mut_ptr(),
+            w.as_mut_ptr(),
+            &mut status,
+        );
+        assert_eq!(
+            (ret, status),
+            (SPIR_INVALID_ARGUMENT, SPIR_INVALID_ARGUMENT),
+            "{segments:?}"
+        );
+        let (mut xh, mut xl, mut wh, mut wl) = ([0.0; 8], [0.0; 8], [0.0; 8], [0.0; 8]);
+        let ret = spir_gauss_legendre_rule_piecewise_ddouble(
+            4,
+            segments.as_ptr(),
+            2,
+            xh.as_mut_ptr(),
+            xl.as_mut_ptr(),
+            wh.as_mut_ptr(),
+            wl.as_mut_ptr(),
+            &mut status,
+        );
+        assert_eq!(
+            (ret, status),
+            (SPIR_INVALID_ARGUMENT, SPIR_INVALID_ARGUMENT),
+            "ddouble, {segments:?}"
+        );
+    }
+}

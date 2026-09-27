@@ -6,6 +6,7 @@ use std::panic::catch_unwind;
 
 use sparse_ir::sve::{TworkType, compute_sve};
 
+use crate::status::status_from;
 use crate::types::{spir_kernel, spir_sve_result};
 use crate::utils::checked_len;
 use crate::{
@@ -64,6 +65,15 @@ pub extern "C" fn spir_sve_result_is_assigned(obj: *const spir_sve_result) -> i3
 ///
 /// # Returns
 /// * Pointer to SVE result, or NULL on failure
+/// * Status code:
+///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `epsilon` is not
+///     positive and finite or is 1 or more, `Twork` is invalid, or the
+///     discretized kernel has a NaN or infinite entry (e.g. a
+///     `RegularizedBoseKernel` whose lambda is so small that 1/lambda
+///     overflows)
+///   - `SPIR_INTERNAL_ERROR` (-7) if an SVD does not converge or an internal
+///     panic occurs
 ///
 /// # Safety
 /// The caller must ensure `status` is a valid pointer.
@@ -90,13 +100,6 @@ pub extern "C" fn spir_sve_result_new(
     }
 
     if k.is_null() {
-        unsafe {
-            *status = SPIR_INVALID_ARGUMENT;
-        }
-        return std::ptr::null_mut();
-    }
-
-    if epsilon <= 0.0 || !epsilon.is_finite() {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -134,24 +137,32 @@ pub extern "C" fn spir_sve_result_new(
 
         // Dispatch based on kernel type
         // cutoff = None selects the default 2 * machine epsilon of the working precision
-        let sve_result = if let Some(logistic) = kernel.as_logistic() {
+        let computed = if let Some(logistic) = kernel.as_logistic() {
             debug_println!("spir_sve_result_new: computing SVE for LogisticKernel");
             compute_sve(
-                **logistic, epsilon, None,
+                **logistic,
+                Some(epsilon),
+                None,
                 None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else if let Some(reg_bose) = kernel.as_regularized_bose() {
             debug_println!("spir_sve_result_new: computing SVE for RegularizedBoseKernel");
             compute_sve(
-                **reg_bose, epsilon, None,
+                **reg_bose,
+                Some(epsilon),
+                None,
                 None, // cutoff=None (auto), max_num_svals auto-determined
                 twork_type,
             )
         } else {
             debug_eprintln!("spir_sve_result_new: Unknown kernel type");
-            return Err("Unknown kernel type");
+            return Err(SPIR_INTERNAL_ERROR);
         };
+        let sve_result = computed.map_err(|e| {
+            debug_eprintln!("spir_sve_result_new: {e}");
+            status_from(&e)
+        })?;
 
         debug_println!("spir_sve_result_new: SVE computation completed, creating wrapper");
         let sve_wrapper = spir_sve_result::new(sve_result);
@@ -166,10 +177,9 @@ pub extern "C" fn spir_sve_result_new(
             }
             ptr
         }
-        Ok(Err(msg)) => {
-            debug_eprintln!("Error in spir_sve_result_new: {}", msg);
+        Ok(Err(code)) => {
             unsafe {
-                *status = SPIR_INTERNAL_ERROR;
+                *status = code;
             }
             std::ptr::null_mut()
         }
@@ -235,7 +245,9 @@ pub extern "C" fn spir_sve_result_get_size(
 /// * Pointer to new truncated SVE result, or NULL on failure
 /// * Status code:
 ///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
-///   - `SPIR_INVALID_ARGUMENT` (-6) if sve or status is null, or epsilon is invalid
+///   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` is NULL, `epsilon` is not
+///     finite, negative or 1 or more (0 keeps every singular value), or
+///     `max_size` is 0
 ///   - `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Safety
@@ -273,13 +285,6 @@ pub extern "C" fn spir_sve_result_truncate(
         return std::ptr::null_mut();
     }
 
-    if epsilon < 0.0 || !epsilon.is_finite() {
-        unsafe {
-            *status = SPIR_INVALID_ARGUMENT;
-        }
-        return std::ptr::null_mut();
-    }
-
     let result = catch_unwind(|| unsafe {
         let sve_ref = &*sve;
 
@@ -291,25 +296,35 @@ pub extern "C" fn spir_sve_result_truncate(
         };
 
         // Extract truncated parts using SVEResult::part
-        let (u_part, s_part, v_part) = sve_ref.inner().part(Some(epsilon), max_size_opt);
+        let (u_part, s_part, v_part) = sve_ref
+            .inner()
+            .part(Some(epsilon), max_size_opt)
+            .map_err(|e| status_from(&e))?;
 
         // Create new SVE result with truncated data
         let sve_truncated = sparse_ir::sve::SVEResult::new(
             u_part, s_part, v_part, epsilon, // Use provided epsilon for new result
-        );
+        )
+        .map_err(|e| status_from(&e))?;
 
         // Wrap in C-API type
         let sve_wrapper = spir_sve_result::new(sve_truncated);
 
-        Box::into_raw(Box::new(sve_wrapper))
+        Ok(Box::into_raw(Box::new(sve_wrapper)))
     });
 
     match result {
-        Ok(ptr) => {
+        Ok(Ok(ptr)) => {
             unsafe {
                 *status = SPIR_COMPUTATION_SUCCESS;
             }
             ptr
+        }
+        Ok(Err(code)) => {
+            unsafe {
+                *status = code;
+            }
+            std::ptr::null_mut()
         }
         Err(_) => {
             unsafe {
@@ -405,6 +420,16 @@ unsafe fn validated_segments<'a>(
     }
 }
 
+/// Whether `n` rows (or columns) are the Gauss points of `n_segments`
+/// segments with `n_gauss` points each
+///
+/// The weights of those points are removed from the singular vectors, one
+/// per row: a matrix of another size would index them out of bounds or
+/// leave rows of the polynomials unset.
+fn is_gauss_point_count(n: libc::c_int, n_segments: libc::c_int, n_gauss: libc::c_int) -> bool {
+    n_segments.checked_mul(n_gauss) == Some(n)
+}
+
 /// Create a SVE result from a discretized kernel matrix
 ///
 /// This function performs singular value expansion (SVE) on a discretized kernel
@@ -417,8 +442,10 @@ unsafe fn validated_segments<'a>(
 ///   finite entries)
 /// * `K_low` - Low part of the kernel matrix (optional, nullptr for double
 ///   precision; finite entries)
-/// * `nx` - Number of rows in the matrix
-/// * `ny` - Number of columns in the matrix
+/// * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+///   the number of Gauss points of the segments)
+/// * `ny` - Number of columns in the matrix (must be `n_segments_y *
+///   n_gauss`, the number of Gauss points of the segments)
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
 /// * `segments_x` - X-direction segments (array of boundary points, size:
 ///   n_segments_x + 1, finite and strictly increasing)
@@ -435,11 +462,15 @@ unsafe fn validated_segments<'a>(
 /// non-NULL, `*status` is set to:
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
-///   a size is less than 1, `epsilon` is not positive and finite, an entry of
-///   `K_high` or `K_low` is NaN or infinite, or the segments are not finite
-///   and strictly increasing
+///   a size is less than 1, `epsilon` is not positive and finite or is 1 or
+///   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
+///   are not finite and strictly increasing, a segment length is not finite
+///   or is subnormal, the sum of the ends of a segment overflows, `nx` is
+///   not `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`,
+///   or the matrix has rank 0
 /// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
-/// - SPIR_INTERNAL_ERROR if an internal error occurs
+/// - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
+///   overflows) or an internal error occurs
 ///
 /// The arrays are validated before the SVE is computed.
 #[unsafe(no_mangle)]
@@ -459,9 +490,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ) -> *mut spir_sve_result {
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
-    use sparse_ir::poly::PiecewiseLegendrePolyVector;
     use sparse_ir::sve::SVEResult;
-    use sparse_ir::tsvd::compute_svd_dtensor;
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -482,7 +511,8 @@ pub extern "C" fn spir_sve_result_from_matrix(
         return std::ptr::null_mut();
     }
 
-    if epsilon <= 0.0 || !epsilon.is_finite() {
+    // epsilon >= 1 is invalid for an SVE; reject it before the SVD
+    if epsilon <= 0.0 || epsilon >= 1.0 || !epsilon.is_finite() {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -521,6 +551,17 @@ pub extern "C" fn spir_sve_result_from_matrix(
         }
     };
 
+    // The rows and columns must be the Gauss points of the segments; check
+    // it before the SVD.
+    if !is_gauss_point_count(nx, n_segments_x, n_gauss)
+        || !is_gauss_point_count(ny, n_segments_y, n_gauss)
+    {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
     let result = catch_unwind(|| {
         // Reconstruct Gauss rules
         let rule_base_dd = legendre::<sparse_ir::Df64>(n_gauss as usize);
@@ -529,15 +570,18 @@ pub extern "C" fn spir_sve_result_from_matrix(
         if let Some(k_low_slice) = k_low_slice {
             // DDouble precision path
             use sparse_ir::Df64;
-            use sparse_ir::numeric::CustomNumeric;
 
             // Convert segments to DDouble
             let segs_x_dd: Vec<Df64> = segs_x_slice.iter().map(|&x| Df64::from(x)).collect();
             let segs_y_dd: Vec<Df64> = segs_y_slice.iter().map(|&y| Df64::from(y)).collect();
 
             // Create piecewise Gauss rules
-            let gauss_x_dd = rule_base_dd.piecewise(&segs_x_dd);
-            let gauss_y_dd = rule_base_dd.piecewise(&segs_y_dd);
+            let gauss_x_dd = rule_base_dd
+                .piecewise(&segs_x_dd)
+                .map_err(|e| status_from(&e))?;
+            let gauss_y_dd = rule_base_dd
+                .piecewise(&segs_y_dd)
+                .map_err(|e| status_from(&e))?;
 
             // Convert matrix from C array to DTensor
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
@@ -567,55 +611,19 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 }
             }
 
-            // Prepare f64 segments for polynomial conversion
-            let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
-            let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
-            let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
-
-            // Compute SVD
-            let (u, s, v) = compute_svd_dtensor(&matrix);
-
-            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
-            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
-            // So we need to remove weights from SVD results
-            use sparse_ir::sve::utils::remove_weights;
-            let u_unweighted = remove_weights(&u, gauss_x_dd.w.as_slice(), true);
-            let v_unweighted = remove_weights(&v, gauss_y_dd.w.as_slice(), true);
-
-            // Convert U and V to f64 for polynomial conversion
-            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| {
-                u_unweighted[idx].to_f64()
-            });
-            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| {
-                v_unweighted[idx].to_f64()
-            });
-
-            let u_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &u_f64,
-                &segs_x_f64,
-                &gauss_rule_f64,
+            let sve_result = SVEResult::from_discretized_matrix(
+                &matrix,
+                &gauss_x_dd,
+                &gauss_y_dd,
+                segs_x_slice,
+                segs_y_slice,
                 n_gauss as usize,
-            );
-            let v_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &v_f64,
-                &segs_y_f64,
-                &gauss_rule_f64,
-                n_gauss as usize,
-            );
-
-            // Convert singular values to f64 (Df64 -> f64)
-            let s_f64: Vec<f64> = s.iter().map(|&sv| sv.to_f64()).collect();
-
-            // Create SVEResult
-            let sve_result = SVEResult::new(
-                PiecewiseLegendrePolyVector::new(u_polys),
-                s_f64,
-                PiecewiseLegendrePolyVector::new(v_polys),
                 epsilon,
-            );
+            )
+            .map_err(|e| status_from(&e))?;
 
             let sve_wrapper = spir_sve_result::new(sve_result);
-            Box::into_raw(Box::new(sve_wrapper))
+            Ok(Box::into_raw(Box::new(sve_wrapper)))
         } else {
             // Double precision path
             // Convert matrix from C array to DTensor
@@ -643,57 +651,41 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
             // Reconstruct Gauss rules for weight removal
             let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
-            let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
-            let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
-            let gauss_x = gauss_rule_f64.piecewise(&segs_x_f64);
-            let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
+            let gauss_x = gauss_rule_f64
+                .piecewise(segs_x_slice)
+                .map_err(|e| status_from(&e))?;
+            let gauss_y = gauss_rule_f64
+                .piecewise(segs_y_slice)
+                .map_err(|e| status_from(&e))?;
 
-            // Compute SVD
-            let (u, s, v) = compute_svd_dtensor(&matrix);
-
-            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / std::sqrt(gauss_x_w[i]))
-            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
-            // So we need to remove weights from SVD results
-            use sparse_ir::sve::utils::remove_weights;
-            let u_unweighted = remove_weights(&u, gauss_x.w.as_slice(), true);
-            let v_unweighted = remove_weights(&v, gauss_y.w.as_slice(), true);
-
-            // Convert to polynomials using svd_to_polynomials
-            let u_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &u_unweighted,
-                &segs_x_f64,
-                &gauss_rule_f64,
+            let sve_result = SVEResult::from_discretized_matrix(
+                &matrix,
+                &gauss_x,
+                &gauss_y,
+                segs_x_slice,
+                segs_y_slice,
                 n_gauss as usize,
-            );
-            let v_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &v_unweighted,
-                &segs_y_f64,
-                &gauss_rule_f64,
-                n_gauss as usize,
-            );
-
-            // Convert singular values to f64 (s is already Vec<f64>)
-            let s_f64: Vec<f64> = s;
-
-            // Create SVEResult
-            let sve_result = SVEResult::new(
-                PiecewiseLegendrePolyVector::new(u_polys),
-                s_f64,
-                PiecewiseLegendrePolyVector::new(v_polys),
                 epsilon,
-            );
+            )
+            .map_err(|e| status_from(&e))?;
 
             let sve_wrapper = spir_sve_result::new(sve_result);
-            Box::into_raw(Box::new(sve_wrapper))
+            Ok(Box::into_raw(Box::new(sve_wrapper)))
         }
     });
 
     match result {
-        Ok(ptr) => {
+        Ok(Ok(ptr)) => {
             unsafe {
                 *status = SPIR_COMPUTATION_SUCCESS;
             }
             ptr
+        }
+        Ok(Err(code)) => {
+            unsafe {
+                *status = code;
+            }
+            std::ptr::null_mut()
         }
         Err(_) => {
             unsafe {
@@ -721,14 +713,18 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ///   size: nx * ny, finite entries)
 /// * `K_odd_low` - Low part of the odd-symmetry kernel matrix (optional,
 ///   nullptr for double precision; finite entries)
-/// * `nx` - Number of rows in the matrix
-/// * `ny` - Number of columns in the matrix
+/// * `nx` - Number of rows in the matrix (must be `n_segments_x * n_gauss`,
+///   the number of Gauss points of the segments on [0, xmax])
+/// * `ny` - Number of columns in the matrix (must be `n_segments_y *
+///   n_gauss`, the number of Gauss points of the segments on [0, ymax])
 /// * `order` - Memory layout (SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR)
-/// * `segments_x` - X-direction segments (array of boundary points, size:
-///   n_segments_x + 1, finite and strictly increasing)
+/// * `segments_x` - X-direction segments on the half domain (array of
+///   boundary points, size: n_segments_x + 1, finite and strictly
+///   increasing, starting at 0)
 /// * `n_segments_x` - Number of segments in x direction (boundary points - 1)
-/// * `segments_y` - Y-direction segments (array of boundary points, size:
-///   n_segments_y + 1, finite and strictly increasing)
+/// * `segments_y` - Y-direction segments on the half domain (array of
+///   boundary points, size: n_segments_y + 1, finite and strictly
+///   increasing, starting at 0)
 /// * `n_segments_y` - Number of segments in y direction (boundary points - 1)
 /// * `n_gauss` - Number of Gauss points per segment
 /// * `epsilon` - Target accuracy
@@ -740,10 +736,15 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
 ///   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
-///   and finite, an entry of a matrix that is read is NaN or infinite, or the
-///   segments are not finite and strictly increasing
+///   and finite or is 1 or more, an entry of a matrix that is read is NaN or
+///   infinite, the segments are not finite and strictly increasing, the
+///   segments do not start at 0, a segment length is not finite or is
+///   subnormal, the sum of the ends of a segment overflows, `nx` is not
+///   `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`, or
+///   both matrices have rank 0
 /// - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
-/// - SPIR_INTERNAL_ERROR if an internal error occurs
+/// - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
+///   or an internal error occurs
 ///
 /// The low parts are read only if both are non-NULL. The arrays are validated
 /// before the SVE is computed.
@@ -766,10 +767,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
 ) -> *mut spir_sve_result {
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
-    use sparse_ir::kernel::SymmetryType;
-    use sparse_ir::poly::PiecewiseLegendrePolyVector;
-    use sparse_ir::sve::utils::{extend_to_full_domain, merge_results};
-    use sparse_ir::tsvd::compute_svd_dtensor;
+    use sparse_ir::sve::SVEResult;
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -791,7 +789,8 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         return std::ptr::null_mut();
     }
 
-    if epsilon <= 0.0 || !epsilon.is_finite() {
+    // epsilon >= 1 is invalid for an SVE; reject it before the SVD
+    if epsilon <= 0.0 || epsilon >= 1.0 || !epsilon.is_finite() {
         unsafe {
             *status = SPIR_INVALID_ARGUMENT;
         }
@@ -838,6 +837,27 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         }
     };
 
+    // The centrosymmetric SVE mirrors [0, xmax] onto [-xmax, xmax]: both
+    // segment lists must start at 0. The core checks this too, but only
+    // after the SVD; reject it before any work.
+    if segs_x_slice[0] != 0.0 || segs_y_slice[0] != 0.0 {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
+    // The rows and columns must be the Gauss points of the segments; check
+    // it before the SVD.
+    if !is_gauss_point_count(nx, n_segments_x, n_gauss)
+        || !is_gauss_point_count(ny, n_segments_y, n_gauss)
+    {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    }
+
     let result = catch_unwind(|| {
         // Get xmax and ymax from segments
         let xmax = segs_x_slice[segs_x_slice.len() - 1];
@@ -849,19 +869,17 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
 
         // Reconstruct Gauss rules for weight removal (reduced domain [0, xmax] x [0, ymax])
-        let gauss_x = gauss_rule_f64.piecewise(&segs_x_f64);
-        let gauss_y = gauss_rule_f64.piecewise(&segs_y_f64);
+        let gauss_x = gauss_rule_f64
+            .piecewise(&segs_x_f64)
+            .map_err(|e| status_from(&e))?;
+        let gauss_y = gauss_rule_f64
+            .piecewise(&segs_y_f64)
+            .map_err(|e| status_from(&e))?;
 
-        // Helper function to convert matrix and compute SVD
-        let compute_svd_for_symmetry = |k_high_slice: &[f64],
-                                        k_low_slice: Option<&[f64]>|
-         -> (
-            mdarray::DTensor<f64, 2>,
-            Vec<f64>,
-            mdarray::DTensor<f64, 2>,
-        ) {
+        // Assemble one symmetry block of the kernel matrix
+        let matrix_of = |k_high_slice: &[f64], k_low_slice: Option<&[f64]>| {
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let matrix = if let Some(k_low_slice) = k_low_slice {
+            if let Some(k_low_slice) = k_low_slice {
                 use sparse_ir::Df64;
                 use sparse_ir::numeric::CustomNumeric;
                 let mut matrix_dd = mdarray::DTensor::<Df64, 2>::from_elem(
@@ -888,7 +906,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                         }
                     }
                 }
-                // Convert to f64 for SVD
+                // The centrosymmetric SVE is computed in double precision
                 mdarray::DTensor::<f64, 2>::from_fn(*matrix_dd.shape(), |idx| {
                     matrix_dd[idx].to_f64()
                 })
@@ -913,83 +931,42 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                     }
                 }
                 matrix_f64
-            };
-
-            // Compute SVD
-            let (u, s, v) = compute_svd_dtensor(&matrix);
-
-            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
-            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
-            // So we need to remove weights from SVD results
-            use sparse_ir::sve::utils::remove_weights;
-            let u_unweighted = remove_weights(&u, gauss_x.w.as_slice(), true);
-            let v_unweighted = remove_weights(&v, gauss_y.w.as_slice(), true);
-
-            // Convert singular values to f64 (s is already Vec<f64>)
-            let s_f64: Vec<f64> = s;
-
-            (u_unweighted, s_f64, v_unweighted)
+            }
         };
 
-        // Compute SVD for even and odd symmetry
-        let (u_even, s_even, v_even) =
-            compute_svd_for_symmetry(k_even_high, k_lows.map(|(even, _)| even));
-        let (u_odd, s_odd, v_odd) =
-            compute_svd_for_symmetry(k_odd_high, k_lows.map(|(_, odd)| odd));
+        let even = matrix_of(k_even_high, k_lows.map(|(even, _)| even));
+        let odd = matrix_of(k_odd_high, k_lows.map(|(_, odd)| odd));
 
-        // Convert to polynomials
-        let u_even_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &u_even,
-            &segs_x_f64,
-            &gauss_rule_f64,
+        let sve_result = SVEResult::from_discretized_matrices_centrosymmetric(
+            &even,
+            &odd,
+            &gauss_x,
+            &gauss_y,
+            segs_x_slice,
+            segs_y_slice,
             n_gauss as usize,
-        );
-        let v_even_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &v_even,
-            &segs_y_f64,
-            &gauss_rule_f64,
-            n_gauss as usize,
-        );
-
-        let u_odd_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &u_odd,
-            &segs_x_f64,
-            &gauss_rule_f64,
-            n_gauss as usize,
-        );
-        let v_odd_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &v_odd,
-            &segs_y_f64,
-            &gauss_rule_f64,
-            n_gauss as usize,
-        );
-
-        // Extend to full domain
-        let u_even_full = extend_to_full_domain(u_even_polys, SymmetryType::Even, xmax);
-        let v_even_full = extend_to_full_domain(v_even_polys, SymmetryType::Even, ymax);
-
-        let u_odd_full = extend_to_full_domain(u_odd_polys, SymmetryType::Odd, xmax);
-        let v_odd_full = extend_to_full_domain(v_odd_polys, SymmetryType::Odd, ymax);
-
-        // Merge even and odd results. A block of rank 0 (e.g. the odd part of a
-        // kernel that is even in y) has no functions: `merge_results` accepts
-        // empty blocks, but `PiecewiseLegendrePolyVector::new` would panic.
-        let block = |polyvec| PiecewiseLegendrePolyVector { polyvec };
-        let result_even = (block(u_even_full), s_even, block(v_even_full));
-        let result_odd = (block(u_odd_full), s_odd, block(v_odd_full));
-
-        let sve_result = merge_results(result_even, result_odd, epsilon);
+            xmax,
+            ymax,
+            epsilon,
+        )
+        .map_err(|e| status_from(&e))?;
 
         let sve_wrapper = spir_sve_result::new(sve_result);
-        Box::into_raw(Box::new(sve_wrapper))
+        Ok(Box::into_raw(Box::new(sve_wrapper)))
     });
 
     match result {
-        Ok(ptr) => {
+        Ok(Ok(ptr)) => {
             unsafe {
                 *status = SPIR_COMPUTATION_SUCCESS;
             }
             ptr
+        }
+        Ok(Err(code)) => {
+            unsafe {
+                *status = code;
+            }
+            std::ptr::null_mut()
         }
         Err(_) => {
             unsafe {
@@ -1112,11 +1089,11 @@ mod tests {
                 assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
                 let reference = |cutoff: f64| -> SVEResult {
                     if bosonic {
-                        let k = RegularizedBoseKernel::new(lambda);
-                        compute_sve(k, epsilon, Some(cutoff), None, twork_type)
+                        let k = RegularizedBoseKernel::new(lambda).unwrap();
+                        compute_sve(k, Some(epsilon), Some(cutoff), None, twork_type).unwrap()
                     } else {
-                        let k = LogisticKernel::new(lambda);
-                        compute_sve(k, epsilon, Some(cutoff), None, twork_type)
+                        let k = LogisticKernel::new(lambda).unwrap();
+                        compute_sve(k, Some(epsilon), Some(cutoff), None, twork_type).unwrap()
                     }
                 };
 
@@ -1137,12 +1114,12 @@ mod tests {
 
                 assert_eq!(
                     svals,
-                    reference(2.0 * machine_eps).s,
+                    reference(2.0 * machine_eps).s(),
                     "default cutoff must be 2 * machine epsilon \
                      (lambda={lambda}, twork={twork}, bosonic={bosonic})"
                 );
                 assert_eq!(
-                    reference(machine_eps).s.len(),
+                    reference(machine_eps).s().len(),
                     svals.len() + 1,
                     "precondition: one singular value must lie in [1, 2) machine epsilons \
                      times s[0] (lambda={lambda}, twork={twork}, bosonic={bosonic})"
@@ -1243,10 +1220,11 @@ mod tests {
         assert_eq!(segments_x.len(), (n_segments_x + 1) as usize);
         assert_eq!(segments_y.len(), (n_segments_y + 1) as usize);
         // Get Gauss points and weights
-        // Note: n_segments_x and n_segments_y are the number of boundary points (n_segments + 1),
-        // but spir_gauss_legendre_rule_piecewise_double expects the number of segments (n_segments)
-        let nx = n_gauss * (n_segments_x); // n_segments_x - 1 is the number of segments
-        let ny = n_gauss * (n_segments_y); // n_segments_y - 1 is the number of segments
+        // Note: n_segments_x and n_segments_y are the number of segments, which
+        // is what spir_gauss_legendre_rule_piecewise_double expects; the arrays
+        // of boundaries hold one more entry than that.
+        let nx = n_gauss * (n_segments_x);
+        let ny = n_gauss * (n_segments_y);
         let mut x = vec![0.0; nx as usize];
         let mut w_x = vec![0.0; nx as usize];
         let mut y = vec![0.0; ny as usize];
@@ -1544,7 +1522,7 @@ mod tests {
 
         let lambda = 10.0;
         let epsilon = 1e-6;
-        let kernel = LogisticKernel::new(lambda);
+        let kernel = LogisticKernel::new(lambda).unwrap();
 
         // Get SVE hints
         let hints = kernel.sve_hints::<f64>(epsilon);
@@ -1554,8 +1532,8 @@ mod tests {
 
         // Create Gauss rules for reduced domain [0, xmax] x [0, ymax]
         let gauss_rule = legendre::<f64>(n_gauss);
-        let gauss_x_reduced = gauss_rule.piecewise(&segments_x);
-        let gauss_y_reduced = gauss_rule.piecewise(&segments_y);
+        let gauss_x_reduced = gauss_rule.piecewise(&segments_x).unwrap();
+        let gauss_y_reduced = gauss_rule.piecewise(&segments_y).unwrap();
 
         // Compute even and odd matrices (reduced domain)
         let discretized_even = matrix_from_gauss_with_segments(
@@ -1594,8 +1572,8 @@ mod tests {
         }
 
         // Create Gauss rules for full domain
-        let gauss_x_full = gauss_rule.piecewise(&segments_x_full);
-        let gauss_y_full = gauss_rule.piecewise(&segments_y_full);
+        let gauss_x_full = gauss_rule.piecewise(&segments_x_full).unwrap();
+        let gauss_y_full = gauss_rule.piecewise(&segments_y_full).unwrap();
 
         // Compute full domain matrix
         let discretized_full =
@@ -1765,11 +1743,14 @@ mod tests {
             matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
         };
 
-        let kernel = LogisticKernel::new(MATRICES_LAMBDA);
+        let kernel = LogisticKernel::new(MATRICES_LAMBDA).unwrap();
         let hints = kernel.sve_hints::<f64>(MATRICES_EPSILON);
         let (segs_x, segs_y) = (hints.segments_x(), hints.segments_y());
         let rule = legendre::<f64>(hints.ngauss());
-        let (gauss_x, gauss_y) = (rule.piecewise(&segs_x), rule.piecewise(&segs_y));
+        let (gauss_x, gauss_y) = (
+            rule.piecewise(&segs_x).unwrap(),
+            rule.piecewise(&segs_y).unwrap(),
+        );
         let reduced = |symmetry| {
             matrix_from_gauss_with_segments(&kernel, &gauss_x, &gauss_y, symmetry, &hints)
                 .apply_weights_for_sve()
@@ -1784,8 +1765,8 @@ mod tests {
         let (segs_x_full, segs_y_full) = (mirror(&segs_x), mirror(&segs_y));
         let full = matrix_from_gauss_noncentrosymmetric(
             &kernel,
-            &rule.piecewise(&segs_x_full),
-            &rule.piecewise(&segs_y_full),
+            &rule.piecewise(&segs_x_full).unwrap(),
+            &rule.piecewise(&segs_y_full).unwrap(),
             &hints,
         )
         .apply_weights_for_sve();
@@ -1882,13 +1863,14 @@ mod tests {
     /// `compute_sve` for the same kernel and accuracy
     fn s0_relative_error(sve: *const spir_sve_result) -> f64 {
         let reference = compute_sve(
-            sparse_ir::kernel::LogisticKernel::new(MATRICES_LAMBDA),
-            MATRICES_EPSILON,
+            sparse_ir::kernel::LogisticKernel::new(MATRICES_LAMBDA).unwrap(),
+            Some(MATRICES_EPSILON),
             None,
             None,
             TworkType::Auto,
-        );
-        (largest_singular_value(sve) - reference.s[0]).abs() / reference.s[0]
+        )
+        .unwrap();
+        (largest_singular_value(sve) - reference.s()[0]).abs() / reference.s()[0]
     }
 
     /// A NaN or an infinity in the matrix made the SVD iterate forever:
@@ -2053,5 +2035,115 @@ mod tests {
 
         spir_sve_result_release(both);
         spir_sve_result_release(even_only);
+    }
+
+    /// Both blocks of rank 0 leave no singular value at all: merge_results
+    /// panicked (SPIR_INTERNAL_ERROR, -7).
+    #[test]
+    fn test_sve_result_from_matrix_centrosymmetric_with_two_zero_blocks() {
+        let m = logistic_kernel_matrices();
+        let zeros = vec![0.0; m.even.len()];
+        let (status, sve) = sve_from_reduced_matrices(&m, &zeros, &zeros, None, &m.segs_x);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT);
+        assert!(sve.is_null());
+    }
+
+    /// epsilon >= 1 is rejected before the matrices are decomposed: it used
+    /// to reach the SVD, where a matrix of this size indexed past the Gauss
+    /// weights and panicked (SPIR_INTERNAL_ERROR, -7).
+    #[test]
+    fn test_sve_result_from_matrix_centrosymmetric_rejects_epsilon_before_the_svd() {
+        let m = logistic_kernel_matrices();
+        let (k_even, k_odd) = (&m.even, &m.odd);
+        for epsilon in [1.0, 2.0] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix_centrosymmetric(
+                k_even.as_ptr(),
+                ptr::null(),
+                k_odd.as_ptr(),
+                ptr::null(),
+                m.nx as libc::c_int,
+                m.ny as libc::c_int,
+                SPIR_ORDER_ROW_MAJOR,
+                m.segs_x.as_ptr(),
+                (m.segs_x.len() - 1) as libc::c_int,
+                m.segs_y.as_ptr(),
+                (m.segs_y.len() - 1) as libc::c_int,
+                m.n_gauss,
+                epsilon,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "epsilon = {epsilon}");
+            assert!(sve.is_null());
+        }
+    }
+
+    /// The centrosymmetric variant mirrors segments that start at 0. A
+    /// negative first boundary made the mirrored knots decrease (a panic,
+    /// SPIR_INTERNAL_ERROR) and a positive one gave a wrong SVE silently.
+    /// Both are rejected before the SVD.
+    #[test]
+    fn test_sve_result_from_matrix_centrosymmetric_requires_segments_from_zero() {
+        let m = logistic_kernel_matrices();
+        let (k_even, k_odd) = (&m.even, &m.odd);
+        let shift = |segs: &[f64], by: f64| segs.iter().map(|s| s + by).collect::<Vec<f64>>();
+        for (segs_x, segs_y) in [
+            (shift(&m.segs_x, -0.25), m.segs_y.clone()),
+            (shift(&m.segs_x, 0.25), m.segs_y.clone()),
+            (m.segs_x.clone(), shift(&m.segs_y, 0.25)),
+        ] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix_centrosymmetric(
+                k_even.as_ptr(),
+                ptr::null(),
+                k_odd.as_ptr(),
+                ptr::null(),
+                m.nx as libc::c_int,
+                m.ny as libc::c_int,
+                SPIR_ORDER_ROW_MAJOR,
+                segs_x.as_ptr(),
+                (segs_x.len() - 1) as libc::c_int,
+                segs_y.as_ptr(),
+                (segs_y.len() - 1) as libc::c_int,
+                m.n_gauss,
+                1e-6,
+                &mut status,
+            );
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "{:?}, {:?}",
+                segs_x[0], segs_y[0]
+            );
+            assert!(sve.is_null());
+        }
+    }
+
+    /// Segments whose length overflows ([-1e308, 1e308]) or is subnormal
+    /// ([0, 1e-310]) passed the check of finite, strictly increasing
+    /// boundaries and gave an SVE with infinite weights or normalizations (or
+    /// a panic). They are invalid arguments now.
+    #[test]
+    fn test_sve_result_from_matrix_rejects_degenerate_segment_lengths() {
+        let k = [1.0, 0.0, 0.0, 0.5];
+        let segs_y = [-1.0, 1.0];
+        for segs_x in [[-1e308, 1e308], [0.0, 1e-310]] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix(
+                k.as_ptr(),
+                ptr::null(),
+                2,
+                2,
+                SPIR_ORDER_ROW_MAJOR,
+                segs_x.as_ptr(),
+                1,
+                segs_y.as_ptr(),
+                1,
+                2,
+                1e-10,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_INVALID_ARGUMENT, "{segs_x:?}");
+            assert!(sve.is_null());
+        }
     }
 }

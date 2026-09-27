@@ -6,6 +6,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use sparse_ir::basis::FiniteTempBasis;
 
+use crate::status::status_from;
 use crate::types::{spir_basis, spir_funcs, spir_kernel, spir_sve_result};
 use crate::{
     SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
@@ -71,12 +72,17 @@ pub extern "C" fn spir_basis_is_assigned(obj: *const spir_basis) -> i32 {
 /// * Status code:
 ///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
 ///   - `SPIR_INVALID_ARGUMENT` (-6) if `k` is NULL, `statistics` is invalid,
-///     `beta`, `omega_max` or `epsilon` is not positive and finite, or the
-///     lambda of `k` differs from `beta * omega_max` by more than 1e-10
+///     `beta`, `omega_max` or `epsilon` is not positive and finite,
+///     `epsilon` is 1 or more, `max_size` is 0, the lambda of `k` differs
+///     from `beta * omega_max` by more than 1e-10, `sve` is not an SVE on
+///     [-1, 1] × [-1, 1] (e.g. from `spir_sve_result_from_matrix` with other
+///     segments), or `sve` is NULL and the discretized kernel has a
+///     non-finite entry (e.g. a `RegularizedBoseKernel` with a tiny lambda)
 ///   - `SPIR_NOT_SUPPORTED` (-5) if `k` is a `RegularizedBoseKernel` and
 ///     `statistics` is fermionic: that kernel supports bosonic statistics
 ///     only
-///   - `SPIR_INTERNAL_ERROR` (-7) if an internal panic occurs
+///   - `SPIR_INTERNAL_ERROR` (-7) if the SVE cannot be computed (an SVD does
+///     not converge) or an internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure `status` is a valid pointer.
@@ -157,7 +163,8 @@ pub extern "C" fn spir_basis_new(
                     )
                 } else {
                     FiniteTempBasis::new(**logistic, beta, Some(epsilon), max_size_opt)
-                };
+                }
+                .map_err(|e| status_from(&e))?;
                 Ok(Box::into_raw(Box::new(spir_basis::new_logistic_fermionic(
                     basis,
                 ))))
@@ -174,7 +181,8 @@ pub extern "C" fn spir_basis_new(
                     )
                 } else {
                     FiniteTempBasis::new(**logistic, beta, Some(epsilon), max_size_opt)
-                };
+                }
+                .map_err(|e| status_from(&e))?;
                 Ok(Box::into_raw(Box::new(spir_basis::new_logistic_bosonic(
                     basis,
                 ))))
@@ -198,7 +206,8 @@ pub extern "C" fn spir_basis_new(
                     )
                 } else {
                     FiniteTempBasis::new(**reg_bose, beta, Some(epsilon), max_size_opt)
-                };
+                }
+                .map_err(|e| status_from(&e))?;
                 Ok(Box::into_raw(Box::new(
                     spir_basis::new_regularized_bose_bosonic(basis),
                 )))
@@ -256,8 +265,12 @@ pub extern "C" fn spir_basis_new(
 ///   - `SPIR_COMPUTATION_SUCCESS` (0) on success
 ///   - `SPIR_INVALID_ARGUMENT` (-6) if `sve` or `regularizer_funcs` is NULL,
 ///     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
-///     `lambda` is not positive and finite, or `lambda` differs from
-///     `beta * omega_max` by more than 1e-10
+///     `lambda` is not positive and finite, `epsilon` is 1 or more,
+///     `max_size` is 0, `lambda` differs from `beta * omega_max` by more than
+///     1e-10, `sve` is not an SVE on [-1, 1] × [-1, 1], or
+///     `regularizer_funcs` holds τ or ω functions that are not defined at
+///     `omega_max / 2`, the point at which they are evaluated for validity
+///     (e.g. the u of a basis whose β is less than `omega_max / 2`)
 ///   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
 ///     and `statistics` is fermionic: that kernel supports bosonic statistics
 ///     only
@@ -348,23 +361,21 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
         let sve_ref = &*sve;
         let sve_result = sve_ref.inner().as_ref().clone();
 
-        // Evaluate regularizer_funcs at a test point to verify it's valid
-        // (Note: Currently, the custom regularizer is not fully integrated into basis construction)
+        // Evaluate the regularizer at a test point to check that it is
+        // defined there (the custom weight is not used in the construction
+        // yet). τ and ω functions whose domain does not contain the point
+        // are invalid arguments; Matsubara functions are not evaluated.
         let test_omega = omega_max / 2.0;
-        let _regularizer_value = match (*regularizer_funcs).eval_continuous(test_omega) {
-            Some(values) if !values.is_empty() => values[0],
-            _ => {
-                // Default to 1.0 if evaluation fails
-                1.0
-            }
-        };
+        if let Some(Err(e)) = (*regularizer_funcs).eval_continuous(test_omega) {
+            return Err(status_from(&e));
+        }
 
         // Select kernel type based on ypower:
         //   ypower == 0 => LogisticKernel
         //   ypower == 1 => RegularizedBoseKernel
         if ypower == 0 {
             use sparse_ir::kernel::LogisticKernel;
-            let kernel = LogisticKernel::new(lambda);
+            let kernel = LogisticKernel::new(lambda).map_err(|e| status_from(&e))?;
 
             if statistics == SPIR_STATISTICS_FERMIONIC {
                 let basis =
@@ -374,7 +385,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                         sve_result,
                         Some(epsilon),
                         max_size_opt,
-                    );
+                    )
+                    .map_err(|e| status_from(&e))?;
                 Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
                     spir_basis::new_logistic_fermionic(basis),
                 )))
@@ -386,7 +398,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                         sve_result,
                         Some(epsilon),
                         max_size_opt,
-                    );
+                    )
+                    .map_err(|e| status_from(&e))?;
                 Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
                     spir_basis::new_logistic_bosonic(basis),
                 )))
@@ -401,7 +414,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                 use sparse_ir::kernel::RegularizedBoseKernel;
                 // Still supported until the kernel is removed (#273).
                 #[allow(deprecated)]
-                let kernel = RegularizedBoseKernel::new(lambda);
+                let kernel = RegularizedBoseKernel::new(lambda).map_err(|e| status_from(&e))?;
 
                 let basis =
                     FiniteTempBasis::<RegularizedBoseKernel, sparse_ir::traits::Bosonic>::from_sve_result(
@@ -410,7 +423,8 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
                         sve_result,
                         Some(epsilon),
                         max_size_opt,
-                    );
+                    )
+                    .map_err(|e| status_from(&e))?;
                 Ok::<*mut spir_basis, StatusCode>(Box::into_raw(Box::new(
                     spir_basis::new_regularized_bose_bosonic(basis),
                 )))
@@ -557,9 +571,16 @@ pub extern "C" fn spir_basis_get_singular_values(
 /// * `b` - Basis object
 /// * `num_points` - Pointer to store the number of points
 ///
+/// A DLR has no default τ sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last one has no
+///   extrema to stand in for the roots of the missing one (e.g. an SVE from
+///   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_n_default_taus(
@@ -572,7 +593,10 @@ pub extern "C" fn spir_basis_get_n_default_taus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let points = basis.default_tau_sampling_points();
+        let points = match basis.default_tau_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         *num_points = points.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -591,9 +615,16 @@ pub extern "C" fn spir_basis_get_n_default_taus(
 /// * `b` - Basis object
 /// * `points` - Pre-allocated array to store tau points
 ///
+/// A DLR has no default τ sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last one has no
+///   extrema to stand in for the roots of the missing one (e.g. an SVE from
+///   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_default_taus(
@@ -606,7 +637,10 @@ pub extern "C" fn spir_basis_get_default_taus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let tau_points = basis.default_tau_sampling_points();
+        let tau_points = match basis.default_tau_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         std::ptr::copy_nonoverlapping(tau_points.as_ptr(), points, tau_points.len());
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -621,6 +655,9 @@ pub extern "C" fn spir_basis_get_default_taus(
 /// * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
 ///   sets include n = 0)
 /// * `num_points` - Pointer to store the number of points
+///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -642,12 +679,10 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
-        let points = basis.default_matsubara_sampling_points(positive_only);
+        let points = match basis.default_matsubara_sampling_points(positive_only) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         *num_points = points.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -663,6 +698,9 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 ///   sets include n = 0)
 /// * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
 ///   (iν = iπn/β)
+///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -684,12 +722,10 @@ pub extern "C" fn spir_basis_get_default_matsus(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
-        let matsu_points = basis.default_matsubara_sampling_points(positive_only);
+        let matsu_points = match basis.default_matsubara_sampling_points(positive_only) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, matsu_points.len());
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -714,8 +750,9 @@ pub unsafe extern "C" fn spir_basis_get_u(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{BasisType, spir_funcs};
+    use crate::types::{BasisType, DlrOf, spir_funcs};
     use std::panic::catch_unwind;
+    use std::sync::Arc;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -746,20 +783,10 @@ pub unsafe extern "C" fn spir_basis_get_u(
                 spir_funcs::from_u_bosonic(basis.u().clone(), beta)
             }
             // DLR: tau-domain functions using kernel-aware pole weights
-            BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_tau_fermionic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
-            BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_tau_bosonic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
+            BasisType::DLRFermionic(dlr) => {
+                spir_funcs::from_dlr_tau(DlrOf::Fermionic(Arc::clone(dlr)))
+            }
+            BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_tau(DlrOf::Bosonic(Arc::clone(dlr))),
         };
 
         Result::<*mut spir_funcs, String>::Ok(Box::into_raw(Box::new(funcs)))
@@ -871,7 +898,13 @@ pub unsafe extern "C" fn spir_basis_get_v(
 /// * `num_points` - Pointer to store the number of sampling points
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success)
+/// * `SPIR_COMPUTATION_SUCCESS` (0) on success
+/// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last v has no
+///   extrema to stand in for the roots of the missing one. Nothing is
+///   written.
+/// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure that `b` and `num_points` are valid pointers
@@ -886,7 +919,10 @@ pub extern "C" fn spir_basis_get_n_default_ws(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let omega_points = basis.default_omega_sampling_points();
+        let omega_points = match basis.default_omega_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         *num_points = omega_points.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -901,7 +937,13 @@ pub extern "C" fn spir_basis_get_n_default_ws(
 /// * `points` - Pre-allocated array to store the omega sampling points
 ///
 /// # Returns
-/// Status code (SPIR_COMPUTATION_SUCCESS on success)
+/// * `SPIR_COMPUTATION_SUCCESS` (0) on success
+/// * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
+/// * `SPIR_NOT_SUPPORTED` (-5) if the default points are not defined for
+///   `b`: its SVE has so few singular functions that the last v has no
+///   extrema to stand in for the roots of the missing one. Nothing is
+///   written.
+/// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Safety
 /// The caller must ensure that `points` has size >= `spir_basis_get_n_default_ws(b)`
@@ -913,7 +955,10 @@ pub extern "C" fn spir_basis_get_default_ws(b: *const spir_basis, points: *mut f
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let omega_points = basis.default_omega_sampling_points();
+        let omega_points = match basis.default_omega_sampling_points() {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
         std::ptr::copy_nonoverlapping(omega_points.as_ptr(), points, omega_points.len());
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -938,8 +983,9 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
     b: *const spir_basis,
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
-    use crate::types::{BasisType, spir_funcs};
+    use crate::types::{BasisType, DlrOf, spir_funcs};
     use std::panic::catch_unwind;
+    use std::sync::Arc;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -970,20 +1016,12 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
                 spir_funcs::from_uhat_bosonic(basis.uhat().clone(), beta)
             }
             // DLR: Matsubara-domain functions using discrete poles
-            BasisType::DLRFermionic(dlr) => spir_funcs::from_dlr_matsubara_fermionic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
-            BasisType::DLRBosonic(dlr) => spir_funcs::from_dlr_matsubara_bosonic(
-                dlr.poles.clone(),
-                beta,
-                dlr.wmax,
-                dlr.pole_weights().to_vec(),
-                dlr.kernel_ypower(),
-            ),
+            BasisType::DLRFermionic(dlr) => {
+                spir_funcs::from_dlr_matsubara(DlrOf::Fermionic(Arc::clone(dlr)))
+            }
+            BasisType::DLRBosonic(dlr) => {
+                spir_funcs::from_dlr_matsubara(DlrOf::Bosonic(Arc::clone(dlr)))
+            }
         };
 
         Result::<*mut spir_funcs, String>::Ok(Box::into_raw(Box::new(funcs)))
@@ -1116,9 +1154,17 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
 /// * `points` - Pre-allocated array to store tau points (size >= n_points)
 /// * `n_points_returned` - Pointer to store actual number of points returned
 ///
+/// A DLR has no default τ sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if any pointer is null or n_points < 0
+/// * `SPIR_NOT_SUPPORTED` (-5) if `n_points` is at least the number of
+///   singular functions of the SVE of `b` and the default points are not
+///   defined for it: the last singular function has no extrema to stand in
+///   for the roots of the missing one (e.g. an SVE from
+///   `spir_sve_result_truncate` with `max_size = 2`). Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
@@ -1140,7 +1186,10 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        let tau_points = basis.default_tau_sampling_points_size_requested(n_points as usize);
+        let tau_points = match basis.default_tau_sampling_points_size_requested(n_points as usize) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
 
         // Return min(requested, available) points
         let n_to_return = std::cmp::min(n_points as usize, tau_points.len());
@@ -1164,6 +1213,9 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 ///   an augmented basis, pass the augmented size; it may differ from the size
 ///   of `b`.
 /// * `n_points_total` - Pointer to store the number of sampling points
+///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -1198,16 +1250,14 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
-        let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
+        let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,
             basis_size as usize,
-        );
+        ) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
 
         *n_points_total = matsu_points.len() as libc::c_int;
 
@@ -1231,6 +1281,9 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// * `points` - Buffer for the Matsubara indices, or NULL to query the number
 ///   of points only
 /// * `n_points_total` - Pointer to store the number of sampling points
+///
+/// A DLR has no default Matsubara sampling points: for a DLR this returns
+/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success, including a count query
@@ -1269,16 +1322,14 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
 
     let result = catch_unwind(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
-        // The default points need basis functions of definite parity (#183);
-        // detect their absence here instead of letting the core panic.
-        if !basis.has_default_matsubara_sampling_points() {
-            return SPIR_NOT_SUPPORTED;
-        }
-        let matsu_points = basis.default_matsubara_sampling_points_with_mitigate(
+        let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
             fence,
             basis_size as usize,
-        );
+        ) {
+            Ok(points) => points,
+            Err(e) => return status_from(&e),
+        };
 
         *n_points_total = matsu_points.len() as libc::c_int;
         if points.is_null() {
@@ -1902,6 +1953,59 @@ mod tests {
         }
     }
 
+    /// max_size = 0 and epsilon > 1 were core panics (SPIR_INTERNAL_ERROR, -7),
+    /// and epsilon = 1 gave a basis of size 1. All are invalid arguments now.
+    #[test]
+    fn test_basis_new_from_sve_and_regularizer_rejects_invalid_sizes() {
+        use crate::{
+            SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_TWORK_AUTO,
+            spir_funcs_from_piecewise_legendre, spir_funcs_release,
+        };
+        let (lambda, beta) = (10.0, 1.0);
+        let omega_max = lambda / beta;
+        let mut status = SPIR_INTERNAL_ERROR;
+        let kernel = spir_logistic_kernel_new(lambda, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let sve = spir_sve_result_new(kernel, 1e-8, -1, -1, SPIR_TWORK_AUTO, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let (segments, coeffs) = ([-omega_max, omega_max], [1.0]);
+        let regularizer = spir_funcs_from_piecewise_legendre(
+            segments.as_ptr(),
+            1,
+            coeffs.as_ptr(),
+            1,
+            0,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        for (epsilon, max_size) in [(1e-8, 0), (1.0, -1), (2.0, -1)] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let basis = spir_basis_new_from_sve_and_regularizer(
+                1,
+                beta,
+                omega_max,
+                epsilon,
+                lambda,
+                0,
+                1.0,
+                sve,
+                regularizer,
+                max_size,
+                &mut status,
+            );
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "epsilon = {epsilon}, max_size = {max_size}"
+            );
+            assert!(basis.is_null());
+        }
+
+        spir_funcs_release(regularizer);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+
     #[test]
     fn test_basis_rejects_fermionic_regularized_bose() {
         use crate::SPIR_NOT_SUPPORTED;
@@ -2245,11 +2349,13 @@ mod tests {
 
         // A buffer of exactly n_total elements receives the full point set.
         let expected = unsafe {
-            (*basis).default_matsubara_sampling_points_with_mitigate(
-                positive_only,
-                fence,
-                basis_size as usize,
-            )
+            (*basis)
+                .default_matsubara_sampling_points_with_mitigate(
+                    positive_only,
+                    fence,
+                    basis_size as usize,
+                )
+                .unwrap()
         };
         assert_eq!(expected.len(), n_total as usize);
         let mut points = vec![0i64; n_total as usize];

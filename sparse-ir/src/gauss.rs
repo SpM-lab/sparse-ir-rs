@@ -9,9 +9,23 @@
 //! where we generally have superexponential convergence for smooth f(x)
 //! with the number of quadrature points.
 
+use crate::error::Error;
 use crate::numeric::CustomNumeric;
 use simba::scalar::ComplexField;
 use std::fmt::Debug;
+
+/// `Ok` if there is one weight per point
+fn check_weights<T>(x: &[T], w: &[T]) -> Result<(), Error> {
+    if x.len() == w.len() {
+        Ok(())
+    } else {
+        Err(Error::InvalidParameter {
+            name: "w",
+            value: format!("{} weights", w.len()),
+            reason: format!("must have one weight per point ({})", x.len()),
+        })
+    }
+}
 
 /// Quadrature rule for numerical integration.
 ///
@@ -20,18 +34,50 @@ use std::fmt::Debug;
 /// `x_forward` and `x_backward` for efficient computation.
 #[derive(Debug, Clone)]
 pub struct Rule<T> {
-    /// Quadrature points
-    pub x: Vec<T>, //COMMENT: ADD CHECK CODE TO MAKE SURE x is in non-decreasing order
+    /// Quadrature points, in non-decreasing order
+    pub(crate) x: Vec<T>,
     /// Quadrature weights
-    pub w: Vec<T>,
+    pub(crate) w: Vec<T>,
     /// Distance from left endpoint: x - a
-    pub x_forward: Vec<T>,
+    pub(crate) x_forward: Vec<T>,
     /// Distance from right endpoint: b - x
-    pub x_backward: Vec<T>,
+    pub(crate) x_backward: Vec<T>,
     /// Left endpoint of integration interval
-    pub a: T,
+    pub(crate) a: T,
     /// Right endpoint of integration interval
-    pub b: T,
+    pub(crate) b: T,
+}
+
+impl<T: Copy> Rule<T> {
+    /// Quadrature points, in non-decreasing order
+    pub fn x(&self) -> &[T] {
+        &self.x
+    }
+
+    /// Quadrature weights, one per point
+    pub fn w(&self) -> &[T] {
+        &self.w
+    }
+
+    /// Distance of each point from the left endpoint: `x - a`
+    pub fn x_forward(&self) -> &[T] {
+        &self.x_forward
+    }
+
+    /// Distance of each point from the right endpoint: `b - x`
+    pub fn x_backward(&self) -> &[T] {
+        &self.x_backward
+    }
+
+    /// Left endpoint of the integration interval
+    pub fn a(&self) -> T {
+        self.a
+    }
+
+    /// Right endpoint of the integration interval
+    pub fn b(&self) -> T {
+        self.b
+    }
 }
 
 impl<T> Rule<T>
@@ -46,26 +92,32 @@ where
     /// * `a` - Left endpoint (default: -1.0)
     /// * `b` - Right endpoint (default: 1.0)
     ///
-    /// # Panics
-    /// Panics if x and w have different lengths.
-    pub fn new(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Self {
-        assert_eq!(x.len(), w.len(), "x and w must have the same length");
+    /// The points are not checked for order or for lying in `[a, b]`;
+    /// [`Self::validate`] does that.
+    ///
+    /// # Errors
+    /// [`Error::InvalidParameter`] if x and w have different lengths.
+    pub fn new(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Result<Self, Error> {
+        check_weights(&x, &w)?;
 
         let x_forward: Vec<T> = x.iter().map(|&xi| xi - a).collect();
         let x_backward: Vec<T> = x.iter().map(|&xi| b - xi).collect();
 
-        Self {
+        Ok(Self {
             x,
             w,
             x_forward,
             x_backward,
             a,
             b,
-        }
+        })
     }
 
     /// Create a new quadrature rule from vectors.
-    pub fn from_vectors(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Self {
+    ///
+    /// # Errors
+    /// The errors of [`Self::new`].
+    pub fn from_vectors(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Result<Self, Error> {
         Self::new(x, w, a, b)
     }
 
@@ -124,19 +176,55 @@ where
     /// Create a piecewise rule over multiple segments.
     ///
     /// # Arguments
-    /// * `edges` - Segment boundaries (must be sorted in ascending order)
+    /// * `edges` - Segment boundaries: at least 2, finite and strictly
+    ///   increasing, with finite segment lengths and a finite sum of the ends
+    ///   of each segment (the midpoint of the segment is computed from it)
     ///
-    /// # Panics
-    /// Panics if edges are not sorted or have less than 2 elements.
-    pub fn piecewise(&self, edges: &[T]) -> Self {
+    /// # Errors
+    /// [`Error::InvalidParameter`] if `edges` does not meet these conditions
+    pub fn piecewise(&self, edges: &[T]) -> Result<Self, Error> {
         if edges.len() < 2 {
-            panic!("edges must have at least 2 elements");
+            return Err(Error::InvalidParameter {
+                name: "edges",
+                value: format!("{} edges", edges.len()),
+                reason: "must have at least 2 entries".to_string(),
+            });
         }
-
-        // Check if edges are sorted
+        if let Some((i, e)) = edges
+            .iter()
+            .enumerate()
+            .find(|(_, e)| !e.to_f64().is_finite())
+        {
+            return Err(Error::InvalidParameter {
+                name: "edges",
+                value: format!("{:?} at index {i}", e.to_f64()),
+                reason: "must be finite".to_string(),
+            });
+        }
         for i in 1..edges.len() {
-            if edges[i] <= edges[i - 1] {
-                panic!("edges must be sorted in ascending order");
+            let length = (edges[i] - edges[i - 1]).to_f64();
+            if !(length > 0.0 && length.is_finite()) {
+                return Err(Error::InvalidParameter {
+                    name: "edges",
+                    value: format!(
+                        "{:?} after {:?} at index {i}",
+                        edges[i].to_f64(),
+                        edges[i - 1].to_f64()
+                    ),
+                    reason: "must be strictly increasing, with finite segment lengths".to_string(),
+                });
+            }
+            // `reseat` computes the midpoint as (a + b) * 0.5
+            if !(edges[i] + edges[i - 1]).to_f64().is_finite() {
+                return Err(Error::InvalidParameter {
+                    name: "edges",
+                    value: format!(
+                        "{:?} after {:?} at index {i}",
+                        edges[i].to_f64(),
+                        edges[i - 1].to_f64()
+                    ),
+                    reason: "must have a finite sum of the ends of each segment".to_string(),
+                });
             }
         }
 
@@ -146,7 +234,7 @@ where
             rules.push(rule);
         }
 
-        Self::join(&rules)
+        Ok(Self::join(&rules))
     }
 
     /// Join multiple rules into a single rule.
@@ -308,24 +396,30 @@ where
     T: CustomNumeric,
 {
     /// Create a new quadrature rule from points and weights (CustomNumeric version).
-    pub fn new_custom(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Self {
-        assert_eq!(x.len(), w.len(), "x and w must have the same length");
+    ///
+    /// # Errors
+    /// [`Error::InvalidParameter`] if x and w have different lengths.
+    pub fn new_custom(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Result<Self, Error> {
+        check_weights(&x, &w)?;
 
         let x_forward: Vec<T> = x.iter().map(|&xi| xi - a).collect();
         let x_backward: Vec<T> = x.iter().map(|&xi| b - xi).collect();
 
-        Self {
+        Ok(Self {
             x,
             w,
             x_forward,
             x_backward,
             a,
             b,
-        }
+        })
     }
 
     /// Create a new quadrature rule from vectors (CustomNumeric version).
-    pub fn from_vectors_custom(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Self {
+    ///
+    /// # Errors
+    /// The errors of [`Self::new_custom`].
+    pub fn from_vectors_custom(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Result<Self, Error> {
         Self::new_custom(x, w, a, b)
     }
 
@@ -417,34 +511,40 @@ where
 /// Df64-specific implementation without ScalarOperand requirement
 impl Rule<crate::Df64> {
     /// Create a new quadrature rule from points and weights (Df64 version).
+    ///
+    /// # Errors
+    /// [`Error::InvalidParameter`] if x and w have different lengths.
     pub fn new_twofloat(
         x: Vec<crate::Df64>,
         w: Vec<crate::Df64>,
         a: crate::Df64,
         b: crate::Df64,
-    ) -> Self {
-        assert_eq!(x.len(), w.len(), "x and w must have the same length");
+    ) -> Result<Self, Error> {
+        check_weights(&x, &w)?;
 
         let x_forward: Vec<crate::Df64> = x.iter().map(|&xi| xi - a).collect();
         let x_backward: Vec<crate::Df64> = x.iter().map(|&xi| b - xi).collect();
 
-        Self {
+        Ok(Self {
             x,
             w,
             x_forward,
             x_backward,
             a,
             b,
-        }
+        })
     }
 
     /// Create a new quadrature rule from vectors (Df64 version).
+    ///
+    /// # Errors
+    /// The errors of [`Self::new_twofloat`].
     pub fn from_vectors_twofloat(
         x: Vec<crate::Df64>,
         w: Vec<crate::Df64>,
         a: crate::Df64,
         b: crate::Df64,
-    ) -> Self {
+    ) -> Result<Self, Error> {
         Self::new_twofloat(x, w, a, b)
     }
 
@@ -678,6 +778,7 @@ where
         <T as CustomNumeric>::from_f64_unchecked(-1.0),
         <T as CustomNumeric>::from_f64_unchecked(1.0),
     )
+    .expect("the Gauss-Legendre nodes and weights have the same length")
 }
 
 /// Compute Gauss-Legendre quadrature nodes and weights using CustomNumeric
@@ -797,7 +898,8 @@ where
             vec![],
             <T as CustomNumeric>::from_f64_unchecked(-1.0),
             <T as CustomNumeric>::from_f64_unchecked(1.0),
-        );
+        )
+        .expect("the Gauss-Legendre nodes and weights have the same length");
     }
 
     let (x, w) = gauss_legendre_nodes_weights_custom(n);
@@ -808,6 +910,7 @@ where
         <T as CustomNumeric>::from_f64_unchecked(-1.0),
         <T as CustomNumeric>::from_f64_unchecked(1.0),
     )
+    .expect("the Gauss-Legendre nodes and weights have the same length")
 }
 
 /// Create a Gauss-Legendre quadrature rule with n points on [-1, 1] (Df64 version).
@@ -818,7 +921,8 @@ pub fn legendre_twofloat(n: usize) -> Rule<crate::Df64> {
             vec![],
             <crate::Df64 as CustomNumeric>::from_f64_unchecked(-1.0),
             <crate::Df64 as CustomNumeric>::from_f64_unchecked(1.0),
-        );
+        )
+        .expect("the Gauss-Legendre nodes and weights have the same length");
     }
 
     let mut x: Vec<crate::Df64> = vec![crate::Df64::ZERO; n];
@@ -831,6 +935,7 @@ pub fn legendre_twofloat(n: usize) -> Rule<crate::Df64> {
         <crate::Df64 as CustomNumeric>::from_f64_unchecked(-1.0),
         <crate::Df64 as CustomNumeric>::from_f64_unchecked(1.0),
     )
+    .expect("the Gauss-Legendre nodes and weights have the same length")
 }
 
 /// Create Legendre Vandermonde matrix for polynomial interpolation
@@ -891,6 +996,7 @@ pub fn legendre_generic<T: CustomNumeric + 'static>(n: usize) -> Rule<T> {
             T::from_f64_unchecked(rule_f64.a),
             T::from_f64_unchecked(rule_f64.b),
         )
+        .expect("the Gauss-Legendre nodes and weights have the same length")
     } else {
         // For Df64, use legendre_twofloat
         let rule_tf = legendre_twofloat(n);
@@ -900,6 +1006,7 @@ pub fn legendre_generic<T: CustomNumeric + 'static>(n: usize) -> Rule<T> {
             T::from_f64_unchecked(rule_tf.a.into()),
             T::from_f64_unchecked(rule_tf.b.into()),
         )
+        .expect("the Gauss-Legendre nodes and weights have the same length")
     }
 }
 

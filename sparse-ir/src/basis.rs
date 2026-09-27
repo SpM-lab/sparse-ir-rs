@@ -5,8 +5,11 @@
 
 use std::sync::Arc;
 
+use crate::error::{
+    Error, require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
+};
 use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel};
-use crate::poly::{PiecewiseLegendrePolyVector, default_sampling_points};
+use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector, default_sampling_points};
 use crate::polyfourier::PiecewiseLegendreFTVector;
 use crate::sve::{SVEResult, TworkType, compute_sve};
 use crate::traits::{Bosonic, Fermionic, StatisticsType};
@@ -73,6 +76,52 @@ where
     uhat_full: Arc<PiecewiseLegendreFTVector<S>>,
 
     _phantom: std::marker::PhantomData<S>,
+}
+
+/// Check that `sve_result` is an SVE on [-1, 1] × [-1, 1], the domain of
+/// the kernels in the scaled variables x = 2τ/β - 1 and y = ω/ωmax
+///
+/// The tolerance is the one of the Fourier transform of the basis functions
+/// (`PiecewiseLegendreFT::new`), which requires the interval [-1, 1].
+fn check_unit_domain(sve_result: &SVEResult) -> Result<(), Error> {
+    let domain =
+        |funcs: &PiecewiseLegendrePolyVector| funcs.get_polys().first().map(|p| (p.xmin, p.xmax));
+    let (Some(u), Some(v)) = (domain(&sve_result.u), domain(&sve_result.v)) else {
+        return Err(Error::EmptyInput { name: "sve_result" });
+    };
+    let is_unit = |(lo, hi): (f64, f64)| (lo + 1.0).abs() <= 1e-12 && (hi - 1.0).abs() <= 1e-12;
+    if is_unit(u) && is_unit(v) {
+        Ok(())
+    } else {
+        Err(Error::InvalidParameter {
+            name: "sve_result",
+            value: format!("an SVE on [{:?}, {:?}] × [{:?}, {:?}]", u.0, u.1, v.0, v.1),
+            reason: "must be an SVE on [-1, 1] × [-1, 1]".to_string(),
+        })
+    }
+}
+
+/// Knots and widths of `poly` with the first and last knot set exactly to
+/// -1 and 1
+///
+/// `check_unit_domain` accepts an SVE whose domain differs from [-1, 1] by up
+/// to 1e-12 (e.g. from `spir_sve_result_from_matrix`). Scaled to τ and ω,
+/// such knots end inside [0, β] and [-ωmax, ωmax], where evaluating at the
+/// ends panics. The width of an end segment is recomputed only if its knot
+/// moved, so an SVE with exact ends keeps its knots and widths bit for bit.
+fn unit_knots_and_widths(poly: &PiecewiseLegendrePoly) -> (Vec<f64>, Vec<f64>) {
+    let mut knots = poly.knots.clone();
+    let mut widths = poly.delta_x.clone();
+    let last = knots.len() - 1;
+    if knots[0] != -1.0 {
+        knots[0] = -1.0;
+        widths[0] = knots[1] - knots[0];
+    }
+    if knots[last] != 1.0 {
+        knots[last] = 1.0;
+        widths[last - 1] = knots[last] - knots[last - 1];
+    }
+    (knots, widths)
 }
 
 impl<K, S> FiniteTempBasis<K, S>
@@ -142,33 +191,48 @@ where
     }
 
     /// Get default Matsubara sampling points as i64 indices (for C-API)
-    pub fn default_matsubara_sampling_points_i64(&self, positive_only: bool) -> Vec<i64>
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis functions have no definite parity
+    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
+    /// #183)
+    pub fn default_matsubara_sampling_points_i64(
+        &self,
+        positive_only: bool,
+    ) -> Result<Vec<i64>, Error>
     where
         S: 'static,
     {
-        let freqs = self.default_matsubara_sampling_points(positive_only);
-        freqs.into_iter().map(|f| f.n()).collect()
+        Ok(self
+            .default_matsubara_sampling_points(positive_only)?
+            .into_iter()
+            .map(|f| f.n())
+            .collect())
     }
 
     /// Get default Matsubara sampling points as i64 indices with mitigate parameter (for C-API)
     ///
-    /// # Panics
-    /// Panics if the kernel is not centrosymmetric. This method relies on
-    /// centrosymmetry to generate sampling points.
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis functions have no definite parity
+    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
+    /// #183)
     pub fn default_matsubara_sampling_points_i64_with_mitigate(
         &self,
         positive_only: bool,
         mitigate: bool,
         n_points: usize,
-    ) -> Vec<i64>
+    ) -> Result<Vec<i64>, Error>
     where
         S: 'static,
     {
         if !self.kernel().is_centrosymmetric() {
-            panic!(
-                "default_matsubara_sampling_points_i64_with_mitigate is not supported for non-centrosymmetric kernels. \
-                 The current implementation relies on centrosymmetry to generate sampling points."
-            );
+            return Err(Error::NotSupported {
+                what: "default Matsubara sampling points of a basis whose kernel is not \
+                       centrosymmetric: they rely on the parity of the basis functions"
+                    .to_string(),
+            });
         }
         let fence = mitigate;
         let freqs = Self::default_matsubara_sampling_points_impl(
@@ -176,8 +240,8 @@ where
             n_points,
             fence,
             positive_only,
-        );
-        freqs.into_iter().map(|f| f.n()).collect()
+        )?;
+        Ok(freqs.into_iter().map(|f| f.n()).collect())
     }
 
     /// Create a new FiniteTempBasis
@@ -186,7 +250,8 @@ where
     ///
     /// * `kernel` - Kernel implementing `KernelProperties + CentrosymmKernel`
     /// * `beta` - Inverse temperature (β > 0)
-    /// * `epsilon` - Accuracy parameter (optional, defaults to NaN for auto)
+    /// * `epsilon` - Accuracy of the basis, in (0, 1). `None` selects the best
+    ///   accuracy of the working precision (about 1.6e-16).
     /// * `max_size` - Maximum number of basis functions (optional). It limits
     ///   the basis, not the SVE: the SVE is computed and kept in full, as in
     ///   [`from_sve_result`](Self::from_sve_result) with an untruncated SVE.
@@ -197,17 +262,25 @@ where
     ///
     /// A new FiniteTempBasis
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if `beta` is not positive or `max_size` is `Some(0)`.
-    pub fn new(kernel: K, beta: f64, epsilon: Option<f64>, max_size: Option<usize>) -> Self {
-        // Validate inputs
-        if beta <= 0.0 {
-            panic!("Inverse temperature beta must be positive, got {}", beta);
-        }
-        if max_size == Some(0) {
-            panic!("max_size must be positive, got 0");
-        }
+    /// * [`Error::InvalidParameter`] if `beta` is not positive and finite,
+    ///   `epsilon` is not in (0, 1), or `max_size` is `Some(0)`. These are
+    ///   checked before the SVE is computed.
+    /// * The errors of [`compute_sve`]: [`Error::NonFiniteInput`] if the
+    ///   discretized kernel has a non-finite entry, [`Error::DecompositionFailed`]
+    ///   if an SVD of the SVE fails
+    /// * The errors of [`from_sve_result`](Self::from_sve_result)
+    pub fn new(
+        kernel: K,
+        beta: f64,
+        epsilon: Option<f64>,
+        max_size: Option<usize>,
+    ) -> Result<Self, Error> {
+        // Validate before the (expensive) SVE
+        require_positive_finite("beta", beta)?;
+        require_accuracy("epsilon", epsilon)?;
+        require_nonzero_size("max_size", max_size)?;
 
         // Compute the SVE without a size limit; `from_sve_result` truncates
         // only the basis to `max_size`. The default sampling points of a basis
@@ -222,14 +295,13 @@ where
         // sve_result=SVEResult(kernel; ε))`): its default SVE takes no `lmax`,
         // and `part(sve_result; ε, max_size)` truncates the basis only. No
         // code was ported.
-        let epsilon_value = epsilon.unwrap_or(f64::NAN);
         let sve_result = compute_sve(
             kernel.clone(),
-            epsilon_value,
+            epsilon,
             None, // cutoff
             None, // no limit on the number of singular values
             TworkType::Auto,
-        );
+        )?;
 
         Self::from_sve_result(kernel, beta, sve_result, epsilon, max_size)
     }
@@ -243,15 +315,29 @@ where
     /// values only. `sve_result` is kept as given: the default sampling points
     /// and [`accuracy`](Self::accuracy) use its singular functions beyond the
     /// basis, so pass an untruncated SVE to get the points of SparseIR.jl.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::InvalidParameter`] if `beta` is not positive and finite,
+    ///   `epsilon` is not in [0, 1) (0 keeps every singular value), `max_size`
+    ///   is `Some(0)`, or `sve_result` is not an SVE on [-1, 1] × [-1, 1]
+    /// * [`Error::EmptyInput`] if `sve_result` has no singular functions
+    /// * The errors of [`SVEResult::part`] (for an `SVEResult` whose public
+    ///   fields break its invariants)
     pub fn from_sve_result(
         kernel: K,
         beta: f64,
         sve_result: SVEResult,
         epsilon: Option<f64>,
         max_size: Option<usize>,
-    ) -> Self {
+    ) -> Result<Self, Error> {
+        require_positive_finite("beta", beta)?;
+        require_threshold("epsilon", epsilon)?;
+        require_nonzero_size("max_size", max_size)?;
+        check_unit_domain(&sve_result)?;
+
         // Get truncated u, s, v from SVE result
-        let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size);
+        let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size)?;
 
         // Calculate accuracy
         let accuracy = if sve_result.s.len() > s_sve.len() {
@@ -268,34 +354,20 @@ where
         // tau = β/2 * (x + 1), w = ωmax * y
 
         // Transform u: x ∈ [-1, 1] → τ ∈ [0, β]
-        let u_knots: Vec<f64> = u_sve.get_polys()[0]
-            .knots
-            .iter()
-            .map(|&x| beta / 2.0 * (x + 1.0))
-            .collect();
-        let u_delta_x: Vec<f64> = u_sve.get_polys()[0]
-            .delta_x
-            .iter()
-            .map(|&dx| beta / 2.0 * dx)
-            .collect();
+        let (x_knots, x_widths) = unit_knots_and_widths(&u_sve.get_polys()[0]);
+        let u_knots: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
+        let u_delta_x: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
         let u_symm: Vec<i32> = u_sve.get_polys().iter().map(|p| p.symm).collect();
 
-        let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm));
+        let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm))?;
 
         // Transform v: y ∈ [-1, 1] → ω ∈ [-ωmax, ωmax]
-        let v_knots: Vec<f64> = v_sve.get_polys()[0]
-            .knots
-            .iter()
-            .map(|&y| omega_max * y)
-            .collect();
-        let v_delta_x: Vec<f64> = v_sve.get_polys()[0]
-            .delta_x
-            .iter()
-            .map(|&dy| omega_max * dy)
-            .collect();
+        let (y_knots, y_widths) = unit_knots_and_widths(&v_sve.get_polys()[0]);
+        let v_knots: Vec<f64> = y_knots.iter().map(|&y| omega_max * y).collect();
+        let v_delta_x: Vec<f64> = y_widths.iter().map(|&dy| omega_max * dy).collect();
         let v_symm: Vec<i32> = v_sve.get_polys().iter().map(|p| p.symm).collect();
 
-        let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm));
+        let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm))?;
 
         // Scale singular values to τ = β(x + 1)/2 and ω = ωmax y. A kernel with
         // `ypower` carries that power of y = ω/ωmax, so its physical form is
@@ -320,13 +392,13 @@ where
             &uhat_base_full,
             stat_marker,
             Some(conv_rad),
-        );
+        )?;
 
         // Truncate uhat to basis size
         let uhat_polyvec: Vec<_> = uhat_full.polyvec.iter().take(s.len()).cloned().collect();
         let uhat = PiecewiseLegendreFTVector::from_vector(uhat_polyvec);
 
-        Self {
+        Ok(Self {
             kernel,
             sve_result: Arc::new(sve_result),
             accuracy,
@@ -337,7 +409,7 @@ where
             uhat: Arc::new(uhat),
             uhat_full: Arc::new(uhat_full),
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the size of the basis (number of basis functions)
@@ -367,8 +439,14 @@ where
     ///
     /// Roots are found with symmetry exploitation (matching Python 1.x / Julia v1),
     /// then mapped to [-β/2, β/2] by folding τ_physical ∈ [0, β] around β/2.
-    pub fn default_tau_sampling_points(&self) -> Vec<f64> {
-        let points = self.default_tau_sampling_points_size_requested(self.size());
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::NotSupported`] if the default points are not defined for
+    ///   this basis: its SVE has so few singular functions that the last one
+    ///   has no extrema (e.g. `compute_sve` with `max_num_svals = Some(2)`)
+    pub fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
+        let points = self.default_tau_sampling_points_size_requested(self.size())?;
         let basis_size = self.size();
         if points.len() < basis_size {
             debug_warn!(
@@ -381,14 +459,23 @@ where
                 self.accuracy()
             );
         }
-        points
+        Ok(points)
     }
 
     /// Get default tau sampling points with a requested size
     ///
     /// Returns sampling points in τ ∈ [-β/2, β/2].
-    pub fn default_tau_sampling_points_size_requested(&self, size_requested: usize) -> Vec<f64> {
-        let x = default_sampling_points(&self.sve_result.u, size_requested);
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::NotSupported`] if the default points are not defined for
+    ///   this basis: its SVE has so few singular functions that the last one
+    ///   has no extrema (e.g. `compute_sve` with `max_num_svals = Some(2)`)
+    pub fn default_tau_sampling_points_size_requested(
+        &self,
+        size_requested: usize,
+    ) -> Result<Vec<f64>, Error> {
+        let x = default_sampling_points(&self.sve_result.u, "u", size_requested)?;
         let half_beta = self.beta / 2.0;
         // Map roots to physical tau ∈ [0, β], then fold to [-β/2, β/2]
         let mut smpl_taus: Vec<f64> = x
@@ -403,7 +490,7 @@ where
             })
             .collect();
         smpl_taus.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        smpl_taus
+        Ok(smpl_taus)
     }
 
     /// Get default Matsubara frequency sampling points
@@ -418,21 +505,24 @@ where
     /// # Returns
     /// Vector of Matsubara frequency sampling points
     ///
-    /// # Panics
-    /// Panics if the kernel is not centrosymmetric. This method relies on
-    /// centrosymmetry to generate sampling points.
+    /// # Errors
+    ///
+    /// [`Error::NotSupported`] if the basis functions have no definite parity
+    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
+    /// #183)
     pub fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>>
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
     where
         S: 'static,
     {
         if !self.kernel().is_centrosymmetric() {
-            panic!(
-                "default_matsubara_sampling_points is not supported for non-centrosymmetric kernels. \
-                 The current implementation relies on centrosymmetry to generate sampling points."
-            );
+            return Err(Error::NotSupported {
+                what: "default Matsubara sampling points of a basis whose kernel is not \
+                       centrosymmetric: they rely on the parity of the basis functions"
+                    .to_string(),
+            });
         }
         let fence = false;
         let points = Self::default_matsubara_sampling_points_impl(
@@ -440,7 +530,7 @@ where
             self.size(),
             fence,
             positive_only,
-        );
+        )?;
         let basis_size = self.size();
         // For positive_only=true, we need 2*n_sampling_points >= basis_size
         // For positive_only=false, we need n_sampling_points >= basis_size
@@ -461,7 +551,7 @@ where
                 self.accuracy()
             );
         }
-        points
+        Ok(points)
     }
 
     /// Fence Matsubara sampling points to improve conditioning
@@ -539,18 +629,33 @@ where
         *omega_n = omega_n_set.into_iter().collect();
     }
 
-    pub fn default_matsubara_sampling_points_impl(
+    /// Default Matsubara sampling points for a basis of size `l` from the
+    /// Matsubara basis functions `uhat_full`: the sign changes of
+    /// `uhat_full[l]` (after the parity adjustment of `l`), or the extrema of
+    /// the last function when `uhat_full` has no function `l`; bosonic sets
+    /// always include n = 0. `fence` adds points near the outer frequencies.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `uhat_full` is empty
+    /// * [`Error::NotSupported`] if the functions have no definite parity
+    ///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
+    pub(crate) fn default_matsubara_sampling_points_impl(
         uhat_full: &PiecewiseLegendreFTVector<S>,
         l: usize,
         fence: bool,
         positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>>
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
     where
         S: StatisticsType + 'static,
     {
         use crate::freq::MatsubaraFreq;
         use crate::polyfourier::{find_extrema, sign_changes};
         use std::collections::BTreeSet;
+
+        if uhat_full.is_empty() {
+            return Err(Error::EmptyInput { name: "uhat_full" });
+        }
 
         let mut l_requested = l;
 
@@ -563,9 +668,9 @@ where
 
         // Choose sign_changes or find_extrema based on l_requested
         let mut omega_n = if l_requested < uhat_full.len() {
-            sign_changes(&uhat_full[l_requested], positive_only)
+            sign_changes(&uhat_full[l_requested], positive_only)?
         } else {
-            find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)
+            find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)?
         };
 
         // For bosons, include zero frequency explicitly to prevent conditioning issues
@@ -598,7 +703,7 @@ where
             Self::fence_matsubara_sampling(&mut omega_n, positive_only);
         }
 
-        omega_n
+        Ok(omega_n)
     }
     /// Get default omega (real frequency) sampling points
     ///
@@ -610,18 +715,24 @@ where
     ///
     /// # Returns
     /// Vector of real-frequency sampling points in [-ωmax, ωmax]
-    pub fn default_omega_sampling_points(&self) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::NotSupported`] if the default points are not defined for
+    ///   this basis: its SVE has so few singular functions that the last one
+    ///   has no extrema (e.g. `compute_sve` with `max_num_svals = Some(2)`)
+    pub fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
         let sz = self.size();
 
         // Use UNTRUNCATED sve_result.v (same as C++)
         // C++: default_sampling_points(*(sve_result->v), sz)
-        let y = default_sampling_points(&self.sve_result.v, sz);
+        let y = default_sampling_points(&self.sve_result.v, "v", sz)?;
 
         // Scale to [-ωmax, ωmax]
         let wmax = self.kernel.lambda() / self.beta;
         let omega_points: Vec<f64> = y.into_iter().map(|yi| wmax * yi).collect();
 
-        omega_points
+        Ok(omega_points)
     }
 }
 
@@ -672,75 +783,103 @@ where
         self.s.clone()
     }
 
-    fn default_tau_sampling_points(&self) -> Vec<f64> {
+    fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error> {
         self.default_tau_sampling_points()
     }
 
     fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
-    ) -> Vec<crate::freq::MatsubaraFreq<S>> {
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error> {
         self.default_matsubara_sampling_points(positive_only)
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         use crate::taufuncs::normalize_tau;
         use mdarray::DTensor;
 
-        let n_points = tau.len();
         let basis_size = self.size();
 
-        // Evaluate each basis function at all tau points
+        // Normalize every τ ∈ [-β, β] to [0, β] with the statistics sign
+        // first; this rejects a τ outside [-β, β] and NaN. The u polynomials
+        // are on [0, β] exactly (from_sve_result sets their ends), so
+        // evaluating them cannot fail.
+        let normalized = tau
+            .iter()
+            .map(|&t| normalize_tau::<S>(t, self.beta))
+            .collect::<Result<Vec<(f64, f64)>, Error>>()?;
+        if normalized.is_empty() {
+            // mdarray 0.7.2 runs the closure of from_fn for a zero extent
+            // (https://github.com/fre-hu/mdarray/issues/21).
+            return Ok(DTensor::<f64, 2>::from_elem([0, basis_size], 0.0));
+        }
+
         // Result: matrix[i, l] = u_l(tau[i])
-        // Note: tau can be in [-beta, beta] and will be normalized to [0, beta]
-        // self.u polynomials are already scaled to tau ∈ [0, beta] domain
-        DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // tau index
-            let l = idx[1]; // basis function index
-
-            // Normalize tau to [0, beta] with statistics-dependent sign
-            let (tau_norm, sign) = normalize_tau::<S>(tau[i], self.beta);
-
-            // Evaluate basis function directly (u polynomials are in tau domain)
-            sign * self.u[l].evaluate(tau_norm)
-        })
+        Ok(DTensor::<f64, 2>::from_fn(
+            [normalized.len(), basis_size],
+            |idx| {
+                let (tau_norm, sign) = normalized[idx[0]];
+                sign * self.u[idx[1]].evaluate(tau_norm)
+            },
+        ))
     }
 
     fn evaluate_matsubara(
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
-    ) -> mdarray::DTensor<num_complex::Complex<f64>, 2> {
+    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error> {
         use mdarray::DTensor;
         use num_complex::Complex;
 
         let n_points = freqs.len();
         let basis_size = self.size();
+        if n_points == 0 {
+            // See evaluate_tau (mdarray#21).
+            return Ok(DTensor::<Complex<f64>, 2>::from_elem(
+                [0, basis_size],
+                Complex::new(0.0, 0.0),
+            ));
+        }
 
         // Evaluate each basis function at all Matsubara frequencies
         // Result: matrix[i, l] = uhat_l(iν[i])
-        DTensor::<Complex<f64>, 2>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // frequency index
-            let l = idx[1]; // basis function index
-            self.uhat[l].evaluate(&freqs[i])
-        })
+        Ok(DTensor::<Complex<f64>, 2>::from_fn(
+            [n_points, basis_size],
+            |idx| {
+                let i = idx[0]; // frequency index
+                let l = idx[1]; // basis function index
+                self.uhat[l].evaluate(&freqs[i])
+            },
+        ))
     }
 
-    fn evaluate_omega(&self, omega: &[f64]) -> mdarray::DTensor<f64, 2> {
+    fn evaluate_omega(&self, omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
         use mdarray::DTensor;
 
-        let n_points = omega.len();
         let basis_size = self.size();
+        // The v polynomials are on [-ωmax, ωmax] exactly (from_sve_result
+        // sets their ends).
+        let domain = (self.v.xmin(), self.v.xmax());
+        if let Some(&w) = omega.iter().find(|&&w| !(w >= domain.0 && w <= domain.1)) {
+            return Err(Error::OutOfDomain {
+                name: "omega",
+                value: w,
+                domain,
+            });
+        }
+        if omega.is_empty() {
+            // See evaluate_tau (mdarray#21).
+            return Ok(DTensor::<f64, 2>::from_elem([0, basis_size], 0.0));
+        }
 
-        // Evaluate each spectral basis function at all omega points
         // Result: matrix[i, l] = V_l(omega[i])
-        DTensor::<f64, 2>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // omega index
-            let l = idx[1]; // basis function index
-            self.v[l].evaluate(omega[i])
-        })
+        Ok(DTensor::<f64, 2>::from_fn(
+            [omega.len(), basis_size],
+            |idx| self.v[idx[1]].evaluate(omega[idx[0]]),
+        ))
     }
 
-    fn default_omega_sampling_points(&self) -> Vec<f64> {
+    fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {
         self.default_omega_sampling_points()
     }
 }
@@ -754,6 +893,38 @@ pub type FermionicBasis = FiniteTempBasis<LogisticKernel, Fermionic>;
 
 /// Type alias for bosonic basis with LogisticKernel
 pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
+
+/// Default Matsubara sampling points for a basis of size `l`, from the
+/// Matsubara basis functions `uhat_full` alone
+///
+/// The points are the sign changes of `uhat_full[l]` (after the parity
+/// adjustment of `l`), or the extrema of the last function when `uhat_full`
+/// has no function `l`; bosonic sets always include n = 0. `fence` adds
+/// points near the outer frequencies. This is what
+/// [`FiniteTempBasis::default_matsubara_sampling_points`] computes, for a
+/// caller that holds the functions but not the basis.
+///
+/// # Errors
+///
+/// * [`Error::EmptyInput`] if `uhat_full` is empty
+/// * [`Error::NotSupported`] if the functions have no definite parity
+///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
+pub fn default_matsubara_sampling_points_from_uhat<S>(
+    uhat_full: &PiecewiseLegendreFTVector<S>,
+    l: usize,
+    fence: bool,
+    positive_only: bool,
+) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+where
+    S: StatisticsType + 'static,
+{
+    FiniteTempBasis::<LogisticKernel, S>::default_matsubara_sampling_points_impl(
+        uhat_full,
+        l,
+        fence,
+        positive_only,
+    )
+}
 
 #[cfg(test)]
 #[path = "basis_tests.rs"]

@@ -19,9 +19,9 @@ use num_complex::Complex64;
 fn test_fermionic_ft_creation() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
-    let ft_poly = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None);
+    let ft_poly = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None).unwrap();
 
     assert_eq!(ft_poly.get_n_asymp(), f64::INFINITY);
     assert_eq!(ft_poly.get_statistics(), Statistics::Fermionic);
@@ -32,9 +32,9 @@ fn test_fermionic_ft_creation() {
 fn test_bosonic_ft_creation() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
-    let ft_poly = BosonicPiecewiseLegendreFT::new(poly.clone(), Bosonic, Some(100.0));
+    let ft_poly = BosonicPiecewiseLegendreFT::new(poly.clone(), Bosonic, Some(100.0)).unwrap();
 
     assert_eq!(ft_poly.get_n_asymp(), 100.0);
     assert_eq!(ft_poly.get_statistics(), Statistics::Bosonic);
@@ -45,9 +45,9 @@ fn test_bosonic_ft_creation() {
 fn test_ft_evaluation_fermionic() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
-    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
+    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
 
     // Test evaluation at valid fermionic frequency
     let omega = FermionicFreq::new(1).unwrap();
@@ -62,9 +62,9 @@ fn test_ft_evaluation_fermionic() {
 fn test_ft_evaluation_bosonic() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
-    let ft_poly = BosonicPiecewiseLegendreFT::new(poly, Bosonic, None);
+    let ft_poly = BosonicPiecewiseLegendreFT::new(poly, Bosonic, None).unwrap();
 
     // Test evaluation at valid bosonic frequency
     let omega = BosonicFreq::new(0).unwrap();
@@ -81,11 +81,11 @@ fn test_ft_vector_creation() {
     let data2 = tensor![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
-    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
-    let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0);
+    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
+    let poly2 = PiecewiseLegendrePoly::new(data2, knots, 1, None, 0).unwrap();
 
-    let ft_poly1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None);
-    let ft_poly2 = FermionicPiecewiseLegendreFT::new(poly2, Fermionic, None);
+    let ft_poly1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None).unwrap();
+    let ft_poly2 = FermionicPiecewiseLegendreFT::new(poly2, Fermionic, None).unwrap();
 
     let ft_vector = FermionicPiecewiseLegendreFTVector::from_vector(vec![ft_poly1, ft_poly2]);
 
@@ -98,12 +98,13 @@ fn test_ft_vector_from_poly_vector() {
     let data2 = tensor![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
-    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0);
-    let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, 0);
+    let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
+    let poly2 = PiecewiseLegendrePoly::new(data2, knots.clone(), 1, None, 0).unwrap();
 
-    let poly_vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]);
+    let poly_vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
     let ft_vector =
-        FermionicPiecewiseLegendreFTVector::from_poly_vector(&poly_vector, Fermionic, None);
+        FermionicPiecewiseLegendreFTVector::from_poly_vector(&poly_vector, Fermionic, None)
+            .unwrap();
 
     assert_eq!(ft_vector.size(), 2);
 }
@@ -112,9 +113,9 @@ fn test_ft_vector_from_poly_vector() {
 fn test_ft_vector_evaluation() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
-    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
+    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
     let ft_vector = FermionicPiecewiseLegendreFTVector::from_vector(vec![ft_poly]);
 
     let omega = FermionicFreq::new(1).unwrap();
@@ -128,9 +129,9 @@ fn test_ft_vector_evaluation() {
 fn test_power_model_creation() {
     let data = tensor![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0).unwrap();
 
-    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
+    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
 
     // Check that power model was created
     assert!(!ft_poly.model.moments.is_empty());
@@ -142,11 +143,11 @@ fn test_invalid_domain_panic() {
     let data = tensor![[1.0], [0.0]];
     let knots = vec![0.0, 2.0]; // Invalid domain for Fourier transform
 
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
     // This should panic
     std::panic::catch_unwind(|| {
-        FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
+        FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
     })
     .expect_err("Should panic for invalid domain");
 }
@@ -158,9 +159,9 @@ fn test_get_tnl_basic_values() {
     // Create a simple polynomial for testing
     let data = tensor![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0).unwrap();
 
-    let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
+    let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
 
     // Test get_tnl for various l and w values
     // Note: These are expected values that should match C++ implementation
@@ -211,8 +212,8 @@ fn test_get_tnl_basic_values() {
 fn test_spherical_bessel_basic() {
     let data = tensor![[1.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
-    let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
+    let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
 
     // Test j_0(x) = sin(x)/x for x != 0
     let x: f64 = 1.0;
@@ -243,9 +244,9 @@ fn test_constant_polynomial_fourier_transform() {
     // Create constant polynomial f(x) = 1
     let data = tensor![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
-    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0);
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
-    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None);
+    let ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
 
     // Test evaluation at different frequencies
     for n in 0..5 {
@@ -342,10 +343,10 @@ where
     for l in 0..basis.size() {
         let ft = &uhat[l];
         assert_eq!(
-            ft.evaluate_at_n(n0 - 2),
+            ft.evaluate_at_n(n0 - 2).unwrap(),
             ft.compute_unl_inner(&ft.poly, n0 - 2)
         );
-        assert_eq!(ft.evaluate_at_n(n0), ft.giw(n0));
+        assert_eq!(ft.evaluate_at_n(n0).unwrap(), ft.giw(n0));
         for &n in &ns {
             let exact = ft.compute_unl_inner(&ft.poly, n);
             let asymptotic = ft.giw(n);
@@ -409,7 +410,7 @@ where
         for n in ns.into_iter().flat_map(|n| [n, -n]) {
             assert!(n.unsigned_abs() as f64 >= uhat.n_asymp());
             let nu = std::f64::consts::PI * n as f64 / beta;
-            let scaled = Complex64::new(0.0, nu) * uhat[l].evaluate_at_n(n);
+            let scaled = Complex64::new(0.0, nu) * uhat[l].evaluate_at_n(n).unwrap();
             let tol =
                 2.0 * (du_0.abs() + du_beta.abs()) / nu.abs() + 1e-12 * (u_0.abs() + u_beta.abs());
             let err = (scaled - limit).norm();
@@ -439,11 +440,12 @@ fn test_uhat_asymptotic_branch_logistic_fermionic() {
     // the SVE runs in Df64), then a larger Lambda with an f64 SVE.
     for (lambda, beta, epsilon) in [(10.0, 10.0, 1e-10), (1e3, 100.0, 1e-6)] {
         let basis = FiniteTempBasis::<_, Fermionic>::new(
-            LogisticKernel::new(lambda),
+            LogisticKernel::new(lambda).unwrap(),
             beta,
             Some(epsilon),
             None,
-        );
+        )
+        .unwrap();
         check_asymptotic_branch_matches_exact(&basis);
         check_uhat_high_frequency_tail(&basis);
     }
@@ -453,11 +455,12 @@ fn test_uhat_asymptotic_branch_logistic_fermionic() {
 fn test_uhat_asymptotic_branch_logistic_bosonic() {
     for (lambda, beta, epsilon) in [(10.0, 10.0, 1e-10), (1e3, 100.0, 1e-6)] {
         let basis = FiniteTempBasis::<_, Bosonic>::new(
-            LogisticKernel::new(lambda),
+            LogisticKernel::new(lambda).unwrap(),
             beta,
             Some(epsilon),
             None,
-        );
+        )
+        .unwrap();
         check_asymptotic_branch_matches_exact(&basis);
         check_uhat_high_frequency_tail(&basis);
     }
@@ -466,29 +469,84 @@ fn test_uhat_asymptotic_branch_logistic_bosonic() {
 #[test]
 fn test_uhat_asymptotic_branch_regularized_bose() {
     let basis = FiniteTempBasis::<_, Bosonic>::new(
-        RegularizedBoseKernel::new(10.0),
+        RegularizedBoseKernel::new(10.0).unwrap(),
         10.0,
         Some(1e-10),
         None,
-    );
+    )
+    .unwrap();
     check_asymptotic_branch_matches_exact(&basis);
     check_uhat_high_frequency_tail(&basis);
 }
 
 /// Functions without a parity (symm = 0, as from `compute_sve_general`) have
-/// no default Matsubara sampling points, and the panic says why (#183). The
-/// C API reports SPIR_NOT_SUPPORTED before reaching it.
+/// no default Matsubara sampling points (#183): every entry point returns
+/// NotSupported (they panicked). The C API reports SPIR_NOT_SUPPORTED.
 #[test]
-#[should_panic(expected = "need basis functions of definite parity")]
 fn test_default_matsubara_points_need_functions_of_definite_parity() {
+    use crate::error::Error;
     use crate::sve::{TworkType, compute_sve_general};
 
-    let kernel = LogisticKernel::new(10.0);
-    let sve = compute_sve_general(kernel, 1e-6, None, None, TworkType::Auto);
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
     let basis =
-        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None);
-    basis.default_matsubara_sampling_points(false);
+        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
+            .unwrap();
+    let not_supported = |err: Error| {
+        assert!(
+            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
+            "{err:?}"
+        );
+    };
+    for positive_only in [false, true] {
+        not_supported(
+            basis
+                .default_matsubara_sampling_points(positive_only)
+                .unwrap_err(),
+        );
+        not_supported(
+            basis
+                .default_matsubara_sampling_points_i64(positive_only)
+                .unwrap_err(),
+        );
+        not_supported(
+            basis
+                .default_matsubara_sampling_points_i64_with_mitigate(positive_only, true, 8)
+                .unwrap_err(),
+        );
+    }
+    // The other default points do not depend on the parity.
+    assert!(!basis.default_tau_sampling_points().unwrap().is_empty());
+    assert!(!basis.default_omega_sampling_points().unwrap().is_empty());
+}
+
+/// The entry points that go through the Basis trait report the same
+/// NotSupported for a basis without parity (#183): the trait method itself
+/// and the two Matsubara samplings built from it.
+#[test]
+fn test_trait_paths_to_default_matsubara_points_need_definite_parity() {
+    use crate::basis_trait::Basis;
+    use crate::error::Error;
+    use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
+    use crate::sve::{TworkType, compute_sve_general};
+
+    let kernel = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let basis =
+        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
+            .unwrap();
+    let not_supported = |err: Error| {
+        assert!(
+            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
+            "{err:?}"
+        );
+    };
+    for positive_only in [false, true] {
+        not_supported(Basis::default_matsubara_sampling_points(&basis, positive_only).unwrap_err());
+    }
+    not_supported(MatsubaraSampling::new(&basis).err().unwrap());
+    not_supported(MatsubaraSamplingPositiveOnly::new(&basis).err().unwrap());
 }
 
 /// `set` rejects an index past the end, including `index == len`, and then
@@ -498,10 +556,11 @@ fn test_ft_vector_set_rejects_index_past_the_end() {
     use crate::error::Error;
 
     let knots = vec![-1.0, 1.0];
-    let poly0 = PiecewiseLegendrePoly::new(tensor![[1.0], [0.0]], knots.clone(), 0, None, 0);
-    let poly1 = PiecewiseLegendrePoly::new(tensor![[0.0], [1.0]], knots, 1, None, 0);
-    let ft0 = FermionicPiecewiseLegendreFT::new(poly0, Fermionic, None);
-    let ft1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None);
+    let poly0 =
+        PiecewiseLegendrePoly::new(tensor![[1.0], [0.0]], knots.clone(), 0, None, 0).unwrap();
+    let poly1 = PiecewiseLegendrePoly::new(tensor![[0.0], [1.0]], knots, 1, None, 0).unwrap();
+    let ft0 = FermionicPiecewiseLegendreFT::new(poly0, Fermionic, None).unwrap();
+    let ft1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None).unwrap();
     let mut ft_vector =
         FermionicPiecewiseLegendreFTVector::from_vector(vec![ft0.clone(), ft1.clone()]);
 
@@ -523,4 +582,105 @@ fn test_ft_vector_set_rejects_index_past_the_end() {
     // A valid index replaces the element.
     ft_vector.set(0, ft1).unwrap();
     assert_eq!(ft_vector.get(0).unwrap().poly.l, 1);
+}
+
+/// `new` checks the domain and n_asymp with typed errors (before: a panic for
+/// the domain, and any n_asymp was accepted), and evaluates the power model
+/// at the end of the domain: an xmax just below 1, which the 1e-12 tolerance
+/// accepts, panicked in derivs(1.0).
+#[test]
+fn test_ft_new_checks_its_arguments() {
+    use crate::error::Error;
+
+    let poly_on = |lo: f64, hi: f64| {
+        PiecewiseLegendrePoly::new(tensor![[1.0], [0.5]], vec![lo, hi], 0, None, 1).unwrap()
+    };
+    let err = FermionicPiecewiseLegendreFT::new(poly_on(-2.0, 2.0), Fermionic, None).unwrap_err();
+    assert_eq!(
+        err,
+        Error::InvalidParameter {
+            name: "poly",
+            value: "a polynomial on [-2.0, 2.0]".to_string(),
+            reason: "must be defined on [-1, 1] (within 1e-12)".to_string(),
+        }
+    );
+    for n_asymp in [-1.0, f64::NAN] {
+        let err = FermionicPiecewiseLegendreFT::new(poly_on(-1.0, 1.0), Fermionic, Some(n_asymp))
+            .unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::InvalidParameter {
+                    name: "n_asymp",
+                    ..
+                }
+            ),
+            "{err:?}"
+        );
+    }
+    assert!(
+        FermionicPiecewiseLegendreFT::new(poly_on(-1.0, 1.0), Fermionic, Some(f64::INFINITY))
+            .is_ok()
+    );
+
+    let near = poly_on(-1.0, 1.0 - 1e-13);
+    let ft = FermionicPiecewiseLegendreFT::new(near.clone(), Fermionic, None).unwrap();
+    assert_eq!(ft.model.moments.len(), near.polyorder);
+}
+
+/// `evaluate_at_n` rejects an index of the wrong parity; before it returned 0.
+#[test]
+fn test_evaluate_at_n_rejects_the_wrong_parity() {
+    use crate::error::Error;
+
+    let poly =
+        PiecewiseLegendrePoly::new(tensor![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 1).unwrap();
+    let ft = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
+    assert_eq!(
+        ft.evaluate_at_n(2),
+        Err(Error::InvalidMatsubaraIndex {
+            n: 2,
+            statistics: Statistics::Fermionic,
+        })
+    );
+    assert_eq!(
+        ft.evaluate_at_n(1),
+        Ok(ft.evaluate(&FermionicFreq::new(1).unwrap()))
+    );
+    assert!(ft.evaluate_at_ns(&[1, 2]).is_err());
+    assert_eq!(ft.evaluate_at_ns(&[1, -1]).unwrap().len(), 2);
+}
+
+/// Functions without a definite parity (symm = 0) have no default Matsubara
+/// sampling points: the sign changes and extrema that choose them are
+/// NotSupported, with both statistics (#183).
+#[test]
+fn test_sign_changes_of_functions_without_parity_are_not_supported() {
+    use crate::error::Error;
+    use crate::freq::MatsubaraFreq;
+    use crate::polyfourier::{find_extrema, sign_changes};
+
+    let poly =
+        PiecewiseLegendrePoly::new(tensor![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 0).unwrap();
+    let not_supported = |r: Result<Vec<i64>, Error>| {
+        let err = r.unwrap_err();
+        assert!(
+            matches!(&err, Error::NotSupported { what } if what.contains("got symm = 0")),
+            "{err:?}"
+        );
+    };
+    let ns =
+        |v: Vec<MatsubaraFreq<Fermionic>>| -> Vec<i64> { v.into_iter().map(|f| f.n()).collect() };
+    let ft = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None).unwrap();
+    for positive_only in [false, true] {
+        not_supported(sign_changes(&ft, positive_only).map(ns));
+        not_supported(find_extrema(&ft, positive_only).map(ns));
+    }
+    let nb =
+        |v: Vec<MatsubaraFreq<Bosonic>>| -> Vec<i64> { v.into_iter().map(|f| f.n()).collect() };
+    let ft = BosonicPiecewiseLegendreFT::new(poly, Bosonic, None).unwrap();
+    for positive_only in [false, true] {
+        not_supported(sign_changes(&ft, positive_only).map(nb));
+        not_supported(find_extrema(&ft, positive_only).map(nb));
+    }
 }

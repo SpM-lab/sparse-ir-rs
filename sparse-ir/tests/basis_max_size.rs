@@ -93,11 +93,11 @@ struct Matsu {
 
 fn check_group(group: &Group) {
     match group.kernel {
-        KernelKind::Logistic => check_kernel(group, LogisticKernel::new(group.lambda)),
+        KernelKind::Logistic => check_kernel(group, LogisticKernel::new(group.lambda).unwrap()),
         KernelKind::RegularizedBose => {
             // Deprecated, but still supported until it is removed (#273).
             #[allow(deprecated)]
-            let kernel = RegularizedBoseKernel::new(group.lambda);
+            let kernel = RegularizedBoseKernel::new(group.lambda).unwrap();
             check_kernel(group, kernel)
         }
     }
@@ -108,8 +108,9 @@ where
     K: KernelProperties + CentrosymmKernel + Clone + 'static,
 {
     // The untruncated SVE, whose functions a size-limited basis must keep.
-    let n_sve = compute_sve(kernel.clone(), group.eps, None, None, TworkType::Auto)
-        .s
+    let n_sve = compute_sve(kernel.clone(), Some(group.eps), None, None, TworkType::Auto)
+        .unwrap()
+        .s()
         .len();
     let mut failures = Vec::new();
     for case in group.cases {
@@ -144,7 +145,8 @@ fn check_case<K, S>(
         group.beta,
         Some(group.eps),
         Some(case.max_size),
-    );
+    )
+    .unwrap();
     let label = format!(
         "{:?} Λ = {}, β = {}, ε = {:e}, {:?}, max_size = {}",
         group.kernel,
@@ -160,7 +162,7 @@ fn check_case<K, S>(
         fail(format!("size {} (SparseIR.jl {})", basis.size(), case.size));
     }
 
-    let (n_svals, n_uhat_full) = (basis.sve_result().s.len(), basis.uhat_full().len());
+    let (n_svals, n_uhat_full) = (basis.sve_result().s().len(), basis.uhat_full().len());
     if n_svals != n_sve || n_uhat_full != n_sve {
         fail(format!(
             "SVE truncated: sve_result has {n_svals} and uhat_full {n_uhat_full} functions, \
@@ -180,6 +182,7 @@ fn check_case<K, S>(
     for (positive_only, expected) in [(false, matsu.all), (true, matsu.positive)] {
         let got: Vec<i64> = basis
             .default_matsubara_sampling_points(positive_only)
+            .unwrap()
             .iter()
             .map(|w| w.n())
             .collect();
@@ -207,6 +210,7 @@ fn check_case<K, S>(
         // Rust folds τ into [-β/2, β/2]; unfold to SparseIR.jl's [0, β].
         let mut got: Vec<f64> = basis
             .default_tau_sampling_points()
+            .unwrap()
             .iter()
             .map(|&tau| if tau < 0.0 { tau + group.beta } else { tau })
             .collect();
@@ -214,7 +218,7 @@ fn check_case<K, S>(
         compare_points("tau", &got, expected, POINT_TOL * group.beta, &mut fail);
     }
     if let Some(expected) = case.omega {
-        let mut got = basis.default_omega_sampling_points();
+        let mut got = basis.default_omega_sampling_points().unwrap();
         got.sort_by(f64::total_cmp);
         compare_points("omega", &got, expected, POINT_TOL * basis.wmax(), &mut fail);
     }

@@ -29,9 +29,10 @@ fn status_of_kind(kind: ErrorKind) -> StatusCode {
 #[cfg(test)]
 mod tests {
     // The status codes, `StatusCode`, `Error` and `ErrorKind` come from the
-    // imports of the parent module (Step 3).
+    // imports of the parent module.
     use super::*;
     use crate::SPIR_COMPUTATION_SUCCESS;
+    use sparse_ir::ArrayRole;
     use sparse_ir::Statistics;
 
     /// Every error category has its own failure status.
@@ -62,6 +63,9 @@ mod tests {
     }
 
     /// The status of one error of every variant that the core returns
+    ///
+    /// Extend it with every variant added to `sparse_ir::Error` (the core's
+    /// `error_tests.rs` fails to compile until its own table is extended).
     #[test]
     fn test_status_of_every_variant() {
         let table = [
@@ -102,6 +106,41 @@ mod tests {
                     reason: "the SVD did not converge within 50 iterations".to_string(),
                 },
                 SPIR_INTERNAL_ERROR,
+            ),
+            (
+                Error::OutOfDomain {
+                    name: "tau",
+                    value: f64::NAN,
+                    domain: (-1.0, 1.0),
+                },
+                SPIR_INVALID_ARGUMENT,
+            ),
+            (
+                Error::NotSupported {
+                    what: "default Matsubara sampling points of functions with symm = 0"
+                        .to_string(),
+                },
+                SPIR_NOT_SUPPORTED,
+            ),
+            (
+                Error::AxisOutOfRange { axis: 3, rank: 2 },
+                SPIR_INVALID_DIMENSION,
+            ),
+            (
+                Error::ShapeMismatch {
+                    which: ArrayRole::Input,
+                    expected: vec![5, 2],
+                    actual: vec![4, 2],
+                },
+                SPIR_INPUT_DIMENSION_MISMATCH,
+            ),
+            (
+                Error::ShapeMismatch {
+                    which: ArrayRole::Output,
+                    expected: vec![7, 3],
+                    actual: vec![7, 1],
+                },
+                SPIR_OUTPUT_DIMENSION_MISMATCH,
             ),
         ];
         for (err, status) in &table {

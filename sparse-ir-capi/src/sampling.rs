@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::status::status_from;
-use crate::types::{BasisType, SamplingType, is_in_domain, spir_basis, spir_sampling, tau_domain};
+use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
 use crate::utils::{
     MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd, validate_dims,
     validate_transform_dims,
@@ -139,59 +139,70 @@ pub extern "C" fn spir_tau_sampling_new(
         let basis_ref = unsafe { &*b };
         let points_slice = unsafe { std::slice::from_raw_parts(points, num_points as usize) };
 
-        // Check every point before building the sampling object: the core
-        // asserts τ ∈ [-β, β] (#266).
-        let domain = tau_domain(basis_ref.beta());
-        if !points_slice.iter().all(|&tau| is_in_domain(tau, domain)) {
-            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
-        }
-
         // Convert points to Vec
         let tau_points: Vec<f64> = points_slice.to_vec();
 
         // Create sampling based on basis statistics
         let sampling_type = match basis_ref.inner() {
             BasisType::LogisticFermionic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
             BasisType::RegularizedBoseFermionic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
             BasisType::LogisticBosonic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
             BasisType::RegularizedBoseBosonic(ir_basis) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     ir_basis.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
             // DLR: tau sampling supported via Basis trait
             BasisType::DLRFermionic(dlr) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     dlr.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauFermionic(Arc::new(tau_sampling))
             }
             BasisType::DLRBosonic(dlr) => {
-                let tau_sampling = sparse_ir::sampling::TauSampling::with_sampling_points(
+                let tau_sampling = match sparse_ir::sampling::TauSampling::with_sampling_points(
                     dlr.as_ref(),
                     tau_points,
-                );
+                ) {
+                    Ok(sampling) => sampling,
+                    Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                };
                 SamplingType::TauBosonic(Arc::new(tau_sampling))
             }
         };
@@ -282,16 +293,22 @@ pub extern "C" fn spir_matsu_sampling_new(
                         Err(code) => return (std::ptr::null_mut(), code),
                     };
                 if positive_only {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
                 } else {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
                 }
             }};
@@ -302,16 +319,22 @@ pub extern "C" fn spir_matsu_sampling_new(
                         Err(code) => return (std::ptr::null_mut(), code),
                     };
                 if positive_only {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
                 } else {
-                    let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
+                    let matsu_sampling = match sparse_ir::matsubara_sampling::MatsubaraSampling::with_sampling_points(
                         $basis,
                         matsu_freqs,
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                     SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
                 }
             }};
@@ -451,11 +474,6 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
         // passes `checked_len::<f64>`; the caller guarantees that `matrix` holds
         // `num_points * basis_size` elements.
         let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
-        // The fitter factorizes the matrix: reject NaN and infinities here
-        // rather than in a panicking SVD at the first fit.
-        if !dyn_tensor.iter().all(|x| x.is_finite()) {
-            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
-        }
 
         // Convert DynRank to fixed 2D shape using from_fn (safe conversion)
         let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
@@ -473,14 +491,22 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
             });
         // Create sampling based on statistics
         let sampling_type = if fermionic {
-            let tau_sampling = sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
+            let tau_sampling = match sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
                 tau_points,
                 matrix_tensor,
-            );
+            ) {
+                Ok(sampling) => sampling,
+                Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+            };
             SamplingType::TauFermionic(Arc::new(tau_sampling))
         } else {
-            let tau_sampling =
-                sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(tau_points, matrix_tensor);
+            let tau_sampling = match sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(
+                tau_points,
+                matrix_tensor,
+            ) {
+                Ok(sampling) => sampling,
+                Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+            };
             SamplingType::TauBosonic(Arc::new(tau_sampling))
         };
 
@@ -657,14 +683,6 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
         // passes `checked_len::<Complex64>`; the caller guarantees that `matrix`
         // holds `num_points * basis_size` elements.
         let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
-        // The fitter factorizes the matrix: reject NaN and infinities here
-        // rather than in a panicking SVD at the first fit.
-        if !dyn_tensor
-            .iter()
-            .all(|z| z.re.is_finite() && z.im.is_finite())
-        {
-            return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
-        }
         let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
         debug_println!(
             "spir_matsu_sampling_new_with_matrix: dyn_tensor created, shape = {:?}",
@@ -718,10 +736,13 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 debug_println!("spir_matsu_sampling_new_with_matrix: calling from_matrix...");
                 std::io::stderr().flush().ok();
                 let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
+                    match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
                         matrix_tensor.clone(),
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 debug_println!("spir_matsu_sampling_new_with_matrix: from_matrix returned");
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraPositiveOnlyFermionic(Arc::new(matsu_sampling))
@@ -737,10 +758,14 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 std::io::stderr().flush().ok();
                 debug_println!("spir_matsu_sampling_new_with_matrix: calling from_matrix...");
                 std::io::stderr().flush().ok();
-                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                    matsu_freqs,
-                    matrix_tensor.clone(),
-                );
+                let matsu_sampling =
+                    match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                        matsu_freqs,
+                        matrix_tensor.clone(),
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 debug_println!("spir_matsu_sampling_new_with_matrix: from_matrix returned");
                 std::io::stderr().flush().ok();
                 SamplingType::MatsubaraFermionic(Arc::new(matsu_sampling))
@@ -748,18 +773,25 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
             (MatsuFreqs::Bosonic(matsu_freqs), true) => {
                 // Bosonic, positive-only
                 let matsu_sampling =
-                    sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
+                    match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
                         matrix_tensor.clone(),
-                    );
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 SamplingType::MatsubaraPositiveOnlyBosonic(Arc::new(matsu_sampling))
             }
             (MatsuFreqs::Bosonic(matsu_freqs), false) => {
                 // Bosonic, full range
-                let matsu_sampling = sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
-                    matsu_freqs,
-                    matrix_tensor.clone(),
-                );
+                let matsu_sampling =
+                    match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
+                        matsu_freqs,
+                        matrix_tensor.clone(),
+                    ) {
+                        Ok(sampling) => sampling,
+                        Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+                    };
                 SamplingType::MatsubaraBosonic(Arc::new(matsu_sampling))
             }
         };
@@ -1019,6 +1051,10 @@ pub extern "C" fn spir_sampling_get_cond_num(
             SamplingType::MatsubaraPositiveOnlyFermionic(matsu) => matsu.condition_number(),
             SamplingType::MatsubaraPositiveOnlyBosonic(matsu) => matsu.condition_number(),
         };
+        let condition_number = match condition_number {
+            Ok(value) => value,
+            Err(e) => return status_from(&e),
+        };
 
         unsafe {
             *cond_num = condition_number;
@@ -1133,14 +1169,14 @@ pub extern "C" fn spir_sampling_eval_dd(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (zero-copy: writes directly to output buffer)
-        if !InplaceFitter::evaluate_nd_dd_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_dd_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1222,14 +1258,14 @@ pub extern "C" fn spir_sampling_eval_dz(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (dz: real → complex)
-        if !InplaceFitter::evaluate_nd_dz_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_dz_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1310,14 +1346,14 @@ pub extern "C" fn spir_sampling_eval_zz(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Evaluate using InplaceFitter (zz: complex → complex)
-        if !InplaceFitter::evaluate_nd_zz_to(
+        if let Err(e) = InplaceFitter::evaluate_nd_zz_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1429,14 +1465,14 @@ pub extern "C" fn spir_sampling_fit_dd(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit using InplaceFitter (dd: real → real)
-        if !InplaceFitter::fit_nd_dd_to(
+        if let Err(e) = InplaceFitter::fit_nd_dd_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1519,14 +1555,14 @@ pub extern "C" fn spir_sampling_fit_zz(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit using InplaceFitter (zz: complex → complex)
-        if !InplaceFitter::fit_nd_zz_to(
+        if let Err(e) = InplaceFitter::fit_nd_zz_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -1641,14 +1677,14 @@ pub extern "C" fn spir_sampling_fit_zd(
         // Note: For full-range Matsubara, this takes the real part of the fitted
         // complex coefficients. This is physically correct for Green's functions
         // where IR coefficients are guaranteed to be real by symmetry.
-        if !InplaceFitter::fit_nd_zd_to(
+        if let Err(e) = InplaceFitter::fit_nd_zd_to(
             sampling_inner,
             backend_handle,
             &input_view,
             dims.target_dim,
             &mut output_view,
         ) {
-            return SPIR_NOT_SUPPORTED;
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS

@@ -7,18 +7,6 @@ use crate::utils::MemoryOrder;
 use sparse_ir::traits::Statistics;
 use std::sync::Arc;
 
-/// Whether `n` is a Matsubara index of the statistics: odd for fermions and
-/// even for bosons, the rule of `MatsubaraFreq::new`.
-fn is_matsubara_index(n: i64, statistics: Statistics) -> bool {
-    use sparse_ir::freq::MatsubaraFreq;
-    use sparse_ir::traits::{Bosonic, Fermionic};
-
-    match statistics {
-        Statistics::Fermionic => MatsubaraFreq::<Fermionic>::new(n).is_ok(),
-        Statistics::Bosonic => MatsubaraFreq::<Bosonic>::new(n).is_ok(),
-    }
-}
-
 /// Manual release function (replaces macro-generated one)
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_funcs_release(funcs: *mut spir_funcs) {
@@ -79,6 +67,7 @@ pub extern "C" fn spir_funcs_deriv(
     n: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -102,8 +91,10 @@ pub extern "C" fn spir_funcs_deriv(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| unsafe {
-        let funcs_ref = &*funcs;
+    let result = catch_unwind(|| -> Result<*mut spir_funcs, crate::StatusCode> {
+        // SAFETY: `funcs` is non-null (checked above) and points to a valid
+        // spir_funcs, as the caller guarantees.
+        let funcs_ref = unsafe { &*funcs };
         let inner = funcs_ref.inner_type();
 
         // Only PolyVector types support derivatives
@@ -112,12 +103,15 @@ pub extern "C" fn spir_funcs_deriv(
                 // Apply deriv to each polynomial in the vector
                 let deriv_polyvec: Vec<_> = poly_funcs
                     .poly
-                    .polyvec
+                    .get_polys()
                     .iter()
                     .map(|poly| poly.deriv(n as usize))
                     .collect();
 
-                let deriv_poly = sparse_ir::poly::PiecewiseLegendrePolyVector::new(deriv_polyvec);
+                // The derivatives share the knots and the data shape, so this
+                // cannot fail; any error is reported through status_from.
+                let deriv_poly = sparse_ir::poly::PiecewiseLegendrePolyVector::new(deriv_polyvec)
+                    .map_err(|e| status_from(&e))?;
                 let deriv_arc = Arc::new(deriv_poly);
 
                 // Create appropriate funcs based on domain
@@ -132,39 +126,25 @@ pub extern "C" fn spir_funcs_deriv(
                         spir_funcs::from_v(deriv_arc, funcs_ref.beta)
                     }
                 };
-                Box::into_raw(Box::new(deriv_funcs))
+                Ok(Box::into_raw(Box::new(deriv_funcs)))
             }
-            crate::types::FuncsType::FTVector(_) => {
-                // FT vectors don't support derivatives in the current implementation
-                *status = SPIR_NOT_SUPPORTED;
-                std::ptr::null_mut()
-            }
-            _ => {
-                // Other types don't support derivatives
-                *status = SPIR_NOT_SUPPORTED;
-                std::ptr::null_mut()
-            }
+            // FT vectors don't support derivatives in the current implementation
+            crate::types::FuncsType::FTVector(_) => Err(SPIR_NOT_SUPPORTED),
+            // Other types don't support derivatives
+            _ => Err(SPIR_NOT_SUPPORTED),
         }
     });
 
-    match result {
-        Ok(ptr) if !ptr.is_null() => {
-            unsafe {
-                *status = SPIR_COMPUTATION_SUCCESS;
-            }
-            ptr
-        }
-        Ok(_) => {
-            // Null pointer returned - status was already set above (e.g. SPIR_NOT_SUPPORTED)
-            std::ptr::null_mut()
-        }
-        Err(_) => {
-            unsafe {
-                *status = SPIR_INTERNAL_ERROR;
-            }
-            std::ptr::null_mut()
-        }
+    let (ptr, code) = match result {
+        Ok(Ok(ptr)) => (ptr, SPIR_COMPUTATION_SUCCESS),
+        Ok(Err(code)) => (std::ptr::null_mut(), code),
+        Err(_) => (std::ptr::null_mut(), SPIR_INTERNAL_ERROR),
+    };
+    // SAFETY: `status` is non-null (checked on entry) and caller-provided.
+    unsafe {
+        *status = code;
     }
+    ptr
 }
 
 /// Create a spir_funcs object from piecewise Legendre polynomial coefficients
@@ -212,6 +192,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
     _order: libc::c_int,
     status: *mut crate::StatusCode,
 ) -> *mut spir_funcs {
+    use crate::status::status_from;
     use crate::utils::validate_dims;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT,
@@ -269,25 +250,6 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         let segments_slice = unsafe { std::slice::from_raw_parts(segments, n_knots) };
         let knots = segments_slice.to_vec();
 
-        // The boundaries must be finite and strictly increasing, and every
-        // segment length b - a a normal double (#266): a test on `<=` alone
-        // lets NaN through (every comparison with NaN is false), an infinite
-        // boundary or length makes the core's normalization 2 / (b - a) zero,
-        // so that every value would be 0, and a subnormal length makes it
-        // infinite.
-        let valid = knots.iter().all(|x| x.is_finite())
-            && knots.windows(2).all(|w| {
-                let length = w[1] - w[0];
-                length > 0.0 && length.is_normal()
-            });
-        if !valid {
-            // SAFETY: `status` is non-null (checked on entry) and caller-provided.
-            unsafe {
-                *status = SPIR_INVALID_ARGUMENT;
-            }
-            return std::ptr::null_mut();
-        }
-
         // Create coefficient matrix: data is (nfuncs, n_segments)
         // Each column represents one segment's coefficients
         let mut data = mdarray::DTensor::<f64, 2>::zeros([nfuncs_usize, n_segments_usize]);
@@ -308,27 +270,26 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         // Note: knots.len() is guaranteed to be n_segments + 1 because knots is created
         // from segments_slice which has (n_segments + 1) elements
 
-        // Create PiecewiseLegendrePoly (l=-1 means not specified)
-        let poly = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            PiecewiseLegendrePoly::new(data, knots.clone(), -1, None, 0)
-        })) {
+        // Create PiecewiseLegendrePoly (l=-1 means not specified). It checks
+        // the knots: finite, strictly increasing, and segment lengths that are
+        // normal doubles.
+        let poly = match PiecewiseLegendrePoly::new(data, knots, -1, None, 0) {
             Ok(p) => p,
-            Err(_) => {
+            Err(e) => {
                 unsafe {
-                    *status = SPIR_INTERNAL_ERROR;
+                    *status = status_from(&e);
                 }
                 return std::ptr::null_mut();
             }
         };
 
-        // Create PiecewiseLegendrePolyVector (single function)
-        let polyvec = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            PiecewiseLegendrePolyVector::new(vec![poly])
-        })) {
+        // Create PiecewiseLegendrePolyVector (single function: neither empty
+        // nor inconsistent, but any error is reported through status_from)
+        let polyvec = match PiecewiseLegendrePolyVector::new(vec![poly]) {
             Ok(pv) => pv,
-            Err(_) => {
+            Err(e) => {
                 unsafe {
-                    *status = SPIR_INTERNAL_ERROR;
+                    *status = status_from(&e);
                 }
                 return std::ptr::null_mut();
             }
@@ -591,7 +552,7 @@ pub extern "C" fn spir_funcs_eval(
     x: f64,
     out: *mut f64,
 ) -> crate::StatusCode {
-    use crate::types::is_in_domain;
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -605,19 +566,12 @@ pub extern "C" fn spir_funcs_eval(
     // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
-        // Check the point before evaluating: the core panics outside the
-        // domain and passes NaN through (#266).
-        let Some(domain) = f.continuous_domain() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !is_in_domain(x, domain) {
-            return SPIR_INVALID_ARGUMENT;
-        }
         match f.eval_continuous(x) {
-            Some(values) => {
+            Some(Ok(values)) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });
@@ -650,6 +604,7 @@ pub extern "C" fn spir_funcs_eval_matsu(
     n: i64,
     out: *mut num_complex::Complex64,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -663,19 +618,12 @@ pub extern "C" fn spir_funcs_eval_matsu(
     // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
     let result = catch_unwind(|| unsafe {
         let f = &*funcs;
-        // A wrong-parity index is invalid input, not an unsupported
-        // operation (#266).
-        let Some(statistics) = f.matsubara_statistics() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !is_matsubara_index(n, statistics) {
-            return SPIR_INVALID_ARGUMENT;
-        }
         match f.eval_matsubara(n) {
-            Some(values) => {
+            Some(Ok(values)) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });
@@ -717,7 +665,7 @@ pub extern "C" fn spir_funcs_batch_eval(
     xs: *const f64,
     out: *mut f64,
 ) -> crate::StatusCode {
-    use crate::types::is_in_domain;
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -738,16 +686,10 @@ pub extern "C" fn spir_funcs_batch_eval(
         let f = &*funcs;
         let xs_slice = std::slice::from_raw_parts(xs, num_points as usize);
 
-        // Check every point before evaluating any (#266).
-        let Some(domain) = f.continuous_domain() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !xs_slice.iter().all(|&x| is_in_domain(x, domain)) {
-            return SPIR_INVALID_ARGUMENT;
-        }
-
+        // The core checks every point before evaluating any; nothing is
+        // written to `out` on an error.
         match f.batch_eval_continuous(xs_slice) {
-            Some(result_matrix) => {
+            Some(Ok(result_matrix)) => {
                 // result_matrix is Vec<Vec<f64>> where outer index is function, inner is point
                 let n_funcs = result_matrix.len();
                 let n_points = num_points as usize;
@@ -772,6 +714,7 @@ pub extern "C" fn spir_funcs_batch_eval(
                 }
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });
@@ -812,6 +755,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
     ns: *const i64,
     out: *mut num_complex::Complex64,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -832,16 +776,10 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
         let f = &*funcs;
         let ns_slice = std::slice::from_raw_parts(ns, num_freqs as usize);
 
-        // Check every index before evaluating any (#266).
-        let Some(statistics) = f.matsubara_statistics() else {
-            return SPIR_NOT_SUPPORTED;
-        };
-        if !ns_slice.iter().all(|&n| is_matsubara_index(n, statistics)) {
-            return SPIR_INVALID_ARGUMENT;
-        }
-
+        // The first invalid index decides the error, and nothing is written
+        // to `out` unless every index is valid.
         match f.batch_eval_matsubara(ns_slice) {
-            Some(result_matrix) => {
+            Some(Ok(result_matrix)) => {
                 // result_matrix is Vec<Vec<Complex64>> where outer index is function, inner is freq
                 let n_funcs = result_matrix.len();
                 let n_freqs = num_freqs as usize;
@@ -866,6 +804,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
                 }
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });
@@ -880,7 +819,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
 ///
 /// This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
-/// `FiniteTempBasis::default_matsubara_sampling_points_impl` (sparse-ir/src/basis.rs)
+/// `sparse_ir::basis::default_matsubara_sampling_points_from_uhat`
 /// to compute default sampling points: the sign changes of the first discarded
 /// Matsubara basis function (its extrema when that function is not available);
 /// bosonic sets always include n = 0.
@@ -927,12 +866,11 @@ pub extern "C" fn spir_uhat_get_default_matsus(
     points: *mut i64,
     n_points_total: *mut libc::c_int,
 ) -> crate::StatusCode {
-    use crate::types::{FuncsType, has_definite_parity};
+    use crate::status::status_from;
+    use crate::types::FuncsType;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use sparse_ir::basis::FiniteTempBasis;
-    use sparse_ir::kernel::LogisticKernel;
     use sparse_ir::traits::{Bosonic, Fermionic};
     use std::panic::catch_unwind;
 
@@ -952,40 +890,33 @@ pub extern "C" fn spir_uhat_get_default_matsus(
             FuncsType::FTVector(ft_funcs) => {
                 let l_usize = basis_size as usize;
 
-                // The default points need functions of definite parity (#183);
-                // detect their absence here instead of letting the core panic.
-                let parity = match (&ft_funcs.ft_fermionic, &ft_funcs.ft_bosonic) {
-                    (Some(ft), _) => has_definite_parity(ft),
-                    (None, Some(ft)) => has_definite_parity(ft),
-                    (None, None) => true, // rejected below
-                };
-                if !parity {
-                    return SPIR_NOT_SUPPORTED;
-                }
-
                 // Handle Fermionic case
-                // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
                 if let Some(ref ft_fermionic) = ft_funcs.ft_fermionic {
-                    let matsubara_points = FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
-                        ft_fermionic,
-                        l_usize,
-                        fence,
-                        positive_only,
-                    );
+                    let matsubara_points =
+                        match sparse_ir::basis::default_matsubara_sampling_points_from_uhat::<
+                            Fermionic,
+                        >(ft_fermionic, l_usize, fence, positive_only)
+                        {
+                            Ok(points) => points,
+                            Err(e) => return status_from(&e),
+                        };
                     matsubara_points
                         .iter()
                         .map(|freq| freq.into_i64())
                         .collect()
                 }
                 // Handle Bosonic case
-                // Uses FiniteTempBasis::default_matsubara_sampling_points_impl from basis.rs (332-387)
                 else if let Some(ref ft_bosonic) = ft_funcs.ft_bosonic {
-                    let matsubara_points = FiniteTempBasis::<LogisticKernel, Bosonic>::default_matsubara_sampling_points_impl(
-                        ft_bosonic,
-                        l_usize,
-                        fence,
-                        positive_only,
-                    );
+                    let matsubara_points =
+                        match sparse_ir::basis::default_matsubara_sampling_points_from_uhat::<Bosonic>(
+                            ft_bosonic,
+                            l_usize,
+                            fence,
+                            positive_only,
+                        ) {
+                            Ok(points) => points,
+                            Err(e) => return status_from(&e),
+                        };
                     matsubara_points
                         .iter()
                         .map(|freq| freq.into_i64())

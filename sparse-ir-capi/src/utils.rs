@@ -303,7 +303,24 @@ pub(crate) fn validate_transform_dims<Tin, Tout>(
         return Err(SPIR_INVALID_ARGUMENT);
     }
     let dims = validate_dims::<Tin>(input_dims)?;
-    let (input, target_dim) = convert_dims_for_row_major(&dims, target_dim, order);
+    transform_dims::<Tout>(&dims, target_dim, order, n_in, n_out)
+}
+
+/// [`validate_transform_dims`] for extents that [`validate_dims`] has
+/// accepted, with `target_dim` an axis of `dims`
+///
+/// # Errors
+/// * `SPIR_INPUT_DIMENSION_MISMATCH` if `dims[target_dim] != n_in`
+/// * `SPIR_INVALID_DIMENSION` if the output array does not pass
+///   [`checked_len`]
+pub(crate) fn transform_dims<Tout>(
+    dims: &[usize],
+    target_dim: usize,
+    order: MemoryOrder,
+    n_in: usize,
+    n_out: usize,
+) -> Result<TransformDims, StatusCode> {
+    let (input, target_dim) = convert_dims_for_row_major(dims, target_dim, order);
     if input[target_dim] != n_in {
         return Err(SPIR_INPUT_DIMENSION_MISMATCH);
     }
@@ -388,17 +405,20 @@ pub extern "C" fn spir_choose_working_type(epsilon: f64) -> libc::c_int {
 ///
 /// # Arguments
 /// * `n` - Number of Gauss points per segment (must be >= 1)
-/// * `segments` - Array of segment boundaries (n_segments + 1 elements).
-///                Must be monotonically increasing.
+/// * `segments` - Array of segment boundaries (n_segments + 1 elements):
+///   finite and strictly increasing, with finite segment lengths and a
+///   finite sum of the ends of each segment
 /// * `n_segments` - Number of segments (must be >= 1)
 /// * `x` - Output array for Gauss points (size n * n_segments). Must be pre-allocated.
 /// * `w` - Output array for Gauss weights (size n * n_segments). Must be pre-allocated.
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Status code:
+/// Status code (also written to `*status`):
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
-/// - Non-zero error code on failure
+/// - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
+///   or `segments` does not meet the conditions above
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
     n: libc::c_int,
@@ -408,6 +428,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
     w: *mut f64,
     status: *mut crate::StatusCode,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
     use sparse_ir::legendre;
     use std::panic::catch_unwind;
@@ -436,33 +457,34 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
             unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
         let segs_vec = segments_slice.to_vec();
 
-        // Verify segments are monotonically increasing
-        for i in 1..segs_vec.len() {
-            if segs_vec[i] <= segs_vec[i - 1] {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
-                }
-                return SPIR_INVALID_ARGUMENT;
-            }
-        }
-
         // Generate base rule with DDouble precision, then convert to double
         let rule_dd = legendre::<sparse_ir::Df64>(n as usize);
         let rule = sparse_ir::gauss::Rule::from_vectors(
-            rule_dd.x.iter().map(|&x| x.to_f64()).collect(),
-            rule_dd.w.iter().map(|&w| w.to_f64()).collect(),
-            rule_dd.a.to_f64(),
-            rule_dd.b.to_f64(),
-        );
+            rule_dd.x().iter().map(|&x| x.to_f64()).collect(),
+            rule_dd.w().iter().map(|&w| w.to_f64()).collect(),
+            rule_dd.a().to_f64(),
+            rule_dd.b().to_f64(),
+        )
+        .expect("a Gauss-Legendre rule has one weight per point");
 
-        // Create piecewise rule
-        let piecewise_rule = rule.piecewise(&segs_vec);
+        // Create piecewise rule; the core rejects boundaries that are not
+        // finite and strictly increasing, and segment lengths that overflow
+        let piecewise_rule = match rule.piecewise(&segs_vec) {
+            Ok(rule) => rule,
+            Err(e) => {
+                let code = status_from(&e);
+                unsafe {
+                    *status = code;
+                }
+                return code;
+            }
+        };
 
         // Copy to output arrays
-        for i in 0..piecewise_rule.x.len() {
+        for i in 0..piecewise_rule.x().len() {
             unsafe {
-                *x.add(i) = piecewise_rule.x[i];
-                *w.add(i) = piecewise_rule.w[i];
+                *x.add(i) = piecewise_rule.x()[i];
+                *w.add(i) = piecewise_rule.w()[i];
             }
         }
 
@@ -488,8 +510,9 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
 ///
 /// # Arguments
 /// * `n` - Number of Gauss points per segment (must be >= 1)
-/// * `segments` - Array of segment boundaries (n_segments + 1 elements).
-///                Must be monotonically increasing.
+/// * `segments` - Array of segment boundaries (n_segments + 1 elements):
+///   finite and strictly increasing, with finite segment lengths and a
+///   finite sum of the ends of each segment
 /// * `n_segments` - Number of segments (must be >= 1)
 /// * `x_high` - Output array for high part of Gauss points (size n * n_segments).
 ///              Must be pre-allocated.
@@ -502,9 +525,11 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
 /// * `status` - Pointer to store the status code
 ///
 /// # Returns
-/// Status code:
+/// Status code (also written to `*status`):
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
-/// - Non-zero error code on failure
+/// - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
+///   or `segments` does not meet the conditions above
+/// - SPIR_INTERNAL_ERROR if an internal error occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
     n: libc::c_int,
@@ -516,6 +541,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
     w_low: *mut f64,
     status: *mut crate::StatusCode,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
     use sparse_ir::legendre;
     use std::panic::catch_unwind;
@@ -552,29 +578,29 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
             .map(|&x| sparse_ir::Df64::new(x))
             .collect();
 
-        // Verify segments are monotonically increasing
-        for i in 1..segs_vec.len() {
-            if segs_vec[i] <= segs_vec[i - 1] {
-                unsafe {
-                    *status = SPIR_INVALID_ARGUMENT;
-                }
-                return SPIR_INVALID_ARGUMENT;
-            }
-        }
-
         // Generate base rule with DDouble precision
         let rule_dd = legendre::<sparse_ir::Df64>(n as usize);
 
-        // Create piecewise rule
-        let piecewise_rule = rule_dd.piecewise(&segs_vec);
+        // Create piecewise rule; the core rejects boundaries that are not
+        // finite and strictly increasing, and segment lengths that overflow
+        let piecewise_rule = match rule_dd.piecewise(&segs_vec) {
+            Ok(rule) => rule,
+            Err(e) => {
+                let code = status_from(&e);
+                unsafe {
+                    *status = code;
+                }
+                return code;
+            }
+        };
 
         // Extract high and low parts
-        for i in 0..piecewise_rule.x.len() {
+        for i in 0..piecewise_rule.x().len() {
             unsafe {
-                *x_high.add(i) = piecewise_rule.x[i].hi();
-                *x_low.add(i) = piecewise_rule.x[i].lo();
-                *w_high.add(i) = piecewise_rule.w[i].hi();
-                *w_low.add(i) = piecewise_rule.w[i].lo();
+                *x_high.add(i) = piecewise_rule.x()[i].hi();
+                *x_low.add(i) = piecewise_rule.x()[i].lo();
+                *w_high.add(i) = piecewise_rule.w()[i].hi();
+                *w_low.add(i) = piecewise_rule.w()[i].lo();
             }
         }
 
@@ -891,6 +917,58 @@ mod tests {
                 &mut status,
             );
             assert_ne!(result, SPIR_COMPUTATION_SUCCESS);
+        }
+    }
+
+    /// A NaN or infinite boundary, or a segment length or midpoint that
+    /// overflows, passed the `<=` check; the core then panicked sorting NaN
+    /// points (SPIR_INTERNAL_ERROR) or returned NaN or infinite points. They
+    /// are invalid arguments now, for both precisions.
+    #[test]
+    fn test_gauss_legendre_rule_piecewise_rejects_non_finite_segments() {
+        for segments in [
+            [0.0, f64::NAN],
+            [0.0, f64::INFINITY],
+            [-1e308, 1e308],
+            [1e308, 1.7e308],
+        ] {
+            for n in [1, 3] {
+                let len = n as usize;
+                let (mut x, mut w) = (vec![0.0; len], vec![0.0; len]);
+                let mut status = SPIR_INTERNAL_ERROR;
+                let result = spir_gauss_legendre_rule_piecewise_double(
+                    n,
+                    segments.as_ptr(),
+                    1,
+                    x.as_mut_ptr(),
+                    w.as_mut_ptr(),
+                    &mut status,
+                );
+                assert_eq!(
+                    (result, status),
+                    (SPIR_INVALID_ARGUMENT, SPIR_INVALID_ARGUMENT),
+                    "double, {segments:?}, n = {n}"
+                );
+
+                let (mut xh, mut xl) = (vec![0.0; len], vec![0.0; len]);
+                let (mut wh, mut wl) = (vec![0.0; len], vec![0.0; len]);
+                let mut status = SPIR_INTERNAL_ERROR;
+                let result = spir_gauss_legendre_rule_piecewise_ddouble(
+                    n,
+                    segments.as_ptr(),
+                    1,
+                    xh.as_mut_ptr(),
+                    xl.as_mut_ptr(),
+                    wh.as_mut_ptr(),
+                    wl.as_mut_ptr(),
+                    &mut status,
+                );
+                assert_eq!(
+                    (result, status),
+                    (SPIR_INVALID_ARGUMENT, SPIR_INVALID_ARGUMENT),
+                    "ddouble, {segments:?}, n = {n}"
+                );
+            }
         }
     }
 

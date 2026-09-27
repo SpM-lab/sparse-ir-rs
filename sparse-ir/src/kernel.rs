@@ -15,6 +15,7 @@
 //! `AbstractKernel::regularizer`): it transforms the original spectral function
 //! ρ(y) into the scaled version ρ'(y) used in the integral equation.
 
+use crate::error::{Error, require_positive_finite};
 use crate::numeric::CustomNumeric;
 use crate::traits::{Statistics, StatisticsType};
 use std::fmt::Debug;
@@ -191,8 +192,16 @@ pub struct LogisticKernel {
 
 impl LogisticKernel {
     /// Create a new logistic kernel with the given cutoff parameter
-    pub fn new(lambda: f64) -> Self {
-        Self { lambda }
+    ///
+    /// # Arguments
+    /// * `lambda` - Kernel cutoff Λ = β ωmax, positive and finite. The SVE
+    ///   grid, and the memory it needs, grows with Λ.
+    ///
+    /// # Errors
+    /// [`Error::InvalidParameter`] if `lambda` is not positive and finite
+    pub fn new(lambda: f64) -> Result<Self, Error> {
+        require_positive_finite("lambda", lambda)?;
+        Ok(Self { lambda })
     }
 
     /// Get the cutoff parameter
@@ -493,7 +502,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RegularizedBoseKernel {
     /// Kernel cutoff parameter Λ = β × ωmax
-    pub lambda: f64,
+    pub(crate) lambda: f64,
 }
 
 impl RegularizedBoseKernel {
@@ -502,20 +511,16 @@ impl RegularizedBoseKernel {
     /// # Arguments
     /// * `lambda` - Kernel cutoff Λ (must be positive and finite)
     ///
-    /// # Panics
-    /// Panics if lambda <= 0 or lambda is NaN/infinite. At Λ = 0 the kernel
-    /// is infinite at y = 0 (K = 1/Λ there), so its SVE does not exist.
+    /// # Errors
+    /// [`Error::InvalidParameter`] if `lambda` is not positive and finite. At
+    /// Λ = 0 the kernel is infinite at y = 0 (K = 1/Λ there), so its SVE does
+    /// not exist.
     #[deprecated(
         note = "use LogisticKernel, the default kernel for both statistics; RegularizedBoseKernel will be removed in a future release (https://github.com/SpM-lab/sparse-ir-rs/issues/273)"
     )]
-    pub fn new(lambda: f64) -> Self {
-        if !(lambda > 0.0 && lambda.is_finite()) {
-            panic!(
-                "Kernel cutoff Λ must be positive and finite, got {}",
-                lambda
-            );
-        }
-        Self { lambda }
+    pub fn new(lambda: f64) -> Result<Self, Error> {
+        require_positive_finite("lambda", lambda)?;
+        Ok(Self { lambda })
     }
 
     /// Compute kernel value with numerical stability

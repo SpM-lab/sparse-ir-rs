@@ -4,8 +4,28 @@
 # Directory structure:
 #   cxx_tests/_install/          - Install directory for Rust C API library
 #   cxx_tests/_build/            - Build directory for C++ tests
+#
+# Usage: run_with_rust_capi.sh [--no-clean]
+#   --no-clean  Keep target/, _build/ and _install/ and build incrementally.
+#               Much faster while iterating; use a clean run to reproduce CI.
 
 set -euo pipefail
+
+NO_CLEAN=0
+for arg in "$@"; do
+    case "${arg}" in
+        --no-clean) NO_CLEAN=1 ;;
+        -h|--help)
+            sed -n '3,10p' "${BASH_SOURCE[0]:-$0}"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: ${arg}" >&2
+            echo "Usage: $(basename "${BASH_SOURCE[0]:-$0}") [--no-clean]" >&2
+            exit 2
+            ;;
+    esac
+done
 
 # Colors for output
 RED='\033[0;31m'
@@ -24,26 +44,31 @@ BUILD_DIR="${SCRIPT_DIR}/_build"
 echo -e "${GREEN}=== Testing C++ CAPI tests with Rust sparseir-capi ===${NC}"
 
 # Step 0: Clean build (remove target, _build, and _install directories)
-echo -e "${YELLOW}Step 0: Cleaning build directories...${NC}"
-cd "${WORKSPACE_ROOT}"
-if [ -d "target" ]; then
-    rm -rf target
-    echo -e "${GREEN}Removed target directory${NC}"
+if [ "${NO_CLEAN}" -eq 1 ]; then
+    echo -e "${YELLOW}Step 0: Skipped (--no-clean): building incrementally${NC}"
+else
+    echo -e "${YELLOW}Step 0: Cleaning build directories...${NC}"
+    cd "${WORKSPACE_ROOT}"
+    if [ -d "target" ]; then
+        rm -rf target
+        echo -e "${GREEN}Removed target directory${NC}"
+    fi
+    cd "${SCRIPT_DIR}"
+    if [ -d "_build" ]; then
+        rm -rf _build
+        echo -e "${GREEN}Removed _build directory${NC}"
+    fi
+    if [ -d "_install" ]; then
+        rm -rf _install
+        echo -e "${GREEN}Removed _install directory${NC}"
+    fi
+    # Also clean FetchContent cache if it exists (in case of partial downloads)
+    if [ -d "_build/_deps" ]; then
+        rm -rf _build/_deps
+        echo -e "${GREEN}Removed FetchContent cache${NC}"
+    fi
 fi
 cd "${SCRIPT_DIR}"
-if [ -d "_build" ]; then
-    rm -rf _build
-    echo -e "${GREEN}Removed _build directory${NC}"
-fi
-if [ -d "_install" ]; then
-    rm -rf _install
-    echo -e "${GREEN}Removed _install directory${NC}"
-fi
-# Also clean FetchContent cache if it exists (in case of partial downloads)
-if [ -d "_build/_deps" ]; then
-    rm -rf _build/_deps
-    echo -e "${GREEN}Removed FetchContent cache${NC}"
-fi
 
 # Step 1: Build Rust C API library
 echo -e "${YELLOW}Step 1: Building sparseir-capi...${NC}"

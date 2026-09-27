@@ -136,43 +136,46 @@ fn test_sve_singular_values_lambda_5() {
 
     println!("Testing SVE for λ={}, ε={}", lambda, epsilon);
 
-    let kernel = LogisticKernel::new(lambda);
+    let kernel = LogisticKernel::new(lambda).unwrap();
     let result = compute_sve(
         kernel,
-        epsilon,
+        Some(epsilon),
         None, // cutoff
         None, // max_num_svals
         TworkType::Auto,
-    );
+    )
+    .unwrap();
 
     // Load reference values
     let s_ref: Vec<f64> = REFERENCE_SVALS.to_vec();
 
-    println!("Rust: {} singular values", result.s.len());
+    println!("Rust: {} singular values", result.s().len());
     println!("Julia: {} singular values", s_ref.len());
 
     // Print all Rust singular values
     println!("\nAll Rust singular values:");
-    for (i, &s) in result.s.iter().enumerate() {
+    for (i, &s) in result.s().iter().enumerate() {
         println!("  Rust s[{}] = {:.6e}", i, s);
     }
 
     // Filter significant singular values in Rust result
-    let threshold = epsilon * result.s[0];
+    let threshold = epsilon * result.s()[0];
     println!(
         "\nThreshold = {} * {} = {:.6e}",
-        epsilon, result.s[0], threshold
+        epsilon,
+        result.s()[0],
+        threshold
     );
 
     let significant_rust: Vec<f64> = result
-        .s
+        .s()
         .iter()
         .filter(|&&s| s > threshold)
         .copied()
         .collect();
 
     println!("Rust significant (> threshold): {}", significant_rust.len());
-    println!("First Rust s[0] = {}", result.s[0]);
+    println!("First Rust s[0] = {}", result.s()[0]);
 
     // Compare number of significant singular values
     assert_eq!(
@@ -220,8 +223,8 @@ fn test_sve_singular_functions_lambda_5() {
         lambda, epsilon
     );
 
-    let kernel = LogisticKernel::new(lambda);
-    let result = compute_sve(kernel, epsilon, None, None, TworkType::Auto);
+    let kernel = LogisticKernel::new(lambda).unwrap();
+    let result = compute_sve(kernel, Some(epsilon), None, None, TworkType::Auto).unwrap();
 
     // Test points
     let x_test = [-0.9, -0.5, 0.0, 0.5, 0.9];
@@ -239,7 +242,7 @@ fn test_sve_singular_functions_lambda_5() {
         let mut max_error: f64 = 0.0;
 
         for (j, &x) in x_test.iter().enumerate() {
-            let u_rust = result.u.get_polys()[i].evaluate(x);
+            let u_rust = result.u().get_polys()[i].evaluate(x);
             let u_julia = u_ref[[j, i]];
             let abs_error = (u_rust - u_julia).abs();
             max_error = max_error.max(abs_error);
@@ -265,7 +268,7 @@ fn test_sve_singular_functions_lambda_5() {
         let mut max_error: f64 = 0.0;
 
         for (j, &x) in x_test.iter().enumerate() {
-            let v_rust = result.v.get_polys()[i].evaluate(x);
+            let v_rust = result.v().get_polys()[i].evaluate(x);
             let v_julia = v_ref[[j, i]];
             let abs_error = (v_rust - v_julia).abs();
             max_error = max_error.max(abs_error);

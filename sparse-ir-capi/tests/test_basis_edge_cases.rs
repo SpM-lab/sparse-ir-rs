@@ -79,16 +79,24 @@ fn basis_new_accepts_max_size_one() {
 /// A sentinel that no status or point count takes
 const UNTOUCHED: i32 = 12345;
 
-/// SVE of the logistic kernel (Λ = β ωmax) computed by
-/// `spir_sve_result_from_matrix` from its full-domain discretization. Its
-/// singular functions carry no parity (`symm = 0`), unlike those of
-/// `spir_sve_result_new` or the centrosymmetric variant.
-fn sve_without_parity() -> *mut spir_sve_result {
+/// Row-major full-domain discretization of the logistic kernel (Λ = β ωmax),
+/// with its segments and Gauss order, in the form that
+/// `spir_sve_result_from_matrix` takes
+struct FullDomainMatrix {
+    k_high: Vec<f64>,
+    nx: usize,
+    ny: usize,
+    segs_x: Vec<f64>,
+    segs_y: Vec<f64>,
+    n_gauss: usize,
+}
+
+fn logistic_full_domain_matrix() -> FullDomainMatrix {
     use sparse_ir::gauss::legendre;
     use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints};
     use sparse_ir::kernelmatrix::matrix_from_gauss_noncentrosymmetric;
 
-    let kernel = LogisticKernel::new(BETA * WMAX);
+    let kernel = LogisticKernel::new(BETA * WMAX).unwrap();
     let hints = kernel.sve_hints::<f64>(EPS);
     let mirror = |half: Vec<f64>| -> Vec<f64> {
         let mut full: Vec<f64> = half.iter().rev().map(|&s| -s).collect();
@@ -99,29 +107,57 @@ fn sve_without_parity() -> *mut spir_sve_result {
     let rule = legendre::<f64>(hints.ngauss());
     let matrix = matrix_from_gauss_noncentrosymmetric(
         &kernel,
-        &rule.piecewise(&segs_x),
-        &rule.piecewise(&segs_y),
+        &rule.piecewise(&segs_x).unwrap(),
+        &rule.piecewise(&segs_y).unwrap(),
         &hints,
     )
     .apply_weights_for_sve();
     let (nx, ny) = *matrix.shape();
     let k_high: Vec<f64> = (0..nx * ny).map(|k| matrix[[k / ny, k % ny]]).collect();
+    FullDomainMatrix {
+        k_high,
+        nx,
+        ny,
+        segs_x,
+        segs_y,
+        n_gauss: hints.ngauss(),
+    }
+}
 
+/// `spir_sve_result_from_matrix` on the entries `k_high` with the segments of
+/// `m` multiplied by `scale`
+fn sve_from_matrix(
+    m: &FullDomainMatrix,
+    k_high: &[f64],
+    scale: f64,
+) -> (i32, *mut spir_sve_result) {
+    let segs_x: Vec<f64> = m.segs_x.iter().map(|s| scale * s).collect();
+    let segs_y: Vec<f64> = m.segs_y.iter().map(|s| scale * s).collect();
     let mut status = SPIR_INTERNAL_ERROR;
     let sve = spir_sve_result_from_matrix(
         k_high.as_ptr(),
         ptr::null(),
-        nx as i32,
-        ny as i32,
+        m.nx as i32,
+        m.ny as i32,
         SPIR_ORDER_ROW_MAJOR,
         segs_x.as_ptr(),
         (segs_x.len() - 1) as i32,
         segs_y.as_ptr(),
         (segs_y.len() - 1) as i32,
-        hints.ngauss() as i32,
+        m.n_gauss as i32,
         EPS,
         &mut status,
     );
+    (status, sve)
+}
+
+/// SVE of the logistic kernel (Λ = β ωmax) computed by
+/// `spir_sve_result_from_matrix` from its full-domain discretization. Its
+/// singular functions carry no parity (`symm = 0`), unlike those of
+/// `spir_sve_result_new` or the centrosymmetric variant.
+fn sve_without_parity() -> *mut spir_sve_result {
+    let m = logistic_full_domain_matrix();
+    let (status, sve) = sve_from_matrix(&m, &m.k_high, 1.0);
     assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
     assert!(!sve.is_null());
     sve
@@ -243,4 +279,280 @@ fn default_matsus_of_a_basis_with_parity_are_supported() {
         spir_basis_release(basis);
     }
     spir_kernel_release(kernel);
+}
+
+// ---------------------------------------------------------------------------
+// Invalid parameters of the basis constructors
+// ---------------------------------------------------------------------------
+
+/// Status and basis of `spir_basis_new` with the given parameters
+fn try_basis_new(
+    statistics: i32,
+    kernel: *const spir_kernel,
+    sve: *const spir_sve_result,
+    epsilon: f64,
+    max_size: i32,
+) -> (i32, *mut spir_basis) {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let basis = spir_basis_new(
+        statistics,
+        BETA,
+        WMAX,
+        epsilon,
+        kernel,
+        sve,
+        max_size,
+        &mut status,
+    );
+    (status, basis)
+}
+
+/// max_size = 0 was a core panic (SPIR_INTERNAL_ERROR, -7), and epsilon > 1
+/// too; epsilon = 1 gave a basis of size 1. All are invalid arguments now,
+/// with and without a precomputed SVE.
+#[test]
+fn basis_new_rejects_max_size_zero_and_epsilon_of_one_or_more() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+    for statistics in STATISTICS {
+        for sve in [ptr::null(), sve as *const spir_sve_result] {
+            for (epsilon, max_size) in [(EPS, 0), (1.0, -1), (2.0, -1)] {
+                let (status, basis) = try_basis_new(statistics, kernel, sve, epsilon, max_size);
+                assert_eq!(
+                    status, SPIR_INVALID_ARGUMENT,
+                    "statistics = {statistics}, sve = {sve:?}, epsilon = {epsilon}, max_size = {max_size}"
+                );
+                assert!(basis.is_null());
+            }
+        }
+    }
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
+/// An SVE on [-2, 2] × [-2, 2] made the Fourier transform of the basis
+/// functions panic (SPIR_INTERNAL_ERROR, -7).
+#[test]
+fn basis_new_rejects_an_sve_on_another_domain() {
+    let m = logistic_full_domain_matrix();
+    let (status, sve) = sve_from_matrix(&m, &m.k_high, 2.0);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let mut kernel_status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut kernel_status);
+    assert_eq!(kernel_status, SPIR_COMPUTATION_SUCCESS);
+
+    for statistics in STATISTICS {
+        let (status, basis) = try_basis_new(statistics, kernel, sve, EPS, -1);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "statistics = {statistics}");
+        assert!(basis.is_null());
+    }
+    spir_kernel_release(kernel);
+    spir_sve_result_release(sve);
+}
+
+/// An SVE from spir_sve_result_from_matrix whose segments end 1e-13 inside
+/// ±1 passes the domain check of spir_basis_new. Its Fourier transform then
+/// evaluated the functions at x = 1 and panicked (SPIR_INTERNAL_ERROR, -7),
+/// and its u functions ended inside [0, β]. The basis is built now, and its
+/// u functions evaluate at τ = 0 and β.
+#[test]
+fn basis_new_accepts_an_sve_just_inside_the_unit_domain() {
+    let m = logistic_full_domain_matrix();
+    let (status, sve) = sve_from_matrix(&m, &m.k_high, 1.0 - 1e-13);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let mut kernel_status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut kernel_status);
+    assert_eq!(kernel_status, SPIR_COMPUTATION_SUCCESS);
+
+    for statistics in STATISTICS {
+        let (status, basis) = try_basis_new(statistics, kernel, sve, EPS, -1);
+        assert_eq!(
+            status, SPIR_COMPUTATION_SUCCESS,
+            "statistics = {statistics}"
+        );
+        let mut size = 0;
+        assert_eq!(
+            spir_basis_get_size(basis, &mut size),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        let mut status = SPIR_INTERNAL_ERROR;
+        let u = unsafe { spir_basis_get_u(basis, &mut status) };
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut out = vec![0.0; size as usize];
+        for tau in [0.0, BETA] {
+            assert_eq!(
+                spir_funcs_eval(u, tau, out.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS,
+                "statistics = {statistics}, tau = {tau}"
+            );
+            assert!(out.iter().all(|v| v.is_finite()));
+        }
+        spir_funcs_release(u);
+        spir_basis_release(basis);
+    }
+    spir_kernel_release(kernel);
+    spir_sve_result_release(sve);
+}
+
+// ---------------------------------------------------------------------------
+// Invalid parameters of the SVE constructors
+// ---------------------------------------------------------------------------
+
+/// `spir_sve_result_new` with epsilon = 1 used to succeed and return an SVE
+/// that failed later; epsilon >= 1 is an invalid argument now.
+#[test]
+fn sve_result_new_rejects_epsilon_of_one_or_more() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    for epsilon in [1.0, 2.0] {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_new(kernel, epsilon, -1, -1, SPIR_TWORK_AUTO, &mut status);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "epsilon = {epsilon}");
+        assert!(sve.is_null());
+    }
+    spir_kernel_release(kernel);
+}
+
+/// `spir_sve_result_truncate` with max_size = 0 or epsilon > 1 was a core
+/// panic (-7), and epsilon = 1 kept one value. epsilon = 0 keeps them all.
+#[test]
+fn sve_result_truncate_checks_its_parameters() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let mut n_full = 0;
+    assert_eq!(
+        spir_sve_result_get_size(sve, &mut n_full),
+        SPIR_COMPUTATION_SUCCESS
+    );
+
+    for (epsilon, max_size) in [(1e-3, 0), (1.0, -1), (1.5, -1)] {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let truncated = spir_sve_result_truncate(sve, epsilon, max_size, &mut status);
+        assert_eq!(
+            status, SPIR_INVALID_ARGUMENT,
+            "epsilon = {epsilon}, max_size = {max_size}"
+        );
+        assert!(truncated.is_null());
+    }
+    let mut status = SPIR_INTERNAL_ERROR;
+    let all = spir_sve_result_truncate(sve, 0.0, -1, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let mut n_all = 0;
+    assert_eq!(
+        spir_sve_result_get_size(all, &mut n_all),
+        SPIR_COMPUTATION_SUCCESS
+    );
+    assert_eq!(n_all, n_full);
+
+    spir_sve_result_release(all);
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
+/// A basis on an SVE truncated to 2 functions has no default tau sampling
+/// points: they need the extrema of u_1, which has none. Indexing the empty
+/// extrema panicked (SPIR_INTERNAL_ERROR, -7); the default points are not
+/// supported now. Points that need only u_0 and u_1, and the default
+/// real-frequency points, are still returned.
+#[test]
+fn default_taus_of_an_sve_truncated_to_two_functions_are_not_supported() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let truncated = spir_sve_result_truncate(sve, 0.0, 2, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+    for statistics in STATISTICS {
+        let (status, basis) = try_basis_new(statistics, kernel, truncated, EPS, -1);
+        assert_eq!(
+            status, SPIR_COMPUTATION_SUCCESS,
+            "statistics = {statistics}"
+        );
+
+        let mut n = UNTOUCHED;
+        assert_eq!(
+            spir_basis_get_n_default_taus(basis, &mut n),
+            SPIR_NOT_SUPPORTED
+        );
+        assert_eq!(n, UNTOUCHED);
+        let mut points = vec![f64::NAN; 16];
+        assert_eq!(
+            spir_basis_get_default_taus(basis, points.as_mut_ptr()),
+            SPIR_NOT_SUPPORTED
+        );
+        assert!(points.iter().all(|p| p.is_nan()));
+        let mut returned = UNTOUCHED;
+        assert_eq!(
+            spir_basis_get_default_taus_ext(basis, 5, points.as_mut_ptr(), &mut returned),
+            SPIR_NOT_SUPPORTED
+        );
+        assert_eq!(returned, UNTOUCHED);
+
+        // One point: the root of u_1
+        assert_eq!(
+            spir_basis_get_default_taus_ext(basis, 1, points.as_mut_ptr(), &mut returned),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        assert_eq!(returned, 1);
+        let mut n_ws = 0;
+        assert_eq!(
+            spir_basis_get_n_default_ws(basis, &mut n_ws),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        assert!(n_ws > 0);
+        spir_basis_release(basis);
+    }
+    spir_sve_result_release(truncated);
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}
+
+/// A matrix of rank 0 leaves no singular functions: the empty vector of
+/// functions made the C API panic (SPIR_INTERNAL_ERROR, -7).
+#[test]
+fn sve_result_from_matrix_rejects_a_matrix_of_rank_zero() {
+    let m = logistic_full_domain_matrix();
+    let zeros = vec![0.0; m.k_high.len()];
+    let (status, sve) = sve_from_matrix(&m, &zeros, 1.0);
+    assert_eq!(status, SPIR_INVALID_ARGUMENT);
+    assert!(sve.is_null());
+}
+
+/// epsilon >= 1 is rejected before the matrix is decomposed. The matrix has
+/// one row more than its segments and Gauss points describe: if the SVD ran,
+/// removing the Gauss weights would index past them and panic
+/// (SPIR_INTERNAL_ERROR, -7), which is what happened before the check moved
+/// ahead of the SVD.
+#[test]
+fn sve_result_from_matrix_rejects_epsilon_of_one_or_more_before_the_svd() {
+    let m = logistic_full_domain_matrix();
+    let mut k_high = m.k_high.clone();
+    k_high.extend(std::iter::repeat_n(0.0, m.ny)); // one extra row
+    for epsilon in [1.0, 2.0] {
+        let mut status = SPIR_INTERNAL_ERROR;
+        let sve = spir_sve_result_from_matrix(
+            k_high.as_ptr(),
+            ptr::null(),
+            (m.nx + 1) as i32,
+            m.ny as i32,
+            SPIR_ORDER_ROW_MAJOR,
+            m.segs_x.as_ptr(),
+            (m.segs_x.len() - 1) as i32,
+            m.segs_y.as_ptr(),
+            (m.segs_y.len() - 1) as i32,
+            m.n_gauss as i32,
+            epsilon,
+            &mut status,
+        );
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "epsilon = {epsilon}");
+        assert!(sve.is_null());
+    }
 }

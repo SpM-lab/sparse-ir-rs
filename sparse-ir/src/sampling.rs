@@ -3,7 +3,9 @@
 //! This module provides `TauSampling` for transforming between IR basis coefficients
 //! and values at sparse sampling points in imaginary time.
 
+use crate::error::Error;
 use crate::fitters::InplaceFitter;
+use crate::fitters::common::check_input_shape;
 use crate::gemm::GemmBackendHandle;
 use crate::traits::StatisticsType;
 use mdarray::{DTensor, DynRank, Shape, Slice, Tensor, ViewMut};
@@ -41,6 +43,10 @@ pub(crate) fn build_output_shape<S: Shape>(
 /// # Returns
 /// Tensor with axes permuted
 ///
+/// # Panics
+///
+/// Panics if `src` or `dst` is not an axis of `arr`, also when they are equal.
+///
 /// # Example
 /// ```
 /// use sparse_ir::sampling::movedim;
@@ -59,10 +65,6 @@ pub(crate) fn build_output_shape<S: Shape>(
 /// assert_eq!(moved[&[2, 3, 1, 4][..]], arr[&[1, 2, 3, 4][..]]);
 /// ```
 pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
-    if src == dst {
-        return arr.to_tensor();
-    }
-
     let rank = arr.rank();
     assert!(
         src < rank,
@@ -76,6 +78,9 @@ pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Ten
         dst,
         rank
     );
+    if src == dst {
+        return arr.to_tensor();
+    }
 
     // Generate permutation: move src to dst position
     let mut perm = Vec::with_capacity(rank);
@@ -105,6 +110,67 @@ pub fn movedim<T: Clone>(arr: &Slice<T, DynRank>, src: usize, dst: usize) -> Ten
     arr.permute(&perm[..]).to_tensor()
 }
 
+/// Check the shape of a given sampling matrix against its points: some
+/// points, one row per point and at least one column
+///
+/// # Errors
+///
+/// * [`Error::EmptyInput`] named `sampling_points` if there are no points
+/// * [`Error::ShapeMismatch`] of the input if the matrix does not have one
+///   row per point
+/// * [`Error::EmptyInput`] named `matrix` if it has no columns: it describes
+///   no basis function, and the fitter would transpose `[n, 0]` arrays,
+///   which mdarray 0.7.2 does out of bounds
+///   (<https://github.com/fre-hu/mdarray/issues/21>)
+pub(crate) fn check_sampling_matrix_shape(
+    n_points: usize,
+    (rows, cols): (usize, usize),
+) -> Result<(), Error> {
+    if n_points == 0 {
+        return Err(Error::EmptyInput {
+            name: "sampling_points",
+        });
+    }
+    if rows != n_points {
+        return Err(Error::ShapeMismatch {
+            which: crate::error::ArrayRole::Input,
+            expected: vec![n_points, cols],
+            actual: vec![rows, cols],
+        });
+    }
+    if cols == 0 {
+        return Err(Error::EmptyInput { name: "matrix" });
+    }
+    Ok(())
+}
+
+/// `Ok` if every entry of a given sampling matrix is finite (the fitter
+/// factorizes it)
+///
+/// # Errors
+///
+/// [`Error::NonFiniteInput`] named `matrix` at the first NaN or infinite
+/// entry in row-major order; for a complex entry, `value` is its real part
+/// if that is not finite, and its imaginary part otherwise
+pub(crate) fn check_finite_matrix<T: Copy>(
+    matrix: &DTensor<T, 2>,
+    non_finite_part: impl Fn(T) -> Option<f64>,
+) -> Result<(), Error> {
+    let (rows, cols) = *matrix.shape();
+    for i in 0..rows {
+        for j in 0..cols {
+            if let Some(value) = non_finite_part(matrix[[i, j]]) {
+                return Err(Error::NonFiniteInput {
+                    name: "matrix",
+                    index: vec![i, j],
+                    value,
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Sparse sampling in imaginary time
 ///
 /// Allows transformation between the IR basis and a set of sampling points
@@ -113,7 +179,8 @@ pub struct TauSampling<S>
 where
     S: StatisticsType,
 {
-    /// Sampling points in imaginary time τ ∈ [-β/2, β/2]
+    /// Sampling points in imaginary time, in the order given (τ ∈ [-β, β]
+    /// unless given with a matrix)
     sampling_points: Vec<f64>,
 
     /// Real matrix fitter for least-squares fitting
@@ -139,11 +206,16 @@ where
     ///
     /// # Returns
     /// A new TauSampling object
-    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Self
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Basis::default_tau_sampling_points`](crate::basis_trait::Basis::default_tau_sampling_points)
+    /// (e.g. NotSupported for a DLR, whose IR basis has the default points)
+    pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Result<Self, Error>
     where
         S: 'static,
     {
-        let sampling_points = basis.default_tau_sampling_points();
+        let sampling_points = basis.default_tau_sampling_points()?;
         Self::with_sampling_points(basis, sampling_points)
     }
 
@@ -158,38 +230,40 @@ where
     /// # Returns
     /// A new TauSampling object
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty or if any point is outside [-β, β]
+    /// The points are kept in the given order, and duplicates are accepted;
+    /// they only raise the condition number.
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty
+    /// * [`Error::OutOfDomain`] if a point is outside [-β, β] or NaN (from
+    ///   [`Basis::evaluate_tau`](crate::basis_trait::Basis::evaluate_tau))
     pub fn with_sampling_points(
         basis: &impl crate::basis_trait::Basis<S>,
         sampling_points: Vec<f64>,
-    ) -> Self
+    ) -> Result<Self, Error>
     where
         S: 'static,
     {
-        assert!(!sampling_points.is_empty(), "No sampling points given");
-
-        let beta = basis.beta();
-        for &tau in &sampling_points {
-            assert!(
-                tau >= -beta && tau <= beta,
-                "Sampling point τ={} is outside [-β, β]",
-                tau
-            );
+        // With no points the sampling matrix would have no rows, and the
+        // fitter's transposes would go through the zero-extent paths of
+        // mdarray 0.7.2 (https://github.com/fre-hu/mdarray/issues/21).
+        if sampling_points.is_empty() {
+            return Err(Error::EmptyInput {
+                name: "sampling_points",
+            });
         }
 
-        // Compute sampling matrix: A[i, l] = u_l(τ_i)
-        // Use Basis trait's evaluate_tau method
-        let matrix = basis.evaluate_tau(&sampling_points);
-
-        // Create fitter
+        // Compute sampling matrix: A[i, l] = u_l(τ_i); evaluate_tau checks
+        // that every τ is in [-β, β].
+        let matrix = basis.evaluate_tau(&sampling_points)?;
         let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Create a new TauSampling with custom sampling points and pre-computed matrix
@@ -198,41 +272,44 @@ where
     /// (e.g., from external sources or for testing).
     ///
     /// # Arguments
-    /// * `sampling_points` - Sampling points in τ ∈ [-β, β]
-    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size)
+    /// * `sampling_points` - Imaginary times τ that label the rows of
+    ///   `matrix`, in any order. There is no β to check them against, so
+    ///   any finite value is accepted and kept as given.
+    /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size); row i
+    ///   belongs to `sampling_points[i]`
     ///
-    /// # Returns
-    /// A new TauSampling object
+    /// Duplicate points are accepted; they only raise the condition number.
     ///
-    /// # Panics
-    /// Panics if `sampling_points` is empty, if the number of matrix rows
-    /// differs from the number of sampling points, or if the matrix has no
-    /// columns (no basis functions)
-    pub fn from_matrix(sampling_points: Vec<f64>, matrix: DTensor<f64, 2>) -> Self {
-        assert!(!sampling_points.is_empty(), "No sampling points given");
-        assert_eq!(
-            matrix.shape().0,
-            sampling_points.len(),
-            "Matrix rows ({}) must match number of sampling points ({})",
-            matrix.shape().0,
-            sampling_points.len()
-        );
-        // A matrix without columns has an SVD without singular values, whose
-        // [n, 0] factors mdarray 0.7.2 transposes out of bounds (mdarray#21,
-        // https://github.com/fre-hu/mdarray/issues/21); there is nothing to fit.
-        assert!(
-            matrix.shape().1 > 0,
-            "Matrix must have at least one column (basis function), got shape {:?}",
-            matrix.shape()
-        );
+    /// # Errors
+    ///
+    /// * [`Error::EmptyInput`] if `sampling_points` is empty, or `matrix`
+    ///   has no columns
+    /// * [`Error::ShapeMismatch`] of the input if `matrix` does not have one
+    ///   row per point
+    /// * [`Error::NonFiniteInput`] for the first NaN or infinite point, then
+    ///   for the first NaN or infinite entry of `matrix`
+    pub fn from_matrix(sampling_points: Vec<f64>, matrix: DTensor<f64, 2>) -> Result<Self, Error> {
+        check_sampling_matrix_shape(sampling_points.len(), *matrix.shape())?;
+        if let Some((i, &tau)) = sampling_points
+            .iter()
+            .enumerate()
+            .find(|(_, tau)| !tau.is_finite())
+        {
+            return Err(Error::NonFiniteInput {
+                name: "sampling_points",
+                index: vec![i],
+                value: tau,
+            });
+        }
+        check_finite_matrix(&matrix, |x: f64| (!x.is_finite()).then_some(x))?;
 
         let fitter = crate::fitters::RealMatrixFitter::new(matrix);
 
-        Self {
+        Ok(Self {
             sampling_points,
             fitter,
             _phantom: std::marker::PhantomData,
-        }
+        })
     }
 
     /// Get the sampling points
@@ -266,7 +343,13 @@ where
     /// (numerically singular matrix). The singular value decomposition is the
     /// one fitting uses: it is computed by the first call to this method or to
     /// a fit, then cached.
-    pub fn condition_number(&self) -> f64 {
+    ///
+    /// # Errors
+    ///
+    /// [`Error::DecompositionFailed`] if the singular value decomposition
+    /// fails, which a matrix of finite entries does not cause in practice
+    /// (the constructors reject non-finite entries)
+    pub fn condition_number(&self) -> Result<f64, Error> {
         self.fitter.condition_number()
     }
 
@@ -283,42 +366,114 @@ where
     ///
     /// # Returns
     /// Values at sampling points (length = n_sampling_points)
-    pub fn evaluate(&self, coeffs: &[f64]) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    pub fn evaluate(&self, coeffs: &[f64]) -> Result<Vec<f64>, Error> {
         self.fitter.evaluate(None, coeffs)
     }
 
     /// Evaluate basis coefficients at sampling points, writing to output slice
-    pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `n_sampling_points`
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn evaluate_to(&self, coeffs: &[f64], out: &mut [f64]) -> Result<(), Error> {
         self.fitter.evaluate_to(None, coeffs, out)
     }
 
     /// Fit values at sampling points to basis coefficients
-    pub fn fit(&self, values: &[f64]) -> Vec<f64> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    pub fn fit(&self, values: &[f64]) -> Result<Vec<f64>, Error> {
         self.fitter.fit(None, values)
     }
 
     /// Fit values at sampling points to basis coefficients, writing to output slice
-    pub fn fit_to(&self, values: &[f64], out: &mut [f64]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `basis_size`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn fit_to(&self, values: &[f64], out: &mut [f64]) -> Result<(), Error> {
         self.fitter.fit_to(None, values, out)
     }
 
     /// Evaluate complex basis coefficients at sampling points
-    pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Vec<Complex<f64>> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    pub fn evaluate_zz(&self, coeffs: &[Complex<f64>]) -> Result<Vec<Complex<f64>>, Error> {
         self.fitter.evaluate_zz(None, coeffs)
     }
 
     /// Evaluate complex basis coefficients, writing to output slice
-    pub fn evaluate_zz_to(&self, coeffs: &[Complex<f64>], out: &mut [Complex<f64>]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have length
+    ///   `basis_size`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `n_sampling_points`
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn evaluate_zz_to(
+        &self,
+        coeffs: &[Complex<f64>],
+        out: &mut [Complex<f64>],
+    ) -> Result<(), Error> {
         self.fitter.evaluate_zz_to(None, coeffs, out)
     }
 
     /// Fit complex values at sampling points to basis coefficients
-    pub fn fit_zz(&self, values: &[Complex<f64>]) -> Vec<Complex<f64>> {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    pub fn fit_zz(&self, values: &[Complex<f64>]) -> Result<Vec<Complex<f64>>, Error> {
         self.fitter.fit_zz(None, values)
     }
 
     /// Fit complex values, writing to output slice
-    pub fn fit_zz_to(&self, values: &[Complex<f64>], out: &mut [Complex<f64>]) {
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have length
+    ///   `n_sampling_points`
+    /// * [`Error::ShapeMismatch`] of the output if `out` does not have length
+    ///   `basis_size`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    ///
+    /// Nothing is written to `out` on an error.
+    pub fn fit_zz_to(
+        &self,
+        values: &[Complex<f64>],
+        out: &mut [Complex<f64>],
+    ) -> Result<(), Error> {
         self.fitter.fit_zz_to(None, values, out)
     }
 
@@ -334,16 +489,23 @@ where
     ///
     /// # Returns
     /// N-dimensional array with `result.shape().dim(dim) == n_sampling_points`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
     pub fn evaluate_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
+    ) -> Result<Tensor<f64, DynRank>, Error> {
+        check_input_shape(coeffs.shape().dims(), dim, self.basis_size())?;
         let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
         let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
-        self.evaluate_nd_to(backend, coeffs, dim, &mut out.expr_mut());
-        out
+        self.evaluate_nd_to(backend, coeffs, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Evaluate N-D real coefficients, writing to a mutable view
@@ -351,18 +513,22 @@ where
     /// `out` must have the shape of `coeffs` with `n_sampling_points` along
     /// `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `coeffs`, `coeffs` does not have
-    /// `basis_size` along `dim`, or `out` does not have that shape. Nothing is
-    /// written to `out` then.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`, and of the output if `out` does not have
+    ///   the shape of `coeffs` with `n_sampling_points` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn evaluate_nd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::evaluate_nd_dd_to(self, backend, coeffs, dim, out)
     }
 
     /// Fit N-D real values at sampling points to basis coefficients
@@ -373,25 +539,40 @@ where
     ///
     /// # Returns
     /// N-dimensional array with `result.shape().dim(dim) == basis_size`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     pub fn fit_nd(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Slice<f64, DynRank>,
         dim: usize,
-    ) -> Tensor<f64, DynRank> {
+    ) -> Result<Tensor<f64, DynRank>, Error> {
+        check_input_shape(values.shape().dims(), dim, self.n_sampling_points())?;
         let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
         let mut out = Tensor::<f64, DynRank>::zeros(&out_shape[..]);
-        self.fit_nd_to(backend, values, dim, &mut out.expr_mut());
-        out
+        self.fit_nd_to(backend, values, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Fit N-D real values, writing to a mutable view
     ///
     /// `out` must have the shape of `values` with `basis_size` along `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `values`, `values` does not have
-    /// `n_sampling_points` along `dim`, or `out` does not have that shape.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
+    ///   the shape of `values` with `basis_size` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_to(
         &self,
@@ -399,8 +580,8 @@ where
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) {
-        InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::fit_nd_dd_to(self, backend, values, dim, out)
     }
 
     // ========================================================================
@@ -415,16 +596,23 @@ where
     ///
     /// # Returns
     /// N-dimensional complex array with `result.shape().dim(dim) == n_sampling_points`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`
     pub fn evaluate_nd_zz(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
+        check_input_shape(coeffs.shape().dims(), dim, self.basis_size())?;
         let out_shape = build_output_shape(coeffs.shape(), dim, self.n_sampling_points());
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
-        self.evaluate_nd_zz_to(backend, coeffs, dim, &mut out.expr_mut());
-        out
+        self.evaluate_nd_zz_to(backend, coeffs, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Evaluate N-D complex coefficients, writing to a mutable view
@@ -432,18 +620,22 @@ where
     /// `out` must have the shape of `coeffs` with `n_sampling_points` along
     /// `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `coeffs`, `coeffs` does not have
-    /// `basis_size` along `dim`, or `out` does not have that shape. Nothing is
-    /// written to `out` then.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `coeffs`
+    /// * [`Error::ShapeMismatch`] of the input if `coeffs` does not have
+    ///   `basis_size` along `dim`, and of the output if `out` does not have
+    ///   the shape of `coeffs` with `n_sampling_points` along `dim`
+    ///
+    /// Nothing is written to `out` then.
     pub fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::evaluate_nd_zz_to(self, backend, coeffs, dim, out)
     }
 
     /// Fit N-D complex values at sampling points to basis coefficients
@@ -454,25 +646,40 @@ where
     ///
     /// # Returns
     /// N-dimensional complex array with `result.shape().dim(dim) == basis_size`
+    ///
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
     pub fn fit_nd_zz(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
-    ) -> Tensor<Complex<f64>, DynRank> {
+    ) -> Result<Tensor<Complex<f64>, DynRank>, Error> {
+        check_input_shape(values.shape().dims(), dim, self.n_sampling_points())?;
         let out_shape = build_output_shape(values.shape(), dim, self.basis_size());
         let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&out_shape[..]);
-        self.fit_nd_zz_to(backend, values, dim, &mut out.expr_mut());
-        out
+        self.fit_nd_zz_to(backend, values, dim, &mut out.expr_mut())?;
+        Ok(out)
     }
 
     /// Fit N-D complex values, writing to a mutable view
     ///
     /// `out` must have the shape of `values` with `basis_size` along `dim`.
     ///
-    /// # Panics
-    /// Panics if `dim` is not an axis of `values`, `values` does not have
-    /// `n_sampling_points` along `dim`, or `out` does not have that shape.
+    /// # Errors
+    ///
+    /// * [`Error::AxisOutOfRange`] if `dim` is not an axis of `values`
+    /// * [`Error::ShapeMismatch`] of the input if `values` does not have
+    ///   `n_sampling_points` along `dim`, and of the output if `out` does not have
+    ///   the shape of `values` with `basis_size` along `dim`
+    /// * [`Error::DecompositionFailed`] if the singular value decomposition
+    ///   fails
+    ///
     /// Nothing is written to `out` then.
     pub fn fit_nd_zz_to(
         &self,
@@ -480,8 +687,8 @@ where
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) {
-        InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out);
+    ) -> Result<(), Error> {
+        InplaceFitter::fit_nd_zz_to(self, backend, values, dim, out)
     }
 }
 
@@ -503,7 +710,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         coeffs: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_dd_to(backend, coeffs, dim, out)
     }
 
@@ -513,7 +720,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         coeffs: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.evaluate_nd_zz_to(backend, coeffs, dim, out)
     }
 
@@ -523,7 +730,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         values: &Slice<f64, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, f64, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_dd_to(backend, values, dim, out)
     }
 
@@ -533,7 +740,7 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         values: &Slice<Complex<f64>, DynRank>,
         dim: usize,
         out: &mut ViewMut<'_, Complex<f64>, DynRank>,
-    ) -> bool {
+    ) -> Result<(), Error> {
         self.fitter.fit_nd_zz_to(backend, values, dim, out)
     }
 }
