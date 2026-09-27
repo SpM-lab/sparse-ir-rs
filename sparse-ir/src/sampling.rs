@@ -274,7 +274,7 @@ where
     /// # Arguments
     /// * `sampling_points` - Imaginary times τ that label the rows of
     ///   `matrix`, in any order. There is no β to check them against, so
-    ///   any finite value is accepted and kept as given (spec D5).
+    ///   any finite value is accepted and kept as given.
     /// * `matrix` - Pre-computed sampling matrix (n_points × basis_size); row i
     ///   belongs to `sampling_points[i]`
     ///

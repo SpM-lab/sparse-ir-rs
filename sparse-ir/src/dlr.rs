@@ -644,7 +644,7 @@ where
             // (https://github.com/fre-hu/mdarray/issues/21) and from
             // zero-size GEMMs.
             let out_shape =
-                crate::sampling::build_output_shape(g_dlr.shape(), dim, self.fitmat.shape().0);
+                crate::sampling::build_output_shape(g_dlr.shape(), dim, self.ir_basis_size());
             return Ok(mdarray::Tensor::zeros(&out_shape[..]));
         }
 
@@ -663,7 +663,7 @@ where
         let gl_2d = self.fitter.evaluate_2d_generic::<T>(backend, &g_dlr_2d);
 
         // Reshape back
-        let basis_size = self.fitmat.shape().0;
+        let basis_size = self.ir_basis_size();
         let mut gl_shape = vec![basis_size];
         g_dlr_dim0.shape().with_dims(|dims| {
             for i in 1..dims.len() {
