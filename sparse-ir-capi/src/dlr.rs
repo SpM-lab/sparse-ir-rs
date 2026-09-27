@@ -155,8 +155,8 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
 ///
 /// Duplicate poles are accepted. They make `spir_ir2dlr_dd` and
 /// `spir_ir2dlr_zz` ill-conditioned: the coefficients of equal poles are not
-/// unique, although `spir_dlr2ir_dd` / `spir_dlr2ir_zz` of them still give
-/// the IR coefficients.
+/// unique, although the round trip through `spir_dlr2ir_dd` /
+/// `spir_dlr2ir_zz` still recovers the IR coefficients.
 ///
 /// # Safety
 /// Caller must ensure `b` is valid and `poles` has `npoles` elements

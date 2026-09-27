@@ -1610,7 +1610,7 @@ impl InplaceFitter for SamplingType {
 /// The error of an N-D operation that a sampling type does not support
 fn unsupported(operation: &str) -> sparse_ir::Error {
     sparse_ir::Error::NotSupported {
-        what: format!("{operation} for this sampling type"),
+        what: format!("{operation} for this sampling"),
     }
 }
 

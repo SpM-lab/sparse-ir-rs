@@ -509,9 +509,9 @@ mod tests {
         assert!(r.starts_with(&stacked), "{r}");
     }
 
-    /// ComplexToRealFitter::evaluate_nd_zz_to checks the axis and the input
-    /// before it copies the real parts of the coefficients: the same errors,
-    /// in the same order, as the evaluate_nd_dz_to it delegates to.
+    /// ComplexToRealFitter::evaluate_nd_zz_to reports a wrong axis and a
+    /// wrong input shape with the same errors, in the same order, as the
+    /// evaluate_nd_dz_to it delegates to.
     #[test]
     fn test_complex_to_real_zz_checks_the_input_first() {
         let f = ComplexToRealFitter::new(&complex_matrix());

@@ -339,7 +339,8 @@ where
     ///
     /// Duplicate poles are accepted. They make [`Self::from_ir_nd`]
     /// ill-conditioned: the coefficients of equal poles are not unique,
-    /// although [`Self::to_ir_nd`] of them still gives the IR coefficients.
+    /// although the round trip through [`Self::to_ir_nd`] still recovers the
+    /// IR coefficients.
     pub fn with_poles<K>(
         basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
         poles: Vec<f64>,
@@ -482,6 +483,9 @@ where
     ///   (e.g. `RegularizedBoseKernel`) due to numerical precision limitations
     ///   in root finding.
     /// * [`Error::KernelStatisticsMismatch`] as in [`Self::with_poles`]
+    /// * [`Error::NotSupported`] as in [`Self::with_poles`]: for a default
+    ///   pole at 0 of a bosonic basis whose kernel has a `ypower` other than
+    ///   0 or 1, or if `basis` is itself a DLR
     /// * The errors of
     ///   [`Basis::default_omega_sampling_points`](crate::basis_trait::Basis::default_omega_sampling_points)
     ///   (NotSupported for an SVE with too few singular functions)
