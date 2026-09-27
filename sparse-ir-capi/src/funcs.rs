@@ -582,6 +582,7 @@ pub extern "C" fn spir_funcs_eval(
     x: f64,
     out: *mut f64,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::types::is_in_domain;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
@@ -605,10 +606,11 @@ pub extern "C" fn spir_funcs_eval(
             return SPIR_INVALID_ARGUMENT;
         }
         match f.eval_continuous(x) {
-            Some(values) => {
+            Some(Ok(values)) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });
@@ -641,6 +643,7 @@ pub extern "C" fn spir_funcs_eval_matsu(
     n: i64,
     out: *mut num_complex::Complex64,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -663,10 +666,11 @@ pub extern "C" fn spir_funcs_eval_matsu(
             return SPIR_INVALID_ARGUMENT;
         }
         match f.eval_matsubara(n) {
-            Some(values) => {
+            Some(Ok(values)) => {
                 std::ptr::copy_nonoverlapping(values.as_ptr(), out, values.len());
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });
@@ -708,6 +712,7 @@ pub extern "C" fn spir_funcs_batch_eval(
     xs: *const f64,
     out: *mut f64,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::types::is_in_domain;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
@@ -738,7 +743,7 @@ pub extern "C" fn spir_funcs_batch_eval(
         }
 
         match f.batch_eval_continuous(xs_slice) {
-            Some(result_matrix) => {
+            Some(Ok(result_matrix)) => {
                 // result_matrix is Vec<Vec<f64>> where outer index is function, inner is point
                 let n_funcs = result_matrix.len();
                 let n_points = num_points as usize;
@@ -763,6 +768,7 @@ pub extern "C" fn spir_funcs_batch_eval(
                 }
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });
@@ -803,6 +809,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
     ns: *const i64,
     out: *mut num_complex::Complex64,
 ) -> crate::StatusCode {
+    use crate::status::status_from;
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
@@ -832,7 +839,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
         }
 
         match f.batch_eval_matsubara(ns_slice) {
-            Some(result_matrix) => {
+            Some(Ok(result_matrix)) => {
                 // result_matrix is Vec<Vec<Complex64>> where outer index is function, inner is freq
                 let n_funcs = result_matrix.len();
                 let n_freqs = num_freqs as usize;
@@ -857,6 +864,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
                 }
                 SPIR_COMPUTATION_SUCCESS
             }
+            Some(Err(e)) => status_from(&e),
             None => SPIR_NOT_SUPPORTED,
         }
     });

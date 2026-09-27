@@ -56,9 +56,9 @@ directory unless `--clean` is given.
 - `cargo fmt --all` before committing; the repo installs a pre-commit hook via
   `.cargo-husky`. Do not bypass it.
 - The C++ script removes the whole `target/` directory in clean mode, so a
-  `cargo build` that follows it is a full rebuild. On macOS that first rebuild
-  also emits spurious `(arm64) ... unable to open object file` linker warnings;
-  see `build-warning-baseline`.
+  `cargo build` that follows it is a full rebuild. On macOS such a build also
+  emits hundreds of spurious `(arm64) ... unable to open object file` linker
+  warnings; see `build-warning-baseline`.
 - After moving a worktree, delete `python/.venv` before the Python layer — its
   shebangs hold absolute paths.
 - `python3 check_version.py` checks that the versions in `Cargo.toml`,

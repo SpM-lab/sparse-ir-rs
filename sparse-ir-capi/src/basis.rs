@@ -267,7 +267,10 @@ pub extern "C" fn spir_basis_new(
 ///     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
 ///     `lambda` is not positive and finite, `epsilon` is 1 or more,
 ///     `max_size` is 0, `lambda` differs from `beta * omega_max` by more than
-///     1e-10, or `sve` is not an SVE on [-1, 1] × [-1, 1]
+///     1e-10, `sve` is not an SVE on [-1, 1] × [-1, 1], or
+///     `regularizer_funcs` holds τ or ω functions that are not defined at
+///     `omega_max / 2`, the point at which they are evaluated for validity
+///     (e.g. the u of a basis whose β is less than `omega_max / 2`)
 ///   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
 ///     and `statistics` is fermionic: that kernel supports bosonic statistics
 ///     only
@@ -358,16 +361,14 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
         let sve_ref = &*sve;
         let sve_result = sve_ref.inner().as_ref().clone();
 
-        // Evaluate regularizer_funcs at a test point to verify it's valid
-        // (Note: Currently, the custom regularizer is not fully integrated into basis construction)
+        // Evaluate the regularizer at a test point to check that it is
+        // defined there (the custom weight is not used in the construction
+        // yet). τ and ω functions whose domain does not contain the point
+        // are invalid arguments; Matsubara functions are not evaluated.
         let test_omega = omega_max / 2.0;
-        let _regularizer_value = match (*regularizer_funcs).eval_continuous(test_omega) {
-            Some(values) if !values.is_empty() => values[0],
-            _ => {
-                // Default to 1.0 if evaluation fails
-                1.0
-            }
-        };
+        if let Some(Err(e)) = (*regularizer_funcs).eval_continuous(test_omega) {
+            return Err(status_from(&e));
+        }
 
         // Select kernel type based on ypower:
         //   ypower == 0 => LogisticKernel

@@ -235,7 +235,10 @@ struct spir_basis *spir_basis_new(int statistics,
  *     `statistics` or `ypower` is invalid, `beta`, `omega_max`, `epsilon` or
  *     `lambda` is not positive and finite, `epsilon` is 1 or more,
  *     `max_size` is 0, `lambda` differs from `beta * omega_max` by more than
- *     1e-10, or `sve` is not an SVE on [-1, 1] × [-1, 1]
+ *     1e-10, `sve` is not an SVE on [-1, 1] × [-1, 1], or
+ *     `regularizer_funcs` holds τ or ω functions that are not defined at
+ *     `omega_max / 2`, the point at which they are evaluated for validity
+ *     (e.g. the u of a basis whose β is less than `omega_max / 2`)
  *   - `SPIR_NOT_SUPPORTED` (-5) if `ypower` is 1 (`RegularizedBoseKernel`)
  *     and `statistics` is fermionic: that kernel supports bosonic statistics
  *     only

@@ -550,70 +550,57 @@ pub(crate) struct PolyVectorFuncs {
 
 impl PolyVectorFuncs {
     /// Evaluate all functions at a single point
-    pub fn evaluate_at(&self, x: f64, beta: f64) -> Vec<f64> {
-        // Normalize x based on domain. spir_funcs_eval and
-        // spir_funcs_batch_eval check the point against tau_domain first;
-        // spir_basis_new_from_sve_and_regularizer does not (part 6), and the
-        // panic gives SPIR_INTERNAL_ERROR as before.
-        let (x_reg, sign) = match self.domain {
-            FunctionDomain::Tau(Statistics::Fermionic) => {
-                // u functions (fermionic): normalize tau to [0, beta]
-                normalize_tau::<Fermionic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
-            }
-            FunctionDomain::Tau(Statistics::Bosonic) => {
-                // u functions (bosonic): normalize tau to [0, beta]
-                normalize_tau::<Bosonic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
-            }
-            FunctionDomain::Omega => {
-                // v functions: no normalization needed
-                (x, 1.0)
-            }
-        };
-
-        // Evaluate all polynomials at the normalized point
+    ///
+    /// # Errors
+    /// [`sparse_ir::Error::OutOfDomain`] if `x` is NaN or outside the
+    /// domain: [-β, β] for τ functions, the knots for ω functions
+    pub fn evaluate_at(&self, x: f64, beta: f64) -> Result<Vec<f64>, sparse_ir::Error> {
+        let (x_reg, sign) = self.normalize(x, beta)?;
         self.poly
             .polyvec
             .iter()
-            .map(|p| sign * p.evaluate(x_reg))
+            .map(|p| Ok(sign * p.try_evaluate(x_reg)?))
             .collect()
     }
 
     /// Batch evaluate all functions at multiple points
     /// Returns Vec<Vec<f64>> where result[i][j] is function i evaluated at point j
-    pub fn batch_evaluate_at(&self, xs: &[f64], beta: f64) -> Vec<Vec<f64>> {
-        let n_funcs = self.poly.polyvec.len();
-        let n_points = xs.len();
-        let mut result = vec![vec![0.0; n_points]; n_funcs];
-
-        // Normalize all points based on domain. The C API checks them against
-        // tau_domain first (see evaluate_at); a point outside panics
-        // (SPIR_INTERNAL_ERROR) as before.
-        let normalized: Vec<(f64, f64)> = xs
+    ///
+    /// # Errors
+    /// As [`Self::evaluate_at`], for the first point outside the domain;
+    /// nothing is evaluated then
+    pub fn batch_evaluate_at(
+        &self,
+        xs: &[f64],
+        beta: f64,
+    ) -> Result<Vec<Vec<f64>>, sparse_ir::Error> {
+        let normalized = xs
             .iter()
-            .map(|&x| match self.domain {
-                FunctionDomain::Tau(Statistics::Fermionic) => {
-                    normalize_tau::<Fermionic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
-                }
-                FunctionDomain::Tau(Statistics::Bosonic) => {
-                    normalize_tau::<Bosonic>(x, beta).unwrap_or_else(|e| panic!("{e}"))
-                }
-                FunctionDomain::Omega => (x, 1.0),
+            .map(|&x| self.normalize(x, beta))
+            .collect::<Result<Vec<(f64, f64)>, sparse_ir::Error>>()?;
+        let xs_reg: Vec<f64> = normalized.iter().map(|&(x, _)| x).collect();
+        self.poly
+            .polyvec
+            .iter()
+            .map(|p| {
+                let values = p.try_evaluate_many(&xs_reg)?;
+                Ok(values
+                    .iter()
+                    .zip(&normalized)
+                    .map(|(&value, &(_, sign))| sign * value)
+                    .collect())
             })
-            .collect();
+            .collect()
+    }
 
-        // Extract normalized x values and signs
-        let xs_reg: Vec<f64> = normalized.iter().map(|(x, _)| *x).collect();
-        let signs: Vec<f64> = normalized.iter().map(|(_, s)| *s).collect();
-
-        // Evaluate each polynomial at all regularized points using evaluate_many
-        for (i, p) in self.poly.polyvec.iter().enumerate() {
-            let values = p.evaluate_many(&xs_reg);
-            for (j, &val) in values.iter().enumerate() {
-                result[i][j] = signs[j] * val;
-            }
+    /// The point `x` in the domain of the polynomials, and the sign of the
+    /// (anti)periodic continuation for a τ function
+    fn normalize(&self, x: f64, beta: f64) -> Result<(f64, f64), sparse_ir::Error> {
+        match self.domain {
+            FunctionDomain::Tau(Statistics::Fermionic) => normalize_tau::<Fermionic>(x, beta),
+            FunctionDomain::Tau(Statistics::Bosonic) => normalize_tau::<Bosonic>(x, beta),
+            FunctionDomain::Omega => Ok((x, 1.0)),
         }
-
-        result
     }
 }
 
@@ -1050,11 +1037,12 @@ impl spir_funcs {
     ///   for v, omega ∈ [-omega_max, omega_max]
     ///
     /// # Returns
-    /// Vector of function values, or None if not continuous
-    pub(crate) fn eval_continuous(&self, x: f64) -> Option<Vec<f64>> {
+    /// `None` if the functions are not of this kind; `Some(Err(..))` for a
+    /// point outside the domain
+    pub(crate) fn eval_continuous(&self, x: f64) -> Option<Result<Vec<f64>, sparse_ir::Error>> {
         match self.inner_type() {
             FuncsType::PolyVector(pv) => Some(pv.evaluate_at(x, self.beta)),
-            FuncsType::DLRTau(dlr) => Some(dlr.evaluate_at(x)),
+            FuncsType::DLRTau(dlr) => Some(Ok(dlr.evaluate_at(x))),
             _ => None,
         }
     }
@@ -1065,28 +1053,38 @@ impl spir_funcs {
     /// * `n` - Matsubara frequency index
     ///
     /// # Returns
-    /// Vector of complex function values, or None if not FT type
-    pub(crate) fn eval_matsubara(&self, n: i64) -> Option<Vec<num_complex::Complex64>> {
+    /// `None` if the functions are not of this kind; `Some(Err(..))` for an
+    /// index of the wrong parity
+    pub(crate) fn eval_matsubara(
+        &self,
+        n: i64,
+    ) -> Option<Result<Vec<num_complex::Complex64>, sparse_ir::Error>> {
         match self.inner_type() {
             FuncsType::FTVector(ftv) => {
                 if ftv.statistics == Statistics::Fermionic {
                     // Fermionic
                     let ft = ftv.ft_fermionic.as_ref()?;
-                    let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
+                    let freq = match MatsubaraFreq::<Fermionic>::new(n) {
+                        Ok(freq) => freq,
+                        Err(e) => return Some(Err(e)),
+                    };
                     let mut result = Vec::with_capacity(ft.polyvec.len());
                     for p in &ft.polyvec {
                         result.push(p.evaluate(&freq));
                     }
-                    Some(result)
+                    Some(Ok(result))
                 } else {
                     // Bosonic
                     let ft = ftv.ft_bosonic.as_ref()?;
-                    let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
+                    let freq = match MatsubaraFreq::<Bosonic>::new(n) {
+                        Ok(freq) => freq,
+                        Err(e) => return Some(Err(e)),
+                    };
                     let mut result = Vec::with_capacity(ft.polyvec.len());
                     for p in &ft.polyvec {
                         result.push(p.evaluate(&freq));
                     }
-                    Some(result)
+                    Some(Ok(result))
                 }
             }
             FuncsType::DLRMatsubara(dlr) => {
@@ -1095,7 +1093,10 @@ impl spir_funcs {
 
                 let mut result = Vec::with_capacity(dlr.poles.len());
                 if dlr.statistics == Statistics::Fermionic {
-                    let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
+                    let freq = match MatsubaraFreq::<Fermionic>::new(n) {
+                        Ok(freq) => freq,
+                        Err(e) => return Some(Err(e)),
+                    };
                     let iv = freq.value_imaginary(dlr.beta);
                     for (i, &pole) in dlr.poles.iter().enumerate() {
                         let pole_weight = dlr.pole_weights[i];
@@ -1103,7 +1104,10 @@ impl spir_funcs {
                             .push(Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0)));
                     }
                 } else {
-                    let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
+                    let freq = match MatsubaraFreq::<Bosonic>::new(n) {
+                        Ok(freq) => freq,
+                        Err(e) => return Some(Err(e)),
+                    };
                     let iv = freq.value_imaginary(dlr.beta);
                     for (i, &pole) in dlr.poles.iter().enumerate() {
                         if pole == 0.0 {
@@ -1120,17 +1124,24 @@ impl spir_funcs {
                         }
                     }
                 }
-                Some(result)
+                Some(Ok(result))
             }
             _ => None,
         }
     }
 
     /// Batch evaluate at multiple tau/omega points
-    pub(crate) fn batch_eval_continuous(&self, xs: &[f64]) -> Option<Vec<Vec<f64>>> {
+    ///
+    /// # Returns
+    /// `None` if the functions are not of this kind; `Some(Err(..))` for a
+    /// point outside the domain
+    pub(crate) fn batch_eval_continuous(
+        &self,
+        xs: &[f64],
+    ) -> Option<Result<Vec<Vec<f64>>, sparse_ir::Error>> {
         match self.inner_type() {
             FuncsType::PolyVector(pv) => Some(pv.batch_evaluate_at(xs, self.beta)),
-            FuncsType::DLRTau(dlr) => Some(dlr.batch_evaluate_at(xs)),
+            FuncsType::DLRTau(dlr) => Some(Ok(dlr.batch_evaluate_at(xs))),
             _ => None,
         }
     }
@@ -1141,11 +1152,12 @@ impl spir_funcs {
     /// * `ns` - Matsubara frequency indices
     ///
     /// # Returns
-    /// Matrix of complex function values (size = `[n_funcs, n_freqs]`), or None if not FT type
+    /// `None` if the functions are not of this kind; `Some(Err(..))` for an
+    /// index of the wrong parity
     pub(crate) fn batch_eval_matsubara(
         &self,
         ns: &[i64],
-    ) -> Option<Vec<Vec<num_complex::Complex64>>> {
+    ) -> Option<Result<Vec<Vec<num_complex::Complex64>>, sparse_ir::Error>> {
         match self.inner_type() {
             FuncsType::FTVector(ftv) => {
                 if ftv.statistics == Statistics::Fermionic {
@@ -1157,12 +1169,15 @@ impl spir_funcs {
                         vec![vec![num_complex::Complex64::new(0.0, 0.0); n_points]; n_funcs];
 
                     for (j, &n) in ns.iter().enumerate() {
-                        let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
+                        let freq = match MatsubaraFreq::<Fermionic>::new(n) {
+                            Ok(freq) => freq,
+                            Err(e) => return Some(Err(e)),
+                        };
                         for (i, p) in ft.polyvec.iter().enumerate() {
                             result[i][j] = p.evaluate(&freq);
                         }
                     }
-                    Some(result)
+                    Some(Ok(result))
                 } else {
                     // Bosonic
                     let ft = ftv.ft_bosonic.as_ref()?;
@@ -1172,12 +1187,15 @@ impl spir_funcs {
                         vec![vec![num_complex::Complex64::new(0.0, 0.0); n_points]; n_funcs];
 
                     for (j, &n) in ns.iter().enumerate() {
-                        let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
+                        let freq = match MatsubaraFreq::<Bosonic>::new(n) {
+                            Ok(freq) => freq,
+                            Err(e) => return Some(Err(e)),
+                        };
                         for (i, p) in ft.polyvec.iter().enumerate() {
                             result[i][j] = p.evaluate(&freq);
                         }
                     }
-                    Some(result)
+                    Some(Ok(result))
                 }
             }
             FuncsType::DLRMatsubara(dlr) => {
@@ -1190,7 +1208,10 @@ impl spir_funcs {
 
                 for (j, &n) in ns.iter().enumerate() {
                     if dlr.statistics == Statistics::Fermionic {
-                        let freq = MatsubaraFreq::<Fermionic>::new(n).ok()?;
+                        let freq = match MatsubaraFreq::<Fermionic>::new(n) {
+                            Ok(freq) => freq,
+                            Err(e) => return Some(Err(e)),
+                        };
                         let iv = freq.value_imaginary(dlr.beta);
                         for (i, &pole) in dlr.poles.iter().enumerate() {
                             let pole_weight = dlr.pole_weights[i];
@@ -1198,7 +1219,10 @@ impl spir_funcs {
                                 Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0));
                         }
                     } else {
-                        let freq = MatsubaraFreq::<Bosonic>::new(n).ok()?;
+                        let freq = match MatsubaraFreq::<Bosonic>::new(n) {
+                            Ok(freq) => freq,
+                            Err(e) => return Some(Err(e)),
+                        };
                         let iv = freq.value_imaginary(dlr.beta);
                         for (i, &pole) in dlr.poles.iter().enumerate() {
                             if pole == 0.0 {
@@ -1217,7 +1241,7 @@ impl spir_funcs {
                     }
                 }
 
-                Some(result)
+                Some(Ok(result))
             }
             FuncsType::DLRTau(_) => {
                 // DLRTau is for tau, not Matsubara frequencies

@@ -30,7 +30,12 @@ Capture rustdoc warnings separately with `cargo doc --workspace --no-deps`.
 ## Normalize before comparing
 
 ```bash
-norm() { sed -E 's/^ +//; s/ +/ /' | grep -v 'BLAS' | LC_ALL=C sort; }
+norm() {
+  sed -E 's/^ +//; s/ +/ /' \
+    | grep -v 'BLAS' \
+    | grep -v 'unable to open object file' \
+    | LC_ALL=C sort
+}
 diff <(norm < base-warn.txt) <(norm < branch-warn.txt)
 ```
 
@@ -39,6 +44,7 @@ Each step removes a known machine difference:
 - `sed` — BSD and GNU `uniq -c` pad the count column differently.
 - `grep -v BLAS` — the backend line differs by platform (macOS prints
   `Using macOS Accelerate framework`, Linux `Found system BLAS: openblas`).
+- `grep -v 'unable to open object file'` — the macOS linker warning below.
 - `LC_ALL=C sort` — locale changes the sort order.
 
 An empty diff is the pass condition. Any line only on the branch side is a new
@@ -46,13 +52,14 @@ warning and must be fixed or explained.
 
 ## macOS caveat
 
-`cxx_tests/run_with_rust_capi.sh` deletes `target/` in its default clean mode.
-A `cargo build` run straight afterwards emits dozens of
+On arm64 macOS the linker emits hundreds of
 
 ```
-warning: (arm64) .../deps/*.rcgu.o unable to open object file
+warning: (arm64) .../deps/*.rcgu.o unable to open object file: No such file or directory
 ```
 
-These are a stale-incremental artifact, not a code warning: they survive a
-second build but disappear after `cargo clean`. Always `cargo clean` before
-capturing warnings on macOS.
+while linking the test binaries of a debug build. They name object files inside
+dependency rlibs, not this code, and they do not appear on the Linux machine the
+baseline was captured on. `cargo clean` does not remove them: the next build
+emits the same set again, and a build that recompiles nothing replays them from
+cargo's cache. Filter them out, as `norm` above does, instead of chasing them.

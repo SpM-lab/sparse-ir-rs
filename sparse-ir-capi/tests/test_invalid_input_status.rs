@@ -1818,3 +1818,81 @@ fn sve_result_from_matrix_rejects_sizes_other_than_the_gauss_points() {
         spir_sve_result_release(sve);
     }
 }
+
+// ---------------------------------------------------------------------------
+// spir_basis_new_from_sve_and_regularizer
+// ---------------------------------------------------------------------------
+
+/// Build a basis with beta = 1 and omega_max = 10 from `regularizer`
+fn basis_with_regularizer(statistics: i32, regularizer: &Funcs) -> StatusCode {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let sve = spir_sve_result_new(kernel, EPS, -1, -1, SPIR_TWORK_AUTO, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let basis = spir_basis_new_from_sve_and_regularizer(
+        statistics,
+        BETA,
+        WMAX,
+        EPS,
+        BETA * WMAX,
+        0,
+        0.0,
+        sve,
+        regularizer.0,
+        -1,
+        &mut status,
+    );
+    assert_eq!(basis.is_null(), status != SPIR_COMPUTATION_SUCCESS);
+    if !basis.is_null() {
+        spir_basis_release(basis);
+    }
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+    status
+}
+
+/// The regularizer is evaluated at omega_max / 2 for validity. A τ function
+/// whose domain [-β, β] does not contain that point, or an ω function whose
+/// knots do not, panicked there (SPIR_INTERNAL_ERROR, -7); it is an invalid
+/// argument now. Matsubara functions are not evaluated, as before.
+#[test]
+fn basis_new_from_sve_and_regularizer_rejects_a_regularizer_undefined_at_half_of_wmax() {
+    // v on [-1, 1]: beta = 10, omega_max = 1
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(10.0, &mut status);
+    let narrow = spir_basis_new(
+        SPIR_STATISTICS_FERMIONIC,
+        10.0,
+        1.0,
+        EPS,
+        kernel,
+        ptr::null(),
+        -1,
+        &mut status,
+    );
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let narrow_v = get_funcs(narrow, spir_basis_get_v);
+
+    for statistics in STATISTICS {
+        let fx = Fixture::new(statistics);
+        let u = get_funcs(fx.basis, spir_basis_get_u);
+        let v = get_funcs(fx.basis, spir_basis_get_v);
+        let uhat = get_funcs(fx.basis, spir_basis_get_uhat);
+        for (name, regularizer, expected) in [
+            ("u on [-1, 1]", &u, SPIR_INVALID_ARGUMENT),
+            ("v on [-1, 1]", &narrow_v, SPIR_INVALID_ARGUMENT),
+            ("v on [-10, 10]", &v, SPIR_COMPUTATION_SUCCESS),
+            ("uhat", &uhat, SPIR_COMPUTATION_SUCCESS),
+        ] {
+            assert_eq!(
+                basis_with_regularizer(statistics, regularizer),
+                expected,
+                "{name}, statistics {statistics}"
+            );
+        }
+    }
+    drop(narrow_v);
+    spir_basis_release(narrow);
+    spir_kernel_release(kernel);
+}
