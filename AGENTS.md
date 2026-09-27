@@ -51,6 +51,10 @@ Use these repo-local skills when the task matches:
   Use when deciding the next sparse-ir-rs version under Semantic Versioning.
 - `agent-skills/manual-rust-release/SKILL.md`
   Use when preparing or triggering the manual GitHub Actions workflow that publishes crates and pushes the release tag.
+- `agent-skills/local-test-gate/SKILL.md`
+  Use when running the local test layers — cargo, C++, Fortran, Python, header sync — one layer while iterating or all of them before pushing.
+- `agent-skills/build-warning-baseline/SKILL.md`
+  Use when a change must not introduce new compiler or rustdoc warnings.
 
 Release invariants for this repository:
 
