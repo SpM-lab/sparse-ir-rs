@@ -1190,7 +1190,7 @@ StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * The statistics type (Fermionic/Bosonic) is automatically detected from the spir_funcs object type.
  *
  * This extracts the PiecewiseLegendreFTVector from spir_funcs and calls
- * `FiniteTempBasis::default_matsubara_sampling_points_impl` (sparse-ir/src/basis.rs)
+ * `sparse_ir::basis::default_matsubara_sampling_points_from_uhat`
  * to compute default sampling points: the sign changes of the first discarded
  * Matsubara basis function (its extrema when that function is not available);
  * bosonic sets always include n = 0.
