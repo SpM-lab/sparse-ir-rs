@@ -473,7 +473,7 @@ where
             .postprocess_block(&u_list[0], &s_list[0], &v_list[0])?;
         let (u_polys, v_polys) = canonicalize_signs(u_polys, v_polys);
         // A matrix of rank 0 leaves empty vectors; SVEResult::new reports the
-        // empty `s`. The field becomes private in part 7.
+        // empty `s`.
         SVEResult::new(
             PiecewiseLegendrePolyVector { polyvec: u_polys },
             s,

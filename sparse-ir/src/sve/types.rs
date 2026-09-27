@@ -152,7 +152,7 @@ mod tests {
 
     /// NaN is not an accuracy: it used to select the automatic accuracy.
     /// compute_sve rejects it first; the public helper panics like it does
-    /// for a negative epsilon until part 7 makes it pub(crate).
+    /// for a negative epsilon.
     #[test]
     #[should_panic(expected = "eps_required must be non-negative, got NaN")]
     fn test_nan_epsilon_panics() {

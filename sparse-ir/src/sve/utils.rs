@@ -443,7 +443,7 @@ pub(crate) fn merge_blocks(
 
     // Canonicalize signs: ensure u[l](xmax) >= 0. The merged blocks are not
     // empty (checked above) and share their knots, so the vectors are built
-    // through their field; the field becomes private in part 7.
+    // through their field.
     let (canonical_u, canonical_v) = canonicalize_signs(u_polys, v_polys);
     SVEResult::new(
         PiecewiseLegendrePolyVector {

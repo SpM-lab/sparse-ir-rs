@@ -1359,10 +1359,11 @@ mod tests {
         assert_eq!(segments_x.len(), (n_segments_x + 1) as usize);
         assert_eq!(segments_y.len(), (n_segments_y + 1) as usize);
         // Get Gauss points and weights
-        // Note: n_segments_x and n_segments_y are the number of boundary points (n_segments + 1),
-        // but spir_gauss_legendre_rule_piecewise_double expects the number of segments (n_segments)
-        let nx = n_gauss * (n_segments_x); // n_segments_x - 1 is the number of segments
-        let ny = n_gauss * (n_segments_y); // n_segments_y - 1 is the number of segments
+        // Note: n_segments_x and n_segments_y are the number of segments, which
+        // is what spir_gauss_legendre_rule_piecewise_double expects; the arrays
+        // of boundaries hold one more entry than that.
+        let nx = n_gauss * (n_segments_x);
+        let ny = n_gauss * (n_segments_y);
         let mut x = vec![0.0; nx as usize];
         let mut w_x = vec![0.0; nx as usize];
         let mut y = vec![0.0; ny as usize];
