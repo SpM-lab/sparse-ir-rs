@@ -20,7 +20,7 @@ use std::f64::consts::PI;
 
 use num_complex::Complex64;
 use sparse_ir::{Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling, TauSampling};
-use sparse_ir_tutorial::{Table, integrate_segments, output_path, provenance, write_table};
+use sparse_ir_tutorial::{Table, output_path, provenance, semicircle_overlaps, write_table};
 
 const EXAMPLE: &str = "sparse_sampling_demo";
 
@@ -149,43 +149,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_table(&output_path(EXAMPLE, "summary")?, &table)?;
 
     Ok(())
-}
-
-/// `ρₗ = ∫ dω vₗ(ω) ρ(ω)` for the semicircular `ρ`, to machine precision.
-///
-/// `ρ` has a square-root edge at `ω = ±1`, where plain quadrature converges
-/// slowly. The substitution `ω = sin θ` removes it: `ρ(ω) dω` becomes
-/// `(2/π) cos²θ dθ`, so on every segment the integrand is a polynomial in
-/// `sin θ` times `cos²θ`, which a Gauss-Legendre rule of modest order
-/// integrates to the last bit.
-fn semicircle_overlaps(basis: &FiniteTempBasis<LogisticKernel, Fermionic>) -> Vec<f64> {
-    let v = basis.v();
-
-    // Only the part of the basis' ω range where ρ is nonzero contributes.
-    let mut edges: Vec<f64> = v
-        .get_knots(None)
-        .into_iter()
-        .filter(|&omega| omega.abs() < 1.0)
-        .collect();
-    edges.insert(0, -1.0);
-    edges.push(1.0);
-    let theta_edges: Vec<f64> = edges.iter().map(|&omega| omega.asin()).collect();
-
-    // The polynomials have `polyorder` coefficients per segment, and cos²θ
-    // adds two more degrees; an order well above half of that is exact.
-    let order = v.get_polyorder() + 8;
-
-    (0..basis.size())
-        .map(|l| {
-            let poly = &v[l];
-            integrate_segments(
-                |theta| {
-                    let cos = theta.cos();
-                    poly.evaluate(theta.sin()) * (2.0 / PI) * cos * cos
-                },
-                &theta_edges,
-                order,
-            )
-        })
-        .collect()
 }

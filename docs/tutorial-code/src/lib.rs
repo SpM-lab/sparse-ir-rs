@@ -15,11 +15,13 @@ pub mod csv;
 pub mod optimize;
 pub mod quad;
 pub mod roots;
+pub mod semicircle;
 
 pub use csv::{Table, read_table, write_table};
 pub use optimize::{FistaReport, fista, soft_threshold_nonneg};
 pub use quad::integrate_segments;
 pub use roots::{bisect, brent};
+pub use semicircle::{semicircle, semicircle_coefficients, semicircle_overlaps};
 
 /// Directory the examples write their CSV output to.
 ///

@@ -222,3 +222,86 @@ fn transformation_matches_the_python_reference() {
     assert_close(&actual, &expected, "s_l", 1e-14); // measured 0
     assert_close(&actual, &expected, "g_l", 1e-13); // measured 9.8e-16
 }
+
+/// `dlr`: the semicircle of `sparse_sampling_demo` again, this time turned
+/// into a sum of poles and back.
+#[test]
+fn dlr_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "dlr";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in ["beta", "wmax", "eps", "lambda", "basis_size", "n_poles"] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    assert_close(&actual, &expected, "accuracy", 1e-14); // measured 0
+
+    let (actual, expected) = (
+        output(example, "coefficients"),
+        reference(example, "coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "s_l", 1e-14); // measured 0
+    assert_close(&actual, &expected, "rho_l", 1e-13); // measured 2.1e-15
+    assert_close(&actual, &expected, "g_l", 1e-13); // measured 1.3e-15
+
+    // --- the poles and the coefficients on them -----------------------------
+    let (actual, expected) = (
+        output(example, "dlr_coefficients"),
+        reference(example, "dlr_coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "p");
+    // The poles are roots of a basis function, found by the same bisection in
+    // both implementations, so they agree bit for bit — as the sampling points
+    // of the other examples do.
+    assert_exact_integers(&actual, &expected, "pole");
+    // cₚ comes out of a least-squares solve against the well-conditioned
+    // matrix vₗ(ω̄ₚ); the DLR is only useful because that stays at rounding.
+    assert_close(&actual, &expected, "c_p", 1e-13); // measured 2.0e-15
+
+    let (actual, expected) = (
+        output(example, "reconstruction"),
+        reference(example, "reconstruction"),
+    );
+    assert_close(&actual, &expected, "g_l", 1e-13); // measured 1.3e-15
+    assert_close(&actual, &expected, "g_l_from_dlr", 1e-13); // measured 1.2e-15
+    // The residual of the IR → DLR → IR round trip: rounding error in both
+    // implementations, with no reason to agree digit by digit.
+    for table in [&actual, &expected] {
+        assert_negligible(table, "error", "g_l", 1e-14);
+    }
+
+    // --- on the Matsubara axis ----------------------------------------------
+    let (actual, expected) = (
+        output(example, "matsubara"),
+        reference(example, "matsubara"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "nu", 1e-15); // measured 1.8e-16
+    assert_close(&actual, &expected, "g_iv_exact_im", 1e-12); // measured 3.0e-14
+    assert_close(&actual, &expected, "g_iv_dlr_im", 1e-12); // measured 3.7e-14
+    // The semicircle is even in ω, so G(iν) is purely imaginary and the real
+    // parts are rounding error.
+    for table in [&actual, &expected] {
+        assert_negligible(table, "g_iv_exact_re", "g_iv_exact_im", 1e-13);
+        assert_negligible(table, "g_iv_dlr_re", "g_iv_dlr_im", 1e-13);
+    }
+
+    // The point of the example: the two routes to G(iν) — through the basis
+    // functions, and through the poles — give the same Green's function, at
+    // frequencies far outside the sampling set.
+    let exact = actual.expect_column("g_iv_exact_im");
+    let from_dlr = actual.expect_column("g_iv_dlr_im");
+    let largest = exact.iter().fold(0.0_f64, |acc, g| acc.max(g.abs()));
+    let worst = exact
+        .iter()
+        .zip(from_dlr)
+        .fold(0.0_f64, |acc, (a, b)| acc.max((a - b).abs()));
+    assert!(
+        worst < 1e-12 * largest,
+        "the basis and the poles disagree by {worst:.3e}, which is more than rounding"
+    );
+}
