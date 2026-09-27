@@ -197,6 +197,12 @@ pub fn assert_exact_integers(actual: &Table, expected: &Table, column: &str) {
 /// compare against a reference there — both implementations produce rounding
 /// error around zero, and the two lots of rounding error have no reason to
 /// agree. What is worth asserting is that it really is rounding error.
+///
+/// The tolerances that go with it are loose for the same reason. How large
+/// the noise around zero comes out depends on the machine's BLAS and libm —
+/// the same run is an order of magnitude noisier under OpenBLAS on x86 than
+/// under Accelerate on arm64 — so the assertion is written to catch a
+/// quantity that does not vanish at all, not to pin the noise level down.
 pub fn assert_negligible(table: &Table, column: &str, scale_column: &str, tol: f64) {
     let scale = table
         .expect_column(scale_column)

@@ -89,7 +89,7 @@ fn sparse_sampling_demo_matches_the_python_reference() {
     // part is rounding error in both implementations — of the same size, but
     // with no reason to be the same rounding error.
     for table in [&actual, &expected] {
-        assert_negligible(table, "g_iv_re", "g_iv_im", 1e-14);
+        assert_negligible(table, "g_iv_re", "g_iv_im", 1e-12);
     }
 
     // --- the round trip -----------------------------------------------------
@@ -211,7 +211,7 @@ fn transformation_matches_the_python_reference() {
     // both implementations, with no reason for the two to agree digit by
     // digit. What matters is that it is rounding error.
     for table in [&actual, &expected] {
-        assert_negligible(table, "error", "g_l", 1e-14);
+        assert_negligible(table, "error", "g_l", 1e-12);
     }
 
     // --- what a too-small ωmax looks like -----------------------------------
@@ -272,7 +272,7 @@ fn dlr_matches_the_python_reference() {
     // The residual of the IR → DLR → IR round trip: rounding error in both
     // implementations, with no reason to agree digit by digit.
     for table in [&actual, &expected] {
-        assert_negligible(table, "error", "g_l", 1e-14);
+        assert_negligible(table, "error", "g_l", 1e-12);
     }
 
     // --- on the Matsubara axis ----------------------------------------------
@@ -287,8 +287,8 @@ fn dlr_matches_the_python_reference() {
     // The semicircle is even in ω, so G(iν) is purely imaginary and the real
     // parts are rounding error.
     for table in [&actual, &expected] {
-        assert_negligible(table, "g_iv_exact_re", "g_iv_exact_im", 1e-13);
-        assert_negligible(table, "g_iv_dlr_re", "g_iv_dlr_im", 1e-13);
+        assert_negligible(table, "g_iv_exact_re", "g_iv_exact_im", 1e-12);
+        assert_negligible(table, "g_iv_dlr_re", "g_iv_dlr_im", 1e-12);
     }
 
     // The point of the example: the two routes to G(iν) — through the basis
@@ -624,7 +624,7 @@ fn gw_matches_the_python_reference() {
     assert_exact_integers(&actual, &expected, "n");
     assert_close(&actual, &expected, "g_im", 1e-14); // measured 4.5e-16
     for table in [&actual, &expected] {
-        assert_negligible(table, "g_re", "g_im", 1e-14);
+        assert_negligible(table, "g_re", "g_im", 1e-12);
     }
 
     // --- G on both grids ----------------------------------------------------
@@ -639,7 +639,7 @@ fn gw_matches_the_python_reference() {
         let (actual, expected) = (output(example, name), reference(example, name));
         assert_close(&actual, &expected, "g_re", 1e-13); // measured 7.9e-16
         for table in [&actual, &expected] {
-            assert_negligible(table, "g_im", "g_re", 1e-14);
+            assert_negligible(table, "g_im", "g_re", 1e-12);
         }
     }
 
@@ -651,7 +651,7 @@ fn gw_matches_the_python_reference() {
     assert_close(&actual, &expected, "tau_b", 1e-13); // measured 0
     assert_close(&actual, &expected, "p_re", 1e-13); // measured 1.6e-15
     for table in [&actual, &expected] {
-        assert_negligible(table, "p_im", "p_re", 1e-14);
+        assert_negligible(table, "p_im", "p_re", 1e-12);
     }
 
     let (actual, expected) = (
@@ -668,7 +668,7 @@ fn gw_matches_the_python_reference() {
     assert_exact_integers(&actual, &expected, "n");
     assert_close(&actual, &expected, "p_re", 1e-13); // measured 1.2e-15
     for table in [&actual, &expected] {
-        assert_negligible(table, "p_im", "p_re", 1e-14);
+        assert_negligible(table, "p_im", "p_re", 1e-12);
     }
 
     // --- W = U/(1 − UP) − U, back onto the fermionic times ------------------
@@ -681,7 +681,7 @@ fn gw_matches_the_python_reference() {
         assert_close(&actual, &expected, real, 1e-13); // measured ≤ 7.8e-15
         if let Some(imaginary) = imaginary {
             for table in [&actual, &expected] {
-                assert_negligible(table, imaginary, real, 1e-14);
+                assert_negligible(table, imaginary, real, 1e-12);
             }
         }
     }
@@ -693,7 +693,7 @@ fn gw_matches_the_python_reference() {
     );
     assert_close(&actual, &expected, "e_re", 1e-13); // measured 8.1e-15
     for table in [&actual, &expected] {
-        assert_negligible(table, "e_im", "e_re", 1e-14);
+        assert_negligible(table, "e_im", "e_re", 1e-12);
     }
 
     let (actual, expected) = (
@@ -728,7 +728,7 @@ fn gw_matches_the_python_reference() {
     assert_exact_integers(&actual, &expected, "n");
     assert_close(&actual, &expected, "g_im", 1e-13); // measured 5.6e-16
     for table in [&actual, &expected] {
-        assert_negligible(table, "g_re", "g_im", 1e-14);
+        assert_negligible(table, "g_re", "g_im", 1e-12);
     }
 
     // --- and the way it got there -------------------------------------------
@@ -1471,12 +1471,21 @@ fn flex_matches_the_python_reference() {
     assert_close(&actual, &expected, "residual", 1e-9); // measured ≤ 5.0e-12
 
     let (actual, expected) = (output(example, "momentum"), reference(example, "momentum"));
-    for column in ["kx", "ky", "delta_seed"] {
+    for column in ["kx", "ky"] {
         assert_exact_integers(&actual, &expected, column);
     }
-    // measured ≤ 2.4e-14
+    // measured ≤ 2.4e-14. `delta_seed` belongs here rather than among the
+    // exact columns: it is a form factor built from cosines, and the last bit
+    // of a cosine is a property of the platform's libm, not of sparse-ir.
     for column in [
-        "ek", "g_re", "sigma_im", "chi_0", "chi_spin", "delta_re", "f_re",
+        "ek",
+        "g_re",
+        "sigma_im",
+        "chi_0",
+        "chi_spin",
+        "delta_re",
+        "f_re",
+        "delta_seed",
     ] {
         assert_close(&actual, &expected, column, 1e-11);
     }
