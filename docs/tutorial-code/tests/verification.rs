@@ -824,3 +824,150 @@ fn liechtenstein_matches_the_python_reference() {
         "the sum rule is broken: {direct} from J₀ against {from_jij} from J_ij"
     );
 }
+
+/// T = 0.1 on a 200 × 200 momentum grid, ε = 10⁻¹⁰, for both lattices.
+///
+/// The susceptibility is a Matsubara sum of a product of three or four
+/// Green's functions, so it falls off as 1/ν³ and the basis does the sum in
+/// one evaluation at τ = 0. Graphene additionally goes through a 2×2
+/// eigendecomposition at every momentum; the closed form in `linalg` and
+/// numpy's `eigh` are free to disagree on the phase of each eigenvector, and
+/// the agreement below is what says the traces do not care.
+#[test]
+fn orbital_magnetic_susceptibility_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "orbital_magnetic_susceptibility";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "t",
+        "a",
+        "beta",
+        "wmax",
+        "eps",
+        "nk_lin",
+        "n_mu",
+        "basis_size",
+        "n_matsubara",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+
+    for lattice in ["square", "graphene"] {
+        // χ(iν) at one chemical potential, before the sum: this is where a
+        // wrong velocity matrix or a wrong band energy would show up.
+        let name = format!("{lattice}_matsubara");
+        let (actual, expected) = (output(example, &name), reference(example, &name));
+        assert_close(&actual, &expected, "mu", 1e-15); // measured 0
+        assert_exact_integers(&actual, &expected, "wn");
+        assert_close(&actual, &expected, "chi_re", 1e-12); // measured ≤ 5.9e-14
+        assert_close(&actual, &expected, "chi_im", 1e-12); // measured ≤ 1.3e-14
+
+        // and after it, for every chemical potential.
+        let (actual, expected) = (output(example, lattice), reference(example, lattice));
+        assert_close(&actual, &expected, "mu", 1e-15); // measured 0
+        assert_close(&actual, &expected, "chi", 1e-12); // measured ≤ 1.7e-14
+    }
+
+    // The closed form is arithmetic on two elliptic integrals, computed here
+    // by the arithmetic-geometric mean and in the reference by scipy.
+    let (actual, expected) = (
+        output(example, "square_analytic"),
+        reference(example, "square_analytic"),
+    );
+    assert_close(&actual, &expected, "mu", 1e-15); // measured 0
+    assert_close(&actual, &expected, "chi", 1e-14); // measured 4.0e-16
+
+    // --- and what the numbers say -------------------------------------------
+    let square = output(example, "square");
+    let (mu, chi) = (square.expect_column("mu"), square.expect_column("chi"));
+    let analytic = output(example, "square_analytic");
+    let closed: std::collections::HashMap<u64, f64> = analytic
+        .expect_column("mu")
+        .iter()
+        .zip(analytic.expect_column("chi"))
+        .map(|(mu, chi)| (mu.to_bits(), *chi))
+        .collect();
+
+    // Away from the van Hove filling and from the band edge, T = 0.1 is cold
+    // enough that the finite-temperature curve is the zero-temperature one.
+    let worst = mu
+        .iter()
+        .zip(chi)
+        .filter(|(mu, _)| (1.0..=3.0).contains(&mu.abs()))
+        .fold(0.0_f64, |acc, (mu, chi)| {
+            acc.max((chi - closed[&mu.to_bits()]).abs())
+        });
+    assert!(
+        worst < 1e-3,
+        "at 1 ≤ |μ| ≤ 3 the T = 0.1 susceptibility should follow the T = 0 \
+         closed form, but it is off by {worst:.3e}"
+    );
+
+    // The van Hove singularity at the centre of the band is paramagnetic, and
+    // it is the largest the square lattice gets.
+    let peak = chi.iter().fold(f64::NEG_INFINITY, |acc, &v| acc.max(v));
+    let centre = chi[mu
+        .iter()
+        .position(|&mu| mu == 0.0)
+        .expect("μ = 0 is on the grid")];
+    assert!(
+        centre > 0.0 && centre == peak,
+        "the square lattice should peak at μ = 0, but χ(0) = {centre:.6} against a \
+         maximum of {peak:.6}"
+    );
+
+    // Graphene is the opposite: a strong diamagnetic peak at the Dirac point,
+    // paramagnetic away from it, and nothing at all outside the band.
+    let graphene = output(example, "graphene");
+    let (mu, chi) = (graphene.expect_column("mu"), graphene.expect_column("chi"));
+    let dirac = chi[mu
+        .iter()
+        .position(|&mu| mu == 0.0)
+        .expect("μ = 0 is on the grid")];
+    let trough = chi.iter().fold(f64::INFINITY, |acc, &v| acc.min(v));
+    assert!(
+        dirac < 0.0 && dirac == trough,
+        "graphene should be most diamagnetic at the Dirac point, but χ(0) = {dirac:.6} \
+         against a minimum of {trough:.6}"
+    );
+    for (mu, chi) in mu.iter().zip(chi) {
+        if mu.abs() > 4.0 {
+            assert!(
+                chi.abs() < 1e-6,
+                "graphene has no states at μ = {mu}, so χ should vanish there, not be {chi:.3e}"
+            );
+        }
+    }
+
+    // The summand falls off as a power of ν: that power is why summing the
+    // series directly is slow, and why thirty basis coefficients hold all of
+    // it. The square lattice loses its three-Green's-function term, because
+    // a dispersion that separates has no γxy; graphene keeps it but its
+    // velocity matrices are purely off-diagonal, and the slope comes out
+    // steeper still.
+    for (lattice, power) in [("square", 4.0_f64), ("graphene", 6.0)] {
+        let table = output(example, &format!("{lattice}_matsubara"));
+        let mut points: Vec<(f64, f64)> = table
+            .expect_column("wn")
+            .iter()
+            .zip(table.expect_column("chi_re"))
+            .zip(table.expect_column("chi_im"))
+            .filter(|((n, _), _)| **n > 0.0)
+            .map(|((n, re), im)| (*n, re.hypot(*im)))
+            .collect();
+        points.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let [(n0, chi0), (n1, chi1)] = points[points.len() - 2..] else {
+            unreachable!("there are at least two positive sampling frequencies")
+        };
+        let slope = (chi1 / chi0).ln() / (n1 / n0).ln();
+        assert!(
+            (slope + power).abs() < 0.1,
+            "the {lattice} summand should fall off as ν^-{power}, but between \
+             n = {n0} and n = {n1} it falls off as ν^{slope:.2}"
+        );
+    }
+}

@@ -16,6 +16,7 @@ import reference_dlr
 import reference_sparse_sampling_demo
 import reference_gw
 import reference_liechtenstein
+import reference_orbital_magnetic_susceptibility
 import reference_second_order_perturbation
 import reference_spm
 import reference_transformation
@@ -26,6 +27,7 @@ EXAMPLES = {
     "sparse_sampling_demo": reference_sparse_sampling_demo.write,
     "gw": reference_gw.write,
     "liechtenstein": reference_liechtenstein.write,
+    "orbital_magnetic_susceptibility": reference_orbital_magnetic_susceptibility.write,
     "second_order_perturbation": reference_second_order_perturbation.write,
     "spm": reference_spm.write,
     "transformation": reference_transformation.write,

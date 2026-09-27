@@ -29,6 +29,10 @@ const EXAMPLES: &[(&str, &str)] = &[
     ),
     ("gw", env!("CARGO_BIN_EXE_gw")),
     ("liechtenstein", env!("CARGO_BIN_EXE_liechtenstein")),
+    (
+        "orbital_magnetic_susceptibility",
+        env!("CARGO_BIN_EXE_orbital_magnetic_susceptibility"),
+    ),
 ];
 
 #[test]

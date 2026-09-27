@@ -20,3 +20,4 @@
 - [Second-order perturbation](tutorials/second_order_perturbation.md)
 - [GW](tutorials/gw.md)
 - [Exchange interactions](tutorials/liechtenstein.md)
+- [Orbital magnetic susceptibility](tutorials/orbital_magnetic_susceptibility.md)
