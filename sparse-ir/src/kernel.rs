@@ -502,7 +502,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RegularizedBoseKernel {
     /// Kernel cutoff parameter Λ = β × ωmax
-    pub lambda: f64,
+    pub(crate) lambda: f64,
 }
 
 impl RegularizedBoseKernel {

@@ -34,18 +34,50 @@ fn check_weights<T>(x: &[T], w: &[T]) -> Result<(), Error> {
 /// `x_forward` and `x_backward` for efficient computation.
 #[derive(Debug, Clone)]
 pub struct Rule<T> {
-    /// Quadrature points
-    pub x: Vec<T>, //COMMENT: ADD CHECK CODE TO MAKE SURE x is in non-decreasing order
+    /// Quadrature points, in non-decreasing order
+    pub(crate) x: Vec<T>,
     /// Quadrature weights
-    pub w: Vec<T>,
+    pub(crate) w: Vec<T>,
     /// Distance from left endpoint: x - a
-    pub x_forward: Vec<T>,
+    pub(crate) x_forward: Vec<T>,
     /// Distance from right endpoint: b - x
-    pub x_backward: Vec<T>,
+    pub(crate) x_backward: Vec<T>,
     /// Left endpoint of integration interval
-    pub a: T,
+    pub(crate) a: T,
     /// Right endpoint of integration interval
-    pub b: T,
+    pub(crate) b: T,
+}
+
+impl<T: Copy> Rule<T> {
+    /// Quadrature points, in non-decreasing order
+    pub fn x(&self) -> &[T] {
+        &self.x
+    }
+
+    /// Quadrature weights, one per point
+    pub fn w(&self) -> &[T] {
+        &self.w
+    }
+
+    /// Distance of each point from the left endpoint: `x - a`
+    pub fn x_forward(&self) -> &[T] {
+        &self.x_forward
+    }
+
+    /// Distance of each point from the right endpoint: `b - x`
+    pub fn x_backward(&self) -> &[T] {
+        &self.x_backward
+    }
+
+    /// Left endpoint of the integration interval
+    pub fn a(&self) -> T {
+        self.a
+    }
+
+    /// Right endpoint of the integration interval
+    pub fn b(&self) -> T {
+        self.b
+    }
 }
 
 impl<T> Rule<T>
@@ -59,6 +91,9 @@ where
     /// * `w` - Quadrature weights
     /// * `a` - Left endpoint (default: -1.0)
     /// * `b` - Right endpoint (default: 1.0)
+    ///
+    /// The points are not checked for order or for lying in `[a, b]`;
+    /// [`Self::validate`] does that.
     ///
     /// # Errors
     /// [`Error::InvalidParameter`] if x and w have different lengths.
