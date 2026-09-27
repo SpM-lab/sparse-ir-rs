@@ -490,9 +490,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
 ) -> *mut spir_sve_result {
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
-    use sparse_ir::poly::PiecewiseLegendrePolyVector;
     use sparse_ir::sve::SVEResult;
-    use sparse_ir::tsvd::compute_svd_dtensor;
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -572,7 +570,6 @@ pub extern "C" fn spir_sve_result_from_matrix(
         if let Some(k_low_slice) = k_low_slice {
             // DDouble precision path
             use sparse_ir::Df64;
-            use sparse_ir::numeric::CustomNumeric;
 
             // Convert segments to DDouble
             let segs_x_dd: Vec<Df64> = segs_x_slice.iter().map(|&x| Df64::from(x)).collect();
@@ -614,54 +611,13 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 }
             }
 
-            // Prepare f64 segments for polynomial conversion
-            let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
-            let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
-            let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
-
-            // Compute SVD
-            let (u, s, v) = compute_svd_dtensor(&matrix).map_err(|e| status_from(&e))?;
-
-            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
-            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
-            // So we need to remove weights from SVD results
-            use sparse_ir::sve::utils::remove_weights;
-            let u_unweighted = remove_weights(&u, gauss_x_dd.w.as_slice(), true);
-            let v_unweighted = remove_weights(&v, gauss_y_dd.w.as_slice(), true);
-
-            // Convert U and V to f64 for polynomial conversion
-            let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| {
-                u_unweighted[idx].to_f64()
-            });
-            let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| {
-                v_unweighted[idx].to_f64()
-            });
-
-            let u_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &u_f64,
-                &segs_x_f64,
-                &gauss_rule_f64,
+            let sve_result = SVEResult::from_discretized_matrix(
+                &matrix,
+                &gauss_x_dd,
+                &gauss_y_dd,
+                segs_x_slice,
+                segs_y_slice,
                 n_gauss as usize,
-            )
-            .map_err(|e| status_from(&e))?;
-            let v_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &v_f64,
-                &segs_y_f64,
-                &gauss_rule_f64,
-                n_gauss as usize,
-            )
-            .map_err(|e| status_from(&e))?;
-
-            // Convert singular values to f64 (Df64 -> f64)
-            let s_f64: Vec<f64> = s.iter().map(|&sv| sv.to_f64()).collect();
-
-            // A matrix of rank 0 has no singular functions. Build the
-            // vectors through their field (`new` rejects an empty vector),
-            // so that `SVEResult::new` reports the empty `s`.
-            let sve_result = SVEResult::new(
-                PiecewiseLegendrePolyVector { polyvec: u_polys },
-                s_f64,
-                PiecewiseLegendrePolyVector { polyvec: v_polys },
                 epsilon,
             )
             .map_err(|e| status_from(&e))?;
@@ -695,51 +651,20 @@ pub extern "C" fn spir_sve_result_from_matrix(
 
             // Reconstruct Gauss rules for weight removal
             let gauss_rule_f64 = legendre::<f64>(n_gauss as usize);
-            let segs_x_f64: Vec<f64> = segs_x_slice.to_vec();
-            let segs_y_f64: Vec<f64> = segs_y_slice.to_vec();
             let gauss_x = gauss_rule_f64
-                .piecewise(&segs_x_f64)
+                .piecewise(segs_x_slice)
                 .map_err(|e| status_from(&e))?;
             let gauss_y = gauss_rule_f64
-                .piecewise(&segs_y_f64)
+                .piecewise(segs_y_slice)
                 .map_err(|e| status_from(&e))?;
 
-            // Compute SVD
-            let (u, s, v) = compute_svd_dtensor(&matrix).map_err(|e| status_from(&e))?;
-
-            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / std::sqrt(gauss_x_w[i]))
-            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
-            // So we need to remove weights from SVD results
-            use sparse_ir::sve::utils::remove_weights;
-            let u_unweighted = remove_weights(&u, gauss_x.w.as_slice(), true);
-            let v_unweighted = remove_weights(&v, gauss_y.w.as_slice(), true);
-
-            // Convert to polynomials using svd_to_polynomials
-            let u_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &u_unweighted,
-                &segs_x_f64,
-                &gauss_rule_f64,
+            let sve_result = SVEResult::from_discretized_matrix(
+                &matrix,
+                &gauss_x,
+                &gauss_y,
+                segs_x_slice,
+                segs_y_slice,
                 n_gauss as usize,
-            )
-            .map_err(|e| status_from(&e))?;
-            let v_polys = sparse_ir::sve::utils::svd_to_polynomials(
-                &v_unweighted,
-                &segs_y_f64,
-                &gauss_rule_f64,
-                n_gauss as usize,
-            )
-            .map_err(|e| status_from(&e))?;
-
-            // Convert singular values to f64 (s is already Vec<f64>)
-            let s_f64: Vec<f64> = s;
-
-            // A matrix of rank 0 has no singular functions. Build the
-            // vectors through their field (`new` rejects an empty vector),
-            // so that `SVEResult::new` reports the empty `s`.
-            let sve_result = SVEResult::new(
-                PiecewiseLegendrePolyVector { polyvec: u_polys },
-                s_f64,
-                PiecewiseLegendrePolyVector { polyvec: v_polys },
                 epsilon,
             )
             .map_err(|e| status_from(&e))?;
@@ -842,10 +767,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
 ) -> *mut spir_sve_result {
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
-    use sparse_ir::kernel::SymmetryType;
-    use sparse_ir::poly::PiecewiseLegendrePolyVector;
-    use sparse_ir::sve::utils::{extend_to_full_domain, merge_results};
-    use sparse_ir::tsvd::compute_svd_dtensor;
+    use sparse_ir::sve::SVEResult;
     use std::panic::catch_unwind;
 
     if status.is_null() {
@@ -954,15 +876,10 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
             .piecewise(&segs_y_f64)
             .map_err(|e| status_from(&e))?;
 
-        // Helper function to convert matrix and compute SVD
-        let compute_svd_for_symmetry = |k_high_slice: &[f64],
-                                        k_low_slice: Option<&[f64]>|
-         -> Result<
-            (mdarray::DTensor<f64, 2>, Vec<f64>, mdarray::DTensor<f64, 2>),
-            StatusCode,
-        > {
+        // Assemble one symmetry block of the kernel matrix
+        let matrix_of = |k_high_slice: &[f64], k_low_slice: Option<&[f64]>| {
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let matrix = if let Some(k_low_slice) = k_low_slice {
+            if let Some(k_low_slice) = k_low_slice {
                 use sparse_ir::Df64;
                 use sparse_ir::numeric::CustomNumeric;
                 let mut matrix_dd = mdarray::DTensor::<Df64, 2>::from_elem(
@@ -989,7 +906,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                         }
                     }
                 }
-                // Convert to f64 for SVD
+                // The centrosymmetric SVE is computed in double precision
                 mdarray::DTensor::<f64, 2>::from_fn(*matrix_dd.shape(), |idx| {
                     matrix_dd[idx].to_f64()
                 })
@@ -1014,81 +931,25 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                     }
                 }
                 matrix_f64
-            };
-
-            // Compute SVD
-            let (u, s, v) = compute_svd_dtensor(&matrix).map_err(|e| status_from(&e))?;
-
-            // Remove weights from U and V (C++: u_x_(i, j) = u(i, j) / sqrt(gauss_x_w[i]))
-            // The input matrix K already has weights applied: sqrt(wx[i]) * K(x[i], y[j]) * sqrt(wy[j])
-            // So we need to remove weights from SVD results
-            use sparse_ir::sve::utils::remove_weights;
-            let u_unweighted = remove_weights(&u, gauss_x.w.as_slice(), true);
-            let v_unweighted = remove_weights(&v, gauss_y.w.as_slice(), true);
-
-            // Convert singular values to f64 (s is already Vec<f64>)
-            let s_f64: Vec<f64> = s;
-
-            Ok((u_unweighted, s_f64, v_unweighted))
+            }
         };
 
-        // Compute SVD for even and odd symmetry
-        let (u_even, s_even, v_even) =
-            compute_svd_for_symmetry(k_even_high, k_lows.map(|(even, _)| even))?;
-        let (u_odd, s_odd, v_odd) =
-            compute_svd_for_symmetry(k_odd_high, k_lows.map(|(_, odd)| odd))?;
+        let even = matrix_of(k_even_high, k_lows.map(|(even, _)| even));
+        let odd = matrix_of(k_odd_high, k_lows.map(|(_, odd)| odd));
 
-        // Convert to polynomials
-        let u_even_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &u_even,
-            &segs_x_f64,
-            &gauss_rule_f64,
+        let sve_result = SVEResult::from_discretized_matrices_centrosymmetric(
+            &even,
+            &odd,
+            &gauss_x,
+            &gauss_y,
+            segs_x_slice,
+            segs_y_slice,
             n_gauss as usize,
+            xmax,
+            ymax,
+            epsilon,
         )
         .map_err(|e| status_from(&e))?;
-        let v_even_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &v_even,
-            &segs_y_f64,
-            &gauss_rule_f64,
-            n_gauss as usize,
-        )
-        .map_err(|e| status_from(&e))?;
-
-        let u_odd_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &u_odd,
-            &segs_x_f64,
-            &gauss_rule_f64,
-            n_gauss as usize,
-        )
-        .map_err(|e| status_from(&e))?;
-        let v_odd_polys = sparse_ir::sve::utils::svd_to_polynomials(
-            &v_odd,
-            &segs_y_f64,
-            &gauss_rule_f64,
-            n_gauss as usize,
-        )
-        .map_err(|e| status_from(&e))?;
-
-        // Extend to full domain
-        let u_even_full = extend_to_full_domain(u_even_polys, SymmetryType::Even, xmax)
-            .map_err(|e| status_from(&e))?;
-        let v_even_full = extend_to_full_domain(v_even_polys, SymmetryType::Even, ymax)
-            .map_err(|e| status_from(&e))?;
-
-        let u_odd_full = extend_to_full_domain(u_odd_polys, SymmetryType::Odd, xmax)
-            .map_err(|e| status_from(&e))?;
-        let v_odd_full = extend_to_full_domain(v_odd_polys, SymmetryType::Odd, ymax)
-            .map_err(|e| status_from(&e))?;
-
-        // Merge even and odd results. A block of rank 0 (e.g. the odd part of a
-        // kernel that is even in y) has no functions: `merge_results` accepts
-        // empty blocks, but `PiecewiseLegendrePolyVector::new` would panic.
-        let block = |polyvec| PiecewiseLegendrePolyVector { polyvec };
-        let result_even = (block(u_even_full), s_even, block(v_even_full));
-        let result_odd = (block(u_odd_full), s_odd, block(v_odd_full));
-
-        let sve_result =
-            merge_results(result_even, result_odd, epsilon).map_err(|e| status_from(&e))?;
 
         let sve_wrapper = spir_sve_result::new(sve_result);
         Ok(Box::into_raw(Box::new(sve_wrapper)))

@@ -17,7 +17,7 @@ mod compute;
 mod result;
 mod strategy;
 mod types;
-pub mod utils; // Public for testing
+pub(crate) mod utils;
 
 // Re-export public API
 pub use compute::{compute_sve, compute_sve_general, truncate};

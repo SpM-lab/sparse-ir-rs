@@ -23,7 +23,7 @@ use mdarray::DTensor;
 /// # Returns
 ///
 /// Matrix with weights removed
-pub fn remove_weights<T: CustomNumeric>(
+pub(crate) fn remove_weights<T: CustomNumeric>(
     matrix: &DTensor<T, 2>,
     weights: &[T],
     is_row: bool,
@@ -96,7 +96,7 @@ pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Ve
 ///   (the half domain [0, xmax]): its mirrored knots would decrease or
 ///   overlap
 /// * The errors of [`PiecewiseLegendrePoly::new`] for the extended knots
-pub fn extend_to_full_domain(
+pub(crate) fn extend_to_full_domain(
     polys: Vec<PiecewiseLegendrePoly>,
     symmetry: SymmetryType,
     _xmax: f64,
@@ -194,7 +194,7 @@ pub fn extend_to_full_domain(
 ///
 /// * [`Error::InvalidParameter`] if `segments` has fewer than 2 entries
 /// * The errors of [`PiecewiseLegendrePoly::new`] for the segments
-pub fn svd_to_polynomials<T: CustomNumeric>(
+pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
     u_or_v: &DTensor<T, 2>,
     segments: &[T],
     gauss_rule: &Rule<f64>,
@@ -346,7 +346,7 @@ pub(crate) type SvdBlock = (
 ///
 /// [`Error::EmptyInput`] if both blocks are empty: an SVE result has at least
 /// one singular value
-pub fn merge_results(
+pub(crate) fn merge_results(
     result_even: (
         PiecewiseLegendrePolyVector,
         Vec<f64>,
