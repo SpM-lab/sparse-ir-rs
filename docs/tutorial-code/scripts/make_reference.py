@@ -20,6 +20,7 @@ import reference_liechtenstein
 import reference_orbital_magnetic_susceptibility
 import reference_second_order_perturbation
 import reference_spm
+import reference_tpsc
 import reference_transformation
 
 EXAMPLES = {
@@ -33,6 +34,8 @@ EXAMPLES = {
     "orbital_magnetic_susceptibility": reference_orbital_magnetic_susceptibility.write,
     "second_order_perturbation": reference_second_order_perturbation.write,
     "spm": reference_spm.write,
+    "tpsc": reference_tpsc.write,
+    "tpsc_scan": reference_tpsc.write_scan,
     "transformation": reference_transformation.write,
 }
 

@@ -1218,3 +1218,206 @@ fn dmft_ipt_scan_matches_the_python_reference() {
         "the insulating branch must stay insulating above U_c1"
     );
 }
+
+/// The TPSC solution at `U = 4`, `n = 0.85`, `T = 0.1`.
+///
+/// Nothing here iterates to a fixed point: the calculation is three root
+/// searches and a fixed sequence of transforms, so the two implementations
+/// follow the same path and agree to the last couple of digits. The
+/// tolerances are set about a hundred times above what was measured.
+#[test]
+fn tpsc_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples");
+        return;
+    }
+    let example = "tpsc";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "t",
+        "beta",
+        "wmax",
+        "n",
+        "u",
+        "nk_lin",
+        "eps",
+        "basis_size_f",
+        "basis_size_b",
+        "n_tau",
+        "n_wn_f",
+        "n_wn_b",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    // measured ≤ 1.8e-14
+    for column in ["mu_0", "mu", "u_crit", "u_sp", "u_ch", "docc"] {
+        assert_close(&actual, &expected, column, 1e-12);
+    }
+
+    let (actual, expected) = (output(example, "momentum"), reference(example, "momentum"));
+    for column in ["kx", "ky"] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    // measured ≤ 4.0e-14
+    for column in ["ek", "g_re", "sigma_im", "chi_0", "chi_spin", "chi_charge"] {
+        assert_close(&actual, &expected, column, 1e-12);
+    }
+
+    let (actual, expected) = (output(example, "path"), reference(example, "path"));
+    assert_exact_integers(&actual, &expected, "distance");
+    for column in ["chi_spin", "chi_charge", "chi_0"] {
+        assert_close(&actual, &expected, column, 1e-12); // measured ≤ 3.8e-14
+    }
+
+    let (actual, expected) = (
+        output(example, "self_energy"),
+        reference(example, "self_energy"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    for column in ["nu", "sigma_im", "sigma_re"] {
+        assert_close(&actual, &expected, column, 1e-12); // measured ≤ 1.3e-14
+    }
+
+    // --- and the physics ----------------------------------------------------
+    let summary = output(example, "summary");
+    let value = |name: &str| summary.expect_column(name)[0];
+    let (u, u_sp, u_ch, u_crit) = (value("u"), value("u_sp"), value("u_ch"), value("u_crit"));
+    // The whole point of TPSC: the spin vertex is screened below the bare
+    // interaction and stays below the value at which the spin susceptibility
+    // would diverge, while the charge vertex is pushed the other way.
+    assert!(
+        0.0 < u_sp && u_sp < u.min(u_crit),
+        "U_sp = {u_sp} must lie between 0 and min(U, U_crit) = {}",
+        u.min(u_crit)
+    );
+    assert!(u_ch > u, "U_ch = {u_ch} must exceed the bare U = {u}");
+    // Double occupancy of an uncorrelated state at this filling would be
+    // (n/2)²; the interaction can only suppress it.
+    let n = value("n");
+    assert!(
+        0.0 < value("docc") && value("docc") < 0.25 * n * n,
+        "the double occupancy {} must be positive and below (n/2)² = {}",
+        value("docc"),
+        0.25 * n * n
+    );
+
+    // χ_sp is peaked at M = (π, π), the antiferromagnetic wave vector, and
+    // enhanced over χ⁰ there; χ_ch is suppressed.
+    let momentum = output(example, "momentum");
+    let chi_spin = momentum.expect_column("chi_spin");
+    let chi_charge = momentum.expect_column("chi_charge");
+    let chi_0 = momentum.expect_column("chi_0");
+    let m_point = chi_spin
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .expect("the zone is not empty")
+        .0;
+    let (kx, ky) = (
+        momentum.expect_column("kx")[m_point],
+        momentum.expect_column("ky")[m_point],
+    );
+    // At half filling the peak would sit exactly on M = (π, π); this is a
+    // doped system, so it is pushed off M along the zone boundary — here by
+    // a single grid step, 2π/24.
+    let step = 2.0 / summary.expect_column("nk_lin")[0];
+    assert!(
+        (kx - 1.0).abs() < 1e-12 && (ky - 1.0).abs() <= step + 1e-12,
+        "the spin susceptibility must peak on the zone boundary near M, \
+         got ({kx}π, {ky}π)"
+    );
+    assert!(
+        chi_spin[m_point] > chi_0[m_point] && chi_0[m_point] > chi_charge[m_point],
+        "at M: χ_sp = {}, χ⁰ = {}, χ_ch = {} must be in that order",
+        chi_spin[m_point],
+        chi_0[m_point],
+        chi_charge[m_point]
+    );
+}
+
+/// The interaction dependence of the two vertices at half filling, which is
+/// Fig. 2 of Vilk and Tremblay (1997).
+#[test]
+fn tpsc_scan_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples");
+        return;
+    }
+    let example = "tpsc_scan";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "t",
+        "beta",
+        "wmax",
+        "n",
+        "nk_lin",
+        "eps",
+        "u_num",
+        "u_min",
+        "u_max",
+        "basis_size_f",
+        "probe_u_0",
+        "probe_u_25",
+        "probe_u_50",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+
+    let (actual, expected) = (output(example, "vertices"), reference(example, "vertices"));
+    assert_exact_integers(&actual, &expected, "u");
+    for column in ["u_sp", "u_ch", "u_crit", "docc"] {
+        assert_close(&actual, &expected, column, 1e-11); // measured ≤ 1.2e-13
+    }
+
+    let (actual, expected) = (output(example, "chi_spin"), reference(example, "chi_spin"));
+    assert_exact_integers(&actual, &expected, "distance");
+    for column in ["u_0", "u_25", "u_50"] {
+        assert_close(&actual, &expected, column, 1e-11); // measured ≤ 1.1e-13
+    }
+
+    // --- and the physics ----------------------------------------------------
+    let table = output(example, "vertices");
+    let u = table.expect_column("u");
+    let u_sp = table.expect_column("u_sp");
+    let u_ch = table.expect_column("u_ch");
+    let u_crit = table.expect_column("u_crit");
+    let docc = table.expect_column("docc");
+
+    // `U_crit = 1/max χ⁰` is built from the non-interacting Green's function,
+    // so it is the same number at every point of the scan.
+    assert!(
+        u_crit.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-12),
+        "U_crit must not depend on U"
+    );
+    for (index, (&u, (&u_sp, &u_ch))) in u.iter().zip(u_sp.iter().zip(u_ch)).enumerate() {
+        assert!(
+            u_sp < u && u < u_ch,
+            "row {index}: U_sp = {u_sp} < U = {u} < U_ch = {u_ch} must hold"
+        );
+        assert!(
+            u_sp < u_crit[index],
+            "row {index}: U_sp = {u_sp} must stay below U_crit = {}",
+            u_crit[index]
+        );
+    }
+    // Both vertices grow with `U`, but `U_sp` saturates against `U_crit`
+    // while `U_ch` runs away — which is the figure.
+    assert!(
+        u_sp.windows(2).all(|w| w[1] > w[0]) && u_ch.windows(2).all(|w| w[1] > w[0]),
+        "both vertices must increase with U"
+    );
+    assert!(
+        u_sp[u_sp.len() - 1] > 0.8 * u_crit[0],
+        "U_sp must approach U_crit by the end of the scan: {} against {}",
+        u_sp[u_sp.len() - 1],
+        u_crit[0]
+    );
+    // At half filling an uncorrelated state has double occupancy ¼, and the
+    // interaction suppresses it monotonically.
+    assert!(
+        (docc[0] - 0.25).abs() < 1e-3 && docc.windows(2).all(|w| w[1] < w[0]),
+        "the double occupancy must start near ¼ and fall with U"
+    );
+}

@@ -34,6 +34,10 @@ const EXAMPLES: &[(&str, &str)] = &[
         env!("CARGO_BIN_EXE_orbital_magnetic_susceptibility"),
     ),
     ("dmft_ipt", env!("CARGO_BIN_EXE_dmft_ipt")),
+    ("tpsc", env!("CARGO_BIN_EXE_tpsc")),
+    // A scan by name, but fifty-one solves of a 24 × 24 lattice take a
+    // fraction of a second, so it stays where pull requests can see it.
+    ("tpsc_scan", env!("CARGO_BIN_EXE_tpsc_scan")),
 ];
 
 /// The examples that repeat a whole self-consistent calculation over a grid of

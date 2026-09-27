@@ -18,8 +18,10 @@ pub mod linalg;
 pub mod mesh;
 pub mod optimize;
 pub mod quad;
+pub mod roots;
 pub mod semicircle;
 pub mod spectra;
+pub mod tpsc;
 
 pub use csv::{Table, read_table, write_table};
 pub use elliptic::{ellipe, ellipk};
@@ -27,6 +29,7 @@ pub use linalg::{Eigen2, Hermitian2};
 pub use mesh::{IrMesh, MomentumGrid, evaluate_rows, reverse_tau_rows, tau_reversal};
 pub use optimize::{FistaReport, fista, soft_threshold, soft_threshold_nonneg};
 pub use quad::integrate_segments;
+pub use roots::{RootError, bisect, brent};
 pub use semicircle::{
     semicircle, semicircle_coefficients, semicircle_overlaps, shifted_semicircle,
     shifted_semicircle_overlaps,
