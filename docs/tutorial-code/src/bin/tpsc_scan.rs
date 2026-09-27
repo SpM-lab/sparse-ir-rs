@@ -10,7 +10,8 @@
 
 use std::error::Error as StdError;
 
-use sparse_ir_tutorial::tpsc::{Lattice, high_symmetry_path, solve};
+use sparse_ir_tutorial::lattice::{Lattice, high_symmetry_path};
+use sparse_ir_tutorial::tpsc::solve;
 use sparse_ir_tutorial::{Table, output_path, provenance, write_table};
 
 const EXAMPLE: &str = "tpsc_scan";

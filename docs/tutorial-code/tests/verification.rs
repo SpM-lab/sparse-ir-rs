@@ -1421,3 +1421,261 @@ fn tpsc_scan_matches_the_python_reference() {
         "the double occupancy must start near ¼ and fall with U"
     );
 }
+
+/// One FLEX solution at `U = 4`, `n = 0.85`, `T = 0.1`, followed by the
+/// linearised gap equation.
+///
+/// Both implementations run the same fixed number of self-consistency steps
+/// rather than stopping on a residual, and the power method behind the gap
+/// equation stops on the same tolerance in both, so the two follow the same
+/// path step for step. `gap_iterations` and `renormalisation_steps` are
+/// compared exactly: if the two ever parted ways there, the floating-point
+/// comparisons below would be meaningless.
+#[test]
+fn flex_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples");
+        return;
+    }
+    let example = "flex";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "t",
+        "beta",
+        "wmax",
+        "n",
+        "u",
+        "nk_lin",
+        "eps",
+        "mix",
+        "iterations",
+        "gap_max_iterations",
+        "gap_tol",
+        "gap_iterations",
+        "basis_size_f",
+        "basis_size_b",
+        "n_tau",
+        "n_wn_f",
+        "n_wn_b",
+        "renormalisation_steps",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    // measured ≤ 1e-12
+    for column in ["mu", "chi_spin_max", "lambda_d"] {
+        assert_close(&actual, &expected, column, 1e-11);
+    }
+    // The residual is a difference of two nearly equal self-energies, so it
+    // keeps far fewer digits than the quantities it is built from.
+    assert_close(&actual, &expected, "residual", 1e-9); // measured ≤ 5.0e-12
+
+    let (actual, expected) = (output(example, "momentum"), reference(example, "momentum"));
+    for column in ["kx", "ky", "delta_seed"] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    // measured ≤ 2.4e-14
+    for column in [
+        "ek", "g_re", "sigma_im", "chi_0", "chi_spin", "delta_re", "f_re",
+    ] {
+        assert_close(&actual, &expected, column, 1e-11);
+    }
+
+    let (actual, expected) = (output(example, "path"), reference(example, "path"));
+    assert_exact_integers(&actual, &expected, "distance");
+    for column in ["chi_spin", "chi_charge", "chi_0"] {
+        assert_close(&actual, &expected, column, 1e-11); // measured ≤ 2.2e-14
+    }
+
+    let (actual, expected) = (
+        output(example, "self_energy"),
+        reference(example, "self_energy"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    for column in ["nu", "sigma_im", "sigma_re", "delta_re"] {
+        assert_close(&actual, &expected, column, 1e-11); // measured ≤ 2.0e-14
+    }
+
+    // --- and the physics ----------------------------------------------------
+    let summary = output(example, "summary");
+    let value = |name: &str| summary.expect_column(name)[0];
+    let momentum = output(example, "momentum");
+    let (kx, ky) = (momentum.expect_column("kx"), momentum.expect_column("ky"));
+    let chi_0 = momentum.expect_column("chi_0");
+    let chi_spin = momentum.expect_column("chi_spin");
+
+    // What the renormalisation loop exists to guarantee: the RPA denominator
+    // `1 - U χ⁰` never reaches zero, so χ_sp stays finite.
+    let u = value("u");
+    let max_chi_0 = chi_0.iter().copied().fold(f64::MIN, f64::max);
+    assert!(
+        u * max_chi_0 < 1.0,
+        "U max χ⁰ = {} must stay below 1",
+        u * max_chi_0
+    );
+    // The spin fluctuations are antiferromagnetic: χ_sp peaks at M = (π, π)
+    // and is enhanced over χ⁰ there.
+    let peak = chi_spin
+        .iter()
+        .enumerate()
+        .max_by(|a, b| a.1.total_cmp(b.1))
+        .expect("the zone is not empty")
+        .0;
+    assert!(
+        (kx[peak] - 1.0).abs() < 1e-12 && (ky[peak] - 1.0).abs() < 1e-12,
+        "the spin susceptibility must peak at M, got ({}π, {}π)",
+        kx[peak],
+        ky[peak]
+    );
+    assert!(
+        chi_spin[peak] > 3.0 * chi_0[peak],
+        "χ_sp = {} must be strongly enhanced over χ⁰ = {} at M",
+        chi_spin[peak],
+        chi_0[peak]
+    );
+
+    // The self-energy is causal: Im Σ(iν) has the sign opposite to ν.
+    let self_energy = output(example, "self_energy");
+    let nu = self_energy.expect_column("nu");
+    let sigma_im = self_energy.expect_column("sigma_im");
+    assert!(
+        nu.iter().zip(sigma_im).all(|(nu, im)| nu * im < 0.0),
+        "Im Σ(iν) must have the sign opposite to ν at every frequency"
+    );
+
+    // The leading gap function is `d`-wave: it changes sign under
+    // `k_x ↔ k_y`, which forces it to vanish along the zone diagonal.
+    let delta = momentum.expect_column("delta_re");
+    let index_of = |a: f64, b: f64| {
+        (0..kx.len())
+            .min_by(|&i, &j| {
+                let d = |i: usize| (kx[i] - a).powi(2) + (ky[i] - b).powi(2);
+                d(i).total_cmp(&d(j))
+            })
+            .expect("the zone is not empty")
+    };
+    let (antinode_x, antinode_y) = (index_of(1.0, 0.0), index_of(0.0, 1.0));
+    let scale = delta.iter().fold(0.0f64, |m, d| m.max(d.abs()));
+    assert!(
+        (delta[antinode_x] + delta[antinode_y]).abs() < 1e-10 * scale
+            && delta[antinode_x].abs() > 0.1 * scale,
+        "Δ(π, 0) = {} and Δ(0, π) = {} must be equal and opposite",
+        delta[antinode_x],
+        delta[antinode_y]
+    );
+    for point in [index_of(0.0, 0.0), index_of(1.0, 1.0)] {
+        assert!(
+            delta[point].abs() < 1e-10 * scale,
+            "Δ must vanish on the zone diagonal, got {} at ({}π, {}π)",
+            delta[point],
+            kx[point],
+            ky[point]
+        );
+    }
+    // Below the transition the leading eigenvalue would reach 1; at T = 0.1
+    // it is still well short of it.
+    let lambda = value("lambda_d");
+    assert!(
+        0.0 < lambda && lambda < 1.0,
+        "the leading eigenvalue {lambda} must lie between 0 and 1"
+    );
+}
+
+/// The temperature dependence of the spin fluctuations and of the leading
+/// `d`-wave eigenvalue, which is the figure the notebook ends on.
+#[test]
+fn flex_scan_matches_the_python_reference() {
+    if !scans_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_SCANS=1 to check the parameter scans");
+        return;
+    }
+    let example = "flex_scan";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "t",
+        "n",
+        "u",
+        "nk_lin",
+        "lambda_ir",
+        "eps",
+        "mix",
+        "iterations",
+        "gap_max_iterations",
+        "gap_tol",
+        "t_num",
+        "basis_size_f",
+        "n_tau",
+        "n_wn_f",
+        "n_wn_b",
+        "probe_temperature",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+
+    let (actual, expected) = (
+        output(example, "temperature"),
+        reference(example, "temperature"),
+    );
+    for column in [
+        "temperature",
+        "beta",
+        "renormalisation_steps",
+        "gap_iterations",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    // measured ≤ 1.2e-11; each temperature starts from the self-energy the
+    // previous one converged to, so the small differences accumulate along
+    // the sweep.
+    for column in ["mu", "lambda_d", "chi_spin_max", "inverse_chi_spin_max"] {
+        assert_close(&actual, &expected, column, 1e-9);
+    }
+    assert_close(&actual, &expected, "residual", 1e-7); // measured ≤ 4.4e-10
+
+    let (actual, expected) = (output(example, "chi_spin"), reference(example, "chi_spin"));
+    assert_exact_integers(&actual, &expected, "distance");
+    assert_close(&actual, &expected, "chi_spin", 1e-9); // measured ≤ 2.9e-12
+
+    // --- and the physics ----------------------------------------------------
+    let table = output(example, "temperature");
+    let temperature = table.expect_column("temperature");
+    let lambda = table.expect_column("lambda_d");
+    let chi_spin_max = table.expect_column("chi_spin_max");
+    let inverse = table.expect_column("inverse_chi_spin_max");
+
+    assert!(
+        temperature.windows(2).all(|w| w[1] < w[0]),
+        "the sweep must run from high to low temperature"
+    );
+    // Cooling strengthens the antiferromagnetic fluctuations, and the pairing
+    // interaction they mediate strengthens with them.
+    assert!(
+        chi_spin_max.windows(2).all(|w| w[1] > w[0]),
+        "the spin susceptibility must grow as the temperature falls"
+    );
+    assert!(
+        lambda.windows(2).all(|w| w[1] > w[0]),
+        "the leading eigenvalue must grow as the temperature falls"
+    );
+    assert!(
+        lambda.iter().all(|&l| 0.0 < l && l < 1.0),
+        "the sweep must stay above the transition, where λ < 1"
+    );
+    // `1/χ_sp` falls roughly linearly towards zero — the Curie-Weiss form
+    // whose intercept is the (Mermin-Wagner forbidden) ordering temperature.
+    assert!(
+        inverse.windows(2).all(|w| w[1] < w[0]) && inverse[inverse.len() - 1] < 0.2 * inverse[0],
+        "1/χ_sp must fall towards zero across the sweep"
+    );
+    for (index, (&temperature, &residual)) in temperature
+        .iter()
+        .zip(table.expect_column("residual"))
+        .enumerate()
+    {
+        assert!(
+            residual < 1e-3,
+            "row {index} (T = {temperature}): the self-consistency residual {residual} is too large"
+        );
+    }
+}

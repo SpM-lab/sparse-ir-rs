@@ -9,11 +9,10 @@
 //! [`crate::roots`] exists.
 
 use num_complex::Complex64;
-use sparse_ir::{
-    Basis, Bosonic, Error, Fermionic, FiniteTempBasis, LogisticKernel, TworkType, compute_sve,
-};
+use sparse_ir::Error;
 
-use crate::mesh::{IrMesh, MomentumGrid, evaluate_rows};
+use crate::lattice::Lattice;
+use crate::mesh::evaluate_rows;
 use crate::roots::{RootError, brent};
 
 /// Absolute tolerance of every root search here.
@@ -24,148 +23,6 @@ const XTOL: f64 = 2e-12;
 /// Iteration cap for the root searches. Brent's method halves the bracket at
 /// worst every other step, so a hundred is far more than any of these need.
 const MAX_ITER: usize = 100;
-
-/// Everything about the lattice and the basis that does not depend on `U`.
-///
-/// The scan builds one of these and reuses it for every interaction strength;
-/// the single-point example builds one and uses it once.
-pub struct Lattice {
-    grid: MomentumGrid,
-    ek: Vec<f64>,
-    basis_f: FiniteTempBasis<LogisticKernel, Fermionic>,
-    basis_b: FiniteTempBasis<LogisticKernel, Bosonic>,
-    mesh_f: IrMesh<Fermionic>,
-    mesh_b: IrMesh<Bosonic>,
-    /// `u^F_l(0)` and `u^B_l(0)`, the rows that turn a Matsubara sum into an
-    /// evaluation.
-    uf_at_zero: mdarray::DTensor<f64, 2>,
-    ub_at_zero: mdarray::DTensor<f64, 2>,
-    /// The fermionic frequencies `ν = nπ/β` as plain numbers.
-    nu: Vec<f64>,
-    iw0_f: usize,
-    iw0_b: usize,
-}
-
-impl Lattice {
-    /// `nk1 × nk2` square lattice with nearest-neighbour hopping `t`, at
-    /// inverse temperature `beta`.
-    pub fn new(
-        nk1: usize,
-        nk2: usize,
-        t: f64,
-        beta: f64,
-        wmax: f64,
-        eps: f64,
-    ) -> Result<Self, Error> {
-        let kernel = LogisticKernel::new(beta * wmax)?;
-        // One SVE for both statistics, as `FiniteTempBasisSet` does in Python.
-        // It also halves the setup cost, and it is what makes the two τ grids
-        // identical, which the solver relies on below.
-        let sve = compute_sve(kernel, Some(eps), None, None, TworkType::Auto)?;
-        let basis_f = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
-            kernel,
-            beta,
-            sve.clone(),
-            Some(eps),
-            None,
-        )?;
-        let basis_b = FiniteTempBasis::<LogisticKernel, Bosonic>::from_sve_result(
-            kernel,
-            beta,
-            sve,
-            Some(eps),
-            None,
-        )?;
-        let mesh_f = IrMesh::<Fermionic>::new(&basis_f)?;
-        let mesh_b = IrMesh::<Bosonic>::new(&basis_b)?;
-        // χ⁰ is built from `G` at the fermionic times and then fitted as a
-        // bosonic function, which is only meaningful because the two grids
-        // agree. They do, because the logistic kernel gives both statistics
-        // the same imaginary-time basis functions.
-        assert_eq!(
-            mesh_f.tau_points(),
-            mesh_b.tau_points(),
-            "the fermionic and bosonic sampling times must coincide"
-        );
-
-        let uf_at_zero = basis_f.evaluate_tau(&[0.0])?;
-        let ub_at_zero = basis_b.evaluate_tau(&[0.0])?;
-        let nu: Vec<f64> = mesh_f
-            .wn()
-            .iter()
-            .map(|w| w.n() as f64 * std::f64::consts::PI / beta)
-            .collect();
-        let iw0_f = mesh_f
-            .wn()
-            .iter()
-            .position(|w| w.n() == 1)
-            .expect("the fermionic grid contains n = 1");
-        let iw0_b = mesh_b
-            .wn()
-            .iter()
-            .position(|w| w.n() == 0)
-            .expect("the bosonic grid contains n = 0");
-
-        let grid = MomentumGrid::new(nk1, nk2);
-        let ek = grid.square_lattice_dispersion(t);
-        Ok(Self {
-            grid,
-            ek,
-            basis_f,
-            basis_b,
-            mesh_f,
-            mesh_b,
-            uf_at_zero,
-            ub_at_zero,
-            nu,
-            iw0_f,
-            iw0_b,
-        })
-    }
-
-    pub fn grid(&self) -> &MomentumGrid {
-        &self.grid
-    }
-
-    pub fn dispersion(&self) -> &[f64] {
-        &self.ek
-    }
-
-    pub fn basis_f(&self) -> &FiniteTempBasis<LogisticKernel, Fermionic> {
-        &self.basis_f
-    }
-
-    pub fn basis_b(&self) -> &FiniteTempBasis<LogisticKernel, Bosonic> {
-        &self.basis_b
-    }
-
-    pub fn mesh_f(&self) -> &IrMesh<Fermionic> {
-        &self.mesh_f
-    }
-
-    pub fn mesh_b(&self) -> &IrMesh<Bosonic> {
-        &self.mesh_b
-    }
-
-    /// The fermionic frequencies as plain numbers, in grid order.
-    pub fn nu(&self) -> &[f64] {
-        &self.nu
-    }
-
-    /// Index of `ν = πT`, the lowest fermionic frequency.
-    pub fn iw0_f(&self) -> usize {
-        self.iw0_f
-    }
-
-    /// Index of `ν = 0`, the lowest bosonic frequency.
-    pub fn iw0_b(&self) -> usize {
-        self.iw0_b
-    }
-
-    fn nk(&self) -> usize {
-        self.grid.len()
-    }
-}
 
 /// Why a TPSC calculation could not finish.
 #[derive(Debug)]
@@ -243,7 +100,7 @@ pub struct Solution {
 /// `G`.
 pub fn solve(lattice: &Lattice, u: f64, filling: f64) -> Result<Solution, TpscError> {
     let nk = lattice.nk();
-    let zero_sigma = vec![Complex64::default(); lattice.mesh_f.n_wn() * nk];
+    let zero_sigma = vec![Complex64::default(); lattice.mesh_f().n_wn() * nk];
 
     let mu_0 = find_chemical_potential(lattice, &zero_sigma, filling)?;
     let g_0 = green(lattice, &zero_sigma, mu_0);
@@ -302,9 +159,9 @@ pub fn solve(lattice: &Lattice, u: f64, filling: f64) -> Result<Solution, TpscEr
 /// `G(iν, k) = 1/(iν − (ε(k) − μ) − Σ(iν, k))`.
 fn green(lattice: &Lattice, sigma: &[Complex64], mu: f64) -> Vec<Complex64> {
     let nk = lattice.nk();
-    let mut out = Vec::with_capacity(lattice.nu.len() * nk);
-    for (i, &nu) in lattice.nu.iter().enumerate() {
-        for (k, &e) in lattice.ek.iter().enumerate() {
+    let mut out = Vec::with_capacity(lattice.nu().len() * nk);
+    for (i, &nu) in lattice.nu().iter().enumerate() {
+        for (k, &e) in lattice.dispersion().iter().enumerate() {
             out.push((Complex64::new(-(e - mu), nu) - sigma[i * nk + k]).inv());
         }
     }
@@ -318,11 +175,11 @@ fn green(lattice: &Lattice, sigma: &[Complex64], mu: f64) -> Vec<Complex64> {
 fn filling_of(lattice: &Lattice, sigma: &[Complex64], mu: f64) -> Result<f64, Error> {
     let nk = lattice.nk();
     let gkio = green(lattice, sigma, mu);
-    let averaged: Vec<Complex64> = (0..lattice.mesh_f.n_wn())
+    let averaged: Vec<Complex64> = (0..lattice.mesh_f().n_wn())
         .map(|i| gkio[i * nk..(i + 1) * nk].iter().sum::<Complex64>() / nk as f64)
         .collect();
-    let coefficients = lattice.mesh_f.wn_to_l(&averaged, 1)?;
-    let g_at_zero = evaluate_rows(&lattice.uf_at_zero, &coefficients, 1)[0];
+    let coefficients = lattice.mesh_f().wn_to_l(&averaged, 1)?;
+    let g_at_zero = evaluate_rows(lattice.uf_at_zero(), &coefficients, 1)[0];
     Ok(2.0 * (1.0 + g_at_zero.re))
 }
 
@@ -331,8 +188,18 @@ fn find_chemical_potential(
     sigma: &[Complex64],
     filling: f64,
 ) -> Result<f64, TpscError> {
-    let lower = 3.0 * lattice.ek.iter().copied().fold(f64::INFINITY, f64::min);
-    let upper = 3.0 * lattice.ek.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let lower = 3.0
+        * lattice
+            .dispersion()
+            .iter()
+            .copied()
+            .fold(f64::INFINITY, f64::min);
+    let upper = 3.0
+        * lattice
+            .dispersion()
+            .iter()
+            .copied()
+            .fold(f64::NEG_INFINITY, f64::max);
     root(
         &|mu: f64| Ok(filling_of(lattice, sigma, mu)? - filling),
         lower,
@@ -347,13 +214,13 @@ fn irreducible_susceptibility(
 ) -> Result<Vec<Complex64>, Error> {
     let nk = lattice.nk();
     let grt = {
-        let gkt = lattice.mesh_f.wn_to_tau(gkio, nk)?;
-        lattice.grid.k_to_r(&gkt)
+        let gkt = lattice.mesh_f().wn_to_tau(gkio, nk)?;
+        lattice.grid().k_to_r(&gkt)
     };
-    let reversed = lattice.mesh_f.reverse_tau(&grt, nk);
+    let reversed = lattice.mesh_f().reverse_tau(&grt, nk);
     let product: Vec<Complex64> = grt.iter().zip(&reversed).map(|(a, b)| a * b).collect();
-    let in_momentum = lattice.grid.r_to_k(&product);
-    lattice.mesh_b.tau_to_wn(&in_momentum, nk)
+    let in_momentum = lattice.grid().r_to_k(&product);
+    lattice.mesh_b().tau_to_wn(&in_momentum, nk)
 }
 
 /// The RPA-like susceptibility `χ⁰/(1 − U χ⁰)`.
@@ -366,11 +233,11 @@ fn rpa(chi_0: &[Complex64], vertex: f64) -> Vec<Complex64> {
 fn rpa_trace(lattice: &Lattice, chi_0: &[Complex64], vertex: f64) -> Result<f64, Error> {
     let nk = lattice.nk();
     let chi = rpa(chi_0, vertex);
-    let averaged: Vec<Complex64> = (0..lattice.mesh_b.n_wn())
+    let averaged: Vec<Complex64> = (0..lattice.mesh_b().n_wn())
         .map(|i| chi[i * nk..(i + 1) * nk].iter().sum::<Complex64>() / nk as f64)
         .collect();
-    let coefficients = lattice.mesh_b.wn_to_l(&averaged, 1)?;
-    Ok(evaluate_rows(&lattice.ub_at_zero, &coefficients, 1)[0].re)
+    let coefficients = lattice.mesh_b().wn_to_l(&averaged, 1)?;
+    Ok(evaluate_rows(lattice.ub_at_zero(), &coefficients, 1)[0].re)
 }
 
 /// `Σ(iν, k)` from `V(τ, r) G(τ, r)`, where
@@ -395,16 +262,16 @@ fn self_energy(
         .map(|(sp, ch)| (u / 4.0) * (3.0 * u_sp * sp + u_ch * ch))
         .collect();
     let v_rt = {
-        let in_real_space = lattice.grid.k_to_r(&interaction);
-        lattice.mesh_b.wn_to_tau(&in_real_space, nk)?
+        let in_real_space = lattice.grid().k_to_r(&interaction);
+        lattice.mesh_b().wn_to_tau(&in_real_space, nk)?
     };
     let grt = {
-        let gkt = lattice.mesh_f.wn_to_tau(gkio, nk)?;
-        lattice.grid.k_to_r(&gkt)
+        let gkt = lattice.mesh_f().wn_to_tau(gkio, nk)?;
+        lattice.grid().k_to_r(&gkt)
     };
     let product: Vec<Complex64> = v_rt.iter().zip(&grt).map(|(v, g)| v * g).collect();
-    let in_momentum = lattice.grid.r_to_k(&product);
-    lattice.mesh_f.tau_to_wn(&in_momentum, nk)
+    let in_momentum = lattice.grid().r_to_k(&product);
+    lattice.mesh_f().tau_to_wn(&in_momentum, nk)
 }
 
 /// Brent's method on a function that can fail, with the tutorial's tolerance.
@@ -433,22 +300,4 @@ where
         Some(e) => Err(TpscError::Basis(e)),
         None => Ok(root?),
     }
-}
-
-/// The indices of Γ → X → M → Γ on an `nk × nk` grid, in fractional
-/// coordinates `(0,0) → (½,0) → (½,½) → (0,0)`.
-pub fn high_symmetry_path(nk_lin: usize) -> Vec<usize> {
-    let half = nk_lin / 2;
-    let mut path = Vec::new();
-    for i in 0..=half {
-        path.push(i * nk_lin);
-    }
-    for j in 1..=half {
-        path.push(half * nk_lin + j);
-    }
-    for step in 1..=half {
-        let i = half - step;
-        path.push(i * nk_lin + i);
-    }
-    path
 }

@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 pub mod csv;
 pub mod dmft;
 pub mod elliptic;
+pub mod flex;
+pub mod lattice;
 pub mod linalg;
 pub mod mesh;
 pub mod optimize;
@@ -25,6 +27,7 @@ pub mod tpsc;
 
 pub use csv::{Table, read_table, write_table};
 pub use elliptic::{ellipe, ellipk};
+pub use lattice::{Lattice, high_symmetry_path, sve_for};
 pub use linalg::{Eigen2, Hermitian2};
 pub use mesh::{IrMesh, MomentumGrid, evaluate_rows, reverse_tau_rows, tau_reversal};
 pub use optimize::{FistaReport, fista, soft_threshold, soft_threshold_nonneg};

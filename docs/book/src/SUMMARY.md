@@ -23,3 +23,4 @@
 - [Orbital magnetic susceptibility](tutorials/orbital_magnetic_susceptibility.md)
 - [DMFT with an IPT solver](tutorials/dmft_ipt.md)
 - [Two-particle self-consistency](tutorials/tpsc.md)
+- [Fluctuation exchange](tutorials/flex.md)

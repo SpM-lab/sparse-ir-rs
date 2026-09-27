@@ -38,13 +38,17 @@ const EXAMPLES: &[(&str, &str)] = &[
     // A scan by name, but fifty-one solves of a 24 × 24 lattice take a
     // fraction of a second, so it stays where pull requests can see it.
     ("tpsc_scan", env!("CARGO_BIN_EXE_tpsc_scan")),
+    ("flex", env!("CARGO_BIN_EXE_flex")),
 ];
 
 /// The examples that repeat a whole self-consistent calculation over a grid of
 /// parameters. They are minutes rather than seconds, so they run in the
 /// scheduled applied-examples job instead of on every pull request; see
 /// `common::scans_requested`.
-const SCANS: &[(&str, &str)] = &[("dmft_ipt_scan", env!("CARGO_BIN_EXE_dmft_ipt_scan"))];
+const SCANS: &[(&str, &str)] = &[
+    ("dmft_ipt_scan", env!("CARGO_BIN_EXE_dmft_ipt_scan")),
+    ("flex_scan", env!("CARGO_BIN_EXE_flex_scan")),
+];
 
 #[test]
 fn every_example_runs() {
