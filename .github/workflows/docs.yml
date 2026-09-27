@@ -1,0 +1,78 @@
+name: Docs
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+# One deployment at a time; a queued one supersedes an older queued one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  MDBOOK_VERSION: 0.5.2
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install OpenBLAS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: docs/tutorial-code -> target
+          shared-key: tutorial
+          save-if: false
+
+      - name: Install mdBook
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@${{ env.MDBOOK_VERSION }}
+
+      - name: Build the book
+        run: mdbook build docs/book
+
+      - name: Build the API documentation
+        run: cargo doc -p sparse-ir --no-deps --locked
+
+      - name: Put the API documentation under /api
+        run: |
+          mkdir -p docs/book/book/api
+          cp -r target/doc/. docs/book/book/api/
+          # rustdoc's own index is a redirect page; the book's index is the
+          # landing page, so /api needs one of its own.
+          printf '<meta http-equiv="refresh" content="0; url=sparse_ir/index.html">\n' \
+            > docs/book/book/api/index.html
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/book/book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

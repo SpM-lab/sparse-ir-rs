@@ -6,6 +6,7 @@
 #![allow(dead_code)]
 
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use sparse_ir_tutorial::{Table, read_table};
 
@@ -58,6 +59,57 @@ fn read(path: &Path, example: &str) -> Table {
     })
 }
 
+/// One comparison a verification test made.
+struct Record {
+    example: String,
+    column: String,
+    tolerance: f64,
+    deviation: f64,
+    passed: bool,
+}
+
+static SUMMARY: Mutex<Vec<Record>> = Mutex::new(Vec::new());
+
+/// Records one comparison and rewrites `data/verification-summary.json`.
+///
+/// The file is rewritten on every call rather than at the end, because a test
+/// that fails never reaches an end: the comparison that failed has to be in
+/// the file, and it is the last one written.
+fn record(example: &str, column: &str, tolerance: f64, deviation: f64, passed: bool) {
+    let mut summary = SUMMARY.lock().expect("the summary mutex was poisoned");
+    summary.push(Record {
+        example: example.to_string(),
+        column: column.to_string(),
+        tolerance,
+        deviation,
+        passed,
+    });
+    let mut json = String::from("[\n");
+    for (index, record) in summary.iter().enumerate() {
+        let comma = if index + 1 == summary.len() { "" } else { "," };
+        json.push_str(&format!(
+            "  {{\"example\": \"{}\", \"column\": \"{}\", \"tolerance\": {:e}, \
+             \"deviation\": {:e}, \"passed\": {}}}{comma}\n",
+            record.example, record.column, record.tolerance, record.deviation, record.passed
+        ));
+    }
+    json.push_str("]\n");
+    let directory = data_dir();
+    let _ = std::fs::create_dir_all(&directory);
+    let _ = std::fs::write(directory.join("verification-summary.json"), json);
+}
+
+/// Which example a table came from, taken from its provenance comment
+/// (`# example=<name> ...`).
+fn example_of(table: &Table) -> String {
+    table
+        .comment
+        .split_whitespace()
+        .find_map(|field| field.strip_prefix("example="))
+        .unwrap_or("unknown")
+        .to_string()
+}
+
 /// Asserts that two columns agree to `tol`, measured against the largest value
 /// in the reference column.
 ///
@@ -65,6 +117,7 @@ fn read(path: &Path, example: &str) -> Table {
 /// these quantities need: the IR coefficients fall off over fifteen orders of
 /// magnitude, and the small ones are only ever accurate in absolute terms.
 pub fn assert_close(actual: &Table, expected: &Table, column: &str, tol: f64) {
+    let expected_table = expected;
     let actual = actual.expect_column(column);
     let expected = expected.expect_column(column);
     assert_eq!(
@@ -85,6 +138,13 @@ pub fn assert_close(actual: &Table, expected: &Table, column: &str, tol: f64) {
             worst = (index, deviation);
         }
     }
+    record(
+        &example_of(expected_table),
+        column,
+        tol,
+        worst.1,
+        worst.1 <= tol,
+    );
     assert!(
         worst.1 <= tol,
         "column `{column}`: relative deviation {:.3e} exceeds {tol:.3e} at row {} ({} vs {})",
@@ -97,13 +157,23 @@ pub fn assert_close(actual: &Table, expected: &Table, column: &str, tol: f64) {
 
 /// Asserts that two columns of whole numbers agree exactly.
 pub fn assert_exact_integers(actual: &Table, expected: &Table, column: &str) {
+    let example = example_of(expected);
     let actual = actual.expect_column(column);
     let expected = expected.expect_column(column);
     assert_eq!(actual.len(), expected.len(), "column `{column}`: length");
     for (index, (a, e)) in actual.iter().zip(expected).enumerate() {
-        assert_eq!(
-            a.to_bits(),
-            e.to_bits(),
+        let identical = a.to_bits() == e.to_bits();
+        if !identical || index + 1 == actual.len() {
+            record(
+                &example,
+                column,
+                0.0,
+                if identical { 0.0 } else { 1.0 },
+                identical,
+            );
+        }
+        assert!(
+            identical,
             "column `{column}`: row {index} is {a} but the reference says {e}"
         );
     }
@@ -125,6 +195,14 @@ pub fn assert_negligible(table: &Table, column: &str, scale_column: &str, tol: f
         .expect_column(column)
         .iter()
         .fold(0.0_f64, |acc, v| acc.max(v.abs()));
+    let deviation = if scale > 0.0 { worst / scale } else { worst };
+    record(
+        &example_of(table),
+        column,
+        tol,
+        deviation,
+        worst <= tol * scale,
+    );
     assert!(
         worst <= tol * scale,
         "column `{column}`: largest value {worst:.3e} is not negligible \
