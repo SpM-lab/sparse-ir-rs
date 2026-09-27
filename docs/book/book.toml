@@ -1,0 +1,21 @@
+[book]
+title = "sparse-ir for Rust"
+description = "A tutorial for the Rust implementation of the sparse intermediate representation"
+authors = ["SparseIR Team"]
+language = "en"
+src = "src"
+
+[rust]
+# Without this, `mdbook test` compiles the code blocks as edition 2015, where a
+# plain `use sparse_ir::…` does not resolve without an `extern crate`.
+edition = "2024"
+
+[output.html]
+git-repository-url = "https://github.com/SpM-lab/sparse-ir-rs"
+edit-url-template = "https://github.com/SpM-lab/sparse-ir-rs/edit/main/docs/book/{path}"
+mathjax-support = true
+
+[output.html.playground]
+# The examples depend on `sparse-ir`, which the playground cannot fetch, so a
+# "Run" button on them would only ever show an error.
+runnable = false

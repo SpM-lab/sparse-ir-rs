@@ -1,0 +1,233 @@
+name: Tutorial
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  schedule:
+    # Mondays, 03:17 UTC. The applied examples are too slow for every pull
+    # request but too easy to break to leave unchecked.
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+  MDBOOK_VERSION: 0.5.2
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    name: Decide whether the tutorial has to run
+    outputs:
+      required: ${{ steps.policy.outputs.required }}
+      reason: ${{ steps.policy.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+          # The policy needs the merge base to diff against.
+          fetch-depth: 0
+
+      - name: Apply the change policy
+        id: policy
+        run: |
+          case "${{ github.event_name }}" in
+            pull_request)
+              base="${{ github.event.pull_request.base.sha }}"
+              # The merge base, not the base tip: a change that landed on main
+              # after the branch started is not this pull request's doing.
+              files=$(git diff --name-only "$(git merge-base "$base" "${{ github.sha }}")" "${{ github.sha }}")
+              ;;
+            push)
+              before="${{ github.event.before }}"
+              if git cat-file -e "$before^{commit}" 2>/dev/null; then
+                files=$(git diff --name-only "$before" "${{ github.sha }}")
+              else
+                files=""
+              fi
+              ;;
+            *)
+              files=""
+              ;;
+          esac
+          # An empty list means "could not tell", which the policy treats as
+          # required; xargs keeps the newline-separated list as arguments.
+          printf '%s' "$files" | xargs -d '\n' python3 scripts/ci/tutorial_change_policy.py
+
+  tutorial-basics:
+    runs-on: ubuntu-latest
+    name: Tutorial (basics)
+    needs: changes
+    if: needs.changes.outputs.required == 'true'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install OpenBLAS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: docs/tutorial-code -> target
+          shared-key: tutorial
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install mdBook
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@${{ env.MDBOOK_VERSION }}
+
+      - name: Build the tutorial crate
+        working-directory: docs/tutorial-code
+        run: cargo build --profile ci --all-targets --locked
+
+      - name: Check that the cache restored the dependencies
+        working-directory: docs/tutorial-code
+        run: |
+          # A cache that restores but does not actually save a rebuild is worse
+          # than no cache: it hides the cost. Fail loudly if sparse-ir is not
+          # among the artifacts after a build.
+          #
+          # A path dependency with a single version gets no metadata hash, so
+          # the file is plain libsparse_ir.rlib; a hashed name is still valid.
+          # libsparse_ir_tutorial-*.rlib must not count, which is why the two
+          # patterns are spelled out rather than globbed as libsparse_ir*.
+          if ! ls target/ci/deps/libsparse_ir.rlib >/dev/null 2>&1 \
+            && ! ls target/ci/deps/libsparse_ir-*.rlib >/dev/null 2>&1; then
+            echo "::error::the tutorial build produced no sparse-ir rlib"
+            exit 1
+          fi
+
+      - name: Format, lints, unit tests, book tests, examples and verification
+        working-directory: docs/tutorial-code
+        run: scripts/check.sh --run
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tutorial-verification-summary
+          path: docs/tutorial-code/data/verification-summary.json
+          if-no-files-found: warn
+
+  tutorial-applied:
+    runs-on: ubuntu-latest
+    name: Tutorial (applied)
+    needs: changes
+    # The applied examples take far longer than the basic ones, so they run on
+    # main, on the weekly schedule, and on request — not on every pull request.
+    if: >-
+      needs.changes.outputs.required == 'true' &&
+      (github.event_name != 'pull_request')
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      # Only the scheduled-failure step below needs this.
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install OpenBLAS
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: docs/tutorial-code -> target
+          # The same cache as the basics job: the two build the same crate,
+          # and only one of them should pay for the dependencies.
+          shared-key: tutorial
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install mdBook
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@${{ env.MDBOOK_VERSION }}
+
+      - name: Build the tutorial crate
+        working-directory: docs/tutorial-code
+        run: cargo build --profile ci --all-targets --locked
+
+      - name: Everything, including the parameter scans
+        working-directory: docs/tutorial-code
+        run: scripts/check.sh --run --scans
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tutorial-applied-verification-summary
+          path: docs/tutorial-code/data/verification-summary.json
+          if-no-files-found: warn
+
+      - name: Report a scheduled failure
+        # A failure on main or on a manual run is already in front of whoever
+        # triggered it; a weekly failure is not in front of anyone.
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Weekly tutorial (applied) run is failing"
+          gh label create tutorial-applied --color ededed \
+            --description "The weekly run of the applied tutorial examples" 2>/dev/null || true
+          body=$(cat <<EOF
+          The weekly run of the applied tutorial examples failed.
+
+          $RUN_URL
+
+          The examples are checked against committed reference values, so a
+          failure here is either a change in the numerics of sparse-ir or a
+          change in the examples themselves.
+          EOF
+          )
+          # One issue per outage, not one per week.
+          existing=$(gh issue list --state open --label tutorial-applied \
+            --search "$title in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --title "$title" --label tutorial-applied --body "$body"
+          fi
+
+  tutorial-rollup:
+    runs-on: ubuntu-latest
+    name: All tutorial jobs status
+    needs:
+      - changes
+      - tutorial-basics
+      - tutorial-applied
+    if: always()
+    steps:
+      - name: The tutorial was not required
+        if: ${{ needs.changes.outputs.required != 'true' }}
+        run: |
+          echo "not required: ${{ needs.changes.outputs.reason }}"
+
+      - name: Some tutorial jobs failed
+        if: ${{ contains(needs.*.result, 'failure') }}
+        run: exit 1
+
+      - name: All tutorial jobs passed
+        if: ${{ !contains(needs.*.result, 'failure') }}
+        run: exit 0

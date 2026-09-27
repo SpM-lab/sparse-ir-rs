@@ -1,0 +1,17 @@
+[project]
+name = "sparse-ir-tutorial-reference"
+version = "0.0.0"
+description = "Produces the reference values the Rust tutorial's examples are checked against"
+requires-python = ">=3.10"
+dependencies = [
+    # The published Python implementation is the oracle. It is pinned: a
+    # reference file says which version produced it, and a reference that
+    # silently moved with an upgrade would defeat the whole point.
+    "sparse-ir==2.1.4",
+    "pylibsparseir==0.9.1",
+    "numpy>=1.26",
+    "scipy>=1.11",
+]
+
+[tool.uv]
+package = false

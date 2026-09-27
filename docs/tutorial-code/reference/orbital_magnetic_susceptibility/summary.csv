@@ -1,0 +1,3 @@
+# example=orbital_magnetic_susceptibility sparse-ir=2.1.4 pylibsparseir=0.9.1 numpy=2.5.3
+t,a,beta,wmax,eps,nk_lin,n_mu,basis_size,n_matsubara
+1.0,1.0,10.0,10.0,1e-10,200.0,91.0,30.0,30.0

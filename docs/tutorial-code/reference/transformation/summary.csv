@@ -1,0 +1,3 @@
+# example=transformation sparse-ir=2.1.4 pylibsparseir=0.9.1 numpy=2.5.3
+pole_beta,pole_wmax,pole_basis_size,beta,wmax,eps,basis_size,accuracy,narrow_wmax,narrow_basis_size
+15.0,10.0,34.0,10.0,10.0,1e-10,30.0,7.86528073945953e-11,0.5,12.0

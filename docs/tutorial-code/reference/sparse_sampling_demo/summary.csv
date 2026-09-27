@@ -1,0 +1,3 @@
+# example=sparse_sampling_demo sparse-ir=2.1.4 pylibsparseir=0.9.1 numpy=2.5.3
+beta,wmax,eps,basis_size,accuracy,n_tau_points,n_matsubara_points,cond_tau,cond_matsubara
+10000.0,1.0,1e-15,104.0,8.825586220219911e-16,104.0,104.0,51.83054439106972,213.18566918576533
