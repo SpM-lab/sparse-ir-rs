@@ -1,0 +1,3 @@
+# example=gw sparse-ir=2.1.4 pylibsparseir=0.9.1 numpy=2.5.3
+t,beta,wmax,u,iterations,basis_size_f,basis_size_b,n_tau_f,n_tau_b,n_wn_f,n_wn_b
+0.1,10.0,1.0,0.5,20.0,19.0,19.0,19.0,19.0,20.0,19.0

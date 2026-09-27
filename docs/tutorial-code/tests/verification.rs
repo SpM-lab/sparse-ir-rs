@@ -574,3 +574,169 @@ fn second_order_perturbation_matches_the_python_reference() {
     assert_close(&actual, &expected, "sigma_gamma_im", 1e-11); // measured 6.3e-14
     assert_close(&actual, &expected, "sigma_gamma_re", 1e-11); // measured 1.3e-12
 }
+
+/// `gw`: one self-consistent GW loop for the single-site Hubbard atom at
+/// β = 10, U = 0.5.
+///
+/// Nothing here is a formula: every number is the end of twenty iterations
+/// that pass through both statistics four times each. The fermionic and
+/// bosonic sampling grids of this basis each carry a point at exactly τ = β/2,
+/// so the τ-reversal in `P(τ) = G(τ) G(β − τ)` has to handle the wrap; get it
+/// wrong and the loop converges to a different fixed point, not to a slightly
+/// different number. That the tolerances below sit at machine precision is
+/// therefore a strong statement, and they are kept there deliberately.
+///
+/// The atom is particle-hole symmetric, so several columns are zero by
+/// symmetry and hold nothing but rounding error; those are checked to be
+/// negligible against the part that carries the signal rather than compared
+/// with Python, which has no reason to round the same way.
+#[test]
+fn gw_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "gw";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    for column in [
+        "beta",
+        "wmax",
+        "iterations",
+        "basis_size_f",
+        "basis_size_b",
+        "n_tau_f",
+        "n_tau_b",
+        "n_wn_f",
+        "n_wn_b",
+    ] {
+        assert_exact_integers(&actual, &expected, column);
+    }
+    assert_close(&actual, &expected, "t", 1e-15); // measured 0
+    assert_close(&actual, &expected, "u", 1e-15); // measured 0
+
+    // --- the starting point, which is the atomic Green's function ----------
+    let (actual, expected) = (
+        output(example, "green_initial"),
+        reference(example, "green_initial"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "g_im", 1e-14); // measured 4.5e-16
+    for table in [&actual, &expected] {
+        assert_negligible(table, "g_re", "g_im", 1e-14);
+    }
+
+    // --- G on both grids ----------------------------------------------------
+    // `green_tau_bosonic` is G, a fermionic function, evaluated at the
+    // *bosonic* sampling times, and `green_tau_reversed` is the same function
+    // at `β − τ`. Those two are where a cross-statistics evaluation that
+    // ignored the statistics of the function, or a reversal that permuted the
+    // rows without their sign, would show up — as a deviation of order one.
+    // At β = 10 with this ε the fermionic and bosonic grids happen to hold the
+    // same times, so the abscissa alone would not give such a mistake away.
+    for name in ["green_tau", "green_tau_bosonic", "green_tau_reversed"] {
+        let (actual, expected) = (output(example, name), reference(example, name));
+        assert_close(&actual, &expected, "g_re", 1e-13); // measured 7.9e-16
+        for table in [&actual, &expected] {
+            assert_negligible(table, "g_im", "g_re", 1e-14);
+        }
+    }
+
+    // --- P = G(τ)G(β − τ), the bosonic polarization -------------------------
+    let (actual, expected) = (
+        output(example, "polarization_tau"),
+        reference(example, "polarization_tau"),
+    );
+    assert_close(&actual, &expected, "tau_b", 1e-13); // measured 0
+    assert_close(&actual, &expected, "p_re", 1e-13); // measured 1.6e-15
+    for table in [&actual, &expected] {
+        assert_negligible(table, "p_im", "p_re", 1e-14);
+    }
+
+    let (actual, expected) = (
+        output(example, "polarization_coefficients"),
+        reference(example, "polarization_coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "p_l_abs", 1e-13); // measured 1.2e-15
+
+    let (actual, expected) = (
+        output(example, "polarization_matsubara"),
+        reference(example, "polarization_matsubara"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "p_re", 1e-13); // measured 1.2e-15
+    for table in [&actual, &expected] {
+        assert_negligible(table, "p_im", "p_re", 1e-14);
+    }
+
+    // --- W = U/(1 − UP) − U, back onto the fermionic times ------------------
+    for (name, real, imaginary) in [
+        ("screened_matsubara", "w_re", Some("w_im")),
+        ("screened_tau", "w_re", Some("w_im")),
+        ("screened_coefficients", "w_l_abs", None),
+    ] {
+        let (actual, expected) = (output(example, name), reference(example, name));
+        assert_close(&actual, &expected, real, 1e-13); // measured ≤ 7.8e-15
+        if let Some(imaginary) = imaginary {
+            for table in [&actual, &expected] {
+                assert_negligible(table, imaginary, real, 1e-14);
+            }
+        }
+    }
+
+    // --- Σ = G W, and the Hartree term kept out of the Dyson equation -------
+    let (actual, expected) = (
+        output(example, "self_energy_tau"),
+        reference(example, "self_energy_tau"),
+    );
+    assert_close(&actual, &expected, "e_re", 1e-13); // measured 8.1e-15
+    for table in [&actual, &expected] {
+        assert_negligible(table, "e_im", "e_re", 1e-14);
+    }
+
+    let (actual, expected) = (
+        output(example, "self_energy_coefficients"),
+        reference(example, "self_energy_coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "e_l_abs", 1e-13); // measured 2.7e-15
+
+    let (actual, expected) = (
+        output(example, "self_energy_matsubara"),
+        reference(example, "self_energy_matsubara"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    for column in ["e_re", "e_im", "hartree"] {
+        assert_close(&actual, &expected, column, 1e-13); // measured ≤ 4.0e-15
+    }
+
+    // --- the converged fixed point ------------------------------------------
+    let (actual, expected) = (
+        output(example, "self_energy_final"),
+        reference(example, "self_energy_final"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "e_re", 1e-13); // measured 3.3e-16
+    assert_close(&actual, &expected, "e_im", 1e-13); // measured 2.8e-15
+
+    let (actual, expected) = (
+        output(example, "green_final"),
+        reference(example, "green_final"),
+    );
+    assert_exact_integers(&actual, &expected, "n");
+    assert_close(&actual, &expected, "g_im", 1e-13); // measured 5.6e-16
+    for table in [&actual, &expected] {
+        assert_negligible(table, "g_re", "g_im", 1e-14);
+    }
+
+    // --- and the way it got there -------------------------------------------
+    // The iteration-by-iteration change, which says the two implementations
+    // took the same path and not merely arrived at the same place.
+    let (actual, expected) = (
+        output(example, "convergence"),
+        reference(example, "convergence"),
+    );
+    assert_exact_integers(&actual, &expected, "iteration");
+    assert_close(&actual, &expected, "difference", 1e-13); // measured 2.2e-14
+}

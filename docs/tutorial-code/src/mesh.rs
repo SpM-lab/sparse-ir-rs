@@ -16,25 +16,29 @@ use sparse_ir::{
     Basis, Error, MatsubaraFreq, MatsubaraSampling, Statistics, StatisticsType, TauSampling,
 };
 
-/// Reorders `values`, sampled on `points` and laid out row-major as
-/// `(points.len(), ncols)`, so that row `i` of the result holds the value at
-/// `β − points[i]`.
+/// Reorders and re-signs `values`, sampled on `points` and laid out row-major
+/// as `(points.len(), ncols)`, so that row `i` of the result holds the value
+/// at `β − points[i]`.
 ///
-/// The sampling times of `sparse-ir` lie on `[−β/2, β/2]` and the grid is
-/// closed under `τ → −τ`, so reversing the rows gives `G(−τ)`. The value at
+/// The sampling times of `sparse-ir` lie on `[−β/2, β/2]`, where the value at
 /// `β − τ` follows from the (anti)periodicity of a Green's function,
 ///
 /// ```text
 ///     G(β − τ) = ζ G(−τ),     ζ = −1 (fermionic), +1 (bosonic),
 /// ```
 ///
-/// which is the only difference from the `grit[::-1]` of the Python
-/// notebooks, where the sampling times have been folded into `[0, β)` and the
-/// grid is symmetric about `β/2` instead.
+/// so the operation is a permutation with a sign. That is the only difference
+/// from the `grit[::-1]` of the Python notebooks, where the sampling times
+/// have been folded into `[0, β)` and the grid is symmetric about `β/2`.
 ///
-/// Panics if the grid is not symmetric — the expressions this function exists
-/// for would silently return a different quantity.
-pub fn reverse_tau_rows<S, T>(points: &[f64], values: &[T], ncols: usize) -> Vec<T>
+/// The grid is *nearly* symmetric about zero, but not quite: it can carry a
+/// point at `τ = β/2`, whose mirror `−β/2` is the same point seen one period
+/// away. [`tau_reversal`] resolves that, and this function applies it.
+///
+/// `S` is the statistics of the *function*, which need not be the statistics
+/// of the grid: a fermionic `G` sampled at the bosonic times is still
+/// anti-periodic.
+pub fn reverse_tau_rows<S, T>(points: &[f64], beta: f64, values: &[T], ncols: usize) -> Vec<T>
 where
     S: StatisticsType,
     T: Copy + Neg<Output = T>,
@@ -47,30 +51,58 @@ where
         "expected {nrows} rows of {ncols} values, got {} values",
         values.len()
     );
-    assert_symmetric_tau_grid(points);
 
-    let flip = matches!(S::STATISTICS, Statistics::Fermionic);
     let mut out = Vec::with_capacity(values.len());
-    for i in 0..nrows {
-        let row = &values[(nrows - 1 - i) * ncols..][..ncols];
+    for (source, flip) in tau_reversal::<S>(points, beta) {
+        let row = &values[source * ncols..][..ncols];
         out.extend(row.iter().map(|&v| if flip { -v } else { v }));
     }
     out
 }
 
-/// Panics unless `points` is sorted and closed under `τ → −τ`.
-pub fn assert_symmetric_tau_grid(points: &[f64]) {
-    let n = points.len();
-    assert!(n > 0, "an empty grid cannot be reversed");
-    let scale = points.iter().fold(0.0f64, |acc, t| acc.max(t.abs()));
-    for (i, &tau) in points.iter().enumerate() {
-        let mirrored = points[n - 1 - i];
-        assert!(
-            (tau + mirrored).abs() <= 1e-12 * scale.max(1.0),
-            "the sampling times must be closed under τ → −τ for G(β − τ) to be a \
-             reordering of G(τ), but {tau} is paired with {mirrored}"
-        );
-    }
+/// The permutation and signs behind `G(τ) → G(β − τ)` on a sampling grid.
+///
+/// Entry `i` says which row holds `G(β − points[i])` and whether it has to
+/// change sign. Both come from one identity applied twice: `G(β − τ)` is
+/// `ζ G(−τ)`, and `−τ` is itself on the grid only up to a period, picking up
+/// another `ζ` when it is not.
+///
+/// Panics if some `−τ` is neither on the grid nor one period away from it,
+/// which would mean `G(β − τ)` is not any of the values that were sampled.
+pub fn tau_reversal<S: StatisticsType>(points: &[f64], beta: f64) -> Vec<(usize, bool)> {
+    assert!(beta > 0.0, "β must be positive, got {beta}");
+    assert!(!points.is_empty(), "an empty grid cannot be reversed");
+    let zeta_flips = matches!(S::STATISTICS, Statistics::Fermionic);
+    let tolerance = 1e-12 * beta;
+
+    points
+        .iter()
+        .map(|&tau| {
+            let target = -tau;
+            let found = points
+                .iter()
+                .position(|&t| (t - target).abs() <= tolerance)
+                .map(|index| (index, false))
+                .or_else(|| {
+                    // −τ off the grid means it is one period away from a point
+                    // that is on it, and crossing a period costs another ζ.
+                    points
+                        .iter()
+                        .position(|&t| {
+                            (t - target - beta).abs() <= tolerance
+                                || (t - target + beta).abs() <= tolerance
+                        })
+                        .map(|index| (index, zeta_flips))
+                });
+            let (index, wrapped) = found.unwrap_or_else(|| {
+                panic!(
+                    "G(β − τ) is not among the sampled values: no sampling time equals \
+                     {target} or {target} ± {beta}"
+                )
+            });
+            (index, zeta_flips != wrapped)
+        })
+        .collect()
 }
 
 /// A square momentum grid and the Fourier transforms between `k` and `r`.
@@ -208,6 +240,7 @@ enum Direction {
 /// local calculation. That is the layout the momentum transforms of
 /// [`MomentumGrid`] expect too, so the two compose without a reshape.
 pub struct IrMesh<S: StatisticsType + 'static> {
+    beta: f64,
     tau: TauSampling<S>,
     wn: MatsubaraSampling<S>,
 }
@@ -215,9 +248,14 @@ pub struct IrMesh<S: StatisticsType + 'static> {
 impl<S: StatisticsType + 'static> IrMesh<S> {
     pub fn new(basis: &impl Basis<S>) -> Result<Self, Error> {
         Ok(Self {
+            beta: basis.beta(),
             tau: TauSampling::<S>::new(basis)?,
             wn: MatsubaraSampling::<S>::new(basis)?,
         })
+    }
+
+    pub fn beta(&self) -> f64 {
+        self.beta
     }
 
     /// The sampling times, on `[−β/2, β/2]`.
@@ -284,9 +322,23 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
         Ok(from_tensor(&self.wn.evaluate_nd(None, &input.expr(), 0)?))
     }
 
-    /// `G(τ) → G(β − τ)`; see [`reverse_tau_rows`].
+    /// `G(τ) → G(β − τ)` for a function of this mesh's statistics.
     pub fn reverse_tau(&self, values: &[Complex64], ncols: usize) -> Vec<Complex64> {
-        reverse_tau_rows::<S, Complex64>(self.tau_points(), values, ncols)
+        self.reverse_tau_as::<S>(values, ncols)
+    }
+
+    /// `G(τ) → G(β − τ)` for a function of statistics `Z` sampled at *this*
+    /// mesh's times.
+    ///
+    /// GW needs exactly this: the polarization is built from a fermionic `G`
+    /// at the bosonic sampling times, and it is `G` that is anti-periodic, not
+    /// the times.
+    pub fn reverse_tau_as<Z: StatisticsType>(
+        &self,
+        values: &[Complex64],
+        ncols: usize,
+    ) -> Vec<Complex64> {
+        reverse_tau_rows::<Z, Complex64>(self.tau_points(), self.beta, values, ncols)
     }
 }
 

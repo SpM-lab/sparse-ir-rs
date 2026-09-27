@@ -14,6 +14,7 @@ import sys
 import reference_analytic_continuation
 import reference_dlr
 import reference_sparse_sampling_demo
+import reference_gw
 import reference_second_order_perturbation
 import reference_spm
 import reference_transformation
@@ -22,6 +23,7 @@ EXAMPLES = {
     "analytic_continuation": reference_analytic_continuation.write,
     "dlr": reference_dlr.write,
     "sparse_sampling_demo": reference_sparse_sampling_demo.write,
+    "gw": reference_gw.write,
     "second_order_perturbation": reference_second_order_perturbation.write,
     "spm": reference_spm.write,
     "transformation": reference_transformation.write,

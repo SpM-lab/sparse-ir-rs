@@ -148,7 +148,11 @@ G(\beta - \tau) = \zeta\, G(-\tau),
 
 so the sign has to come along. `IrMesh::reverse_tau` is exactly that
 operation, and it is the only place in the applied tutorials where the
-relation appears:
+relation appears. It does not assume the grid is closed under
+\(\tau \to -\tau\): a sampling time may sit at exactly \(\beta/2\), whose
+mirror is the same point one period away, and the extra \(\zeta\) from that
+period is applied where it is needed (see [GW](gw.md), whose grid has such a
+point):
 
 ```rust,ignore
 let reversed = mesh.reverse_tau(&grt, nk);
