@@ -886,7 +886,7 @@ fn test_merge_results_with_an_empty_block() {
     .unwrap();
     let odd =
         extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd, 1.0).unwrap();
-    let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
+    let empty = || PiecewiseLegendrePolyVector::from_polys_unchecked(vec![]);
     let block = |polys: &Vec<PiecewiseLegendrePoly>, s: Vec<f64>| {
         (
             PiecewiseLegendrePolyVector::new(polys.clone()).unwrap(),
@@ -912,7 +912,7 @@ fn test_merge_results_with_an_empty_block() {
 
 #[test]
 fn test_merge_results_rejects_two_empty_blocks() {
-    let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
+    let empty = || PiecewiseLegendrePolyVector::from_polys_unchecked(vec![]);
     let err = merge_results(
         (empty(), vec![], empty()),
         (empty(), vec![], empty()),
@@ -1012,7 +1012,7 @@ fn test_sve_result_new_checks_its_invariants() {
     .unwrap();
     let (u, s, v) = (sve.u.clone(), sve.s.clone(), sve.v.clone());
     let n = s.len();
-    let empty = || PiecewiseLegendrePolyVector { polyvec: vec![] };
+    let empty = || PiecewiseLegendrePolyVector::from_polys_unchecked(vec![]);
 
     assert!(SVEResult::new(u.clone(), s.clone(), v.clone(), 0.0).is_ok());
     assert_eq!(

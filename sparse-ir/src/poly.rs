@@ -9,19 +9,19 @@ use crate::error::Error;
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendrePoly {
     /// Polynomial order (degree of Legendre polynomials in each segment)
-    pub polyorder: usize,
+    pub(crate) polyorder: usize,
     /// Minimum x value of the domain
-    pub xmin: f64,
+    pub(crate) xmin: f64,
     /// Maximum x value of the domain
-    pub xmax: f64,
+    pub(crate) xmax: f64,
     /// Knot points defining the segments
-    pub knots: Vec<f64>,
+    pub(crate) knots: Vec<f64>,
     /// Segment widths (for numerical stability)
-    pub delta_x: Vec<f64>,
+    pub(crate) delta_x: Vec<f64>,
     /// Coefficient matrix: [degree][segment_index]
-    pub data: mdarray::DTensor<f64, 2>,
+    pub(crate) data: mdarray::DTensor<f64, 2>,
     /// Symmetry parameter
-    pub symm: i32,
+    pub(crate) symm: i32,
     /// Index of this function in the sequence of singular functions it belongs
     /// to (0-based, in order of non-increasing singular value)
     ///
@@ -31,13 +31,13 @@ pub struct PiecewiseLegendrePoly {
     /// from it for the asymptotic expansion used at |n| >= n_asymp. For the
     /// centrosymmetric kernels of this crate the even and odd singular
     /// functions interlace, so that parity equals `symm`.
-    pub l: i32,
+    pub(crate) l: i32,
     /// Segment midpoints
-    pub xm: Vec<f64>,
+    pub(crate) xm: Vec<f64>,
     /// Inverse segment widths
-    pub inv_xs: Vec<f64>,
+    pub(crate) inv_xs: Vec<f64>,
     /// Normalization factors
-    pub norms: Vec<f64>,
+    pub(crate) norms: Vec<f64>,
 }
 
 /// `Ok` if there are `nsegments + 1` finite knots and every segment length is
@@ -182,7 +182,10 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Create a new PiecewiseLegendrePoly with new data but same structure
-    pub fn with_data(&self, new_data: mdarray::DTensor<f64, 2>) -> Self {
+    ///
+    /// Crate-internal: `new_data` is not checked against the knots, so a
+    /// caller could break the invariants of the type.
+    pub(crate) fn with_data(&self, new_data: mdarray::DTensor<f64, 2>) -> Self {
         Self {
             data: new_data,
             ..self.clone()
@@ -192,19 +195,6 @@ impl PiecewiseLegendrePoly {
     /// Get the symmetry parameter
     pub fn symm(&self) -> i32 {
         self.symm
-    }
-
-    /// Create a new PiecewiseLegendrePoly with new data and symmetry
-    pub fn with_data_and_symmetry(
-        &self,
-        new_data: mdarray::DTensor<f64, 2>,
-        new_symm: i32,
-    ) -> Self {
-        Self {
-            data: new_data,
-            symm: new_symm,
-            ..self.clone()
-        }
     }
 
     /// The polynomial with every coefficient negated
@@ -761,7 +751,7 @@ impl PiecewiseLegendrePoly {
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendrePolyVector {
     /// Individual polynomials
-    pub polyvec: Vec<PiecewiseLegendrePoly>,
+    pub(crate) polyvec: Vec<PiecewiseLegendrePoly>,
 }
 
 impl PiecewiseLegendrePolyVector {
@@ -788,6 +778,16 @@ impl PiecewiseLegendrePolyVector {
             });
         }
         Ok(Self { polyvec })
+    }
+
+    /// Constructor that skips the checks of [`Self::new`]
+    ///
+    /// For the SVE, which builds every polynomial of a vector from the same
+    /// knots and the same data shape and may legitimately build an empty
+    /// vector (a symmetrized half of an expansion with no singular value of
+    /// that parity).
+    pub(crate) fn from_polys_unchecked(polyvec: Vec<PiecewiseLegendrePoly>) -> Self {
+        Self { polyvec }
     }
 
     /// Get the polynomials

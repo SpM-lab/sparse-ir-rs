@@ -103,7 +103,7 @@ pub extern "C" fn spir_funcs_deriv(
                 // Apply deriv to each polynomial in the vector
                 let deriv_polyvec: Vec<_> = poly_funcs
                     .poly
-                    .polyvec
+                    .get_polys()
                     .iter()
                     .map(|poly| poly.deriv(n as usize))
                     .collect();

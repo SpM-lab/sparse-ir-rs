@@ -475,9 +475,9 @@ where
         // A matrix of rank 0 leaves empty vectors; SVEResult::new reports the
         // empty `s`.
         SVEResult::new(
-            PiecewiseLegendrePolyVector { polyvec: u_polys },
+            PiecewiseLegendrePolyVector::from_polys_unchecked(u_polys),
             s,
-            PiecewiseLegendrePolyVector { polyvec: v_polys },
+            PiecewiseLegendrePolyVector::from_polys_unchecked(v_polys),
             self.epsilon,
         )
     }

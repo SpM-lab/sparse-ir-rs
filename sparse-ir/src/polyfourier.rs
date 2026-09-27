@@ -15,7 +15,7 @@ use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 /// Power model for asymptotic behavior
 #[derive(Debug, Clone)]
 pub struct PowerModel {
-    pub moments: Vec<f64>,
+    pub(crate) moments: Vec<f64>,
 }
 
 impl PowerModel {
@@ -32,11 +32,11 @@ impl PowerModel {
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendreFT<S: StatisticsType> {
     /// The underlying piecewise Legendre polynomial
-    pub poly: PiecewiseLegendrePoly,
+    pub(crate) poly: PiecewiseLegendrePoly,
     /// Asymptotic cutoff frequency index
-    pub n_asymp: f64,
+    pub(crate) n_asymp: f64,
     /// Power model for asymptotic behavior
-    pub model: PowerModel,
+    pub(crate) model: PowerModel,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -484,7 +484,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 /// Vector of PiecewiseLegendreFT polynomials
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendreFTVector<S: StatisticsType> {
-    pub polyvec: Vec<PiecewiseLegendreFT<S>>,
+    pub(crate) polyvec: Vec<PiecewiseLegendreFT<S>>,
     _phantom: std::marker::PhantomData<S>,
 }
 
@@ -546,6 +546,11 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     /// Get the size of the vector
     pub fn size(&self) -> usize {
         self.polyvec.len()
+    }
+
+    /// The transformed polynomials, in order
+    pub fn get_polys(&self) -> &[PiecewiseLegendreFT<S>] {
+        &self.polyvec
     }
 
     /// Get element by index (immutable)

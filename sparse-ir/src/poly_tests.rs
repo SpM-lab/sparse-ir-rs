@@ -289,16 +289,10 @@ fn test_with_data_methods() {
     let knots = vec![0.0, 1.0, 2.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0).unwrap();
 
-    // Test with_data
     let new_data = tensor![[5.0, 6.0], [7.0, 8.0]];
     let new_poly = poly.with_data(new_data.clone());
     assert_eq!(new_poly.data, new_data);
     assert_eq!(new_poly.symm, poly.symm);
-
-    // Test with_data_and_symmetry
-    let new_poly2 = poly.with_data_and_symmetry(new_data.clone(), 1);
-    assert_eq!(new_poly2.data, new_data);
-    assert_eq!(new_poly2.symm, 1);
 }
 
 #[test]

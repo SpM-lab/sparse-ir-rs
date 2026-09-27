@@ -94,9 +94,9 @@ impl SVEResult {
         // through the field (`PiecewiseLegendrePolyVector::new` rejects an
         // empty vector), so that `Self::new` reports the empty `s`.
         Self::new(
-            PiecewiseLegendrePolyVector { polyvec: u_polys },
+            PiecewiseLegendrePolyVector::from_polys_unchecked(u_polys),
             s_f64,
-            PiecewiseLegendrePolyVector { polyvec: v_polys },
+            PiecewiseLegendrePolyVector::from_polys_unchecked(v_polys),
             epsilon,
         )
     }
@@ -149,9 +149,9 @@ impl SVEResult {
             let u_full = extend_to_full_domain(u_polys, symmetry, xmax)?;
             let v_full = extend_to_full_domain(v_polys, symmetry, ymax)?;
             Ok::<_, Error>((
-                PiecewiseLegendrePolyVector { polyvec: u_full },
+                PiecewiseLegendrePolyVector::from_polys_unchecked(u_full),
                 s,
-                PiecewiseLegendrePolyVector { polyvec: v_full },
+                PiecewiseLegendrePolyVector::from_polys_unchecked(v_full),
             ))
         };
 

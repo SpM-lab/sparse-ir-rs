@@ -446,13 +446,9 @@ pub(crate) fn merge_blocks(
     // through their field.
     let (canonical_u, canonical_v) = canonicalize_signs(u_polys, v_polys);
     SVEResult::new(
-        PiecewiseLegendrePolyVector {
-            polyvec: canonical_u,
-        },
+        PiecewiseLegendrePolyVector::from_polys_unchecked(canonical_u),
         s_sorted,
-        PiecewiseLegendrePolyVector {
-            polyvec: canonical_v,
-        },
+        PiecewiseLegendrePolyVector::from_polys_unchecked(canonical_v),
         epsilon,
     )
 }

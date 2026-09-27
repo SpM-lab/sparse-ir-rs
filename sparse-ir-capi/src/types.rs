@@ -516,7 +516,7 @@ impl PolyVectorFuncs {
     pub fn evaluate_at(&self, x: f64, beta: f64) -> Result<Vec<f64>, sparse_ir::Error> {
         let (x_reg, sign) = self.normalize(x, beta)?;
         self.poly
-            .polyvec
+            .get_polys()
             .iter()
             .map(|p| Ok(sign * p.try_evaluate(x_reg)?))
             .collect()
@@ -539,7 +539,7 @@ impl PolyVectorFuncs {
             .collect::<Result<Vec<(f64, f64)>, sparse_ir::Error>>()?;
         let xs_reg: Vec<f64> = normalized.iter().map(|&(x, _)| x).collect();
         self.poly
-            .polyvec
+            .get_polys()
             .iter()
             .map(|p| {
                 let values = p.try_evaluate_many(&xs_reg)?;
@@ -832,12 +832,12 @@ impl spir_funcs {
     /// Get the number of basis functions
     pub(crate) fn size(&self) -> usize {
         match self.inner_type() {
-            FuncsType::PolyVector(pv) => pv.poly.polyvec.len(),
+            FuncsType::PolyVector(pv) => pv.poly.get_polys().len(),
             FuncsType::FTVector(ftv) => {
                 if let Some(ft) = &ftv.ft_fermionic {
-                    ft.polyvec.len()
+                    ft.get_polys().len()
                 } else if let Some(ft) = &ftv.ft_bosonic {
-                    ft.polyvec.len()
+                    ft.get_polys().len()
                 } else {
                     0
                 }
@@ -853,8 +853,8 @@ impl spir_funcs {
             FuncsType::PolyVector(pv) => {
                 // Get unique knots from all polynomials
                 let mut all_knots = Vec::new();
-                for p in &pv.poly.polyvec {
-                    for &knot in &p.knots {
+                for p in pv.poly.get_polys() {
+                    for &knot in p.get_knots() {
                         if !all_knots.iter().any(|&k: &f64| (k - knot).abs() < 1e-14) {
                             all_knots.push(knot);
                         }
@@ -909,8 +909,8 @@ impl spir_funcs {
                         Ok(freq) => freq,
                         Err(e) => return Some(Err(e)),
                     };
-                    let mut result = Vec::with_capacity(ft.polyvec.len());
-                    for p in &ft.polyvec {
+                    let mut result = Vec::with_capacity(ft.get_polys().len());
+                    for p in ft.get_polys() {
                         result.push(p.evaluate(&freq));
                     }
                     Some(Ok(result))
@@ -921,8 +921,8 @@ impl spir_funcs {
                         Ok(freq) => freq,
                         Err(e) => return Some(Err(e)),
                     };
-                    let mut result = Vec::with_capacity(ft.polyvec.len());
-                    for p in &ft.polyvec {
+                    let mut result = Vec::with_capacity(ft.get_polys().len());
+                    for p in ft.get_polys() {
                         result.push(p.evaluate(&freq));
                     }
                     Some(Ok(result))
@@ -970,7 +970,7 @@ impl spir_funcs {
                 if ftv.statistics == Statistics::Fermionic {
                     // Fermionic
                     let ft = ftv.ft_fermionic.as_ref()?;
-                    let n_funcs = ft.polyvec.len();
+                    let n_funcs = ft.get_polys().len();
                     let n_points = ns.len();
                     let mut result =
                         vec![vec![num_complex::Complex64::new(0.0, 0.0); n_points]; n_funcs];
@@ -980,7 +980,7 @@ impl spir_funcs {
                             Ok(freq) => freq,
                             Err(e) => return Some(Err(e)),
                         };
-                        for (i, p) in ft.polyvec.iter().enumerate() {
+                        for (i, p) in ft.get_polys().iter().enumerate() {
                             result[i][j] = p.evaluate(&freq);
                         }
                     }
@@ -988,7 +988,7 @@ impl spir_funcs {
                 } else {
                     // Bosonic
                     let ft = ftv.ft_bosonic.as_ref()?;
-                    let n_funcs = ft.polyvec.len();
+                    let n_funcs = ft.get_polys().len();
                     let n_points = ns.len();
                     let mut result =
                         vec![vec![num_complex::Complex64::new(0.0, 0.0); n_points]; n_funcs];
@@ -998,7 +998,7 @@ impl spir_funcs {
                             Ok(freq) => freq,
                             Err(e) => return Some(Err(e)),
                         };
-                        for (i, p) in ft.polyvec.iter().enumerate() {
+                        for (i, p) in ft.get_polys().iter().enumerate() {
                             result[i][j] = p.evaluate(&freq);
                         }
                     }
@@ -1026,10 +1026,10 @@ impl spir_funcs {
             FuncsType::PolyVector(pv) => {
                 let mut new_polys = Vec::with_capacity(indices.len());
                 for &idx in indices {
-                    if idx >= pv.poly.polyvec.len() {
+                    if idx >= pv.poly.get_polys().len() {
                         return None;
                     }
-                    new_polys.push(pv.poly.polyvec[idx].clone());
+                    new_polys.push(pv.poly.get_polys()[idx].clone());
                 }
                 // The C API rejects an empty selection and invalid indices
                 // before this call; a failure here is an internal
@@ -1049,10 +1049,10 @@ impl spir_funcs {
                     let ft = ftv.ft_fermionic.as_ref()?;
                     let mut new_polyvec = Vec::with_capacity(indices.len());
                     for &idx in indices {
-                        if idx >= ft.polyvec.len() {
+                        if idx >= ft.get_polys().len() {
                             return None;
                         }
-                        new_polyvec.push(ft.polyvec[idx].clone());
+                        new_polyvec.push(ft.get_polys()[idx].clone());
                     }
                     let new_ft_vector =
                         Arc::new(PiecewiseLegendreFTVector::from_vector(new_polyvec));
@@ -1068,10 +1068,10 @@ impl spir_funcs {
                     let ft = ftv.ft_bosonic.as_ref()?;
                     let mut new_polyvec = Vec::with_capacity(indices.len());
                     for &idx in indices {
-                        if idx >= ft.polyvec.len() {
+                        if idx >= ft.get_polys().len() {
                             return None;
                         }
-                        new_polyvec.push(ft.polyvec[idx].clone());
+                        new_polyvec.push(ft.get_polys()[idx].clone());
                     }
                     let new_ft_vector =
                         Arc::new(PiecewiseLegendreFTVector::from_vector(new_polyvec));
