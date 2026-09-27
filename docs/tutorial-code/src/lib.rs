@@ -16,12 +16,14 @@ pub mod optimize;
 pub mod quad;
 pub mod roots;
 pub mod semicircle;
+pub mod spectra;
 
 pub use csv::{Table, read_table, write_table};
-pub use optimize::{FistaReport, fista, soft_threshold_nonneg};
+pub use optimize::{FistaReport, fista, soft_threshold, soft_threshold_nonneg};
 pub use quad::integrate_segments;
 pub use roots::{bisect, brent};
 pub use semicircle::{semicircle, semicircle_coefficients, semicircle_overlaps};
+pub use spectra::three_gaussians;
 
 /// Directory the examples write their CSV output to.
 ///
@@ -45,6 +47,19 @@ pub fn output_path(example: &str, name: &str) -> io::Result<PathBuf> {
     let dir = data_dir()?.join(example);
     fs::create_dir_all(&dir)?;
     Ok(dir.join(format!("{name}.csv")))
+}
+
+/// Path of one committed input file of the example named `example`.
+///
+/// A couple of examples start from data rather than from a formula. That data
+/// is committed under `input/<example>/<name>.csv` so a run never depends on
+/// the network, and so the Rust example and its Python reference start from
+/// exactly the same numbers.
+pub fn input_path(example: &str, name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("input")
+        .join(example)
+        .join(format!("{name}.csv"))
 }
 
 /// The provenance line every CSV carries as its first line.

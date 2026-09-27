@@ -13,11 +13,13 @@ import sys
 
 import reference_dlr
 import reference_sparse_sampling_demo
+import reference_spm
 import reference_transformation
 
 EXAMPLES = {
     "dlr": reference_dlr.write,
     "sparse_sampling_demo": reference_sparse_sampling_demo.write,
+    "spm": reference_spm.write,
     "transformation": reference_transformation.write,
 }
 

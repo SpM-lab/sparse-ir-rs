@@ -23,7 +23,9 @@ use sparse_ir::{
     Basis, Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
     MatsubaraSampling, TauSampling,
 };
-use sparse_ir_tutorial::{Table, integrate_segments, output_path, provenance, write_table};
+use sparse_ir_tutorial::{
+    Table, integrate_segments, output_path, provenance, three_gaussians as rho, write_table,
+};
 
 const EXAMPLE: &str = "transformation";
 
@@ -116,14 +118,6 @@ fn poles() -> Result<(), Box<dyn Error>> {
     write_table(&output_path(EXAMPLE, "pole_coefficients")?, &table)?;
 
     Ok(())
-}
-
-/// Three Gaussian peaks, normalized to one.
-fn rho(omega: f64) -> f64 {
-    let gaussian = |mu: f64, sigma: f64| {
-        (-((omega - mu) / sigma).powi(2)).exp() / (std::f64::consts::PI.sqrt() * sigma)
-    };
-    0.2 * gaussian(0.0, 0.15) + 0.4 * gaussian(1.0, 0.8) + 0.4 * gaussian(-1.0, 0.8)
 }
 
 /// `ρₗ = ∫ dω vₗ(ω) ρ(ω)` by composite Gauss-Legendre quadrature.

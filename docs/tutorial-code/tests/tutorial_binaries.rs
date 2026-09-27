@@ -18,6 +18,7 @@ const EXAMPLES: &[(&str, &str)] = &[
     ),
     ("transformation", env!("CARGO_BIN_EXE_transformation")),
     ("dlr", env!("CARGO_BIN_EXE_dlr")),
+    ("spm", env!("CARGO_BIN_EXE_spm")),
 ];
 
 #[test]

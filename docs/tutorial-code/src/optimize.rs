@@ -2,9 +2,13 @@
 //!
 //! FISTA minimises `f(x) + g(x)` where `f` is smooth with an `L`-Lipschitz
 //! gradient and `g` is anything whose proximal operator is cheap. The sparse
-//! modeling example takes `f(x) = ½‖Ax − b‖²` and `g(x) = λ‖x‖₁` restricted to
-//! `x ≥ 0`, and the Python notebook this is ported from uses the same
-//! iteration, so the two converge to the same spectrum.
+//! modeling example takes `f(x) = ½‖Ax − b‖²` and `g(x) = λ‖x‖₁`, whose
+//! proximal operator is [`soft_threshold`].
+//!
+//! The iteration is deterministic: from the same starting point it visits the
+//! same iterates and stops at the same step, which is what lets the Rust and
+//! the Python version of the example be compared to each other rather than
+//! only to a loose tolerance.
 
 /// How a [`fista`] run ended.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -91,6 +95,18 @@ where
     report
 }
 
+/// The proximal operator of `threshold · ‖·‖₁`:
+/// `xᵢ ↦ sign(xᵢ) · max(|xᵢ| − threshold, 0)`.
+///
+/// Shrinking every component towards zero by a fixed amount, and clipping the
+/// ones that would cross it, is what makes an L1 penalty produce a solution
+/// with exact zeros rather than merely small numbers.
+pub fn soft_threshold(x: &mut [f64], threshold: f64) {
+    for xi in x {
+        *xi = xi.signum() * (xi.abs() - threshold).max(0.0);
+    }
+}
+
 /// The proximal operator of `threshold · ‖·‖₁` restricted to `x ≥ 0`:
 /// `xᵢ ↦ max(xᵢ − threshold, 0)`.
 pub fn soft_threshold_nonneg(x: &mut [f64], threshold: f64) {
@@ -150,6 +166,13 @@ mod tests {
         assert!(!report.converged, "{report:?}");
         assert_eq!(report.iterations, 2);
         assert!(report.last_relative_change > 0.0, "{report:?}");
+    }
+
+    #[test]
+    fn the_soft_threshold_shrinks_towards_zero_from_both_sides() {
+        let mut x = [2.0, 0.5, -1.0, -2.5];
+        soft_threshold(&mut x, 1.0);
+        assert_eq!(x, [1.0, 0.0, 0.0, -1.5]);
     }
 
     #[test]

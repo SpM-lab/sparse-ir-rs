@@ -305,3 +305,71 @@ fn dlr_matches_the_python_reference() {
         "the basis and the poles disagree by {worst:.3e}, which is more than rounding"
     );
 }
+
+/// `spm`: sparse modeling — an L1-regularised fit of the IR coefficients of a
+/// spectral function to a noisy `G(τ)`, at β = 100, ωmax = 4, ε = 10⁻¹⁰.
+///
+/// Both sides read the same committed input and run the same fixed number of
+/// FISTA steps from the same starting point, so the comparison is between two
+/// arithmetics rather than between two solvers — the deviations below are at
+/// rounding level, four orders of magnitude tighter than the 1e-6 the plan
+/// allowed for an iterative method. That is the point of fixing the iteration
+/// count: an iteration that stopped on a tolerance would have made this test
+/// blind to anything smaller than the tolerance.
+#[test]
+fn spm_matches_the_python_reference() {
+    if !examples_requested() {
+        eprintln!("skipped: set SPARSEIR_TUTORIAL_RUN=1 to check the examples' output");
+        return;
+    }
+    let example = "spm";
+
+    let (actual, expected) = (output(example, "summary"), reference(example, "summary"));
+    // A basis of a different size, or a different number of input times, is a
+    // different problem — there is nothing to compare after that.
+    assert_exact_integers(&actual, &expected, "basis_size");
+    assert_exact_integers(&actual, &expected, "n_tau");
+    assert_close(&actual, &expected, "lambda", 1e-15); // measured 0
+    // The Lipschitz bound scales every FISTA step, so the two runs only stay
+    // on the same trajectory because this agrees to rounding.
+    assert_close(&actual, &expected, "lipschitz", 1e-13); // measured 1.7e-16
+
+    // --- what the sweep over λ found ----------------------------------------
+    let (actual, expected) = (
+        output(example, "lambda_scan"),
+        reference(example, "lambda_scan"),
+    );
+    assert_close(&actual, &expected, "lambda", 1e-15); // measured 0
+    // The number of surviving coefficients is a count, and it is the headline
+    // of the method: if L1 stops producing exact zeros, the page is wrong.
+    assert_exact_integers(&actual, &expected, "nonzero");
+    assert_close(&actual, &expected, "residual", 1e-12); // measured 1.3e-14
+    assert_close(&actual, &expected, "l1_norm", 1e-12); // measured 2.8e-14
+    assert_close(&actual, &expected, "l2_error", 1e-12); // measured 5.3e-14
+    assert_close(&actual, &expected, "sum_rule", 1e-13); // measured 6.5e-16
+    assert_close(&actual, &expected, "min_rho", 1e-12); // measured 6.3e-14
+
+    // --- the recovered spectrum ---------------------------------------------
+    let (actual, expected) = (output(example, "spectrum"), reference(example, "spectrum"));
+    assert_close(&actual, &expected, "omega", 1e-15); // measured 0
+    assert_close(&actual, &expected, "rho_exact", 1e-15); // measured 0
+    assert_close(&actual, &expected, "rho_recovered", 1e-12); // measured 5.3e-15
+
+    let (actual, expected) = (
+        output(example, "coefficients"),
+        reference(example, "coefficients"),
+    );
+    assert_exact_integers(&actual, &expected, "l");
+    assert_close(&actual, &expected, "s_l", 1e-14); // measured 0
+    assert_close(&actual, &expected, "rho_l_exact", 1e-13); // measured 1.3e-15
+    assert_close(&actual, &expected, "rho_l_recovered", 1e-12); // measured 5.5e-15
+
+    // --- the data, and what the fit says it should have been ----------------
+    let (actual, expected) = (output(example, "gtau"), reference(example, "gtau"));
+    // These two come from the committed input file, so anything but an exact
+    // match means one side read it wrong.
+    assert_close(&actual, &expected, "tau", 1e-15); // measured 0
+    assert_close(&actual, &expected, "g_tau_input", 1e-15); // measured 0
+    assert_close(&actual, &expected, "g_tau_clean", 1e-15); // measured 0
+    assert_close(&actual, &expected, "g_tau_fit", 1e-13); // measured 4.4e-16
+}
