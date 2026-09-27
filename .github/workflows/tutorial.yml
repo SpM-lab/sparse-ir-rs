@@ -125,17 +125,84 @@ jobs:
     if: >-
       needs.changes.outputs.required == 'true' &&
       (github.event_name != 'pull_request')
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      # Only the scheduled-failure step below needs this.
+      issues: write
     steps:
       - uses: actions/checkout@v7
         with:
           submodules: false
 
-      - name: Nothing to run yet
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install OpenBLAS
         run: |
-          # The applied examples arrive with the second half of the tutorial.
-          # The job exists now so that making it a required check does not have
-          # to wait for them.
-          echo "::notice::no applied examples yet"
+          sudo apt-get update
+          sudo apt-get install -y libopenblas-dev pkg-config
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: docs/tutorial-code -> target
+          # The same cache as the basics job: the two build the same crate,
+          # and only one of them should pay for the dependencies.
+          shared-key: tutorial
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      - name: Install mdBook
+        uses: taiki-e/install-action@v2
+        with:
+          tool: mdbook@${{ env.MDBOOK_VERSION }}
+
+      - name: Build the tutorial crate
+        working-directory: docs/tutorial-code
+        run: cargo build --profile ci --all-targets --locked
+
+      - name: Everything, including the parameter scans
+        working-directory: docs/tutorial-code
+        run: scripts/check.sh --run --scans
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tutorial-applied-verification-summary
+          path: docs/tutorial-code/data/verification-summary.json
+          if-no-files-found: warn
+
+      - name: Report a scheduled failure
+        # A failure on main or on a manual run is already in front of whoever
+        # triggered it; a weekly failure is not in front of anyone.
+        if: ${{ failure() && github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Weekly tutorial (applied) run is failing"
+          gh label create tutorial-applied --color ededed \
+            --description "The weekly run of the applied tutorial examples" 2>/dev/null || true
+          body=$(cat <<EOF
+          The weekly run of the applied tutorial examples failed.
+
+          $RUN_URL
+
+          The examples are checked against committed reference values, so a
+          failure here is either a change in the numerics of sparse-ir or a
+          change in the examples themselves.
+          EOF
+          )
+          # One issue per outage, not one per week.
+          existing=$(gh issue list --state open --label tutorial-applied \
+            --search "$title in:title" --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --title "$title" --label tutorial-applied --body "$body"
+          fi
 
   tutorial-rollup:
     runs-on: ubuntu-latest
