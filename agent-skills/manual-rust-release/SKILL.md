@@ -43,4 +43,22 @@ gh run watch "$RUN_ID"
 - It waits until `sparse-ir` at that exact version is visible on crates.io.
 - It publishes `sparse-ir-capi`.
 - It pushes `vX.Y.Z` to `origin`.
-- Julia and BinaryBuilder follow-up work happens later.
+- Job `publish-libsparseir` pushes branch `libsparseir-vX.Y.Z` to the
+  `SpM-lab/Yggdrasil` fork. It does not open the upstream Yggdrasil PR.
+
+The tag is pushed with `GITHUB_TOKEN`, so it does **not** start the tag
+workflows. Dispatch both against the tag, or `pylibsparseir` stays on the
+previous version on that channel with no error:
+
+```bash
+gh workflow run PublishPyPI.yml   --ref vX.Y.Z
+gh workflow run publish_conda.yml --ref vX.Y.Z
+```
+
+## Next Steps
+
+This skill covers one step. For the Yggdrasil PR, `libsparseir_jll`, the
+downstream wrappers and the final verification of every channel, continue
+with the shared `sparse-ir-release` skill:
+`https://github.com/SpM-lab/spm-agent-rules/blob/main/skills/sparse-ir-release/SKILL.md`
+(offline: `../spm-agent-rules/skills/sparse-ir-release/SKILL.md`).

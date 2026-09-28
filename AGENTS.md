@@ -40,17 +40,25 @@ crate implementation notes. Read it only after the root rules, and do not treat
 it as an independent policy source. `REPOSITORY_RULES.md`, current source,
 public documentation, and generated binding contracts are authoritative.
 
-Before changing release automation or version metadata, read the
-version-management section in [README.md](README.md). For downstream wrapper
-version bumps, also read
-[`bump_version_downstream.md`](bump_version_downstream.md).
+For any release work — a version bump, crates.io, the release tag,
+`pylibsparseir` on PyPI or conda, Yggdrasil / `libsparseir_jll`, or the
+downstream `SparseIR.jl` and `sparse-ir` wrappers — follow the shared
+`sparse-ir-release` skill. It gives the cross-repository order, the gates
+between steps, the channels that must be dispatched by hand, and the final
+verification:
+
+- `https://github.com/SpM-lab/spm-agent-rules/blob/main/skills/sparse-ir-release/SKILL.md`
+- Offline: `../spm-agent-rules/skills/sparse-ir-release/SKILL.md`
+
+Before changing release automation or version metadata, also read the
+version-management section in [README.md](README.md).
 
 Use these repo-local skills when the task matches:
 
 - `agent-skills/semantic-version-suggestion/SKILL.md`
   Use when deciding the next sparse-ir-rs version under Semantic Versioning.
 - `agent-skills/manual-rust-release/SKILL.md`
-  Use when preparing or triggering the manual GitHub Actions workflow that publishes crates and pushes the release tag.
+  Use when preparing or triggering the manual GitHub Actions workflow that publishes crates and pushes the release tag. This is one step of the shared `sparse-ir-release` skill above.
 - `agent-skills/local-test-gate/SKILL.md`
   Use when running the local test layers — cargo, C++, Fortran, Python, header sync — one layer while iterating or all of them before pushing.
 - `agent-skills/build-warning-baseline/SKILL.md`

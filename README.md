@@ -273,6 +273,17 @@ The release process is done in **two stages** because Julia bindings depend on t
    curl -fsSL "https://pypi.org/pypi/pylibsparseir/X.Y.Z/json" >/dev/null
    ```
 
+   Dispatch the conda workflow from the release tag as well. Like `PublishPyPI.yml`, it does not start on its own, because the release workflow pushes the tag with `GITHUB_TOKEN`:
+   ```bash
+   gh workflow run publish_conda.yml --ref vX.Y.Z
+   CONDA_RUN_ID=$(gh run list --workflow publish_conda.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run watch "$CONDA_RUN_ID"
+   curl -fsS https://api.anaconda.org/package/spm-lab/pylibsparseir \
+     | jq -r --arg v X.Y.Z '[.files[] | select(.version == $v)] | length'   # > 0
+   ```
+
+   For the full cross-repository release (Yggdrasil, `SparseIR.jl`, `sparse-ir`), follow the shared [`sparse-ir-release`](https://github.com/SpM-lab/spm-agent-rules/blob/main/skills/sparse-ir-release/SKILL.md) skill.
+
    If the Python publish needs to be retried after the tag already exists, rerun the same workflow from the release tag:
    ```bash
    gh workflow run PublishPyPI.yml --ref vX.Y.Z
