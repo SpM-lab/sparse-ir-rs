@@ -24,9 +24,6 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # Main SparseIR library (version from workspace.dependencies, overridden locally via [patch.crates-io])
 sparse-ir.workspace = true
 
-# Array library (for Shape trait)
-mdarray.workspace = true
-
 # Error code type
 libc.workspace = true
 

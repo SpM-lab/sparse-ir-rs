@@ -1,6 +1,10 @@
 [workspace]
 members = [
     "sparse-ir",
+    "sparse-ir-core",
+    "sparse-ir-dlr",
+    "sparse-ir-minipole",
+    "sparse-ir-basis",
     "sparse-ir-capi",
 ]
 # The tutorial crate pins its own dependencies and must never move this
@@ -11,16 +15,19 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
-mdarray = "0.7.2"
-mdarray-linalg = "0.1.2"
-mdarray-linalg-faer = "0.1.2"
 sparse-ir = { version = "0.10.0", path = "sparse-ir" }
-faer = "0.23"
-faer-traits = "0.23"
+sparse-ir-core = { version = "0.10.0", path = "sparse-ir-core" }
+sparse-ir-dlr = { version = "0.10.0", path = "sparse-ir-dlr" }
+sparse-ir-minipole = { version = "0.10.0", path = "sparse-ir-minipole" }
+sparse-ir-basis = { version = "0.10.0", path = "sparse-ir-basis" }
+faer = "0.24"
+faer-traits = "0.24"
+tenferro-tensor = "0.7.1"
+tenferro-linalg = "0.7.1"
+tenferro-cpu = "0.7.1"
+tenferro-einsum = { version = "0.7.1", default-features = false, features = ["cpu-faer"] }
 num-complex = "0.4"
 num-traits = "0.2"
-special = "0.2"
-statrs = "0.16"
 thiserror = "1.0"
 once_cell = "1.19"
 libc = "0.2"
@@ -37,7 +44,7 @@ cargo-husky = "1.5"
 [workspace.package]
 version = "0.10.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.96"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/SpM-lab/sparse-ir-rs"
 authors = ["SparseIR Team"]

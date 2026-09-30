@@ -35,8 +35,8 @@ pub struct Bases {
     mesh_b: IrMesh<Bosonic>,
     /// `u^F_l(0)` and `u^B_l(0)`, the rows that turn a Matsubara sum into an
     /// evaluation.
-    uf_at_zero: mdarray::DTensor<f64, 2>,
-    ub_at_zero: mdarray::DTensor<f64, 2>,
+    uf_at_zero: sparse_ir::Matrix<f64>,
+    ub_at_zero: sparse_ir::Matrix<f64>,
     /// The fermionic frequencies `ν = nπ/β` as plain numbers.
     nu: Vec<f64>,
     iw0_f: usize,
@@ -121,12 +121,12 @@ impl Bases {
 
     /// `u^F_l(0)`, the row that turns a fermionic Matsubara sum into one
     /// evaluation.
-    pub fn uf_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn uf_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         &self.uf_at_zero
     }
 
     /// `u^B_l(0)`, the same for a bosonic sum.
-    pub fn ub_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn ub_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         &self.ub_at_zero
     }
 
@@ -212,11 +212,11 @@ impl Lattice {
         &self.bases
     }
 
-    pub fn uf_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn uf_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         self.bases.uf_at_zero()
     }
 
-    pub fn ub_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn ub_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         self.bases.ub_at_zero()
     }
 

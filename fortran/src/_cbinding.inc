@@ -41,7 +41,7 @@ function c_spir_basis_new( &
 end function
 
 function c_spir_basis_new_from_sve_and_regularizer( &
-    & statistics, beta, omega_max, epsilon, lambda, f__ypower, f__conv_radius, sve, &
+    & statistics, beta, omega_max, epsilon, lambda, ypower, f__conv_radius, sve, &
     & regularizer_funcs, max_size, status) &
     bind(c, name="spir_basis_new_from_sve_and_regularizer")
   import :: c_double, c_int, c_ptr
@@ -50,7 +50,7 @@ function c_spir_basis_new_from_sve_and_regularizer( &
   real(c_double), value :: omega_max
   real(c_double), value :: epsilon
   real(c_double), value :: lambda
-  integer(c_int), value :: f__ypower
+  integer(c_int), value :: ypower
   real(c_double), value :: f__conv_radius
   type(c_ptr), value :: sve
   type(c_ptr), value :: regularizer_funcs
@@ -243,6 +243,19 @@ function c_spir_basis_get_default_matsus_ext( &
 
 end function
 
+function c_spir_dlr_new_independent( &
+    & statistics, beta, omega_max, epsilon, status) &
+    bind(c, name="spir_dlr_new_independent")
+  import :: c_double, c_int, c_ptr
+  integer(c_int), value :: statistics
+  real(c_double), value :: beta
+  real(c_double), value :: omega_max
+  real(c_double), value :: epsilon
+  type(c_ptr), value :: status
+  type(c_ptr) :: c_spir_dlr_new_independent
+
+end function
+
 function c_spir_dlr_new( &
     & b, status) &
     bind(c, name="spir_dlr_new")
@@ -374,6 +387,17 @@ function c_spir_funcs_is_assigned( &
 
 end function
 
+function c_spir_funcs_deriv( &
+    & funcs, n, status) &
+    bind(c, name="spir_funcs_deriv")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: funcs
+  integer(c_int), value :: n
+  type(c_ptr), value :: status
+  type(c_ptr) :: c_spir_funcs_deriv
+
+end function
+
 function c_spir_funcs_from_piecewise_legendre( &
     & segments, n_segments, coeffs, nfuncs, f__order, status) &
     bind(c, name="spir_funcs_from_piecewise_legendre")
@@ -444,9 +468,9 @@ end function
 function c_spir_funcs_eval_matsu( &
     & funcs, n, out) &
     bind(c, name="spir_funcs_eval_matsu")
-  import :: c_int, c_ptr
+  import :: c_int, c_int64_t, c_ptr
   type(c_ptr), value :: funcs
-  integer(c_int), value :: n
+  integer(c_int64_t), value :: n
   type(c_ptr), value :: out
   integer(c_int) :: c_spir_funcs_eval_matsu
 
@@ -644,6 +668,144 @@ function c_spir_kernel_get_sve_hints_ngauss( &
   real(c_double), value :: epsilon
   type(c_ptr), value :: ngauss
   integer(c_int) :: c_spir_kernel_get_sve_hints_ngauss
+
+end function
+
+subroutine c_spir_pole_repr_release( &
+    & rep) &
+    bind(c, name="spir_pole_repr_release")
+  import :: c_ptr
+  type(c_ptr), value :: rep
+end subroutine
+
+function c_spir_pole_repr_clone( &
+    & src) &
+    bind(c, name="spir_pole_repr_clone")
+  import :: c_ptr
+  type(c_ptr), value :: src
+  type(c_ptr) :: c_spir_pole_repr_clone
+
+end function
+
+function c_spir_pole_repr_is_assigned( &
+    & obj) &
+    bind(c, name="spir_pole_repr_is_assigned")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: obj
+  integer(c_int) :: c_spir_pole_repr_is_assigned
+
+end function
+
+function c_spir_minipole_from_dlr( &
+    & dlr, order, ndim, input_dims, target_dim, coeffs, n0, nmax, err, err_type, n_poles, &
+    & symmetry, status) &
+    bind(c, name="spir_minipole_from_dlr")
+  import :: c_bool, c_double, c_int, c_ptr
+  type(c_ptr), value :: dlr
+  integer(c_int), value :: order
+  integer(c_int), value :: ndim
+  type(c_ptr), value :: input_dims
+  integer(c_int), value :: target_dim
+  type(c_ptr), value :: coeffs
+  integer(c_int), value :: n0
+  real(c_double), value :: nmax
+  real(c_double), value :: err
+  integer(c_int), value :: err_type
+  integer(c_int), value :: n_poles
+  logical(c_bool), value :: symmetry
+  type(c_ptr), value :: status
+  type(c_ptr) :: c_spir_minipole_from_dlr
+
+end function
+
+function c_spir_minipole_from_matsubara( &
+    & beta, n_freqs, matsubara_indices, order, ndim, input_dims, target_dim, values, n0, &
+    & n0_shift, err, err_type, n_poles, symmetry, g_symmetric, compute_const, plane, &
+    & include_n0, k_max, ratio_max, status) &
+    bind(c, name="spir_minipole_from_matsubara")
+  import :: c_bool, c_double, c_int, c_ptr
+  real(c_double), value :: beta
+  integer(c_int), value :: n_freqs
+  type(c_ptr), value :: matsubara_indices
+  integer(c_int), value :: order
+  integer(c_int), value :: ndim
+  type(c_ptr), value :: input_dims
+  integer(c_int), value :: target_dim
+  type(c_ptr), value :: values
+  integer(c_int), value :: n0
+  integer(c_int), value :: n0_shift
+  real(c_double), value :: err
+  integer(c_int), value :: err_type
+  integer(c_int), value :: n_poles
+  logical(c_bool), value :: symmetry
+  logical(c_bool), value :: g_symmetric
+  logical(c_bool), value :: compute_const
+  integer(c_int), value :: plane
+  logical(c_bool), value :: include_n0
+  integer(c_int), value :: k_max
+  real(c_double), value :: ratio_max
+  type(c_ptr), value :: status
+  type(c_ptr) :: c_spir_minipole_from_matsubara
+
+end function
+
+function c_spir_pole_repr_get_npoles( &
+    & rep, num_poles) &
+    bind(c, name="spir_pole_repr_get_npoles")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: num_poles
+  integer(c_int) :: c_spir_pole_repr_get_npoles
+
+end function
+
+function c_spir_pole_repr_get_poles( &
+    & rep, poles) &
+    bind(c, name="spir_pole_repr_get_poles")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: poles
+  integer(c_int) :: c_spir_pole_repr_get_poles
+
+end function
+
+function c_spir_pole_repr_get_residues( &
+    & rep, residues) &
+    bind(c, name="spir_pole_repr_get_residues")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: residues
+  integer(c_int) :: c_spir_pole_repr_get_residues
+
+end function
+
+function c_spir_pole_repr_get_constant( &
+    & rep, constant) &
+    bind(c, name="spir_pole_repr_get_constant")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: constant
+  integer(c_int) :: c_spir_pole_repr_get_constant
+
+end function
+
+function c_spir_pole_repr_get_n0( &
+    & rep, n0) &
+    bind(c, name="spir_pole_repr_get_n0")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: n0
+  integer(c_int) :: c_spir_pole_repr_get_n0
+
+end function
+
+function c_spir_pole_repr_get_err_max( &
+    & rep, err_max) &
+    bind(c, name="spir_pole_repr_get_err_max")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: err_max
+  integer(c_int) :: c_spir_pole_repr_get_err_max
 
 end function
 

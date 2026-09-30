@@ -107,6 +107,16 @@ typedef struct Complex64 {
 } Complex64;
 
 /**
+ * Opaque minimal pole representation for C API
+ *
+ * Holds complex poles `ξ_j`, residues `A_j` and a constant `C` with
+ * `G(z) ≈ Σ_j A_j / (z - ξ_j) + C`.
+ */
+typedef struct spir_pole_repr {
+  const void *_private;
+} spir_pole_repr;
+
+/**
  * Sampling type for C API (unified type for all domains)
  *
  * This wraps different sampling implementations:
@@ -319,8 +329,8 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `b` - Basis object
  * * `num_points` - Pointer to store the number of points
  *
- * A DLR has no default τ sampling points: for a DLR this returns
- * `SPIR_COMPUTATION_SUCCESS` with 0 points.
+ * For a DLR the default points are its τ interpolation nodes, one per pole
+ * (the DLR had none up to 0.10).
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -345,8 +355,8 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * * `b` - Basis object
  * * `points` - Pre-allocated array to store tau points
  *
- * A DLR has no default τ sampling points: for a DLR this returns
- * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+ * For a DLR the default points are its τ interpolation nodes, one per pole
+ * (the DLR had none up to 0.10).
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -368,8 +378,8 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  *   sets include n = 0)
  * * `num_points` - Pointer to store the number of points
  *
- * A DLR has no default Matsubara sampling points: for a DLR this returns
- * `SPIR_COMPUTATION_SUCCESS` with 0 points.
+ * For a DLR the default points are its Matsubara interpolation nodes, one
+ * per pole (the DLR had none up to 0.10).
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -395,8 +405,8 @@ StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
  * * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
  *   (iν = iπn/β)
  *
- * A DLR has no default Matsubara sampling points: for a DLR this returns
- * `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+ * For a DLR the default points are its Matsubara interpolation nodes, one
+ * per pole (the DLR had none up to 0.10).
  *
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -646,6 +656,31 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
                                              int points_capacity,
                                              int64_t *points,
                                              int *n_points_total);
+
+/**
+ * Creates a new DLR directly from its physical parameters, without an IR basis
+ *
+ * This is the recommended DLR constructor. The poles are selected by an
+ * interpolative decomposition of the logistic kernel, so no SVE is computed.
+ * The resulting basis has default τ and Matsubara sampling points (the DLR
+ * interpolation nodes), one per pole.
+ *
+ * # Arguments
+ * * `statistics` - `SPIR_STATISTICS_FERMIONIC` or `SPIR_STATISTICS_BOSONIC`
+ * * `beta` - Inverse temperature (must be > 0)
+ * * `omega_max` - Frequency cutoff (must be > 0)
+ * * `epsilon` - Target relative accuracy of the representation (must be > 0)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the newly created DLR basis object, or NULL if creation fails
+ */
+
+struct spir_basis *spir_dlr_new_independent(int statistics,
+                                            double beta,
+                                            double omega_max,
+                                            double epsilon,
+                                            StatusCode *status);
 
 /**
  * Creates a new DLR from an IR basis with default poles
@@ -1511,6 +1546,163 @@ StatusCode spir_kernel_get_sve_hints_nsvals(const struct spir_kernel *k,
 StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
                                             double epsilon,
                                             int *ngauss);
+
+/**
+ * Releases a pole representation
+ */
+ void spir_pole_repr_release(struct spir_pole_repr *rep);
+
+/**
+ * Clones a pole representation (shared data, reference counted)
+ *
+ * The returned pointer must be freed with `spir_pole_repr_release()`.
+ */
+ struct spir_pole_repr *spir_pole_repr_clone(const struct spir_pole_repr *src);
+
+/**
+ * Checks if the pointer is non-null (1) or null (0)
+ */
+ int32_t spir_pole_repr_is_assigned(const struct spir_pole_repr *obj);
+
+/**
+ * Minimal pole representation from DLR coefficients (MPM-DLR)
+ *
+ * The poles `ω_l` of the DLR and the residues `A_l = g_l w_l` (`w_l` the
+ * pole weights) are compressed as in `MiniPoleDLR` of Green-Phys/MiniPole.
+ *
+ * # Arguments
+ * * `dlr` - Pointer to a DLR basis object
+ * * `order` - Memory layout order (`SPIR_ORDER_ROW_MAJOR` or `SPIR_ORDER_COLUMN_MAJOR`)
+ * * `ndim` - Number of dimensions of `coeffs`
+ * * `input_dims` - Dimensions of `coeffs`; `input_dims[target_dim]` must equal the number of DLR poles
+ * * `target_dim` - Dimension holding the DLR coefficients
+ * * `coeffs` - Complex DLR coefficients `g_l`
+ * * `n0` - The contour starts at `(2 n0 + 1)π/β` (>= 0)
+ * * `nmax` - The contour ends at `(2 nmax + 1)π/β` without symmetry, or <= 0 for `nmax = β`
+ * * `err` - Error tolerance of ESPRIT, or <= 0 to use `n_poles` alone
+ * * `err_type` - 0: `err` is absolute, 1: relative to the largest singular value
+ * * `n_poles` - Number of poles, or <= 0 to choose it from `err`; one of `err` and `n_poles` is required
+ * * `symmetry` - Impose up-down symmetry (gapless map)
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the pole representation, or NULL on failure. Residues share the
+ * layout of `coeffs` with `input_dims[target_dim]` replaced by the number of poles.
+ */
+
+struct spir_pole_repr *spir_minipole_from_dlr(const struct spir_basis *dlr,
+                                              int order,
+                                              int ndim,
+                                              const int *input_dims,
+                                              int target_dim,
+                                              const struct Complex64 *coeffs,
+                                              int n0,
+                                              double nmax,
+                                              double err,
+                                              int err_type,
+                                              int n_poles,
+                                              bool symmetry,
+                                              StatusCode *status);
+
+/**
+ * Minimal pole representation from Matsubara data (MPM)
+ *
+ * The data are given on a uniform grid of non-negative Matsubara
+ * frequencies `ω_n = nπ/β` and compressed as in `MiniPole` of
+ * Green-Phys/MiniPole.
+ *
+ * # Arguments
+ * * `beta` - Inverse temperature
+ * * `n_freqs` - Number of Matsubara frequencies (>= 3)
+ * * `matsubara_indices` - Matsubara indices `n`, non-negative, increasing and uniformly spaced
+ *   (e.g. `1, 3, 5, ...` for fermions, `0, 2, 4, ...` for bosons)
+ * * `order`, `ndim`, `input_dims`, `target_dim` - Layout of `values`; `input_dims[target_dim]`
+ *   must equal `n_freqs`, and the other dimensions must be none or two equal ones (a matrix)
+ * * `values` - Complex values `G(iω_n)`
+ * * `n0` - Number of low frequencies left out of the contour, or < 0 to choose it from the data
+ * * `n0_shift` - Shift (>= 0) added to the automatic choice of `n0`
+ * * `err` - Error tolerance (> 0), at least the noise level of the data
+ * * `err_type` - 0: `err` is absolute, 1: relative
+ * * `n_poles` - Number of poles, or <= 0 to use the precision of the first approximation
+ * * `symmetry` - Preserve up-down symmetry
+ * * `g_symmetric` - Symmetrize the data as `G_ij = G_ji`
+ * * `compute_const` - Fit a constant term (not with `symmetry`)
+ * * `plane` - Pole weights from a least-squares fit to the data (0), from the mapped plane (1),
+ *   or < 0 for the default (0 without, 1 with `symmetry`)
+ * * `include_n0` - Include the first `n0` frequencies in the least-squares fit
+ * * `k_max` - Maximum number of contour integrals, or <= 0 for 999
+ * * `ratio_max` - Maximum ratio of oscillation when choosing `n0`, or <= 0 for 10
+ * * `status` - Pointer to store the status code
+ *
+ * # Returns
+ * Pointer to the pole representation, or NULL on failure.
+ */
+
+struct spir_pole_repr *spir_minipole_from_matsubara(double beta,
+                                                    int n_freqs,
+                                                    const int64_t *matsubara_indices,
+                                                    int order,
+                                                    int ndim,
+                                                    const int *input_dims,
+                                                    int target_dim,
+                                                    const struct Complex64 *values,
+                                                    int n0,
+                                                    int n0_shift,
+                                                    double err,
+                                                    int err_type,
+                                                    int n_poles,
+                                                    bool symmetry,
+                                                    bool g_symmetric,
+                                                    bool compute_const,
+                                                    int plane,
+                                                    bool include_n0,
+                                                    int k_max,
+                                                    double ratio_max,
+                                                    StatusCode *status);
+
+/**
+ * Gets the number of poles
+ */
+ StatusCode spir_pole_repr_get_npoles(const struct spir_pole_repr *rep, int *num_poles);
+
+/**
+ * Gets the complex poles (array of length npoles), sorted by real part
+ */
+ StatusCode spir_pole_repr_get_poles(const struct spir_pole_repr *rep, struct Complex64 *poles);
+
+/**
+ * Gets the residues
+ *
+ * The output has the layout (order, dims) of the input passed at creation,
+ * with `input_dims[target_dim]` replaced by the number of poles.
+ */
+
+StatusCode spir_pole_repr_get_residues(const struct spir_pole_repr *rep,
+                                       struct Complex64 *residues);
+
+/**
+ * Gets the constant term `C`
+ *
+ * The output has the layout of the input passed at creation without the
+ * target dimension (one value for scalar data). It is zero unless
+ * `compute_const` was set.
+ */
+
+StatusCode spir_pole_repr_get_constant(const struct spir_pole_repr *rep,
+                                       struct Complex64 *constant);
+
+/**
+ * Gets `n0`, the start of the contour (given or chosen from the data)
+ */
+ StatusCode spir_pole_repr_get_n0(const struct spir_pole_repr *rep, int *n0);
+
+/**
+ * Gets the precision of the first approximation of the Matsubara data
+ *
+ * Available only for representations built by `spir_minipole_from_matsubara`;
+ * otherwise returns `SPIR_NOT_SUPPORTED`.
+ */
+ StatusCode spir_pole_repr_get_err_max(const struct spir_pole_repr *rep, double *err_max);
 
 /**
  * Manual release function (replaces macro-generated one)

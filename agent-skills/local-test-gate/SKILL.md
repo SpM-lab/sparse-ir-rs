@@ -18,8 +18,8 @@ All commands are run from the workspace root.
 | Layer | Command | Sees |
 |---|---|---|
 | Rust | `cargo test --all-targets --release --locked` | core + capi unit and integration tests |
-| Rust docs | `cargo test -p sparse-ir --doc --release --locked` | doctests |
-| system BLAS | `cargo test -p sparse-ir --features system-blas --all-targets --release --locked` | the alternative BLAS backend |
+| Rust docs | `cargo test --workspace --exclude sparse-ir-capi --doc --release --locked` | doctests of the library crates |
+| system BLAS | `cargo test -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked` | the alternative BLAS backend |
 | header sync | see below | `include/sparseir/sparseir.h` vs cbindgen and vs `assets/sparse_ir_capi.h` |
 | C++ | `cxx_tests/run_with_rust_capi.sh` | the C API through Catch2 |
 | Fortran | `fortran/test_with_rust_capi.sh --compiler=gfortran` | the C API through the Fortran bindings |
@@ -59,7 +59,16 @@ directory unless `--clean` is given.
   `cargo build` that follows it is a full rebuild. On macOS such a build also
   emits hundreds of spurious `(arm64) ... unable to open object file` linker
   warnings; see `build-warning-baseline`.
+- After a change to the C API, delete `python/.venv` and
+  `python/pylibsparseir/*.so` before `uv sync --locked`; otherwise the tests
+  load the previous build of the library and fail on the new symbols.
 - After moving a worktree, delete `python/.venv` before the Python layer — its
   shebangs hold absolute paths.
 - `python3 check_version.py` checks that the versions in `Cargo.toml`,
   `python/pyproject.toml` and the Julia build recipe agree.
+- Regenerating `ctypes_autogen.py` (`python/tools/gen_ctypes.py`) or the Fortran
+  bindings (`fortran/script/generate_c_binding.py`) with a libclang that has no
+  builtin headers turns every `bool` into `int`. If the diff shows
+  `c_bool` -> `c_int` or `logical(c_bool)` -> `integer(c_int)`, put a
+  `stdbool.h` (`#define bool _Bool`) in a directory and rerun with
+  `C_INCLUDE_PATH` pointing there.

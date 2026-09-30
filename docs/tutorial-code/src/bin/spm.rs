@@ -23,7 +23,7 @@
 
 use std::error::Error;
 
-use mdarray::DTensor;
+use sparse_ir::Matrix;
 use sparse_ir::{Basis, Fermionic, FiniteTempBasis, LogisticKernel};
 use sparse_ir_tutorial::{
     Table, fista, input_path, integrate_segments, output_path, provenance, read_table,
@@ -80,11 +80,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let size = basis.size();
 
     // `A_{il} = u_l(τ_i) s_l` maps IR coefficients of ρ to −G(τ).
-    let u_at_taus: DTensor<f64, 2> = basis.evaluate_tau(&taus)?;
+    let u_at_taus: Matrix<f64> = basis.evaluate_tau(&taus)?;
     let mut a = vec![0.0; n_tau * size];
     for i in 0..n_tau {
         for l in 0..size {
-            a[i * size + l] = u_at_taus[[i, l]] * basis.s()[l];
+            a[i * size + l] = *u_at_taus.get(&[i, l]).unwrap() * basis.s()[l];
         }
     }
     let y: Vec<f64> = g_tau.iter().map(|g| -g).collect();
@@ -98,11 +98,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let d_omega = omegas[1] - omegas[0];
     let rho_exact: Vec<f64> = omegas.iter().map(|&w| three_gaussians(w)).collect();
     let rho_l_exact = overlap_with_v(&basis, three_gaussians);
-    let v_at_omegas: DTensor<f64, 2> = basis.evaluate_omega(&omegas)?;
+    let v_at_omegas: Matrix<f64> = basis.evaluate_omega(&omegas)?;
 
     let spectrum = |rho_l: &[f64]| -> Vec<f64> {
         (0..omegas.len())
-            .map(|i| (0..size).map(|l| v_at_omegas[[i, l]] * rho_l[l]).sum())
+            .map(|i| {
+                (0..size)
+                    .map(|l| *v_at_omegas.get(&[i, l]).unwrap() * rho_l[l])
+                    .sum()
+            })
             .collect()
     };
 

@@ -14,8 +14,9 @@
 use std::error::Error;
 use std::f64::consts::PI;
 
-use mdarray::Tensor;
 use num_complex::Complex64;
+use sparse_ir::DlrFromIr;
+use sparse_ir::TypedTensor;
 use sparse_ir::{
     DiscreteLehmannRepresentation, Fermionic, FermionicFreq, FiniteTempBasis, LogisticKernel,
     MatsubaraSampling,
@@ -43,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_table(&output_path(EXAMPLE, "coefficients")?, &table)?;
 
     // --- into the DLR -------------------------------------------------------
-    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis)?;
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis)?;
     let poles = dlr.poles().to_vec();
     assert_eq!(
         poles.len(),
@@ -51,7 +52,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         "the default DLR has one pole per basis function"
     );
 
-    let g_l_tensor = Tensor::<f64, _>::from_fn([basis.size()], |index| g_l[index[0]]).into_dyn();
+    let g_l_tensor = TypedTensor::from_vec_col_major(vec![basis.size()], g_l.clone())?;
     let c_p = dlr.from_ir_nd::<f64>(None, &g_l_tensor, 0)?;
 
     let mut table = Table::new(provenance(EXAMPLE));
@@ -59,13 +60,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     table.push("pole", poles.clone());
     table.push(
         "c_p",
-        (0..poles.len()).map(|p| c_p[[p]]).collect::<Vec<_>>(),
+        (0..poles.len())
+            .map(|p| *c_p.get(&[p]).unwrap())
+            .collect::<Vec<_>>(),
     );
     write_table(&output_path(EXAMPLE, "dlr_coefficients")?, &table)?;
 
     // --- and back out of it -------------------------------------------------
     let g_l_reconstructed = dlr.to_ir_nd::<f64>(None, &c_p, 0)?;
-    let g_l_from_dlr: Vec<f64> = (0..basis.size()).map(|l| g_l_reconstructed[[l]]).collect();
+    let g_l_from_dlr: Vec<f64> = (0..basis.size())
+        .map(|l| *g_l_reconstructed.get(&[l]).unwrap())
+        .collect();
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("l", (0..basis.size()).map(|l| l as f64).collect::<Vec<_>>());
@@ -92,7 +97,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|&nu| {
             (0..poles.len())
-                .map(|p| c_p[[p]] / (Complex64::new(0.0, nu) - poles[p]))
+                .map(|p| *c_p.get(&[p]).unwrap() / (Complex64::new(0.0, nu) - poles[p]))
                 .sum()
         })
         .collect();

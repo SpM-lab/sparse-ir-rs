@@ -43,16 +43,15 @@ poles.
 ## Into the DLR and back
 
 ```rust
-use mdarray::Tensor;
 use sparse_ir::{
-    Basis, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
+    Basis, DiscreteLehmannRepresentation, DlrFromIr, Fermionic, FiniteTempBasis, LogisticKernel,
 };
 
 let (beta, wmax) = (1e4, 1.0);
 let kernel = LogisticKernel::new(beta * wmax)?;
 let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(1e-15), None)?;
 
-let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis)?;
+let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis)?;
 assert_eq!(dlr.poles().len(), basis.size());
 # Ok::<(), sparse_ir::Error>(())
 ```
@@ -61,7 +60,9 @@ assert_eq!(dlr.poles().len(), basis.size());
 an array, so a one-dimensional \\(G_l\\) goes in as a rank-1 tensor:
 
 ```rust,ignore
-let g_l_tensor = Tensor::<f64, _>::from_fn([basis.size()], |i| g_l[i[0]]).into_dyn();
+use sparse_ir::TypedTensor;
+
+let g_l_tensor = TypedTensor::from_vec_col_major(vec![basis.size()], g_l.clone())?;
 let c_p = dlr.from_ir_nd::<f64>(None, &g_l_tensor, 0)?;
 let g_l_again = dlr.to_ir_nd::<f64>(None, &c_p, 0)?;
 ```
@@ -83,7 +84,7 @@ terms, with no basis functions and no sampling matrix,
 
 ```rust,ignore
 let g_iv: Complex64 = (0..poles.len())
-    .map(|p| c_p[[p]] / (Complex64::new(0.0, nu) - poles[p]))
+    .map(|p| c_p.get(&[p]).unwrap() / (Complex64::new(0.0, nu) - poles[p]))
     .sum();
 ```
 
@@ -100,8 +101,9 @@ the convolution cheap.
 
 | What you want | What to call |
 | --- | --- |
-| the default poles | `DiscreteLehmannRepresentation::new` |
-| poles you chose yourself | `DiscreteLehmannRepresentation::with_poles` |
+| poles chosen without an IR basis | `DiscreteLehmannRepresentation::new(beta, wmax, eps)`, `DlrBuilder` |
+| the default poles of an IR basis | `DiscreteLehmannRepresentation::from_ir` (trait `DlrFromIr`) |
+| poles you chose yourself | `DiscreteLehmannRepresentation::from_ir_with_poles` |
 | where the poles are | `poles` |
 | \\(G_l \to c_p\\) | `from_ir_nd` |
 | \\(c_p \to G_l\\) | `to_ir_nd` |

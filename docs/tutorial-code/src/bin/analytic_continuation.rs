@@ -14,7 +14,7 @@
 
 use std::error::Error;
 
-use mdarray::DTensor;
+use sparse_ir::Matrix;
 use sparse_ir::{Basis, Fermionic, FiniteTempBasis, LogisticKernel};
 use sparse_ir_tutorial::{
     Table, input_path, integrate_segments, output_path, provenance, read_table, shifted_semicircle,
@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // features along with the noise; `L' = L` keeps everything, noise
     // included, and `1/s_{L−1}` is 4×10⁷ here.
     let omegas = linspace(-WMAX, WMAX, N_OMEGA);
-    let v_at_omegas: DTensor<f64, 2> = basis.evaluate_omega(&omegas)?;
+    let v_at_omegas: Matrix<f64> = basis.evaluate_omega(&omegas)?;
     let half = size / 2;
 
     let rho_l_semi_noisy = divide_by_s(&s, &g_semi_noisy);
@@ -195,9 +195,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // it does not decay at all. A regulariser that acts on `ρₗ` is therefore
     // acting on coefficients that never become negligible.
     let poles: Vec<f64> = DISCRETE_POLES.iter().map(|x| x * WMAX).collect();
-    let v_at_poles: DTensor<f64, 2> = basis.evaluate_omega(&poles)?;
+    let v_at_poles: Matrix<f64> = basis.evaluate_omega(&poles)?;
     let rho_discrete: Vec<f64> = (0..size)
-        .map(|l| (0..poles.len()).map(|p| v_at_poles[[p, l]]).sum())
+        .map(|l| {
+            (0..poles.len())
+                .map(|p| *v_at_poles.get(&[p, l]).unwrap())
+                .sum()
+        })
         .collect();
     let g_discrete = coefficients(&s, &rho_discrete);
 
@@ -281,10 +285,14 @@ fn add_noise(g_l: &[f64], draws: &[f64], noise: f64) -> Vec<f64> {
 }
 
 /// `Σ_{l<cutoff} vₗ(ω) ρₗ` on the grid `v` was evaluated on.
-fn expand(v: &DTensor<f64, 2>, rho_l: &[f64], cutoff: usize) -> Vec<f64> {
-    let points = v.shape().0;
+fn expand(v: &Matrix<f64>, rho_l: &[f64], cutoff: usize) -> Vec<f64> {
+    let points = v.shape()[0];
     (0..points)
-        .map(|i| (0..cutoff).map(|l| v[[i, l]] * rho_l[l]).sum())
+        .map(|i| {
+            (0..cutoff)
+                .map(|l| *v.get(&[i, l]).unwrap() * rho_l[l])
+                .sum()
+        })
         .collect()
 }
 

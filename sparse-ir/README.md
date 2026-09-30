@@ -88,9 +88,8 @@ This implementation is optimized for high performance:
 
 ## Dependencies
 
-- **Linear Algebra**: [mdarray](https://crates.io/crates/mdarray) + [Faer](https://crates.io/crates/faer)
+- **Tensors and linear algebra**: [tenferro-rs](https://github.com/tensor4all/tenferro-rs) (CPU) + [Faer](https://crates.io/crates/faer)
 - **Extended Precision**: [xprec-rs](https://github.com/tuwien-cms/xprec-rs)
-- **Special Functions**: [special](https://crates.io/crates/special)
 
 ## License
 

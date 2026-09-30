@@ -3,10 +3,10 @@ name = "sparse-ir"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Rust implementation of SparseIR functionality"
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
+description = "Rust implementation of SparseIR functionality"
 exclude = [
     ".cargo_vcs_info.json",
     "Cargo.toml.orig",
@@ -18,63 +18,28 @@ name = "sparse_ir"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-# Core linear algebra - mdarray with Faer backend
-mdarray.workspace = true
-mdarray-linalg.workspace = true
-mdarray-linalg-faer.workspace = true
-
-# Faer - Pure Rust high-performance linear algebra
-faer.workspace = true
-faer-traits.workspace = true
-
-# Extended precision
-xprec = "0.2.2"
-simba = "0.9"
-num-complex.workspace = true
-num-traits.workspace = true
-
-# Special functions
-special.workspace = true
-statrs.workspace = true
-libm.workspace = true
-
-# Error handling
-thiserror.workspace = true
-
-# System BLAS (optional, LP64)
-blas-sys = { workspace = true, optional = true }
-
-# Linear algebra
-nalgebra = "0.33"
-
-# Lazy static initialization for GEMM dispatcher
-once_cell.workspace = true
-
-# C FFI types (for BLAS function pointers)
-libc.workspace = true
+sparse-ir-core.workspace = true
+sparse-ir-dlr.workspace = true
+sparse-ir-minipole.workspace = true
+sparse-ir-basis.workspace = true
 
 [dev-dependencies]
-approx.workspace = true
-proptest.workspace = true
-# High-precision arithmetic (for precision tests)
-dashu-float.workspace = true
-dashu-base.workspace = true
-# System BLAS for tests only (not used in library code)
-blas-sys.workspace = true
+num-complex.workspace = true
+num-traits.workspace = true
+tenferro-tensor.workspace = true
+tenferro-linalg.workspace = true
+tenferro-cpu.workspace = true
+# tenferro-einsum engine for examples/bench_batch.rs
+tenferro-einsum.workspace = true
 # Git hooks management via cargo-husky
-# Use user-hooks feature to define custom hooks in .cargo-husky/hooks/
 [dev-dependencies.cargo-husky]
 version = "1.5"
 default-features = false
 features = ["user-hooks"]
 
-[build-dependencies]
-pkg-config = "0.3"
-
 [features]
 default = []
 # Shared library features
 shared-lib = []
-
 # Use system BLAS (LP64) for GEMM backend by default
-system-blas = ["blas-sys"]
+system-blas = ["sparse-ir-core/system-blas"]

@@ -43,7 +43,7 @@ let weight = 1.0 / (0.5 * beta * pole).tanh();
 // evaluate_omega gives a [points, size] matrix of v_l(ω).
 let v_at_pole = basis.evaluate_omega(&[pole])?;
 let g_l: Vec<f64> = (0..basis.size())
-    .map(|l| -basis.s()[l] * v_at_pole[[0, l]] * weight)
+    .map(|l| -basis.s()[l] * v_at_pole.get(&[0, l]).unwrap() * weight)
     .collect();
 
 assert_eq!(g_l.len(), 34);
@@ -54,8 +54,10 @@ The `DiscreteLehmannRepresentation` says the same thing in one call: give it
 the poles and it turns pole weights into IR coefficients.
 
 ```rust,ignore
-let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, vec![pole])?;
-let weights = Tensor::<f64, _>::from_fn([1], |_| weight).into_dyn();
+use sparse_ir::{DlrFromIr, TypedTensor};
+
+let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir_with_poles(&basis, vec![pole])?;
+let weights = TypedTensor::from_vec_col_major(vec![1], vec![weight])?;
 let g_l_dlr = dlr.to_ir_nd::<f64>(None, &weights, 0)?;
 ```
 

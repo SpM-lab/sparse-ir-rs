@@ -50,7 +50,7 @@ jobs:
         run: mdbook build docs/book
 
       - name: Build the API documentation
-        run: cargo doc -p sparse-ir --no-deps --locked
+        run: cargo doc -p sparse-ir -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis --no-deps --locked
 
       - name: Put the API documentation under /api
         run: |

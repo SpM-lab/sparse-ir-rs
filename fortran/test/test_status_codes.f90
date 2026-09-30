@@ -22,7 +22,7 @@ program test_status_codes
    call test_default_matsus_need_parity()   ! S9
    call test_dlr2ir_target_extent()         ! S10
    call test_regularizer_domain()           ! S11
-   call test_dlr_has_no_default_points()    ! S12
+   call test_dlr_default_points_are_nodes()    ! S12
    print *, "All status code tests passed!"
 
 contains
@@ -335,32 +335,36 @@ contains
       call c_spir_kernel_release(k1)
    end subroutine test_regularizer_domain
 
-   subroutine test_dlr_has_no_default_points()
+   subroutine test_dlr_default_points_are_nodes()
       type(c_ptr) :: basis, dlr
-      integer(c_int), target :: status, n_taus, n_matsus
+      integer(c_int), target :: status, n_poles, n_taus, n_matsus
 
       basis = fermionic_basis(1_c_int)
       dlr = c_spir_dlr_new(basis, c_loc(status))
       call check(status, SUCCESS, "a DLR of the stand-in basis")
+      call check(c_spir_dlr_get_npoles(dlr, c_loc(n_poles)), SUCCESS, &
+         "the number of poles of a DLR")
 
+      ! One interpolation node per pole (there were none up to 0.10)
       n_taus = -1_c_int
       call check(c_spir_basis_get_n_default_taus(dlr, c_loc(n_taus)), SUCCESS, &
          "the number of default tau points of a DLR")
-      if (n_taus /= 0_c_int) then
-         print *, "FAILED: a DLR reported ", n_taus, " default tau points"
+      if (n_taus /= n_poles) then
+         print *, "FAILED: a DLR reported ", n_taus, " default tau points for ", n_poles, " poles"
          stop 1
       end if
 
       n_matsus = -1_c_int
       call check(c_spir_basis_get_n_default_matsus(dlr, .false._c_bool, c_loc(n_matsus)), &
          SUCCESS, "the number of default Matsubara points of a DLR")
-      if (n_matsus /= 0_c_int) then
-         print *, "FAILED: a DLR reported ", n_matsus, " default Matsubara points"
+      if (n_matsus /= n_poles) then
+         print *, "FAILED: a DLR reported ", n_matsus, " default Matsubara points for ", &
+            n_poles, " poles"
          stop 1
       end if
 
       call c_spir_basis_release(dlr)
       call c_spir_basis_release(basis)
-   end subroutine test_dlr_has_no_default_points
+   end subroutine test_dlr_default_points_are_nodes
 
 end program test_status_codes

@@ -12,6 +12,7 @@
 - [Sparse sampling](tutorials/sparse_sampling.md)
 - [Transformation from and to IR](tutorials/transformation.md)
 - [Discrete Lehmann representation](tutorials/dlr.md)
+- [MiniPole: choosing the contour](tutorials/minipole.md)
 - [Sparse modeling](tutorials/spm.md)
 - [Analytic continuation](tutorials/analytic_continuation.md)
 
