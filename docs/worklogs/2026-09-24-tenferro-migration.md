@@ -506,3 +506,45 @@ sparse-ir-capi      -> sparse-ir (C ABI unchanged)
     Matrix-valued Matsubara data must have two equal non-target dimensions.
   - Headers, `ctypes_autogen.py` and the Fortran bindings are regenerated;
     the C++, Fortran and Python tests are rewritten for the new signatures.
+
+## MiniPole contour tutorial
+
+The new book page uses the existing tutorial crate and CSV-to-figure pipeline,
+without a second implementation of MiniPole. Its Rust snippet is included from
+the runnable source, and the binary joins the CI tutorial list. Analytic checks
+use the existing low-energy regression's bounds (1e-3 for poles and residues,
+1e-2 for the static relative error), not a bound inferred from ESPRIT's `err`.
+
+For the odd bosonic spectrum at beta = 20 with beta |xi| = 2, n0 = 5 and the
+default nmax = beta yield three poles, including an inner complex pole near
+0 + 0.380i. With nmax = 50 the four real poles are recovered within the bounds;
+the maximum complex reconstruction error on 201 non-negative bosonic
+frequencies, normalized by |chi(0)|, is about 1.59e-3. A 16-case n0/nmax scan
+shows why a longer contour or the correct pole count alone is not an accuracy
+guarantee. The example-specific choice is not a universal recommendation.
+
+The API audit also exposed acceptance of a descending uniform Matsubara grid.
+The shared Rust entry point now rejects non-finite, negative, duplicate and
+descending frequencies before ESPRIT; Rust and Python C-ABI regression cases
+cover that contract. The C header, ctypes and Fortran declarations of all
+11 MiniPole symbols agree, including the five boolean arguments across the
+two constructors. No ABI declaration changed in this correction.
+
+Final local verification (Linux x86_64, session-only affinity to CPUs 0-3,
+4 Cargo/CMake build jobs, OpenBLAS/OMP threads = 1):
+
+- Rust all-target tests: 612 passed, 1 existing ignored test; doctests: 19
+  passed; system-BLAS tests: 433 passed, 1 existing ignored test.
+- C headers match cbindgen 0.29.2 and each other; C++: 2/2 suites; gfortran:
+  13/13; Python: 105 passed.
+- Tutorial format, clippy, unit tests, binary execution and reference checks
+  pass. The overall 2400-second gate timed out at its final mdBook step;
+  that step was rerun separately and passed. Optional long-running scans
+  were not enabled; the MiniPole binary's 16 contour cases did run.
+- The regenerated figures and all Rust book snippets pass. Version checks,
+  workspace formatting and whitespace checks pass. Julia metadata remains
+  at its existing version pending the separate release process.
+- Same-toolchain compiler warning captures against main are unchanged
+  (67 warnings each); rustdoc warnings decrease from 37 to 22, with no new
+  warning after removing a redundant link target introduced by the split.
+- Self-review covers the migration, ABI/binding and tutorial changes.

@@ -88,12 +88,13 @@ impl MiniPoleParams {
 /// Minimal pole representation of Matsubara data.
 ///
 /// `g_w` has shape `[n_w]` or `[n_w, n_orb, n_orb]`, `w` the corresponding
-/// uniformly spaced non-negative Matsubara frequencies `ω_n` (real).
+/// finite, increasing, uniformly spaced non-negative Matsubara frequencies
+/// `ω_n` (real).
 ///
 /// # Errors
 /// [`Error::ShapeMismatch`] for inconsistent shapes,
-/// [`Error::InvalidParameter`] for a grid that is not uniform and
-/// non-negative or invalid parameters, and ESPRIT errors.
+/// [`Error::InvalidParameter`] for a grid that is not finite, increasing,
+/// uniform and non-negative or invalid parameters, and ESPRIT errors.
 pub fn mini_pole(
     g_w: &TypedTensor<C64>,
     w: &[f64],
@@ -125,11 +126,15 @@ pub fn mini_pole(
             actual: shape,
         });
     }
-    if nw < 3 || w[0].is_nan() || w[0] < 0.0 {
+    if nw < 3
+        || w.iter().any(|x| !x.is_finite() || *x < 0.0)
+        || w.windows(2).any(|pair| pair[1] <= pair[0])
+    {
         return Err(Error::InvalidParameter {
             name: "w",
             value: format!("of length {nw} starting at {:?}", w.first()),
-            reason: "must have at least 3 non-negative frequencies".to_string(),
+            reason: "must have at least 3 finite, non-negative, strictly increasing frequencies"
+                .to_string(),
         });
     }
     let wabs = w.iter().map(|x| x.abs()).fold(0.0, f64::max);

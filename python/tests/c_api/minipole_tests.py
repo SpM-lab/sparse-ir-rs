@@ -15,6 +15,7 @@ from pylibsparseir.constants import (
 )
 
 SPIR_NOT_SUPPORTED = -5
+SPIR_INVALID_ARGUMENT = -6
 SPIR_INPUT_DIMENSION_MISMATCH = -3
 
 
@@ -158,6 +159,10 @@ def test_minipole_from_matsubara_invalid():
     ns_bad[5] += 2
     rep, status = _from_matsubara(beta, ns_bad, g, SPIR_ORDER_ROW_MAJOR, [40], 0)
     assert not rep and status != COMPUTATION_SUCCESS
+    # A uniform grid must also be increasing, non-negative and unique.
+    for ns_bad in [ns[::-1].copy(), np.full_like(ns, ns[0]), ns - ns[1]]:
+        rep, status = _from_matsubara(beta, ns_bad, g, SPIR_ORDER_ROW_MAJOR, [40], 0)
+        assert not rep and status == SPIR_INVALID_ARGUMENT
     # Two channels are not a square matrix.
     g2 = np.ones((2, 40), dtype=np.complex128)
     rep, status = _from_matsubara(beta, ns, g2, SPIR_ORDER_ROW_MAJOR, [2, 40], 1)

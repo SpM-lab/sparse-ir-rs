@@ -148,7 +148,7 @@ pub trait DlrFromIr<S: StatisticsType>: Sized {
     ///   pole at 0 of a bosonic basis whose kernel has a `ypower` other than
     ///   0 or 1
     /// * The errors of
-    ///   [`Basis::default_omega_sampling_points`](crate::basis_trait::Basis::default_omega_sampling_points)
+    ///   [`Basis::default_omega_sampling_points`]
     ///   (NotSupported for an SVE with too few singular functions)
     fn from_ir<B: IrBasis<S>>(basis: &B) -> Result<Self, Error>;
 }

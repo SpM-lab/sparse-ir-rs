@@ -249,6 +249,24 @@ fn invalid_parameters_are_rejected() {
     let spec = spectrum(1.0);
     let (w, g) = matsubara_data(10.0, 1.0, 40, &spec, 0.0, 1);
     let p = MiniPoleParams::new(1e-8);
+    for bad_grid in [
+        w.iter().rev().copied().collect::<Vec<_>>(),
+        vec![w[0]; w.len()],
+        vec![f64::INFINITY; w.len()],
+        {
+            let mut v = w.clone();
+            v[5] = f64::NAN;
+            v
+        },
+    ] {
+        assert!(
+            matches!(
+                mini_pole(&g, &bad_grid, &p),
+                Err(crate::error::Error::InvalidParameter { name: "w", .. })
+            ),
+            "invalid grid accepted: {bad_grid:?}"
+        );
+    }
     let mut w_bad = w.clone();
     w_bad[5] += 0.01;
     assert!(mini_pole(&g, &w_bad, &p).is_err());
