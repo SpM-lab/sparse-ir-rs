@@ -1,7 +1,7 @@
 Third-party code in sparse-ir-minipole
 ======================================
 
-src/mpm/ is a port to Rust of parts of MiniPole
+src/esprit.rs, src/linalg.rs and src/minipole/ are a port to Rust of parts of MiniPole
 (https://github.com/Green-Phys/MiniPole, commit 15e4a54): mini_pole/esprit.py,
 mini_pole/con_map.py (ConMapGeneric, ConMapGapless), mini_pole/mini_pole_dlr.py
 and mini_pole/mini_pole.py. It is distributed under the following license.

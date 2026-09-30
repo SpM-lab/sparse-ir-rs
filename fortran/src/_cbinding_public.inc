@@ -67,7 +67,9 @@
   public :: c_spir_pole_repr_get_npoles
   public :: c_spir_pole_repr_get_poles
   public :: c_spir_pole_repr_get_residues
-  public :: c_spir_pole_repr_get_dlr_fit_residual
+  public :: c_spir_pole_repr_get_constant
+  public :: c_spir_pole_repr_get_n0
+  public :: c_spir_pole_repr_get_err_max
   public :: c_spir_sampling_release
   public :: c_spir_sampling_clone
   public :: c_spir_sampling_is_assigned

@@ -5,11 +5,11 @@
 //! Copyright (c) 2024 lzphy); see `LICENSE-THIRD-PARTY`.
 
 use super::con_map::{ConMap, ConMapGapless, ConMapGeneric};
-use super::esprit::{ErrType, Esprit, EspritParams, linspace};
-use super::linalg::lstsq;
 use super::quad::oscillatory;
 use super::{MiniPoleResult, assemble};
 use crate::error::{ArrayRole, Error, Result};
+use crate::esprit::{ErrType, Esprit, EspritParams, linspace};
+use crate::linalg::lstsq;
 use num_complex::Complex;
 use std::f64::consts::PI;
 use tenferro_tensor::TypedTensor;

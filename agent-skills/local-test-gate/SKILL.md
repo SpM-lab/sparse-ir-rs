@@ -66,3 +66,9 @@ directory unless `--clean` is given.
   shebangs hold absolute paths.
 - `python3 check_version.py` checks that the versions in `Cargo.toml`,
   `python/pyproject.toml` and the Julia build recipe agree.
+- Regenerating `ctypes_autogen.py` (`python/tools/gen_ctypes.py`) or the Fortran
+  bindings (`fortran/script/generate_c_binding.py`) with a libclang that has no
+  builtin headers turns every `bool` into `int`. If the diff shows
+  `c_bool` -> `c_int` or `logical(c_bool)` -> `integer(c_int)`, put a
+  `stdbool.h` (`#define bool _Bool`) in a directory and rerun with
+  `C_INCLUDE_PATH` pointing there.

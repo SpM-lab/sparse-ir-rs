@@ -697,36 +697,34 @@ function c_spir_pole_repr_is_assigned( &
 end function
 
 function c_spir_minipole_from_dlr( &
-    & dlr, order, ndim, input_dims, target_dim, coeffs, tolerance, n_moments, freq_min, &
-    & freq_max, max_poles, status) &
+    & dlr, order, ndim, input_dims, target_dim, coeffs, n0, nmax, err, err_type, n_poles, &
+    & symmetry, status) &
     bind(c, name="spir_minipole_from_dlr")
-  import :: c_double, c_int, c_ptr
+  import :: c_bool, c_double, c_int, c_ptr
   type(c_ptr), value :: dlr
   integer(c_int), value :: order
   integer(c_int), value :: ndim
   type(c_ptr), value :: input_dims
   integer(c_int), value :: target_dim
   type(c_ptr), value :: coeffs
-  real(c_double), value :: tolerance
-  integer(c_int), value :: n_moments
-  real(c_double), value :: freq_min
-  real(c_double), value :: freq_max
-  integer(c_int), value :: max_poles
+  integer(c_int), value :: n0
+  real(c_double), value :: nmax
+  real(c_double), value :: err
+  integer(c_int), value :: err_type
+  integer(c_int), value :: n_poles
+  logical(c_bool), value :: symmetry
   type(c_ptr), value :: status
   type(c_ptr) :: c_spir_minipole_from_dlr
 
 end function
 
 function c_spir_minipole_from_matsubara( &
-    & statistics, beta, omega_max, dlr_accuracy, n_freqs, matsubara_indices, order, ndim, &
-    & input_dims, target_dim, values, tolerance, n_moments, freq_min, freq_max, max_poles, &
-    & status) &
+    & beta, n_freqs, matsubara_indices, order, ndim, input_dims, target_dim, values, n0, &
+    & n0_shift, err, err_type, n_poles, symmetry, g_symmetric, compute_const, plane, &
+    & include_n0, k_max, ratio_max, status) &
     bind(c, name="spir_minipole_from_matsubara")
-  import :: c_double, c_int, c_ptr
-  integer(c_int), value :: statistics
+  import :: c_bool, c_double, c_int, c_ptr
   real(c_double), value :: beta
-  real(c_double), value :: omega_max
-  real(c_double), value :: dlr_accuracy
   integer(c_int), value :: n_freqs
   type(c_ptr), value :: matsubara_indices
   integer(c_int), value :: order
@@ -734,11 +732,18 @@ function c_spir_minipole_from_matsubara( &
   type(c_ptr), value :: input_dims
   integer(c_int), value :: target_dim
   type(c_ptr), value :: values
-  real(c_double), value :: tolerance
-  integer(c_int), value :: n_moments
-  real(c_double), value :: freq_min
-  real(c_double), value :: freq_max
-  integer(c_int), value :: max_poles
+  integer(c_int), value :: n0
+  integer(c_int), value :: n0_shift
+  real(c_double), value :: err
+  integer(c_int), value :: err_type
+  integer(c_int), value :: n_poles
+  logical(c_bool), value :: symmetry
+  logical(c_bool), value :: g_symmetric
+  logical(c_bool), value :: compute_const
+  integer(c_int), value :: plane
+  logical(c_bool), value :: include_n0
+  integer(c_int), value :: k_max
+  real(c_double), value :: ratio_max
   type(c_ptr), value :: status
   type(c_ptr) :: c_spir_minipole_from_matsubara
 
@@ -774,13 +779,33 @@ function c_spir_pole_repr_get_residues( &
 
 end function
 
-function c_spir_pole_repr_get_dlr_fit_residual( &
-    & rep, residual) &
-    bind(c, name="spir_pole_repr_get_dlr_fit_residual")
+function c_spir_pole_repr_get_constant( &
+    & rep, constant) &
+    bind(c, name="spir_pole_repr_get_constant")
   import :: c_int, c_ptr
   type(c_ptr), value :: rep
-  type(c_ptr), value :: residual
-  integer(c_int) :: c_spir_pole_repr_get_dlr_fit_residual
+  type(c_ptr), value :: constant
+  integer(c_int) :: c_spir_pole_repr_get_constant
+
+end function
+
+function c_spir_pole_repr_get_n0( &
+    & rep, n0) &
+    bind(c, name="spir_pole_repr_get_n0")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: n0
+  integer(c_int) :: c_spir_pole_repr_get_n0
+
+end function
+
+function c_spir_pole_repr_get_err_max( &
+    & rep, err_max) &
+    bind(c, name="spir_pole_repr_get_err_max")
+  import :: c_int, c_ptr
+  type(c_ptr), value :: rep
+  type(c_ptr), value :: err_max
+  integer(c_int) :: c_spir_pole_repr_get_err_max
 
 end function
 

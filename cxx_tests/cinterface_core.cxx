@@ -1098,8 +1098,9 @@ TEST_CASE("Test spir_dlr_new_independent and MiniPole", "[cinterface]")
     REQUIRE(ntaus == npoles);
     REQUIRE(nmatsus == npoles);
 
+    // Uniform non-negative fermionic grid 1, 3, 5, ...
     std::vector<int64_t> ns;
-    for (int k = -60; k < 60; ++k) {
+    for (int k = 0; k < 120; ++k) {
         ns.push_back(2 * k + 1);
     }
     std::vector<Complex64> values(ns.size());
@@ -1112,10 +1113,11 @@ TEST_CASE("Test spir_dlr_new_independent and MiniPole", "[cinterface]")
         values[i].im = g.imag();
     }
     int dims[1] = {static_cast<int>(ns.size())};
+    // n0 chosen from the data (-1), err = 1e-8 (absolute), defaults otherwise
     spir_pole_repr* rep = spir_minipole_from_matsubara(
-        SPIR_STATISTICS_FERMIONIC, beta, wmax, 1e-12, static_cast<int>(ns.size()),
-        ns.data(), SPIR_ORDER_COLUMN_MAJOR, 1, dims, 0, values.data(), 1e-8, 0, 0.0,
-        0.0, 0, &status);
+        beta, static_cast<int>(ns.size()), ns.data(), SPIR_ORDER_COLUMN_MAJOR, 1, dims,
+        0, values.data(), -1, 0, 1e-8, 0, 0, false, false, false, -1, false, 0, 0.0,
+        &status);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(rep != nullptr);
 
@@ -1130,6 +1132,17 @@ TEST_CASE("Test spir_dlr_new_independent and MiniPole", "[cinterface]")
         REQUIRE(std::abs(poles[j].im) < 1e-6);
         REQUIRE(std::abs(residues[j].re - amps[j]) < 1e-6);
     }
+    int n0 = -1;
+    REQUIRE(spir_pole_repr_get_n0(rep, &n0) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n0 > 0);
+    double err_max = 0.0;
+    REQUIRE(spir_pole_repr_get_err_max(rep, &err_max) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(err_max > 0.0);
+    REQUIRE(err_max < 1e-8);
+    Complex64 cst{1.0, 1.0};
+    REQUIRE(spir_pole_repr_get_constant(rep, &cst) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(cst.re == 0.0);
+    REQUIRE(cst.im == 0.0);
 
     spir_pole_repr_release(rep);
     spir_basis_release(dlr);

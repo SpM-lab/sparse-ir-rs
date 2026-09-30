@@ -2,7 +2,7 @@
 //!
 //! Ported from <https://github.com/Green-Phys/MiniPole> at commit `15e4a54`
 //! (MIT License, Copyright (c) 2024 lzphy; see `LICENSE-THIRD-PARTY` of this
-//! crate): `esprit.py`, `con_map.py` (`ConMapGeneric`, `ConMapGapless`),
+//! crate): `con_map.py` (`ConMapGeneric`, `ConMapGapless`),
 //! `mini_pole_dlr.py` and `mini_pole.py`. L. Zhang and E. Gull, Phys. Rev. B
 //! 110, 035154 (2024); L. Zhang, Y. Yu and E. Gull, Phys. Rev. B 110, 235131
 //! (2024).
@@ -16,14 +16,12 @@
 //!   function are its trailing axes.
 
 mod con_map;
-mod esprit;
-mod linalg;
 mod mini_pole;
 mod mini_pole_dlr;
 mod quad;
 
+pub use crate::esprit::{ErrType, Esprit, EspritParams};
 pub use con_map::{ConMap, ConMapGapless, ConMapGeneric};
-pub use esprit::{ErrType, Esprit, EspritParams};
 pub use mini_pole::{MiniPoleParams, N0, Plane, mini_pole};
 pub use mini_pole_dlr::{MiniPoleDlrParams, mini_pole_dlr, mini_pole_dlr_from};
 
@@ -116,3 +114,6 @@ fn assemble(
         err_max,
     })
 }
+
+#[cfg(test)]
+mod tests;

@@ -4,9 +4,9 @@
 //! reference (commit 15e4a54), written by `tests/reference/gen_reference.py`.
 
 use num_complex::Complex;
-use sparse_ir::mpm::{
-    ErrType, Esprit, EspritParams, MiniPoleDlrParams, MiniPoleParams, MiniPoleResult, N0, Plane,
-    mini_pole, mini_pole_dlr,
+use sparse_ir::esprit::{ErrType, Esprit, EspritParams};
+use sparse_ir::minipole::{
+    MiniPoleDlrParams, MiniPoleParams, MiniPoleResult, N0, Plane, mini_pole, mini_pole_dlr,
 };
 use std::collections::HashMap;
 use tenferro_tensor::TypedTensor;
@@ -394,8 +394,9 @@ fn mini_pole_dlr_from_sparse_ir_dlr() {
             .collect();
         let v = TypedTensor::from_vec_col_major(vec![v.len()], v).unwrap();
         let g = s.fit_nd(None, &v, 0).unwrap();
-        let rep = sparse_ir::mpm::mini_pole_dlr_from(&dlr, &g, &MiniPoleDlrParams::new(n0, 1e-8))
-            .unwrap();
+        let rep =
+            sparse_ir::minipole::mini_pole_dlr_from(&dlr, &g, &MiniPoleDlrParams::new(n0, 1e-8))
+                .unwrap();
         assert_eq!(rep.pole_location.len(), 3, "{:?}", rep.pole_location);
         let a = rep.pole_weight.host_data().unwrap();
         for (j, &(x, w)) in spec.iter().enumerate() {

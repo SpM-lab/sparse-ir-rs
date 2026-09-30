@@ -480,5 +480,29 @@ sparse-ir-capi      -> sparse-ir (C ABI unchanged)
   are kept, as in the reference.
 - Symmetric `mini_pole` rejects `w[n0] = 0` (bosonic grid, n0 = 0), where
   the reference's `ConMapGapless` asserts `w_min > 0`.
-- The `minipole` module, its C API and wrapper tests are unchanged. Which of
-  its deviations to keep on top of the port is still open.
+- Decision (2026-09-30): follow the reference first. The earlier
+  implementation is removed, and the port takes its place:
+  - Rust: `sparse_ir::esprit` (`Esprit`, `EspritParams`, `ErrType`) and
+    `sparse_ir::minipole` (`mini_pole`, `mini_pole_dlr`,
+    `mini_pole_dlr_from`, `MiniPoleResult`, the maps). The `mpm` module name
+    is gone.
+  - Lost with the earlier implementation: Matsubara input on an irregular
+    or negative frequency set through a regularized DLR fit (the reference
+    takes a uniform non-negative grid), the default segment
+    `[2.5 ln(1/tol)/β, ν_a + 10 ωmax]`, the `|Im ξ| >= ν_a/2` filter and the
+    DLR fit residual.
+  - Unit tests: the 5 ESPRIT and 7 MiniPole tests are rewritten for the port
+    with the same intent. The Matsubara tests now use a uniform grid; the
+    bosonic low-energy pair (β|ξ| = 2) needs `nmax = 50` (a contour longer
+    than the default `nmax = β`) with n0 = 5.
+  - C API: `spir_minipole_from_dlr(dlr, layout..., coeffs, n0, nmax, err,
+    err_type, n_poles, symmetry, status)` and
+    `spir_minipole_from_matsubara(beta, n_freqs, matsubara_indices,
+    layout..., values, n0, n0_shift, err, err_type, n_poles, symmetry,
+    g_symmetric, compute_const, plane, include_n0, k_max, ratio_max,
+    status)`, with `ω_n = nπ/β`, `n0 < 0` for the automatic choice and `<= 0`
+    for the other defaults. New getters `spir_pole_repr_get_constant`,
+    `_get_n0` and `_get_err_max`; `_get_dlr_fit_residual` is removed.
+    Matrix-valued Matsubara data must have two equal non-target dimensions.
+  - Headers, `ctypes_autogen.py` and the Fortran bindings are regenerated;
+    the C++, Fortran and Python tests are rewritten for the new signatures.

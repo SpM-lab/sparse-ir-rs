@@ -29,7 +29,7 @@ pub use sparse_ir_dlr::{
     fermionic_single_pole, giwn_single_pole, gtau_single_pole,
 };
 
-pub use sparse_ir_minipole::{esprit, minipole, mpm};
+pub use sparse_ir_minipole::{esprit, minipole};
 
 pub use sparse_ir_basis::{
     AbstractKernel, BosonicBasis, BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector,

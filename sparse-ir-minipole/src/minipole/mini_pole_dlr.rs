@@ -5,11 +5,11 @@
 //! Copyright (c) 2024 lzphy); see `LICENSE-THIRD-PARTY`.
 
 use super::con_map::{ConMap, ConMapGapless, ConMapGeneric};
-use super::esprit::{ErrType, Esprit, EspritParams};
 use super::{MiniPoleResult, assemble};
 use crate::basis_trait::Basis;
 use crate::dlr::DiscreteLehmannRepresentation;
 use crate::error::{ArrayRole, Error, Result};
+use crate::esprit::{ErrType, Esprit, EspritParams};
 use crate::traits::StatisticsType;
 use num_complex::Complex;
 use tenferro_tensor::{TensorScalar, TypedTensor};

@@ -32,7 +32,10 @@ paths (`sparse_ir::basis`, `sparse_ir::dlr`, ...):
   its interpolative-decomposition construction (`dlr_id.rs`). Depends on
   `sparse-ir-core` only.
 - **`sparse-ir-minipole/`** — ESPRIT (`esprit.rs`) and minimal pole
-  representations (`minipole.rs`). Depends on the core and the DLR.
+  representations (`minipole/`), ported from Green-Phys/MiniPole (MIT; notice
+  in `LICENSE-THIRD-PARTY`). `tests/reference_parity.rs` compares them with
+  outputs of the reference written by `tests/reference/gen_reference.py`.
+  Depends on the core and the DLR.
 - **`sparse-ir-basis/`** — the IR basis: kernels and SVE (`kernel.rs`,
   `kernelmatrix.rs`, `sve/`, `tsvd.rs`, `col_piv_qr.rs`, `numeric.rs`),
   piecewise Legendre polynomials and their Fourier transforms (`poly.rs`,
