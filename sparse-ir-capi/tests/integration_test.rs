@@ -2302,10 +2302,12 @@ fn test_dlr_funcs_equal_the_core_dlr_bit_for_bit() {
         macro_rules! compare {
             ($kernel:expr, $S:ty) => {{
                 let basis = FiniteTempBasis::<_, $S>::new($kernel, beta, Some(eps), None).unwrap();
-                let dlr = DiscreteLehmannRepresentation::with_poles(&basis, poles.clone()).unwrap();
+                let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(&basis, poles.clone())
+                    .unwrap();
                 check(&format!("{kernel_name} {statistics}"), c_dlr, &dlr, beta);
                 let dlr =
-                    DiscreteLehmannRepresentation::with_poles(&basis, with_zero.clone()).unwrap();
+                    DiscreteLehmannRepresentation::from_ir_with_poles(&basis, with_zero.clone())
+                        .unwrap();
                 check(
                     &format!("{kernel_name} {statistics} with 0"),
                     c_dlr_zero,

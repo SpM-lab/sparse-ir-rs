@@ -51,7 +51,7 @@ let (beta, wmax) = (1e4, 1.0);
 let kernel = LogisticKernel::new(beta * wmax)?;
 let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(1e-15), None)?;
 
-let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis)?;
+let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis)?;
 assert_eq!(dlr.poles().len(), basis.size());
 # Ok::<(), sparse_ir::Error>(())
 ```
@@ -101,8 +101,9 @@ the convolution cheap.
 
 | What you want | What to call |
 | --- | --- |
-| the default poles | `DiscreteLehmannRepresentation::new` |
-| poles you chose yourself | `DiscreteLehmannRepresentation::with_poles` |
+| poles chosen without an IR basis | `DiscreteLehmannRepresentation::new(beta, wmax, eps)`, `DlrBuilder` |
+| the default poles of an IR basis | `DiscreteLehmannRepresentation::from_ir` |
+| poles you chose yourself | `DiscreteLehmannRepresentation::from_ir_with_poles` |
 | where the poles are | `poles` |
 | \\(G_l \to c_p\\) | `from_ir_nd` |
 | \\(c_p \to G_l\\) | `to_ir_nd` |

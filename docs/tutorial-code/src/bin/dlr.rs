@@ -43,7 +43,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_table(&output_path(EXAMPLE, "coefficients")?, &table)?;
 
     // --- into the DLR -------------------------------------------------------
-    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis)?;
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::from_ir(&basis)?;
     let poles = dlr.poles().to_vec();
     assert_eq!(
         poles.len(),

@@ -103,7 +103,8 @@ fn poles() -> Result<(), Box<dyn Error>> {
 
     // The DLR says the same thing in one call: it knows how a pole maps onto
     // the basis, so it takes the pole weights and returns `Gₗ` directly.
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, vec![POLE_POSITION])?;
+    let dlr =
+        DiscreteLehmannRepresentation::<Bosonic>::from_ir_with_poles(&basis, vec![POLE_POSITION])?;
     let weights = TypedTensor::from_vec_col_major(vec![1], vec![regularized])?;
     let g_l_dlr = dlr.to_ir_nd::<f64>(None, &weights, 0)?;
 

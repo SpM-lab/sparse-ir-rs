@@ -68,22 +68,22 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
             // Create DLR based on basis type
             let dlr_type = match basis_ref.inner() {
                 BasisType::LogisticFermionic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::LogisticBosonic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseFermionic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseBosonic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
@@ -184,27 +184,35 @@ pub extern "C" fn spir_dlr_new_with_poles(
             // Create DLR based on basis type
             let dlr_type = match basis_ref.inner() {
                 BasisType::LogisticFermionic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::LogisticBosonic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseFermionic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseBosonic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 _ => {
@@ -339,10 +347,11 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 // ============================================================================
 
 /// IR basis size and number of poles of a DLR, or `None` if `b` is not a DLR
+/// built from an IR basis
 fn dlr_sizes(b: &spir_basis) -> Option<(usize, usize)> {
     match b.inner() {
-        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
-        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
+        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size()?, dlr.poles().len())),
+        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size()?, dlr.poles().len())),
         _ => None,
     }
 }

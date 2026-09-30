@@ -54,7 +54,7 @@ The `DiscreteLehmannRepresentation` says the same thing in one call: give it
 the poles and it turns pole weights into IR coefficients.
 
 ```rust,ignore
-let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, vec![pole])?;
+let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir_with_poles(&basis, vec![pole])?;
 let weights = Tensor::<f64, _>::from_fn([1], |_| weight).into_dyn();
 let g_l_dlr = dlr.to_ir_nd::<f64>(None, &weights, 0)?;
 ```

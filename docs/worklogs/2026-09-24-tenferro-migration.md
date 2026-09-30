@@ -142,3 +142,31 @@ the old branch is re-applied in order.
   passed, integration tests 19, doctests 18; sparse-ir-capi 79 + 37 + 11 + 2
   + 3 + 43 + 1; Rust tutorial `scripts/check.sh --run` passes (examples match
   the committed reference values); C headers unchanged.
+
+
+## Milestone B: independent DLR (2026-09-25)
+
+- `dlr_id.rs`: Kaye–Chen–Parcollet construction (composite Chebyshev τ/ω
+  candidate grids, 24-point panels, dyadic refinement; column-pivoted
+  Gram–Schmidt with re-orthogonalization for poles; row selection for τ and
+  Matsubara nodes). Matsubara candidates: all `|n| <= 2·128+ζ`, then 32 per
+  octave up to `~8Λ`.
+- `DiscreteLehmannRepresentation::new(beta, wmax, eps)` / `DlrBuilder` is now
+  the default and needs no IR basis. The old constructors were renamed to
+  `from_ir` / `from_ir_with_poles` and still attach an `IrDlrTransform`.
+  `IrDlrTransform::new(basis, dlr)` connects any compatible pair. It rescales by
+  the ratio of pole weights, so a logistic DLR also works with a
+  `RegularizedBoseKernel` basis.
+- The DLR now implements `default_tau_sampling_points` and
+  `default_matsubara_sampling_points` (full and positive-only), so
+  `TauSampling::new(&dlr)` and `MatsubaraSampling::new(&dlr)` interpolate on
+  the ID nodes. The nodes are computed lazily and cached.
+- Ranks vs IR size, all within a few: Λ=1e3/ε=1e-10: 51 vs 52;
+  Λ=1e5/ε=1e-10: 92 vs 95.
+- Bench (`RAYON_NUM_THREADS=1`, ε=1e-10), independent DLR including τ and
+  Matsubara nodes: Λ=1e3 10.7 ms, Λ=1e5 65 ms. Building the IR basis at the
+  same ε (Df64 SVE) takes 1065 ms and 5281 ms.
+- Rebuild on 0.10.0: the pole weights of an IR-derived DLR are the kernel
+  regularizers, as on main (#286); construction errors are `sparse_ir::Error`
+  (`DlrError` is gone). `ir_basis_size()` is `None` for an independent DLR, and
+  `from_ir_nd` / `to_ir_nd` are `NotSupported` for it.
