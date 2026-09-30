@@ -7,6 +7,7 @@
 //! Pin BLAS/rayon threads externally (e.g. `RAYON_NUM_THREADS=1`) for stable numbers.
 
 use num_complex::Complex;
+use sparse_ir::DlrFromIr;
 use sparse_ir::TypedTensor;
 use sparse_ir::{
     DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling,

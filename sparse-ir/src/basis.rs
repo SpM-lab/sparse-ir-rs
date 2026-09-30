@@ -745,12 +745,6 @@ where
     K: KernelProperties + CentrosymmKernel + Clone + 'static,
     S: StatisticsType + 'static,
 {
-    type Kernel = K;
-
-    fn kernel(&self) -> &Self::Kernel {
-        &self.kernel
-    }
-
     fn beta(&self) -> f64 {
         self.beta
     }

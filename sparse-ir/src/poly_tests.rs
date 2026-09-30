@@ -1062,7 +1062,7 @@ fn test_basis_transformation_example() {
 #[test]
 fn test_new_rejects_invalid_knots_and_widths() {
     use crate::error::Error;
-    use crate::matrix::{Mat, Mat3};
+    use crate::matrix::Mat;
 
     let data = || Mat::<f64>::from_elem([2, 2], 1.0);
     let new = |knots: Vec<f64>, delta_x: Option<Vec<f64>>| {
@@ -1367,7 +1367,7 @@ fn test_evaluate_panics_on_nan() {
 #[test]
 fn test_new_checks_delta_x_relative_to_the_segment_length() {
     use crate::error::Error;
-    use crate::matrix::{Mat, Mat3};
+    use crate::matrix::Mat;
 
     let data = || Mat::<f64>::from_elem([2, 2], 1.0);
     let knots = vec![1e7, 1e7 + 1e-3, 1e7 + 1.0];

@@ -23,6 +23,7 @@ use crate::{
     SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC,
     SPIR_STATISTICS_FERMIONIC, StatusCode,
 };
+use sparse_ir::DlrFromIr;
 use sparse_ir::dlr::DiscreteLehmannRepresentation;
 use sparse_ir::{Bosonic, Fermionic};
 

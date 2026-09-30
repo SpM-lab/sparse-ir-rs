@@ -257,9 +257,9 @@ pub fn giwn_single_pole<S: StatisticsType>(
 ///   [`DlrBuilder`] select the poles by an interpolative decomposition of the
 ///   discretized logistic kernel (Kaye, Chen, Parcollet, PRB 105, 235115),
 ///   without building an IR basis;
-/// - **IR-derived**: [`DiscreteLehmannRepresentation::from_ir`] uses the
-///   default real-frequency sampling points of an IR basis as poles, and
-///   [`DiscreteLehmannRepresentation::from_ir_with_poles`] takes the poles.
+/// - **IR-derived**: `DiscreteLehmannRepresentation::from_ir` (trait
+///   `DlrFromIr` of the IR crate) uses the default real-frequency sampling
+///   points of an IR basis as poles, and `from_ir_with_poles` takes the poles.
 ///
 /// Conversions to and from an IR basis are provided by [`IrDlrTransform`];
 /// an IR-derived DLR carries one for its source basis.
@@ -286,9 +286,6 @@ where
 
     /// Maximum frequency ωmax
     wmax: f64,
-
-    /// LogisticKernel reference basis used for Basis trait compatibility
-    kernel: crate::kernel::LogisticKernel,
 
     /// Power with which the source kernel scales the spectral variable.
     kernel_ypower: i32,
@@ -318,6 +315,15 @@ where
 
     /// Marker for statistics type
     _phantom: PhantomData<S>,
+}
+
+/// Regularizer `w(β, ω)` of the logistic kernel: 1 for fermions and
+/// `tanh(βω/2)` for bosons
+fn logistic_regularizer<S: StatisticsType>(beta: f64, omega: f64) -> f64 {
+    match S::STATISTICS {
+        Statistics::Fermionic => 1.0,
+        Statistics::Bosonic => (0.5 * beta * omega).tanh(),
+    }
 }
 
 /// Builder for the independent (interpolative-decomposition) DLR.
@@ -381,12 +387,9 @@ impl<S: StatisticsType + 'static> DlrBuilder<S> {
             .into_iter()
             .map(|w| w / self.beta)
             .collect();
-        let kernel = crate::kernel::LogisticKernel::new(lambda)?;
         let regularizers = poles
             .iter()
-            .map(|&pole| {
-                crate::kernel::KernelProperties::regularizer::<S>(&kernel, self.beta, pole)
-            })
+            .map(|&pole| logistic_regularizer::<S>(self.beta, pole))
             .collect();
         Ok(DiscreteLehmannRepresentation::from_parts(
             self.beta,
@@ -394,7 +397,6 @@ impl<S: StatisticsType + 'static> DlrBuilder<S> {
             self.accuracy,
             poles,
             regularizers,
-            kernel,
             0,
             None,
         ))
@@ -414,8 +416,8 @@ where
     }
 
     /// Pole positions on the real-frequency axis, in the order they were
-    /// given to [`Self::from_ir_with_poles`] (sorted ascending when chosen by
-    /// [`Self::new`] or [`Self::from_ir`])
+    /// given to `from_ir_with_poles` (sorted ascending when chosen by
+    /// [`Self::new`] or `from_ir`)
     pub fn poles(&self) -> &[f64] {
         &self.poles
     }
@@ -452,14 +454,20 @@ where
         DlrBuilder::new(beta, wmax).accuracy(accuracy).build()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn from_parts(
+    /// Assemble a DLR from checked parts: the constructors of the IR crate
+    /// build on this after validating the poles against their basis.
+    ///
+    /// `regularizers[i]` is the kernel regularizer `w(β, poles[i])`, which is
+    /// also the weight of the pole functions; `kernel_ypower` is 0 or 1 when a
+    /// bosonic pole lies at 0. `ir` is the transform to the source IR basis,
+    /// if any.
+    #[doc(hidden)]
+    pub fn from_parts(
         beta: f64,
         wmax: f64,
         accuracy: f64,
         poles: Vec<f64>,
         regularizers: Vec<f64>,
-        kernel: crate::kernel::LogisticKernel,
         kernel_ypower: i32,
         ir: Option<IrDlrTransform>,
     ) -> Self {
@@ -468,7 +476,6 @@ where
             poles,
             beta,
             wmax,
-            kernel,
             kernel_ypower,
             accuracy,
             regularizers,
@@ -479,131 +486,6 @@ where
             matsubara_nodes_positive: OnceLock::new(),
             _phantom: PhantomData,
         }
-    }
-
-    /// Create DLR from IR basis with custom poles
-    ///
-    /// The tau-domain pole basis is built from the logistic representation, while
-    /// kernel-specific regularizers are preserved for compatible kernels.
-    ///
-    /// # Arguments
-    /// * `basis` - The IR basis to construct DLR from
-    /// * `poles` - Pole positions on the real-frequency axis, in
-    ///   [-ωmax, ωmax] of `basis`
-    ///
-    /// # Errors
-    /// * [`Error::KernelStatisticsMismatch`] if the kernel does not support
-    ///   the requested statistics (e.g. `RegularizedBoseKernel` with fermionic
-    ///   statistics)
-    /// * [`Error::EmptyInput`] if `poles` is empty
-    /// * [`Error::NonFiniteInput`] if a pole is NaN or infinite, and
-    ///   [`Error::OutOfDomain`] if a pole is outside [-ωmax, ωmax] of `basis`,
-    ///   both named `poles`, for the first such pole
-    /// * [`Error::NotSupported`] for a bosonic pole at 0 if the kernel has a
-    ///   `ypower` other than 0 or 1 (the DLR knows the limit at 0 for those
-    ///   only), or if `basis` is itself a DLR
-    ///
-    /// Duplicate poles are accepted. They make [`Self::from_ir_nd`]
-    /// ill-conditioned: the coefficients of equal poles are not unique,
-    /// although the round trip through [`Self::to_ir_nd`] still recovers the
-    /// IR coefficients.
-    pub fn from_ir_with_poles<K>(
-        basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
-        poles: Vec<f64>,
-    ) -> Result<Self, Error>
-    where
-        S: 'static,
-        K: crate::kernel::KernelProperties + Clone,
-    {
-        use crate::kernel::LogisticKernel;
-
-        // RegularizedBoseKernel (ypower == 1) is meaningful only for bosonic
-        // statistics; its regularizer panics for fermionic input. Reject the
-        // combination before computing anything.
-        if S::STATISTICS == Statistics::Fermionic && basis.kernel().ypower() == 1 {
-            return Err(Error::KernelStatisticsMismatch);
-        }
-        // Without poles the fitting matrix has no columns and the DLR has no
-        // functions.
-        if poles.is_empty() {
-            return Err(Error::EmptyInput { name: "poles" });
-        }
-
-        let beta = basis.beta();
-        let wmax = basis.wmax();
-        let accuracy = basis.accuracy();
-        let kernel_ypower = basis.kernel().ypower();
-
-        // Each pole must be finite and in [-ωmax, ωmax], the domain of V_l.
-        // evaluate_omega below checks the domain of the basis again.
-        for (i, &pole) in poles.iter().enumerate() {
-            if !pole.is_finite() {
-                return Err(Error::NonFiniteInput {
-                    name: "poles",
-                    index: vec![i],
-                    value: pole,
-                });
-            }
-            if !(-wmax..=wmax).contains(&pole) {
-                return Err(Error::OutOfDomain {
-                    name: "poles",
-                    value: pole,
-                    domain: (-wmax, wmax),
-                });
-            }
-        }
-        // A bosonic pole at 0 is evaluated through its finite limit, which is
-        // known for ypower 0 (regularizer tanh(βω/2)) and 1 (regularizer ω)
-        // only; see zero_pole_tau_limit.
-        if S::STATISTICS == Statistics::Bosonic
-            && !(0..=1).contains(&kernel_ypower)
-            && poles.contains(&0.0)
-        {
-            return Err(Error::NotSupported {
-                what: format!(
-                    "a bosonic DLR pole at 0 for a kernel with ypower = {kernel_ypower}: \
-                     its limit is known for ypower 0 and 1 only"
-                ),
-            });
-        }
-
-        // Compute fitting matrix: fitmat = -s · V(poles)
-        // This transforms DLR coefficients to IR coefficients
-        let v_at_poles = crate::sampling::mat_from_matrix(&basis.evaluate_omega(&poles)?)?; // shape: [n_poles, basis_size]
-        let s = basis.svals(); // Non-normalized singular values (same as C++)
-
-        let basis_size = basis.size();
-        let n_poles = poles.len();
-
-        // fitmat[l, i] = -s[l] * V_l(pole[i])
-        // C++: fitmat = (-A_array * s_array.replicate(1, A.cols())).matrix()
-        let fitmat = Mat::<f64>::from_fn([basis_size, n_poles], |idx| {
-            let l = idx[0];
-            let i = idx[1];
-            -s[l] * v_at_poles[[i, l]]
-        });
-
-        let ir = IrDlrTransform {
-            fitter: RealMatrixFitter::new(fitmat),
-        };
-
-        let lambda = beta * wmax;
-        let logistic_kernel = LogisticKernel::new(lambda)?;
-        let regularizers: Vec<f64> = poles
-            .iter()
-            .map(|&pole| basis.kernel().regularizer::<S>(beta, pole))
-            .collect();
-
-        Ok(Self::from_parts(
-            beta,
-            wmax,
-            accuracy,
-            poles,
-            regularizers,
-            logistic_kernel,
-            kernel_ypower,
-            Some(ir),
-        ))
     }
 
     fn zero_pole_tau_limit(&self) -> f64 {
@@ -634,41 +516,6 @@ where
                 self.kernel_ypower
             ),
         }
-    }
-
-    /// Create DLR from IR basis with default pole locations
-    ///
-    /// Uses the default omega sampling points from the basis.
-    ///
-    /// # Arguments
-    /// * `basis` - The IR basis to construct DLR from
-    ///
-    /// # Errors
-    /// * [`Error::InsufficientDefaultPoles`] if the basis has fewer default
-    ///   poles than functions. This can happen with certain kernel types
-    ///   (e.g. `RegularizedBoseKernel`) due to numerical precision limitations
-    ///   in root finding.
-    /// * [`Error::KernelStatisticsMismatch`] as in [`Self::from_ir_with_poles`]
-    /// * [`Error::NotSupported`] as in [`Self::from_ir_with_poles`]: for a default
-    ///   pole at 0 of a bosonic basis whose kernel has a `ypower` other than
-    ///   0 or 1, or if `basis` is itself a DLR
-    /// * The errors of
-    ///   [`Basis::default_omega_sampling_points`](crate::basis_trait::Basis::default_omega_sampling_points)
-    ///   (NotSupported for an SVE with too few singular functions)
-    pub fn from_ir<K>(basis: &impl crate::basis_trait::Basis<S, Kernel = K>) -> Result<Self, Error>
-    where
-        S: 'static,
-        K: crate::kernel::KernelProperties + Clone,
-    {
-        let poles = basis.default_omega_sampling_points()?;
-        let basis_size = basis.size();
-        if basis_size > poles.len() {
-            return Err(Error::InsufficientDefaultPoles {
-                basis_size,
-                n_poles: poles.len(),
-            });
-        }
-        Self::from_ir_with_poles(basis, poles)
     }
 
     // ========================================================================
@@ -838,67 +685,14 @@ pub struct IrDlrTransform {
 }
 
 impl IrDlrTransform {
-    /// Build the transform between `basis` and `dlr`.
-    ///
-    /// # Errors
-    /// * [`Error::KernelStatisticsMismatch`] if the kernel of `basis` does not
-    ///   support the statistics
-    /// * [`Error::InvalidParameter`] named `basis` if its β differs from that
-    ///   of `dlr`, or its kernel weight vanishes at a pole where the DLR
-    ///   weight does not
-    /// * [`Error::OutOfDomain`] named `poles` for a pole of `dlr` outside
-    ///   [-ωmax, ωmax] of `basis`
-    pub fn new<S, K>(
-        basis: &impl crate::basis_trait::Basis<S, Kernel = K>,
-        dlr: &DiscreteLehmannRepresentation<S>,
-    ) -> Result<Self, Error>
-    where
-        S: StatisticsType + 'static,
-        K: crate::kernel::KernelProperties + Clone,
-    {
-        if S::STATISTICS == Statistics::Fermionic && basis.kernel().ypower() == 1 {
-            return Err(Error::KernelStatisticsMismatch);
+    /// The transform with the `ir_size x dlr_size` matrix `T` mapping DLR to
+    /// IR coefficients (see the type documentation). The IR crate builds it
+    /// from its basis.
+    #[doc(hidden)]
+    pub fn from_matrix(matrix: Mat<f64>) -> Self {
+        Self {
+            fitter: RealMatrixFitter::new(matrix),
         }
-        let (beta, wmax) = (basis.beta(), basis.wmax());
-        let rel = |a: f64, b: f64| (a - b).abs() <= 1e-12 * a.abs().max(b.abs());
-        if !rel(beta, dlr.beta) {
-            return Err(Error::InvalidParameter {
-                name: "basis",
-                value: format!("beta = {beta:?}"),
-                reason: format!("must equal beta = {:?} of the DLR", dlr.beta),
-            });
-        }
-        if let Some(&pole) = dlr.poles.iter().find(|p| !(-wmax..=wmax).contains(*p)) {
-            return Err(Error::OutOfDomain {
-                name: "poles",
-                value: pole,
-                domain: (-wmax, wmax),
-            });
-        }
-        let mut ratio = Vec::with_capacity(dlr.poles.len());
-        for (&pole, &w) in dlr.poles.iter().zip(&dlr.pole_weights) {
-            let wir = basis.kernel().regularizer::<S>(beta, pole);
-            if w == wir {
-                ratio.push(1.0);
-            } else if wir == 0.0 {
-                return Err(Error::InvalidParameter {
-                    name: "basis",
-                    value: format!("kernel weight 0 at pole {pole:?}"),
-                    reason: "must not vanish where the DLR weight does not".to_string(),
-                });
-            } else {
-                ratio.push(w / wir);
-            }
-        }
-        let v_at_poles = crate::sampling::mat_from_matrix(&basis.evaluate_omega(&dlr.poles)?)?;
-        let s = basis.svals();
-        let fitmat = Mat::<f64>::from_fn([basis.size(), dlr.poles.len()], |idx| {
-            let (l, i) = (idx[0], idx[1]);
-            -s[l] * v_at_poles[[i, l]] * ratio[i]
-        });
-        Ok(Self {
-            fitter: RealMatrixFitter::new(fitmat),
-        })
     }
 
     /// IR basis size.
@@ -951,13 +745,6 @@ impl<S> crate::basis_trait::Basis<S> for DiscreteLehmannRepresentation<S>
 where
     S: StatisticsType + 'static,
 {
-    type Kernel = crate::kernel::LogisticKernel;
-
-    fn kernel(&self) -> &Self::Kernel {
-        // DLR always uses LogisticKernel for weight computations
-        &self.kernel
-    }
-
     fn beta(&self) -> f64 {
         self.beta
     }

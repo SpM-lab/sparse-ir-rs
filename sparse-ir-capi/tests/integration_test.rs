@@ -5,6 +5,7 @@
 
 use num_complex::Complex64;
 use rstest::rstest;
+use sparse_ir::DlrFromIr;
 use sparse_ir::matrix::Mat;
 use sparse_ir::tsvd::compute_svd_dtensor;
 use sparse_ir::{CustomNumeric, Df64};

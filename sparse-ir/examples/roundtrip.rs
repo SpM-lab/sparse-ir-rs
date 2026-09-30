@@ -11,6 +11,7 @@
 //! Or use the wrapper script: `./examples/run_roundtrip.sh` (saves log to logs/roundtrip_*.log)
 
 use num_complex::{Complex, ComplexFloat};
+use sparse_ir::DlrFromIr;
 use sparse_ir::{
     Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel, Matrix,
     MatsubaraSampling, RegularizedBoseKernel, TauSampling, TensorScalar, TypedTensor,

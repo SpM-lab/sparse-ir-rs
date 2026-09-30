@@ -18,6 +18,7 @@
 
 use std::error::Error;
 
+use sparse_ir::DlrFromIr;
 use sparse_ir::{
     Basis, Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
     MatsubaraSampling, TauSampling,

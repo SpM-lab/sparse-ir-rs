@@ -2,6 +2,7 @@
 // RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
 #![allow(deprecated)]
 
+use crate::DlrFromIr;
 use crate::matrix::Mat;
 #[allow(unused_imports)]
 use crate::test_utils::At;
@@ -1055,17 +1056,23 @@ struct TruncatedDefaultPoles<'a, B> {
     n_poles: usize,
 }
 
-impl<S, B> Basis<S> for TruncatedDefaultPoles<'_, B>
+impl<S, B> crate::IrBasis<S> for TruncatedDefaultPoles<'_, B>
 where
     S: StatisticsType,
-    B: Basis<S>,
+    B: crate::IrBasis<S>,
 {
     type Kernel = B::Kernel;
 
     fn kernel(&self) -> &Self::Kernel {
         self.inner.kernel()
     }
+}
 
+impl<S, B> Basis<S> for TruncatedDefaultPoles<'_, B>
+where
+    S: StatisticsType,
+    B: Basis<S>,
+{
     fn beta(&self) -> f64 {
         self.inner.beta()
     }
@@ -1437,11 +1444,7 @@ fn test_dlr_basis_methods_report_errors() {
     );
     assert_eq!(TauSampling::new(&dlr).unwrap().n_sampling_points(), 3);
     not_supported(Basis::evaluate_omega(&dlr, &[0.1]).unwrap_err());
-    not_supported(
-        DiscreteLehmannRepresentation::<Bosonic>::from_ir_with_poles(&dlr, vec![0.1])
-            .err()
-            .unwrap(),
-    );
+    // A DLR of a DLR is rejected at compile time: a DLR is not an IrBasis.
 
     for tau in [2.0 * beta, f64::NAN] {
         let err = Basis::evaluate_tau(&dlr, &[0.0, tau]).unwrap_err();
@@ -1584,7 +1587,7 @@ struct WithKernel<'a, B, K> {
     kernel: K,
 }
 
-impl<S, B, K> Basis<S> for WithKernel<'_, B, K>
+impl<S, B, K> crate::IrBasis<S> for WithKernel<'_, B, K>
 where
     S: StatisticsType,
     B: Basis<S>,
@@ -1595,7 +1598,14 @@ where
     fn kernel(&self) -> &Self::Kernel {
         &self.kernel
     }
+}
 
+impl<S, B, K> Basis<S> for WithKernel<'_, B, K>
+where
+    S: StatisticsType,
+    B: Basis<S>,
+    K: KernelProperties,
+{
     fn beta(&self) -> f64 {
         self.inner.beta()
     }

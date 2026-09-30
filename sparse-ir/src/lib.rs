@@ -33,6 +33,7 @@ pub mod freq;
 pub mod gauss;
 pub mod gemm; // Matrix multiplication utilities (Faer backend)
 pub(crate) mod interpolation1d;
+pub mod ir_dlr; // DLR built from an IR basis, and the IR <-> DLR transform
 pub mod kernel;
 pub mod kernelmatrix;
 pub mod matrix; // Column-major dense containers for internal numerics
@@ -60,6 +61,7 @@ pub use error::{ArrayRole, Error, ErrorKind, Result};
 pub use fitters::InplaceFitter;
 pub use freq::{BosonicFreq, FermionicFreq, MatsubaraFreq};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
+pub use ir_dlr::{DlrFromIr, IrBasis};
 pub use kernel::{
     AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints,
     RegularizedBoseKernel, RegularizedBoseSVEHints, SVEHints, SymmetryType,

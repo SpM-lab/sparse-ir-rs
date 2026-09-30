@@ -6,6 +6,7 @@ use crate::{
     Bosonic, Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling,
     MatsubaraSamplingPositiveOnly, TauSampling,
 };
+use crate::{DlrFromIr, IrBasis};
 
 /// Off-grid test poles and weights inside `[-wmax, wmax]`.
 fn test_spectrum(wmax: f64) -> Vec<(f64, f64)> {
@@ -200,7 +201,7 @@ fn ir_transform_connects_independent_dlr_and_ir() {
         .is_err()
     );
 
-    let t = IrDlrTransform::new(&basis, &dlr).unwrap();
+    let t = basis.dlr_transform(&dlr).unwrap();
     assert_eq!(
         (t.ir_size(), t.dlr_size()),
         (basis.size(), dlr.poles().len())
@@ -241,7 +242,7 @@ fn ir_transform_connects_independent_dlr_and_ir() {
     let other =
         DiscreteLehmannRepresentation::<Fermionic>::new(2.0 * beta, wmax / 2.0, eps).unwrap();
     assert!(matches!(
-        IrDlrTransform::new(&basis, &other),
+        basis.dlr_transform(&other),
         Err(Error::InvalidParameter { name: "basis", .. })
     ));
 }

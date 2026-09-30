@@ -44,7 +44,7 @@ poles.
 
 ```rust
 use sparse_ir::{
-    Basis, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
+    Basis, DiscreteLehmannRepresentation, DlrFromIr, Fermionic, FiniteTempBasis, LogisticKernel,
 };
 
 let (beta, wmax) = (1e4, 1.0);
@@ -102,7 +102,7 @@ the convolution cheap.
 | What you want | What to call |
 | --- | --- |
 | poles chosen without an IR basis | `DiscreteLehmannRepresentation::new(beta, wmax, eps)`, `DlrBuilder` |
-| the default poles of an IR basis | `DiscreteLehmannRepresentation::from_ir` |
+| the default poles of an IR basis | `DiscreteLehmannRepresentation::from_ir` (trait `DlrFromIr`) |
 | poles you chose yourself | `DiscreteLehmannRepresentation::from_ir_with_poles` |
 | where the poles are | `poles` |
 | \\(G_l \to c_p\\) | `from_ir_nd` |

@@ -5,7 +5,6 @@
 
 use crate::error::Error;
 use crate::freq::MatsubaraFreq;
-use crate::kernel::KernelProperties;
 use crate::traits::StatisticsType;
 
 /// Common trait for basis representations in imaginary-time/frequency domains
@@ -23,15 +22,6 @@ use crate::traits::StatisticsType;
 /// # Type Parameters
 /// * `S` - Statistics type (Fermionic or Bosonic)
 pub trait Basis<S: StatisticsType> {
-    /// Associated kernel type
-    type Kernel: KernelProperties;
-
-    /// Get reference to the kernel
-    ///
-    /// # Returns
-    /// Reference to the kernel used to construct this basis
-    fn kernel(&self) -> &Self::Kernel;
-
     /// Inverse temperature β
     ///
     /// # Returns
@@ -107,10 +97,9 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis has no default tau sampling points:
-    /// the DLR (use those of its IR basis), or an IR basis whose SVE has too
-    /// few singular functions (see
-    /// [`FiniteTempBasis::default_tau_sampling_points`](crate::basis::FiniteTempBasis::default_tau_sampling_points))
+    /// [`Error::NotSupported`] if the basis has no default tau sampling points,
+    /// e.g. an IR basis whose SVE has too few singular functions (see
+    /// `FiniteTempBasis::default_tau_sampling_points`)
     fn default_tau_sampling_points(&self) -> Result<Vec<f64>, Error>;
 
     /// Get default Matsubara sampling points
@@ -174,8 +163,7 @@ pub trait Basis<S: StatisticsType> {
     /// # Errors
     ///
     /// Implementors may return errors. The bases of this crate
-    /// ([`FiniteTempBasis`](crate::basis::FiniteTempBasis) and
-    /// [`DiscreteLehmannRepresentation`](crate::dlr::DiscreteLehmannRepresentation))
+    /// (`FiniteTempBasis` and `DiscreteLehmannRepresentation`)
     /// never do: every `MatsubaraFreq<S>` has the parity of the statistics, so
     /// every frequency can be evaluated.
     fn evaluate_matsubara(

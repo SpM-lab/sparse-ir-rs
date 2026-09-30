@@ -34,9 +34,6 @@ simba = "0.9"
 num-complex.workspace = true
 num-traits.workspace = true
 
-# Special functions
-special.workspace = true
-statrs.workspace = true
 libm.workspace = true
 
 # Error handling

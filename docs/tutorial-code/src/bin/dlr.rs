@@ -15,6 +15,7 @@ use std::error::Error;
 use std::f64::consts::PI;
 
 use num_complex::Complex64;
+use sparse_ir::DlrFromIr;
 use sparse_ir::TypedTensor;
 use sparse_ir::{
     DiscreteLehmannRepresentation, Fermionic, FermionicFreq, FiniteTempBasis, LogisticKernel,
