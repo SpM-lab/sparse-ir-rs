@@ -232,7 +232,8 @@ fn invalid_matsubara_index_message(n: &i64, statistics: &Statistics) -> String {
 }
 
 /// `Ok` if `value` is positive and finite
-pub(crate) fn require_positive_finite(name: &'static str, value: f64) -> Result<(), Error> {
+#[doc(hidden)]
+pub fn require_positive_finite(name: &'static str, value: f64) -> Result<(), Error> {
     if value > 0.0 && value.is_finite() {
         Ok(())
     } else {
@@ -245,7 +246,8 @@ pub(crate) fn require_positive_finite(name: &'static str, value: f64) -> Result<
 }
 
 /// `Ok` if `value` is finite
-pub(crate) fn require_finite(name: &'static str, value: f64) -> Result<(), Error> {
+#[doc(hidden)]
+pub fn require_finite(name: &'static str, value: f64) -> Result<(), Error> {
     if value.is_finite() {
         Ok(())
     } else {
@@ -259,7 +261,8 @@ pub(crate) fn require_finite(name: &'static str, value: f64) -> Result<(), Error
 
 /// `Ok` for an accuracy that selects the SVE: `None` (automatic) or a value
 /// in (0, 1)
-pub(crate) fn require_accuracy(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
+#[doc(hidden)]
+pub fn require_accuracy(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
     match epsilon {
         Some(eps) if !(eps > 0.0 && eps < 1.0) => Err(Error::InvalidParameter {
             name,
@@ -272,7 +275,8 @@ pub(crate) fn require_accuracy(name: &'static str, epsilon: Option<f64>) -> Resu
 
 /// `Ok` for a relative truncation threshold: `None` or a value in [0, 1),
 /// where 0 keeps every singular value
-pub(crate) fn require_threshold(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
+#[doc(hidden)]
+pub fn require_threshold(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
     match epsilon {
         Some(eps) if !(eps >= 0.0 && eps < 1.0) => Err(Error::InvalidParameter {
             name,
@@ -284,7 +288,8 @@ pub(crate) fn require_threshold(name: &'static str, epsilon: Option<f64>) -> Res
 }
 
 /// `Ok` unless `size` is `Some(0)`
-pub(crate) fn require_nonzero_size(name: &'static str, size: Option<usize>) -> Result<(), Error> {
+#[doc(hidden)]
+pub fn require_nonzero_size(name: &'static str, size: Option<usize>) -> Result<(), Error> {
     match size {
         Some(0) => Err(Error::InvalidParameter {
             name,

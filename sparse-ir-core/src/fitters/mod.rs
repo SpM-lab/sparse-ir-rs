@@ -15,7 +15,8 @@ mod real;
 pub use common::{FitScalar, InplaceFitter, SvdScalar, singular_values};
 pub(crate) use complex::ComplexMatrixFitter;
 pub(crate) use complex_to_real::ComplexToRealFitter;
-pub(crate) use real::RealMatrixFitter;
+#[doc(hidden)]
+pub use real::RealMatrixFitter;
 
 #[cfg(test)]
 pub(crate) mod test_support;

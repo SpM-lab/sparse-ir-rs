@@ -13,7 +13,8 @@ use num_complex::Complex;
 use tenferro_tensor::{TensorScalar, TypedTensor, TypedTensorView, TypedTensorViewMut};
 
 /// Copy a host matrix into the internal column-major container
-pub(crate) fn mat_from_matrix<T: TensorScalar + Copy>(m: &Matrix<T>) -> Result<Mat<T>, Error> {
+#[doc(hidden)]
+pub fn mat_from_matrix<T: TensorScalar + Copy>(m: &Matrix<T>) -> Result<Mat<T>, Error> {
     Ok(Mat::from_typed(m)?)
 }
 
@@ -727,7 +728,3 @@ impl<S: StatisticsType> InplaceFitter for TauSampling<S> {
         self.fitter.fit_nd_zz_to(backend, values, dim, out)
     }
 }
-
-#[cfg(test)]
-#[path = "tau_sampling_tests.rs"]
-mod tests;

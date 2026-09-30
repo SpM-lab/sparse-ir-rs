@@ -294,7 +294,8 @@ pub(crate) fn zero() -> BosonicFreq {
 
 /// Check if a frequency is zero
 #[allow(dead_code)]
-pub(crate) fn is_zero<S: StatisticsType>(freq: &MatsubaraFreq<S>) -> bool {
+#[doc(hidden)]
+pub fn is_zero<S: StatisticsType>(freq: &MatsubaraFreq<S>) -> bool {
     match S::STATISTICS {
         Statistics::Fermionic => false, // Fermionic frequencies are never zero
         Statistics::Bosonic => freq.n == 0,

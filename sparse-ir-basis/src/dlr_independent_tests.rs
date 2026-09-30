@@ -1,12 +1,16 @@
 //! Tests for the independent (interpolative-decomposition) DLR.
 
-use super::*;
 use crate::basis_trait::Basis;
+use crate::dlr::*;
+use crate::error::Error;
+use crate::freq::MatsubaraFreq;
+use crate::traits::{Statistics, StatisticsType};
 use crate::{
     Bosonic, Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling,
     MatsubaraSamplingPositiveOnly, TauSampling,
 };
 use crate::{DlrFromIr, IrBasis};
+use num_complex::Complex;
 
 /// Off-grid test poles and weights inside `[-wmax, wmax]`.
 fn test_spectrum(wmax: f64) -> Vec<(f64, f64)> {

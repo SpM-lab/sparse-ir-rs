@@ -35,7 +35,11 @@ Rust users typically depend on the crates below. Users of other languages typica
 
 ### Rust crates
 
-- **`sparse-ir`** — Core Rust implementation of IR basis, DLR, and sampling ([README](sparse-ir/README.md), [docs.rs](https://docs.rs/sparse-ir))
+- **`sparse-ir`** — Rust implementation of the IR basis, DLR, MiniPole and sampling ([README](sparse-ir/README.md), [docs.rs](https://docs.rs/sparse-ir)). It re-exports the crates it is made of, which can also be used on their own:
+  - `sparse-ir-core` — statistics, errors, GEMM, fitters, the `Basis` trait and sparse sampling
+  - `sparse-ir-dlr` — the discrete Lehmann representation (no IR basis needed)
+  - `sparse-ir-minipole` — ESPRIT and minimal pole representations
+  - `sparse-ir-basis` — kernels, the singular value expansion and the IR basis
 - **`sparse-ir-capi`** — Rust crate providing a C-compatible API (shared library + C header) ([README](sparse-ir-capi/README.md), [docs.rs](https://docs.rs/sparse-ir-capi))
 
 ### Bindings (other languages)
@@ -91,7 +95,7 @@ This workspace is dual-licensed under the terms of the MIT license and the Apach
   - [MIT License](LICENSE)
   - [Apache License 2.0](LICENSE-APACHE)
 
-Some components incorporate third-party code under Apache-2.0, such as the `col_piv_qr` module in the `sparse-ir` crate, which is based on nalgebra.  
+Some components incorporate third-party code under Apache-2.0, such as the `col_piv_qr` module in the `sparse-ir-basis` crate, which is based on nalgebra.  
 See [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE` for details.
 
 ---
@@ -102,10 +106,13 @@ See [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE` for detail
 
 ```
 sparseir-rust/
-├── sparse-ir/           # Core Rust library (crates.io: sparse-ir)
-│   ├── src/             # Source code
+├── sparse-ir/           # Rust library facade (crates.io: sparse-ir): re-exports
 │   ├── examples/        # Rust examples
 │   └── tests/           # Integration tests
+├── sparse-ir-core/      # Statistics, errors, GEMM, fitters, Basis trait, sampling
+├── sparse-ir-dlr/       # Discrete Lehmann representation
+├── sparse-ir-minipole/  # ESPRIT and minimal pole representations
+├── sparse-ir-basis/     # Kernels, SVE, IR basis
 ├── sparse-ir-capi/      # C-compatible API (shared library)
 ├── python/              # Python thin wrapper (pylibsparseir)
 │   ├── pylibsparseir/   # ctypes bindings to C-API
@@ -141,7 +148,7 @@ Faer is reasonably fast, but usually considerably slower than an optimized BLAS 
 To enable system BLAS (LP64) for the Rust `sparse-ir` crate at compile time, use:
 
 ```bash
-cargo build -p sparse-ir --features system-blas
+cargo build -p sparse-ir --features system-blas   # forwards to sparse-ir-core/system-blas
 ```
 
 With `system-blas`, the default GEMM backend becomes BLAS at compile time. Regardless of the feature, arbitrary BLAS function pointers (LP64/ILP64) can be injected at runtime via the C API or the internal GEMM dispatcher.
@@ -152,7 +159,7 @@ With `system-blas`, the default GEMM backend becomes BLAS at compile time. Regar
 
 ```bash
 cargo test --all-targets --release   # recommended for speed
-cargo test -p sparse-ir --doc --release   # doctests (not included in --all-targets)
+cargo test --workspace --exclude sparse-ir-capi --doc --release   # doctests (not included in --all-targets)
 ```
 
 #### C++ integration tests
@@ -231,12 +238,14 @@ The release process is done in **two stages** because Julia bindings depend on t
 4. Verify version consistency and test publishing (dry run):
    ```bash
    python3 check_version.py
-   cargo publish -p sparse-ir --dry-run
+   cargo publish -p sparse-ir-core --dry-run
    ```
 
-   `sparse-ir-capi` depends on the just-bumped `sparse-ir` version, so its registry verification only
-   succeeds after that `sparse-ir` version is visible on crates.io. The manual release workflow
-   handles that ordering automatically.
+   The library crates depend on each other (`sparse-ir-core` <- `sparse-ir-dlr` <-
+   `sparse-ir-minipole`, `sparse-ir-basis` <- `sparse-ir` <- `sparse-ir-capi`), so the registry
+   verification of each one only succeeds after the version it depends on is visible on crates.io;
+   only `sparse-ir-core` can be dry-run first. The manual release workflow publishes them in that
+   order and waits for each one.
 
 5. Create a PR for the version bump:
    ```bash

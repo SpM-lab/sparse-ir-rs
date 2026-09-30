@@ -53,7 +53,8 @@ use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
 ///     assert!((c - f).abs() < 1e-12);
 /// }
 /// ```
-pub(crate) struct RealMatrixFitter {
+#[doc(hidden)]
+pub struct RealMatrixFitter {
     matrix: Matrix<f64>,
     /// Column-major copy of `matrix` for GEMM.
     a: Vec<f64>,

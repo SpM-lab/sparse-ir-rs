@@ -79,14 +79,6 @@ pub fn convert_dims_for_col_major(
     }
 }
 
-/// Column-major linear offset of the multi-index `idx` in an array of `dims`
-fn col_major_offset(idx: &[usize], dims: &[usize]) -> usize {
-    idx.iter()
-        .zip(dims)
-        .rev()
-        .fold(0, |acc, (&i, &n)| acc * n + i)
-}
-
 /// Row-major linear offset of the multi-index `idx` in an array of `dims`
 fn row_major_offset(idx: &[usize], dims: &[usize]) -> usize {
     idx.iter().zip(dims).fold(0, |acc, (&i, &n)| acc * n + i)

@@ -1405,21 +1405,64 @@ checksum = "f9395f0f0eee849a9b707b2f06bb92a6a422090e2123bb2ef8e87a0e61892a8e"
 name = "sparse-ir"
 version = "0.10.0"
 dependencies = [
- "faer 0.24.4",
- "faer-traits 0.24.0",
- "libc",
+ "sparse-ir-basis",
+ "sparse-ir-core",
+ "sparse-ir-dlr",
+ "sparse-ir-minipole",
+]
+
+[[package]]
+name = "sparse-ir-basis"
+version = "0.10.0"
+dependencies = [
  "libm",
  "nalgebra",
  "num-complex",
  "num-traits",
+ "simba",
+ "sparse-ir-core",
+ "sparse-ir-dlr",
+ "tenferro-tensor",
+ "xprec",
+]
+
+[[package]]
+name = "sparse-ir-core"
+version = "0.10.0"
+dependencies = [
+ "faer 0.24.4",
+ "faer-traits 0.24.0",
+ "libc",
+ "num-complex",
+ "num-traits",
  "once_cell",
  "pkg-config",
- "simba",
  "tenferro-cpu",
  "tenferro-linalg",
  "tenferro-tensor",
  "thiserror 1.0.69",
- "xprec",
+]
+
+[[package]]
+name = "sparse-ir-dlr"
+version = "0.10.0"
+dependencies = [
+ "num-complex",
+ "num-traits",
+ "sparse-ir-core",
+ "tenferro-tensor",
+]
+
+[[package]]
+name = "sparse-ir-minipole"
+version = "0.10.0"
+dependencies = [
+ "num-complex",
+ "sparse-ir-core",
+ "sparse-ir-dlr",
+ "tenferro-cpu",
+ "tenferro-linalg",
+ "tenferro-tensor",
 ]
 
 [[package]]

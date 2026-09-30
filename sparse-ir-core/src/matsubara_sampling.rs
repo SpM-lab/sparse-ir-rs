@@ -892,7 +892,3 @@ impl<S: StatisticsType> InplaceFitter for MatsubaraSamplingPositiveOnly<S> {
         self.fitter.fit_nd_zz_to(backend, values, dim, out)
     }
 }
-
-#[cfg(test)]
-#[path = "matsubara_sampling_tests.rs"]
-mod tests;

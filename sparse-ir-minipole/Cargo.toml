@@ -1,0 +1,20 @@
+[package]
+name = "sparse-ir-minipole"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "ESPRIT and minimal pole representations for sparse-ir"
+
+[dependencies]
+sparse-ir-core.workspace = true
+sparse-ir-dlr.workspace = true
+tenferro-tensor.workspace = true
+tenferro-linalg.workspace = true
+tenferro-cpu.workspace = true
+num-complex.workspace = true
+
+[dev-dependencies]
+sparse-ir = { path = "../sparse-ir" }

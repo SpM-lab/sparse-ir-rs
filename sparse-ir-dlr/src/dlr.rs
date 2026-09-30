@@ -965,11 +965,3 @@ mod tests {
         );
     }
 }
-
-#[cfg(test)]
-#[path = "dlr_tests.rs"]
-mod dlr_tests;
-
-#[cfg(test)]
-#[path = "dlr_independent_tests.rs"]
-mod dlr_independent_tests;

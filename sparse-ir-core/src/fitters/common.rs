@@ -516,7 +516,8 @@ pub(crate) fn complex_to_stacked(
 ///
 /// Rank is `r = min(n, m)` without truncation: sampling matrices are well
 /// conditioned by construction.
-pub(crate) struct PinvFactors<T> {
+#[doc(hidden)]
+pub struct PinvFactors<T> {
     /// `U^H`, contiguous `r x n`.
     pub uh: Vec<T>,
     /// `V diag(1/s)`, contiguous `m x r`.
@@ -532,7 +533,7 @@ pub(crate) struct PinvFactors<T> {
 impl<T: GemmScalar> PinvFactors<T> {
     /// Least-squares solve along the middle axis of `[pre, n, post]` into
     /// `[pre, m, post]`.
-    pub(crate) fn solve(
+    pub fn solve(
         &self,
         backend: Option<&GemmBackendHandle>,
         values: &[T],
@@ -594,7 +595,8 @@ impl SvdScalar for Complex<f64> {
 ///
 /// # Errors
 /// Propagates tenferro errors (for example a non-converging SVD).
-pub(crate) fn compute_pinv<T: SvdScalar>(a: &[T], n: usize, m: usize) -> Result<PinvFactors<T>> {
+#[doc(hidden)]
+pub fn compute_pinv<T: SvdScalar>(a: &[T], n: usize, m: usize) -> Result<PinvFactors<T>> {
     compute_pinv_impl(a, n, m, None, || sampling_matrix((n, m)))
 }
 
@@ -603,7 +605,8 @@ pub(crate) fn compute_pinv<T: SvdScalar>(a: &[T], n: usize, m: usize) -> Result<
 ///
 /// # Errors
 /// [`Error::DecompositionFailed`] if the SVD fails.
-pub(crate) fn compute_pinv_truncated<T: SvdScalar>(
+#[doc(hidden)]
+pub fn compute_pinv_truncated<T: SvdScalar>(
     a: &[T],
     n: usize,
     m: usize,

@@ -210,7 +210,3 @@ pub trait Basis<S: StatisticsType> {
     /// few singular functions (the DLR returns its poles)
     fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error>;
 }
-
-#[cfg(test)]
-#[path = "basis_trait_tests.rs"]
-mod tests;

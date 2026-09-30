@@ -1,5 +1,6 @@
 use super::*;
-use crate::{Bosonic, Fermionic, MatsubaraSampling, Statistics};
+use crate::MatsubaraSampling;
+use sparse_ir_core::{Bosonic, Fermionic, Statistics};
 
 fn c(re: f64, im: f64) -> C64 {
     C64::new(re, im)

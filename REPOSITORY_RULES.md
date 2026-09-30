@@ -16,25 +16,40 @@ issue or explicit maintainer approval that defines its scope and verification.
 
 ## Workspace Layout
 
-This is a Cargo workspace (`resolver = "2"`) with two published members,
-defined in the top-level `Cargo.toml`:
+This is a Cargo workspace (`resolver = "2"`) with six published members,
+defined in the top-level `Cargo.toml`. The Rust library is split into four
+crates by dependency, with `sparse-ir` re-exporting them under the usual
+paths (`sparse_ir::basis`, `sparse_ir::dlr`, ...):
 
-- **`sparse-ir/`** — the core Rust crate (`sparse_ir`, lib crate types
-  `cdylib` + `rlib`). Implements the sparse IR algorithms: kernels and SVE
-  (`kernel.rs`, `kernelmatrix.rs`, `tsvd.rs`), piecewise Legendre polynomials
-  and their Fourier transforms (`poly.rs`, `polyfourier.rs`), Legendre
-  collocation (`interpolation1d.rs`), Gauss quadrature (`gauss.rs`),
-  the `FiniteTempBasis`/DLR basis types
-  (`basis.rs`, `basis_trait.rs`, `dlr.rs`), tau/Matsubara sampling
-  (`sampling.rs`, `matsubara_sampling.rs`, `taufuncs.rs`, `freq.rs`),
-  special functions (`special_functions.rs`), the GEMM dispatch layer
-  (`gemm.rs`, `col_piv_qr.rs`), and numeric/precision plumbing
-  (`numeric.rs`, `fpu_check.rs`). Test modules live
-  next to their implementation as `*_tests.rs` files included via `#[cfg(test)]`
-  from the corresponding `src/*.rs` module (e.g. `basis.rs` includes
-  `basis_tests.rs`); additional integration tests live in `sparse-ir/tests/`.
-  Supplemental, non-authoritative implementation notes for this crate are in
-  [`sparse-ir/CODING_RULES.md`](sparse-ir/CODING_RULES.md).
+- **`sparse-ir-core/`** — statistics and Matsubara frequencies (`traits.rs`,
+  `freq.rs`, `taufuncs.rs`), the error type (`error.rs`), the GEMM dispatch
+  layer (`gemm.rs`), column-major containers (`matrix.rs`), the least-squares
+  fitters (`fitters/`), the `Basis` trait (`basis_trait.rs`), sparse sampling
+  (`sampling.rs`, `matsubara_sampling.rs`) and FPU state handling
+  (`fpu_check.rs`). No extended precision, no IR basis. Owns the
+  `system-blas` feature and the `build.rs` that links BLAS.
+- **`sparse-ir-dlr/`** — the discrete Lehmann representation (`dlr.rs`) and
+  its interpolative-decomposition construction (`dlr_id.rs`). Depends on
+  `sparse-ir-core` only.
+- **`sparse-ir-minipole/`** — ESPRIT (`esprit.rs`) and minimal pole
+  representations (`minipole.rs`). Depends on the core and the DLR.
+- **`sparse-ir-basis/`** — the IR basis: kernels and SVE (`kernel.rs`,
+  `kernelmatrix.rs`, `sve/`, `tsvd.rs`, `col_piv_qr.rs`, `numeric.rs`),
+  piecewise Legendre polynomials and their Fourier transforms (`poly.rs`,
+  `polyfourier.rs`), Legendre collocation (`interpolation1d.rs`), Gauss
+  quadrature (`gauss.rs`), special functions, `FiniteTempBasis` (`basis.rs`)
+  and the DLR built from an IR basis (`ir_dlr.rs`: `IrBasis`, `DlrFromIr`,
+  `dlr_transform`). Depends on the core and the DLR; its unit tests also
+  cover the samplings and the DLR on an IR basis.
+- **`sparse-ir/`** — the facade crate (`sparse_ir`, lib crate types
+  `cdylib` + `rlib`): re-exports only. Holds the examples, the integration
+  tests (`sparse-ir/tests/`) and the crates.io README. The other library
+  crates dev-depend on it so their doc examples can use `sparse_ir::` paths.
+
+Test modules live next to their implementation as `*_tests.rs` files
+included via `#[cfg(test)]` (e.g. `basis.rs` includes `basis_tests.rs`).
+Supplemental, non-authoritative implementation notes are in
+[`sparse-ir/CODING_RULES.md`](sparse-ir/CODING_RULES.md).
 - **`sparse-ir-capi/`** — the C ABI crate (`sparse_ir_capi`, lib crate types
   `cdylib` + `staticlib` + `rlib`). Depends on `sparse-ir` and translates it
   to a stable C interface: opaque handles and status codes (`types.rs`,
@@ -70,17 +85,17 @@ Accelerate framework as the default BLAS backend) and mirror what CI runs in
 `.github/workflows/`.
 
 ```bash
-# Build/test the core crate (default backend: faer, pure Rust)
+# Build/test the library crates (default backend: faer, pure Rust)
 cargo build -p sparse-ir --release
-cargo test -p sparse-ir --release
+cargo test -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --release
 
 # Build/test the whole workspace
 cargo build --all-targets --release --locked
 cargo test --all-targets --release --locked
 
-# Build/test sparse-ir with the system-BLAS (LP64) GEMM backend instead of faer
-cargo build -p sparse-ir --features system-blas --all-targets --release --locked
-cargo test -p sparse-ir --features system-blas --all-targets --release --locked
+# Build/test the library crates with the system-BLAS (LP64) GEMM backend instead of faer
+cargo build -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked
+cargo test -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked
 
 # Build/test the C API crate
 cargo build -p sparse-ir-capi --release
@@ -90,7 +105,8 @@ cargo test -p sparse-ir-capi --release
 cargo run --example roundtrip --release
 ```
 
-Feature flags defined in `sparse-ir/Cargo.toml`:
+Feature flags defined in `sparse-ir-core/Cargo.toml` (`system-blas`, which
+`sparse-ir` forwards) and `sparse-ir/Cargo.toml` (`shared-lib`):
 
 - `system-blas` — switches the GEMM backend from the default pure-Rust
   `faer` implementation to system BLAS via `blas-sys` (LP64). Requires
@@ -151,8 +167,10 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
 
 - `rust.yml` — `rust-default` (faer backend) and `rust-system-blas` jobs run
   `cargo build`/`cargo test --all-targets --release --locked` for the
-  workspace and for `sparse-ir --features system-blas` respectively, plus
-  `cargo test -p sparse-ir --doc --release --locked` (with the same features)
+  workspace and for the library crates with `sparse-ir-core/system-blas` respectively, plus
+  `cargo test --workspace --exclude sparse-ir-capi --doc --release --locked`
+  (the system-BLAS job runs the doctests of the library crates with the same
+  feature)
   because `--all-targets` does not run doctests; a
   `header-sync` job checks the two C headers described above stay in sync
   with cbindgen output.

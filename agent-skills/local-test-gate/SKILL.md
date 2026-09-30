@@ -18,8 +18,8 @@ All commands are run from the workspace root.
 | Layer | Command | Sees |
 |---|---|---|
 | Rust | `cargo test --all-targets --release --locked` | core + capi unit and integration tests |
-| Rust docs | `cargo test -p sparse-ir --doc --release --locked` | doctests |
-| system BLAS | `cargo test -p sparse-ir --features system-blas --all-targets --release --locked` | the alternative BLAS backend |
+| Rust docs | `cargo test --workspace --exclude sparse-ir-capi --doc --release --locked` | doctests of the library crates |
+| system BLAS | `cargo test -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked` | the alternative BLAS backend |
 | header sync | see below | `include/sparseir/sparseir.h` vs cbindgen and vs `assets/sparse_ir_capi.h` |
 | C++ | `cxx_tests/run_with_rust_capi.sh` | the C API through Catch2 |
 | Fortran | `fortran/test_with_rust_capi.sh --compiler=gfortran` | the C API through the Fortran bindings |

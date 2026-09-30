@@ -1,6 +1,10 @@
 [workspace]
 members = [
     "sparse-ir",
+    "sparse-ir-core",
+    "sparse-ir-dlr",
+    "sparse-ir-minipole",
+    "sparse-ir-basis",
     "sparse-ir-capi",
 ]
 # The tutorial crate pins its own dependencies and must never move this
@@ -12,6 +16,10 @@ resolver = "2"
 
 [workspace.dependencies]
 sparse-ir = { version = "0.10.0", path = "sparse-ir" }
+sparse-ir-core = { version = "0.10.0", path = "sparse-ir-core" }
+sparse-ir-dlr = { version = "0.10.0", path = "sparse-ir-dlr" }
+sparse-ir-minipole = { version = "0.10.0", path = "sparse-ir-minipole" }
+sparse-ir-basis = { version = "0.10.0", path = "sparse-ir-basis" }
 faer = "0.24"
 faer-traits = "0.24"
 tenferro-tensor = "0.7.1"

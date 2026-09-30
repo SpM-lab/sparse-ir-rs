@@ -1,0 +1,39 @@
+[package]
+name = "sparse-ir-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Core of sparse-ir: statistics, errors, GEMM, fitters, the Basis trait and sparse sampling"
+
+[dependencies]
+faer.workspace = true
+faer-traits.workspace = true
+tenferro-tensor.workspace = true
+tenferro-linalg.workspace = true
+tenferro-cpu.workspace = true
+num-complex.workspace = true
+num-traits.workspace = true
+thiserror.workspace = true
+# System BLAS (optional, LP64)
+blas-sys = { workspace = true, optional = true }
+# Lazy static initialization for GEMM dispatcher
+once_cell.workspace = true
+# C FFI types (for BLAS function pointers)
+libc.workspace = true
+
+[dev-dependencies]
+# System BLAS for tests only (not used in library code)
+blas-sys.workspace = true
+# The doc examples use the whole library
+sparse-ir = { path = "../sparse-ir" }
+
+[build-dependencies]
+pkg-config = "0.3"
+
+[features]
+default = []
+# Use system BLAS (LP64) for GEMM backend by default
+system-blas = ["blas-sys"]

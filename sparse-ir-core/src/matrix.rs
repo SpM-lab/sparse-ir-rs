@@ -1,6 +1,6 @@
 //! Small column-major dense containers for internal numerics.
 //!
-//! [`Mat`] and [`Mat3`] hold generic scalars (including [`crate::Df64`]) for
+//! [`Mat`] and [`Mat3`] hold generic scalars (including `Df64`) for
 //! the SVE, polynomial, and kernel-matrix code paths. They are plain
 //! column-major `Vec<T>` buffers with infallible indexing: the first index
 //! varies fastest in memory, matching Fortran, BLAS, and tenferro.
@@ -189,13 +189,16 @@ impl<T: Clone> Mat<T> {
 
 /// Row-literal matrix constructor: `mat![[a, b], [c, d]]`.
 #[allow(unused_macros)]
+#[doc(hidden)]
+#[macro_export]
 macro_rules! mat {
     ($([$($x:expr),* $(,)?]),+ $(,)?) => {
         $crate::matrix::Mat::from_rows(vec![$(vec![$($x),*]),+])
     };
 }
 #[allow(unused_imports)]
-pub(crate) use mat;
+#[doc(hidden)]
+pub use crate::mat;
 
 impl<T: Clone + Zero> Mat<T> {
     /// Zero matrix.

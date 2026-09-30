@@ -388,3 +388,54 @@ Findings:
 - Staying in-house means the default faer backend is about 5× slower than Accelerate for batched real transforms.
   - Accelerate zgemm is slower than faer at lsize=1, for the full complex pattern.
   - A possible follow-up: route small calls to faer even when a BLAS backend is injected.
+
+## Crate split (2026-09-30)
+
+The library is split into four crates plus the `sparse-ir` facade, which
+re-exports every module and item under its previous path (`sparse_ir::basis`,
+`sparse_ir::dlr`, `sparse_ir::FiniteTempBasis`, ...), so `sparse-ir-capi`,
+the examples, the integration tests and the Rust tutorial compile unchanged.
+
+```text
+sparse-ir-core      error, traits, freq, taufuncs, gemm, matrix, fpu_check,
+                    fitters, basis_trait (Basis), sampling, matsubara_sampling
+sparse-ir-dlr       dlr, dlr_id                          -> core
+sparse-ir-minipole  esprit, minipole                     -> dlr, core
+sparse-ir-basis     numeric, gauss, col_piv_qr, tsvd, interpolation1d, kernel,
+                    kernelmatrix, poly, polyfourier, special_functions, sve,
+                    basis, ir_dlr                        -> dlr, core
+sparse-ir           re-exports only; examples and integration tests
+sparse-ir-capi      -> sparse-ir (C ABI unchanged)
+```
+
+- Stage 1 (single crate, commit "Decouple the DLR from the IR basis"):
+  `Basis` lost `Kernel`/`kernel()`; the DLR no longer holds a kernel;
+  `ir_dlr.rs` holds `IrBasis` (a basis with a kernel), `DlrFromIr`
+  (`from_ir`, `from_ir_with_poles`) and `IrBasis::dlr_transform`.
+- Stage 2 moves the files with `git mv`. Each crate imports the modules of
+  the crates it depends on at its root (`use sparse_ir_core::{error, ...}`),
+  so the moved code keeps its `crate::error::...` paths. `debug_warn!` and
+  the internal `mat!` are `#[macro_export]` in the core.
+- Internals of the core that the other crates need (`RealMatrixFitter`,
+  `PinvFactors`, `compute_pinv*`, `require_*`, `freq::is_zero`,
+  `sampling::mat_from_matrix`, ...) are `#[doc(hidden)] pub`.
+- The unit tests that need an IR basis (τ/Matsubara sampling, the `Basis`
+  trait, the IR-derived and independent DLR) moved to `sparse-ir-basis`,
+  which tests the samplings and the DLR on an IR basis; the others stay
+  with their crate. Counts are unchanged: library unit tests 407
+  (basis 306, core 82, minipole 10, dlr 9), doctests 19 (core 15, dlr 4),
+  integration tests 19.
+- Doc examples keep their `sparse_ir::` paths: each library crate
+  dev-depends on the facade (a dev-dependency cycle, which cargo allows and
+  strips on publish).
+- `system-blas` and `build.rs` live in `sparse-ir-core`; `sparse-ir`
+  forwards the feature. The unused `special` and `statrs` dependencies are
+  gone; `proptest` was unused and is no longer a dev-dependency.
+- Release: `manual-release.yml` publishes core, dlr, minipole, basis,
+  sparse-ir and capi in that order, waiting for each on crates.io. CI, the
+  docs workflow, the local test gate, README and REPOSITORY_RULES use the new
+  crate names.
+- Dependency weight (`cargo tree -e normal`): sparse-ir-core 96 crates,
+  sparse-ir-dlr 97, sparse-ir-minipole 98, sparse-ir-basis 109. A user of the
+  DLR or MiniPole alone no longer pulls xprec, simba or nalgebra; tenferro
+  (and faer) stay in the core by design.
