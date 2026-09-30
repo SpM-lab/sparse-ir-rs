@@ -104,8 +104,9 @@ fn max_diff(a: &[C64], b: &[C64]) -> f64 {
 fn check_esprit(name: &str, tol: f64) {
     let case = Case::load(name);
     let h = case.c("h");
-    let n = 60;
-    let dim = h.len() / n;
+    // omega is M x d.
+    let dim = case.c("omega").len() / case.i("M") as usize;
+    let n = h.len() / dim;
     let p = EspritParams {
         err: case.opt_f("arg_err"),
         err_type: if case.opt_i("arg_err_type") == Some(1) {
@@ -408,6 +409,25 @@ fn mini_pole_dlr_from_sparse_ir_dlr() {
     }
     run::<Fermionic>(50.0, 5);
     run::<Bosonic>(50.0, 5);
+}
+
+#[test]
+fn symmetric_mini_pole_rejects_zero_frequency_start() {
+    let beta = 100.0;
+    let w: Vec<f64> = (0..50)
+        .map(|n| 2.0 * n as f64 * std::f64::consts::PI / beta)
+        .collect();
+    let g: Vec<C64> = w
+        .iter()
+        .map(|&x| 0.5 / C64::new(-0.3, x) + 0.5 / C64::new(0.3, x))
+        .collect();
+    let g = TypedTensor::from_vec_col_major(vec![w.len()], g).unwrap();
+    let params = MiniPoleParams {
+        n0: N0::Fixed(0),
+        symmetry: true,
+        ..MiniPoleParams::new(1e-10)
+    };
+    assert!(mini_pole(&g, &w, &params).is_err());
 }
 
 /// Exact data (`err = 1e-10`): the moments agree to about 1e-13 and the

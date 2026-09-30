@@ -469,12 +469,16 @@ sparse-ir-capi      -> sparse-ir (C ABI unchanged)
     symmetric): moments to 1e-14, poles and weights to 1e-12.
   - MiniPole on exact data (fixed n0, constant term, bosonic grid, 2x2,
     G_symmetric, symmetric scalar and 2x2): n0 and the number of poles
-    identical, moments to 1e-13, poles to 1e-10, G(iω_n) to 5e-8.
+    identical, moments to 1e-13, poles to 1e-9, G(iω_n) to 5e-8. In the
+    bosonic case the moment series stops one row earlier (116 against
+    117): the stopping test sits at the quadrature noise (5e-12).
   - MiniPole on noisy data (η = 1e-7, err = 1e-6; automatic n0, plane w,
     fixed M): moments to 1e-8, within the reference's quadrature tolerance,
     and poles to 3e-5.
 - The reference also returns poles with weights of order `err_max` near
   the contour (Im ξ ≈ 0.1–0.3 for n0 = 3 at β = 100) for exact data; they
   are kept, as in the reference.
+- Symmetric `mini_pole` rejects `w[n0] = 0` (bosonic grid, n0 = 0), where
+  the reference's `ConMapGapless` asserts `w_min > 0`.
 - The `minipole` module, its C API and wrapper tests are unchanged. Which of
   its deviations to keep on top of the port is still open.

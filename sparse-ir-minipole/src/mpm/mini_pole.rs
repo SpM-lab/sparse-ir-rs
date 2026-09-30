@@ -229,6 +229,14 @@ pub fn mini_pole(
             reason: format!("must be less than len(w) - 1 = {}", nw - 1),
         });
     }
+    if params.symmetry && w[n0] <= 0.0 {
+        // ConMapGapless needs ω_min > 0 (e.g. n0 = 0 on a bosonic grid).
+        return Err(Error::InvalidParameter {
+            name: "n0",
+            value: n0.to_string(),
+            reason: format!("must give w[n0] > 0 with symmetry, got {:?}", w[n0]),
+        });
+    }
     let head = |c: usize, x: f64| p_o[c].get_value_indiv(x, 0);
     let cutoff = err_max;
     let qerr = 0.01 * cutoff;
