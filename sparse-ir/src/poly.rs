@@ -4,6 +4,7 @@
 //! functionality compatible with the C++ implementation.
 
 use crate::error::Error;
+use crate::matrix::{Mat, Mat3};
 
 /// A single piecewise Legendre polynomial
 #[derive(Debug, Clone)]
@@ -19,7 +20,7 @@ pub struct PiecewiseLegendrePoly {
     /// Segment widths (for numerical stability)
     pub(crate) delta_x: Vec<f64>,
     /// Coefficient matrix: [degree][segment_index]
-    pub(crate) data: mdarray::DTensor<f64, 2>,
+    pub(crate) data: Mat<f64>,
     /// Symmetry parameter
     pub(crate) symm: i32,
     /// Index of this function in the sequence of singular functions it belongs
@@ -130,7 +131,7 @@ impl PiecewiseLegendrePoly {
     ///   `max(1e-10 * |e|, 8 * f64::EPSILON * max(|knots[i]|, |knots[i + 1]|))`
     /// * [`Error::InvalidParameter`] if `symm` is not -1, 0 or 1
     pub fn new(
-        data: mdarray::DTensor<f64, 2>,
+        data: Mat<f64>,
         knots: Vec<f64>,
         l: i32,
         delta_x: Option<Vec<f64>>,
@@ -185,7 +186,7 @@ impl PiecewiseLegendrePoly {
     ///
     /// Crate-internal: `new_data` is not checked against the knots, so a
     /// caller could break the invariants of the type.
-    pub(crate) fn with_data(&self, new_data: mdarray::DTensor<f64, 2>) -> Self {
+    pub(crate) fn with_data(&self, new_data: Mat<f64>) -> Self {
         Self {
             data: new_data,
             ..self.clone()
@@ -202,10 +203,7 @@ impl PiecewiseLegendrePoly {
     /// Knots, widths and normalizations are those of `self`, so this equals
     /// `new` on the negated data without repeating its checks.
     pub(crate) fn negated(&self) -> Self {
-        self.with_data(mdarray::DTensor::<f64, 2>::from_fn(
-            *self.data.shape(),
-            |idx| -self.data[idx],
-        ))
+        self.with_data(Mat::<f64>::from_fn(self.data.dims(), |idx| -self.data[idx]))
     }
 
     /// Rescale domain: create a new polynomial with the same data but different knots
@@ -256,7 +254,7 @@ impl PiecewiseLegendrePoly {
     pub fn scale_data(&self, factor: f64) -> Self {
         Self::with_data(
             self,
-            mdarray::DTensor::<f64, 2>::from_fn(*self.data.shape(), |idx| self.data[idx] * factor),
+            Mat::<f64>::from_fn(self.data.dims(), |idx| self.data[idx] * factor),
         )
     }
 
@@ -428,21 +426,18 @@ impl PiecewiseLegendrePoly {
     }
 
     /// Compute derivative coefficients using the same algorithm as C++ legder function
-    fn compute_derivative_coefficients(
-        &self,
-        coeffs: &mdarray::DTensor<f64, 2>,
-    ) -> mdarray::DTensor<f64, 2> {
+    fn compute_derivative_coefficients(&self, coeffs: &Mat<f64>) -> Mat<f64> {
         let mut c = coeffs.clone();
         let c_shape = *c.shape();
         let mut n = c_shape.0;
 
         // Single derivative step (equivalent to C++ legder with cnt=1)
         if n <= 1 {
-            return mdarray::DTensor::<f64, 2>::from_elem([1, c.shape().1], 0.0);
+            return Mat::<f64>::from_elem([1, c.shape().1], 0.0);
         }
 
         n -= 1;
-        let mut der = mdarray::DTensor::<f64, 2>::from_elem([n, c.shape().1], 0.0);
+        let mut der = Mat::<f64>::from_elem([n, c.shape().1], 0.0);
 
         // C++ implementation: for (int j = n; j >= 2; --j)
         for j in (2..=n).rev() {
@@ -736,7 +731,7 @@ impl PiecewiseLegendrePoly {
     pub fn get_symm(&self) -> i32 {
         self.symm
     }
-    pub fn get_data(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn get_data(&self) -> &Mat<f64> {
         &self.data
     }
     pub fn get_norms(&self) -> &[f64] {
@@ -807,7 +802,7 @@ impl PiecewiseLegendrePolyVector {
     ///   polynomial
     /// * The errors of [`PiecewiseLegendrePoly::new`] for the data and knots
     pub fn from_3d_data(
-        data3d: mdarray::DTensor<f64, 3>,
+        data3d: Mat3<f64>,
         knots: Vec<f64>,
         symm: Option<Vec<i32>>,
     ) -> Result<Self, Error> {
@@ -833,8 +828,7 @@ impl PiecewiseLegendrePolyVector {
         for i in 0..npolys {
             // Extract 2D data for this polynomial
             let data3d_shape = data3d.shape();
-            let mut data =
-                mdarray::DTensor::<f64, 2>::from_elem([data3d_shape.0, data3d_shape.1], 0.0);
+            let mut data = Mat::<f64>::from_elem([data3d_shape.0, data3d_shape.1], 0.0);
             for j in 0..data3d_shape.0 {
                 for k in 0..data3d_shape.1 {
                     data[[j, k]] = data3d[[j, k, i]];
@@ -1023,7 +1017,7 @@ impl PiecewiseLegendrePolyVector {
     ///
     /// Panics if a point is outside the domain of a polynomial or NaN; see
     /// [`Self::try_evaluate_at_many`].
-    pub fn evaluate_at_many(&self, xs: &[f64]) -> mdarray::DTensor<f64, 2> {
+    pub fn evaluate_at_many(&self, xs: &[f64]) -> Mat<f64> {
         self.try_evaluate_at_many(xs)
             .unwrap_or_else(|e| panic!("{e}"))
     }
@@ -1035,7 +1029,7 @@ impl PiecewiseLegendrePolyVector {
     /// [`Error::OutOfDomain`] for the first point of `xs` that is outside
     /// the domain of a polynomial or NaN; every point is checked before any
     /// is evaluated
-    pub fn try_evaluate_at_many(&self, xs: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
+    pub fn try_evaluate_at_many(&self, xs: &[f64]) -> Result<Mat<f64>, Error> {
         // `new` gives every polynomial the knots of the first, so checking the
         // points against the first checks them against all of them.
         if let Some(first) = self.polyvec.first() {
@@ -1045,7 +1039,7 @@ impl PiecewiseLegendrePolyVector {
         }
         let n_funcs = self.polyvec.len();
         let n_points = xs.len();
-        let mut results = mdarray::DTensor::<f64, 2>::from_elem([n_funcs, n_points], 0.0);
+        let mut results = Mat::<f64>::from_elem([n_funcs, n_points], 0.0);
 
         for (i, poly) in self.polyvec.iter().enumerate() {
             for (j, &x) in xs.iter().enumerate() {
@@ -1123,7 +1117,7 @@ impl PiecewiseLegendrePolyVector {
     }
 
     /// Get data as 3D tensor: [segment][degree][polynomial]
-    pub fn get_data(&self) -> mdarray::DTensor<f64, 3> {
+    pub fn get_data(&self) -> Mat3<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get data from empty PiecewiseLegendrePolyVector");
         }
@@ -1132,7 +1126,7 @@ impl PiecewiseLegendrePolyVector {
         let polyorder = self.polyvec[0].polyorder;
         let npolys = self.polyvec.len();
 
-        let mut data = mdarray::DTensor::<f64, 3>::from_elem([nsegments, polyorder, npolys], 0.0);
+        let mut data = Mat3::<f64>::from_elem([nsegments, polyorder, npolys], 0.0);
 
         for (poly_idx, poly) in self.polyvec.iter().enumerate() {
             for segment in 0..nsegments {

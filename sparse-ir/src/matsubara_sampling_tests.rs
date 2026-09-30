@@ -2,6 +2,7 @@
 #![allow(deprecated)]
 use crate::freq::MatsubaraFreq;
 use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
+use crate::test_utils::At;
 use crate::test_utils::{ErrorNorm, generate_test_data_tau_and_matsubara};
 use crate::traits::{Bosonic, Fermionic, StatisticsType};
 use crate::{FiniteTempBasis, LogisticKernel, RegularizedBoseKernel};
@@ -197,8 +198,10 @@ fn test_matsubara_sampling_nd_roundtrip_generic<S: StatisticsType + 'static>() {
 
         // Check roundtrip
         let max_error = coeffs_0
+            .host_data()
+            .unwrap()
             .iter()
-            .zip(coeffs_fitted_0.iter())
+            .zip(coeffs_fitted_0.host_data().unwrap().iter())
             .map(|(a, b)| (*a - *b).norm())
             .fold(0.0, f64::max);
 
@@ -271,8 +274,10 @@ fn test_matsubara_sampling_positive_only_nd_roundtrip_generic<S: StatisticsType 
 
         // Check roundtrip
         let max_error = coeffs_0
+            .host_data()
+            .unwrap()
             .iter()
-            .zip(coeffs_fitted_0.iter())
+            .zip(coeffs_fitted_0.host_data().unwrap().iter())
             .map(|(a, b)| (*a - *b).abs())
             .fold(0.0, f64::max);
 
@@ -439,8 +444,6 @@ fn test_regularized_bose_matsubara_sampling_positive_only_roundtrip() {
 // In-place method tests
 // ============================================================================
 
-use mdarray::{Shape, Tensor};
-
 /// Test MatsubaraSampling::evaluate_nd_to matches evaluate_nd
 #[test]
 fn test_matsubara_sampling_evaluate_nd_to_matches() {
@@ -459,7 +462,7 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
 
     // Create test coefficients (complex)
     let coeffs =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[basis_size, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.3,
@@ -469,24 +472,24 @@ fn test_matsubara_sampling_evaluate_nd_to_matches() {
     // Test for dim = 0
     let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[n_points, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[n_points, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
     sampling
-        .evaluate_nd_to(None, &coeffs, 0, &mut actual)
+        .evaluate_nd_to(None, &coeffs.as_view(), 0, &mut actual.as_view_mut())
         .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..n_points {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).norm();
                 assert!(
                     diff < 1e-14,
@@ -520,7 +523,7 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
 
     // Create test values (complex)
     let values =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[n_points, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.2,
@@ -530,22 +533,24 @@ fn test_matsubara_sampling_fit_nd_to_matches() {
     // Test for dim = 0
     let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[basis_size, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[basis_size, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
-    sampling.fit_nd_to(None, &values, 0, &mut actual).unwrap();
+    sampling
+        .fit_nd_to(None, &values.as_view(), 0, &mut actual.as_view_mut())
+        .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..basis_size {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).norm();
                 assert!(
                     diff < 1e-14,
@@ -578,31 +583,31 @@ fn test_matsubara_sampling_positive_only_evaluate_nd_to_matches() {
     let n_omega = 4;
 
     // Create test coefficients (real)
-    let coeffs = Tensor::<f64, crate::DynRank>::from_fn(&[basis_size, n_k, n_omega][..], |idx| {
+    let coeffs = crate::test_utils::tensor_from_fn::<f64>(&[basis_size, n_k, n_omega], |idx| {
         (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5) * (idx[2] as f64 + 0.3)
     });
 
     // Test for dim = 0
     let expected = sampling.evaluate_nd(None, &coeffs, 0).unwrap();
 
-    let mut actual = Tensor::<Complex<f64>, crate::DynRank>::from_elem(
-        &[n_points, n_k, n_omega][..],
+    let mut actual = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[n_points, n_k, n_omega],
         Complex::new(0.0, 0.0),
     );
     sampling
-        .evaluate_nd_to(None, &coeffs, 0, &mut actual)
+        .evaluate_nd_to(None, &coeffs.as_view(), 0, &mut actual.as_view_mut())
         .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..n_points {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).norm();
                 assert!(
                     diff < 1e-14,
@@ -636,7 +641,7 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
 
     // Create test values (complex)
     let values =
-        Tensor::<Complex<f64>, crate::DynRank>::from_fn(&[n_points, n_k, n_omega][..], |idx| {
+        crate::test_utils::tensor_from_fn::<Complex<f64>>(&[n_points, n_k, n_omega], |idx| {
             Complex::new(
                 (idx[0] as f64 + 1.0) * (idx[1] as f64 + 0.5),
                 (idx[2] as f64) * 0.2,
@@ -646,19 +651,21 @@ fn test_matsubara_sampling_positive_only_fit_nd_to_matches() {
     // Test for dim = 0
     let expected = sampling.fit_nd(None, &values, 0).unwrap();
 
-    let mut actual = Tensor::<f64, crate::DynRank>::from_elem(&[basis_size, n_k, n_omega][..], 0.0);
-    sampling.fit_nd_to(None, &values, 0, &mut actual).unwrap();
+    let mut actual = crate::test_utils::tensor_filled::<f64>(&[basis_size, n_k, n_omega], 0.0);
+    sampling
+        .fit_nd_to(None, &values.as_view(), 0, &mut actual.as_view_mut())
+        .unwrap();
 
     // Compare
-    let expected_shape = expected.shape().with_dims(|d| d.to_vec());
-    let actual_shape = actual.shape().with_dims(|d| d.to_vec());
+    let expected_shape = expected.shape().to_vec();
+    let actual_shape = actual.shape().to_vec();
     assert_eq!(expected_shape, actual_shape);
 
     for i in 0..basis_size {
         for j in 0..n_k {
             for k in 0..n_omega {
-                let e = expected[&[i, j, k][..]];
-                let a = actual[&[i, j, k][..]];
+                let e = expected.at(&[i, j, k]);
+                let a = actual.at(&[i, j, k]);
                 let diff = (e - a).abs();
                 assert!(
                     diff < 1e-14,
@@ -736,12 +743,12 @@ fn test_matsubara_sampling_debug_parameters() {
     // Verify matrix dimensions
     let matrix = matsf.matrix();
     assert_eq!(
-        matrix.shape().0,
+        matrix.shape()[0],
         matsf.n_sampling_points(),
         "Matrix rows should match number of sampling points"
     );
     assert_eq!(
-        matrix.shape().1,
+        matrix.shape()[1],
         basisf.size(),
         "Matrix columns should match basis size"
     );
@@ -756,9 +763,9 @@ fn test_matsubara_sampling_debug_parameters() {
 fn uhat_matrix<S: StatisticsType + 'static>(
     basis: &FiniteTempBasis<LogisticKernel, S>,
     points: &[MatsubaraFreq<S>],
-) -> mdarray::DTensor<Complex<f64>, 2> {
+) -> crate::matrix::Mat<Complex<f64>> {
     let uhat = basis.uhat();
-    mdarray::DTensor::<Complex<f64>, 2>::from_fn([points.len(), basis.size()], |idx| {
+    crate::matrix::Mat::<Complex<f64>>::from_fn([points.len(), basis.size()], |idx| {
         uhat[idx[1]].evaluate(&points[idx[0]])
     })
 }
@@ -840,7 +847,7 @@ fn test_positive_only_condition_number_from_matrix() {
     };
 
     let (n, l) = (5, 8);
-    let a = mdarray::DTensor::<Complex<f64>, 2>::from_fn([n, l], |idx| {
+    let a = crate::matrix::Mat::<Complex<f64>>::from_fn([n, l], |idx| {
         let x = (idx[0] as f64 + 1.0) / n as f64;
         let j = idx[1] as i32;
         Complex::new(x.powi(j), (x * (j as f64 + 1.0)).sin())
@@ -848,7 +855,8 @@ fn test_positive_only_condition_number_from_matrix() {
     let points: Vec<MatsubaraFreq<Bosonic>> = (0..n as i64)
         .map(|k| MatsubaraFreq::new(2 * k).unwrap())
         .collect();
-    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points, a.clone()).unwrap();
+    let sampling =
+        MatsubaraSamplingPositiveOnly::from_matrix(points, &a.clone().into_typed()).unwrap();
 
     let oracle = oracle_condition_number(&stack_re_im(&a));
     let cond_complex = oracle_condition_number(&realify(&a));
@@ -886,11 +894,8 @@ fn indices<S: StatisticsType>(points: &[MatsubaraFreq<S>]) -> Vec<i64> {
 }
 
 /// Checks that `values[i]` is row i of `a` times `coeffs`, to rounding.
-fn assert_rows_times<T>(
-    a: &mdarray::DTensor<Complex<f64>, 2>,
-    coeffs: &[T],
-    values: &[Complex<f64>],
-) where
+fn assert_rows_times<T>(a: &crate::matrix::Mat<Complex<f64>>, coeffs: &[T], values: &[Complex<f64>])
+where
     T: Copy + Into<Complex<f64>>,
 {
     let (n, l) = *a.shape();
@@ -926,7 +931,9 @@ fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
 
     let points = unsorted_points(&basis, true);
     let a = uhat_matrix(&basis, &points);
-    let sampling = MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), a.clone()).unwrap();
+    let sampling =
+        MatsubaraSamplingPositiveOnly::from_matrix(points.clone(), &a.clone().into_typed())
+            .unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert!(sampling.condition_number().unwrap() < 1e2);
     let values = sampling.evaluate(&coeffs).unwrap();
@@ -938,7 +945,7 @@ fn check_from_matrix_keeps_the_given_order<S: StatisticsType + 'static>() {
 
     let points = unsorted_points(&basis, false);
     let a = uhat_matrix(&basis, &points);
-    let sampling = MatsubaraSampling::from_matrix(points.clone(), a.clone()).unwrap();
+    let sampling = MatsubaraSampling::from_matrix(points.clone(), &a.clone().into_typed()).unwrap();
     assert_eq!(indices(sampling.sampling_points()), indices(&points));
     assert!(sampling.condition_number().unwrap() < 1e2);
     let values = sampling.evaluate(&coeffs_z).unwrap();
@@ -1023,8 +1030,6 @@ fn with_target(batch: &[usize], dim: usize, n: usize) -> Vec<usize> {
 /// zero extent ended up before the last axis of a permuted view.
 #[test]
 fn test_matsubara_nd_with_empty_batch() {
-    use mdarray::{DynRank, Tensor};
-
     let basis = FiniteTempBasis::<_, Fermionic>::new(
         LogisticKernel::new(10.0).unwrap(),
         1.0,
@@ -1038,8 +1043,9 @@ fn test_matsubara_nd_with_empty_batch() {
 
     for (batch, dim) in empty_batches() {
         let dims_l = with_target(&batch, dim, l);
-        let coeffs = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
-        let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
+        let coeffs = crate::test_utils::tensor_filled::<f64>(&dims_l, 0.0);
+        let coeffs_z =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_l, Complex::new(0.0, 0.0));
 
         for (s_np, values) in [
             (
@@ -1061,34 +1067,36 @@ fn test_matsubara_nd_with_empty_batch() {
                 positive.evaluate_nd(None, &coeffs, dim).unwrap(),
             ),
         ] {
-            assert_eq!(values.shape().dims(), &with_target(&batch, dim, s_np)[..]);
+            assert_eq!(values.shape(), &with_target(&batch, dim, s_np)[..]);
         }
 
         let dims_np = with_target(&batch, dim, sampling.n_sampling_points());
-        let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        let values =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_np, Complex::new(0.0, 0.0));
         assert_eq!(
-            sampling.fit_nd(None, &values, dim).unwrap().shape().dims(),
+            sampling.fit_nd(None, &values, dim).unwrap().shape(),
             &dims_l[..]
         );
         assert_eq!(
-            sampling
-                .fit_nd_real(None, &values, dim)
-                .unwrap()
-                .shape()
-                .dims(),
+            sampling.fit_nd_real(None, &values, dim).unwrap().shape(),
             &dims_l[..]
         );
-        let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        let mut out =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_np, Complex::new(0.0, 0.0));
         sampling
-            .evaluate_nd_to::<f64>(None, &coeffs, dim, &mut out)
+            .evaluate_nd_to::<f64>(None, &coeffs.as_view(), dim, &mut out.as_view_mut())
             .unwrap();
-        let mut out_l = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
-        sampling.fit_nd_to(None, &values, dim, &mut out_l).unwrap();
+        let mut out_l =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_l, Complex::new(0.0, 0.0));
+        sampling
+            .fit_nd_to(None, &values.as_view(), dim, &mut out_l.as_view_mut())
+            .unwrap();
 
         let dims_np = with_target(&batch, dim, positive.n_sampling_points());
-        let values = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
+        let values =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_np, Complex::new(0.0, 0.0));
         assert_eq!(
-            positive.fit_nd(None, &values, dim).unwrap().shape().dims(),
+            positive.fit_nd(None, &values, dim).unwrap().shape(),
             &dims_l[..]
         );
     }
@@ -1101,7 +1109,6 @@ fn test_matsubara_nd_with_empty_batch() {
 #[test]
 fn test_matsubara_inplace_fitter_with_empty_batch() {
     use crate::fitters::InplaceFitter;
-    use mdarray::{DynRank, Tensor};
 
     let basis = FiniteTempBasis::<_, Fermionic>::new(
         LogisticKernel::new(10.0).unwrap(),
@@ -1116,19 +1123,23 @@ fn test_matsubara_inplace_fitter_with_empty_batch() {
     fn check<F: InplaceFitter>(f: &F, batch: &[usize], dim: usize) {
         let (l, np) = (f.basis_size(), f.n_points());
         let (dims_l, dims_np) = (with_target(batch, dim, l), with_target(batch, dim, np));
-        let coeffs = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
-        let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
-        let values_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
-        let mut out_np = Tensor::<Complex<f64>, DynRank>::zeros(&dims_np[..]);
-        let mut out_l = Tensor::<f64, DynRank>::zeros(&dims_l[..]);
-        let mut out_l_z = Tensor::<Complex<f64>, DynRank>::zeros(&dims_l[..]);
-        f.evaluate_nd_dz_to(None, &coeffs, dim, &mut out_np.expr_mut())
+        let coeffs = crate::test_utils::tensor_filled::<f64>(&dims_l, 0.0);
+        let coeffs_z =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_l, Complex::new(0.0, 0.0));
+        let values_z =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_np, Complex::new(0.0, 0.0));
+        let mut out_np =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_np, Complex::new(0.0, 0.0));
+        let mut out_l = crate::test_utils::tensor_filled::<f64>(&dims_l, 0.0);
+        let mut out_l_z =
+            crate::test_utils::tensor_filled::<Complex<f64>>(&dims_l, Complex::new(0.0, 0.0));
+        f.evaluate_nd_dz_to(None, &coeffs.as_view(), dim, &mut out_np.as_view_mut())
             .unwrap();
-        f.evaluate_nd_zz_to(None, &coeffs_z, dim, &mut out_np.expr_mut())
+        f.evaluate_nd_zz_to(None, &coeffs_z.as_view(), dim, &mut out_np.as_view_mut())
             .unwrap();
-        f.fit_nd_zd_to(None, &values_z, dim, &mut out_l.expr_mut())
+        f.fit_nd_zd_to(None, &values_z.as_view(), dim, &mut out_l.as_view_mut())
             .unwrap();
-        f.fit_nd_zz_to(None, &values_z, dim, &mut out_l_z.expr_mut())
+        f.fit_nd_zz_to(None, &values_z.as_view(), dim, &mut out_l_z.as_view_mut())
             .unwrap();
     }
 
@@ -1210,10 +1221,13 @@ fn test_matsubara_sampling_positive_only_rejects_negative_points() {
 fn test_matsubara_from_matrix_rejects_zero_columns() {
     use crate::error::Error;
 
-    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
+    let matrix = crate::matrix::Mat::<Complex<f64>>::zeros([1, 0]);
     assert_eq!(
-        MatsubaraSampling::<Fermionic>::from_matrix(vec![MatsubaraFreq::new(1).unwrap()], matrix)
-            .err(),
+        MatsubaraSampling::<Fermionic>::from_matrix(
+            vec![MatsubaraFreq::new(1).unwrap()],
+            &matrix.into_typed()
+        )
+        .err(),
         Some(Error::EmptyInput { name: "matrix" })
     );
 }
@@ -1222,11 +1236,11 @@ fn test_matsubara_from_matrix_rejects_zero_columns() {
 fn test_matsubara_positive_only_from_matrix_rejects_zero_columns() {
     use crate::error::Error;
 
-    let matrix = mdarray::DTensor::<Complex<f64>, 2>::zeros([1, 0]);
+    let matrix = crate::matrix::Mat::<Complex<f64>>::zeros([1, 0]);
     assert_eq!(
         MatsubaraSamplingPositiveOnly::<Fermionic>::from_matrix(
             vec![MatsubaraFreq::new(1).unwrap()],
-            matrix,
+            &matrix.into_typed(),
         )
         .err(),
         Some(Error::EmptyInput { name: "matrix" })
@@ -1241,7 +1255,6 @@ fn test_matsubara_positive_only_from_matrix_rejects_zero_columns() {
 fn test_matsubara_nd_methods_check_the_axis_first() {
     use crate::error::{ArrayRole, Error};
     use crate::fitters::InplaceFitter;
-    use mdarray::{DynRank, Tensor};
 
     let basis = FiniteTempBasis::<_, Fermionic>::new(
         LogisticKernel::new(10.0).unwrap(),
@@ -1255,10 +1268,16 @@ fn test_matsubara_nd_methods_check_the_axis_first() {
     let l = full.basis_size();
     let axis = Some(Error::AxisOutOfRange { axis: 1, rank: 1 });
 
-    let coeffs = Tensor::<f64, DynRank>::zeros(&[l][..]);
-    let coeffs_z = Tensor::<Complex<f64>, DynRank>::zeros(&[l][..]);
-    let values = Tensor::<Complex<f64>, DynRank>::zeros(&[full.n_sampling_points()][..]);
-    let values_p = Tensor::<Complex<f64>, DynRank>::zeros(&[positive.n_sampling_points()][..]);
+    let coeffs = crate::test_utils::tensor_filled::<f64>(&[l], 0.0);
+    let coeffs_z = crate::test_utils::tensor_filled::<Complex<f64>>(&[l], Complex::new(0.0, 0.0));
+    let values = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[full.n_sampling_points()],
+        Complex::new(0.0, 0.0),
+    );
+    let values_p = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[positive.n_sampling_points()],
+        Complex::new(0.0, 0.0),
+    );
     assert_eq!(full.evaluate_nd::<f64>(None, &coeffs, 1).err(), axis);
     assert_eq!(
         full.evaluate_nd::<Complex<f64>>(None, &coeffs_z, 1).err(),
@@ -1271,9 +1290,12 @@ fn test_matsubara_nd_methods_check_the_axis_first() {
     assert_eq!(positive.fit_nd(None, &values_p, 1).err(), axis);
 
     // `out` of rank 2 for rank-1 data, and an axis past both ranks
-    let mut out = Tensor::<Complex<f64>, DynRank>::zeros(&[full.n_sampling_points(), 1][..]);
+    let mut out = crate::test_utils::tensor_filled::<Complex<f64>>(
+        &[full.n_sampling_points(), 1],
+        Complex::new(0.0, 0.0),
+    );
     assert_eq!(
-        full.evaluate_nd_to::<f64>(None, &coeffs, 0, &mut out),
+        full.evaluate_nd_to::<f64>(None, &coeffs.as_view(), 0, &mut out.as_view_mut()),
         Err(Error::ShapeMismatch {
             which: ArrayRole::Output,
             expected: vec![full.n_sampling_points()],
@@ -1281,22 +1303,37 @@ fn test_matsubara_nd_methods_check_the_axis_first() {
         })
     );
     assert_eq!(
-        full.evaluate_nd_to::<f64>(None, &coeffs, 5, &mut out).err(),
+        full.evaluate_nd_to::<f64>(None, &coeffs.as_view(), 5, &mut out.as_view_mut())
+            .err(),
         Some(Error::AxisOutOfRange { axis: 5, rank: 1 })
     );
-    let mut out_l = Tensor::<f64, DynRank>::zeros(&[l][..]);
+    let mut out_l = crate::test_utils::tensor_filled::<f64>(&[l], 0.0);
     assert_eq!(
-        positive.fit_nd_to(None, &values_p, 5, &mut out_l).err(),
+        positive
+            .fit_nd_to(None, &values_p.as_view(), 5, &mut out_l.as_view_mut())
+            .err(),
         Some(Error::AxisOutOfRange { axis: 5, rank: 1 })
     );
 
     // Unsupported pairs of types
-    let mut out_d = Tensor::<f64, DynRank>::zeros(&[full.n_sampling_points()][..]);
-    let err = InplaceFitter::evaluate_nd_dd_to(&full, None, &coeffs, 0, &mut out_d.expr_mut())
-        .unwrap_err();
+    let mut out_d = crate::test_utils::tensor_filled::<f64>(&[full.n_sampling_points()], 0.0);
+    let err = InplaceFitter::evaluate_nd_dd_to(
+        &full,
+        None,
+        &coeffs.as_view(),
+        0,
+        &mut out_d.as_view_mut(),
+    )
+    .unwrap_err();
     assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
-    let err = InplaceFitter::evaluate_nd_dd_to(&positive, None, &coeffs, 0, &mut out_d.expr_mut())
-        .unwrap_err();
+    let err = InplaceFitter::evaluate_nd_dd_to(
+        &positive,
+        None,
+        &coeffs.as_view(),
+        0,
+        &mut out_d.as_view_mut(),
+    )
+    .unwrap_err();
     assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
 }
 
@@ -1342,13 +1379,12 @@ fn test_matsubara_1d_methods_check_the_lengths() {
 #[test]
 fn test_matsubara_from_matrix_checks_its_arguments() {
     use crate::error::{ArrayRole, Error};
-    use mdarray::DTensor;
 
     let freqs = |ns: &[i64]| -> Vec<MatsubaraFreq<Fermionic>> {
         ns.iter().map(|&n| MatsubaraFreq::new(n).unwrap()).collect()
     };
     let matrix = |rows: usize| {
-        DTensor::<Complex<f64>, 2>::from_fn([rows, 2], |idx| {
+        crate::matrix::Mat::<Complex<f64>>::from_fn([rows, 2], |idx| {
             Complex::new(
                 1.0 / (1.0 + idx[0] as f64 + idx[1] as f64),
                 0.1 * idx[0] as f64,
@@ -1357,15 +1393,15 @@ fn test_matsubara_from_matrix_checks_its_arguments() {
     };
 
     for positive_only in [false, true] {
-        let from = |points: Vec<MatsubaraFreq<Fermionic>>, m: DTensor<Complex<f64>, 2>| {
+        let from = |points: Vec<MatsubaraFreq<Fermionic>>, m: crate::matrix::Mat<Complex<f64>>| {
             if positive_only {
-                MatsubaraSamplingPositiveOnly::from_matrix(points, m).err()
+                MatsubaraSamplingPositiveOnly::from_matrix(points, &m.into_typed()).err()
             } else {
-                MatsubaraSampling::from_matrix(points, m).err()
+                MatsubaraSampling::from_matrix(points, &m.into_typed()).err()
             }
         };
         assert_eq!(
-            from(vec![], DTensor::<Complex<f64>, 2>::zeros([0, 2])),
+            from(vec![], crate::matrix::Mat::<Complex<f64>>::zeros([0, 2])),
             Some(Error::EmptyInput {
                 name: "sampling_points"
             })
@@ -1392,14 +1428,14 @@ fn test_matsubara_from_matrix_checks_its_arguments() {
     }
 
     assert_eq!(
-        MatsubaraSamplingPositiveOnly::from_matrix(freqs(&[1, -3]), matrix(2)).err(),
+        MatsubaraSamplingPositiveOnly::from_matrix(freqs(&[1, -3]), &matrix(2).into_typed()).err(),
         Some(Error::InvalidMatsubaraIndex {
             n: -3,
             statistics: crate::traits::Statistics::Fermionic,
         })
     );
     // The full sampling takes negative frequencies.
-    MatsubaraSampling::from_matrix(freqs(&[1, -3]), matrix(2)).unwrap();
+    MatsubaraSampling::from_matrix(freqs(&[1, -3]), &matrix(2).into_typed()).unwrap();
 }
 
 /// Duplicate sampling points are accepted and kept, as on main since #291
@@ -1424,7 +1460,7 @@ fn test_duplicate_sampling_points_are_kept() {
     assert_eq!(full.sampling_points(), &points[..]);
     let (last, l) = (points.len() - 1, full.basis_size());
     for j in 0..l {
-        assert_eq!(full.matrix()[[last, j]], full.matrix()[[0, j]]);
+        assert_eq!(full.matrix().at(&[last, j]), full.matrix().at(&[0, j]));
     }
 
     let mut points = MatsubaraSamplingPositiveOnly::new(&basis)
@@ -1436,7 +1472,7 @@ fn test_duplicate_sampling_points_are_kept() {
         MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points.clone()).unwrap();
     assert_eq!(positive.sampling_points(), &points[..]);
     for j in 0..l {
-        assert_eq!(positive.matrix()[[1, j]], positive.matrix()[[0, j]]);
+        assert_eq!(positive.matrix().at(&[1, j]), positive.matrix().at(&[0, j]));
     }
 
     let mut taus = crate::sampling::TauSampling::new(&basis)
@@ -1448,6 +1484,6 @@ fn test_duplicate_sampling_points_are_kept() {
     assert_eq!(tau.sampling_points(), &taus[..]);
     let last = taus.len() - 1;
     for j in 0..l {
-        assert_eq!(tau.matrix()[[last, j]], tau.matrix()[[2, j]]);
+        assert_eq!(tau.matrix().at(&[last, j]), tau.matrix().at(&[2, j]));
     }
 }

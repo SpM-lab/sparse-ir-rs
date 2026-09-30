@@ -6,8 +6,8 @@
 //! Run with: `cargo run --release --example bench_core [-- --quick]`
 //! Pin BLAS/rayon threads externally (e.g. `RAYON_NUM_THREADS=1`) for stable numbers.
 
-use mdarray::{DynRank, Tensor};
 use num_complex::Complex;
+use sparse_ir::TypedTensor;
 use sparse_ir::{
     DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling,
     TauSampling,
@@ -47,13 +47,16 @@ fn main() {
             (1e-15, TworkType::Float64X2),
         ] {
             let ms = median_ms(nrun_heavy, || {
-                black_box(compute_sve(
-                    LogisticKernel::new(lambda),
-                    eps,
-                    None,
-                    None,
-                    twork,
-                ));
+                black_box(
+                    compute_sve(
+                        LogisticKernel::new(lambda).unwrap(),
+                        Some(eps),
+                        None,
+                        None,
+                        twork,
+                    )
+                    .unwrap(),
+                );
             });
             report(
                 &format!("sve       Λ={lambda:.0e} ε={eps:.0e} {twork:?}"),
@@ -66,35 +69,39 @@ fn main() {
     for &lambda in &[1e3, 1e5] {
         let eps = 1e-10;
         let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
-            LogisticKernel::new(lambda),
+            LogisticKernel::new(lambda).unwrap(),
             beta,
             Some(eps),
             None,
-        );
+        )
+        .unwrap();
         let l = basis.size();
         let tag = format!("Λ={lambda:.0e} L={l}");
 
         report(
             &format!("basis     {tag} (incl. SVE)"),
             median_ms(nrun_heavy, || {
-                black_box(FiniteTempBasis::<LogisticKernel, Fermionic>::new(
-                    LogisticKernel::new(lambda),
-                    beta,
-                    Some(eps),
-                    None,
-                ));
+                black_box(
+                    FiniteTempBasis::<LogisticKernel, Fermionic>::new(
+                        LogisticKernel::new(lambda).unwrap(),
+                        beta,
+                        Some(eps),
+                        None,
+                    )
+                    .unwrap(),
+                );
             }),
         );
         report(
             &format!("tau_samp  new {tag}"),
             median_ms(nrun_light, || {
-                black_box(TauSampling::<Fermionic>::new(&basis));
+                black_box(TauSampling::<Fermionic>::new(&basis).unwrap());
             }),
         );
         report(
             &format!("matsu     new {tag}"),
             median_ms(nrun_light, || {
-                black_box(MatsubaraSampling::<Fermionic>::new(&basis));
+                black_box(MatsubaraSampling::<Fermionic>::new(&basis).unwrap());
             }),
         );
         report(
@@ -104,8 +111,8 @@ fn main() {
             }),
         );
 
-        let tau = TauSampling::<Fermionic>::new(&basis);
-        let mats = MatsubaraSampling::<Fermionic>::new(&basis);
+        let tau = TauSampling::<Fermionic>::new(&basis).unwrap();
+        let mats = MatsubaraSampling::<Fermionic>::new(&basis).unwrap();
         let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(&basis).unwrap();
 
         for &extra in &[1usize, 100, 10_000] {
@@ -117,14 +124,18 @@ fn main() {
                         vec![extra, n]
                     }
                 };
-                let coeffs = Tensor::<f64, DynRank>::from_fn(&shape(l)[..], |i| {
-                    ((i[0] * 7 + i[1] * 3) % 11) as f64 * 0.1 - 0.5
-                });
-                let gtau = tau.evaluate_nd(None, &coeffs, dim);
-                let zcoeffs = Tensor::<Complex<f64>, DynRank>::from_fn(&shape(l)[..], |i| {
-                    Complex::new(coeffs[[i[0], i[1]]], 0.0)
-                });
-                let giw = mats.evaluate_nd(None, &zcoeffs, dim);
+                let sh = shape(l);
+                let data: Vec<f64> = (0..sh[0] * sh[1])
+                    .map(|k| {
+                        let (i0, i1) = (k % sh[0], k / sh[0]);
+                        ((i0 * 7 + i1 * 3) % 11) as f64 * 0.1 - 0.5
+                    })
+                    .collect();
+                let zdata: Vec<Complex<f64>> = data.iter().map(|&x| Complex::new(x, 0.0)).collect();
+                let coeffs = TypedTensor::from_vec_col_major(sh.clone(), data).unwrap();
+                let gtau = tau.evaluate_nd(None, &coeffs, dim).unwrap();
+                let zcoeffs = TypedTensor::from_vec_col_major(sh, zdata).unwrap();
+                let giw = mats.evaluate_nd(None, &zcoeffs, dim).unwrap();
                 let n = if extra >= 10_000 {
                     nrun_heavy
                 } else {
@@ -134,31 +145,31 @@ fn main() {
                 report(
                     &format!("tau  eval {t}"),
                     median_ms(n, || {
-                        black_box(tau.evaluate_nd(None, &coeffs, dim));
+                        black_box(tau.evaluate_nd(None, &coeffs, dim).unwrap());
                     }),
                 );
                 report(
                     &format!("tau  fit  {t}"),
                     median_ms(n, || {
-                        black_box(tau.fit_nd(None, &gtau, dim));
+                        black_box(tau.fit_nd(None, &gtau, dim).unwrap());
                     }),
                 );
                 report(
                     &format!("matsu eval {t}"),
                     median_ms(n, || {
-                        black_box(mats.evaluate_nd(None, &zcoeffs, dim));
+                        black_box(mats.evaluate_nd(None, &zcoeffs, dim).unwrap());
                     }),
                 );
                 report(
                     &format!("matsu fit  {t}"),
                     median_ms(n, || {
-                        black_box(mats.fit_nd(None, &giw, dim));
+                        black_box(mats.fit_nd(None, &giw, dim).unwrap());
                     }),
                 );
                 report(
                     &format!("ir2dlr     {t}"),
                     median_ms(n, || {
-                        black_box(dlr.from_ir_nd(None, &coeffs, dim));
+                        black_box(dlr.from_ir_nd(None, &coeffs, dim).unwrap());
                     }),
                 );
             }

@@ -43,7 +43,6 @@ poles.
 ## Into the DLR and back
 
 ```rust
-use mdarray::Tensor;
 use sparse_ir::{
     Basis, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
 };
@@ -61,7 +60,9 @@ assert_eq!(dlr.poles().len(), basis.size());
 an array, so a one-dimensional \\(G_l\\) goes in as a rank-1 tensor:
 
 ```rust,ignore
-let g_l_tensor = Tensor::<f64, _>::from_fn([basis.size()], |i| g_l[i[0]]).into_dyn();
+use sparse_ir::TypedTensor;
+
+let g_l_tensor = TypedTensor::from_vec_col_major(vec![basis.size()], g_l.clone())?;
 let c_p = dlr.from_ir_nd::<f64>(None, &g_l_tensor, 0)?;
 let g_l_again = dlr.to_ir_nd::<f64>(None, &c_p, 0)?;
 ```
@@ -83,7 +84,7 @@ terms, with no basis functions and no sampling matrix,
 
 ```rust,ignore
 let g_iv: Complex64 = (0..poles.len())
-    .map(|p| c_p[[p]] / (Complex64::new(0.0, nu) - poles[p]))
+    .map(|p| c_p.get(&[p]).unwrap() / (Complex64::new(0.0, nu) - poles[p]))
     .sum();
 ```
 

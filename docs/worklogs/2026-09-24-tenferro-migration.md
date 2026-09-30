@@ -61,3 +61,84 @@ Full output: see the commit message of the benchmark commit / rerun the example.
 3. No mainline extended-precision (double-double) scalar; `ext/df64-proof` is unpublished.
    sparse-ir needs Df64 SVD/QR for the SVE at ε < 1e-8.
 4. Single-threaded thin SVD is 4–14% slower than calling faer 0.23 directly for 52x52–400x200.
+5. `TypedTensor<T, Rank<2>>` is a natural matrix type, but element access is fallible and verbose:
+   no `Index<[usize; 2]>`, `get2(i, j)` returns `Result<&T>`, and `host_col_major_view()`
+   also returns `Result`. Numerical code with dense index loops gets `?`/`unwrap` noise.
+   Wish: an infallible `Index`/`IndexMut` on host-owned compact tensors (and on `ColMajorView`).
+6. Owned `TypedTensor<T>` requires `T: TensorScalar` (sealed). Extended-precision matrices
+   (Df64 in the SVE) cannot use the same container, so sparse-ir keeps a small in-house
+   column-major matrix for generic `T`. Wish: host-only storage for arbitrary `T: Copy`.
+7. `TypedTensor` is not `Clone`; every copy is an explicit `duplicate()` (fallible for views).
+   Structs holding a tensor cannot `#[derive(Clone)]`, which pushes the tensor behind `Arc`
+   or forces hand-written `Clone` impls.
+8. `TypedTensorView::duplicate()` and `as_slice()` reject non-contiguous (strided) views.
+   There is no "gather a strided host view into a compact column-major buffer" primitive,
+   so sparse-ir carries its own strided gather (`fitters::common::gather_col_major`).
+   Wish: `view.to_col_major()` (or `duplicate()` that compacts).
+9. `TypedTensor::get` / `get_mut` require `T: One + Zero` in addition to `TensorScalar`,
+   which leaks into every generic helper that only wants to read an element.
+10. tenferro-linalg entry points are `DynRank`-only; a `TypedTensor<T, Rank<2>>` matrix has
+    to be converted before calling SVD/QR, and results come back as `DynRank`.
+11. MSRV 1.96 and a pinned faer 0.24 in tenferro-cpu force the same toolchain/faer on
+    downstream crates (sparse-ir previously used faer 0.23 directly).
+12. Construction/view overhead is large for small tensors: `from_vec_col_major` costs
+    ~210 ns and `zeros` ~210 ns (vs ~30 ns for the raw allocations), and `as_view`
+    65–85 ns. For a 52-element tau evaluation this is the dominant cost
+    (0.3 µs → 0.5 µs end to end). A cheap constructor for already-validated compact
+    column-major buffers would remove most of it.
+
+## Status (2026-09-24)
+
+- `sparse-ir`: all public array types are `TypedTensor<T>` (`DynRank`) / `Matrix<T>`
+  (`TypedTensor<T, Rank<2>>`); mdarray, mdarray-linalg and mdarray-linalg-faer removed
+  from the workspace. Fitter transforms return `sparse_ir::Result`. Tests: 252 passed.
+- `sparse-ir-capi`: ported without ABI changes. Row-major C buffers are handled as
+  column-major tensors with reversed dims (zero-copy views for the inplace sampling
+  entry points; one flat copy for DLR conversion, as before). Library errors map to
+  status codes (`Unsupported` → `SPIR_NOT_SUPPORTED`, `ShapeMismatch` →
+  `SPIR_INPUT_DIMENSION_MISMATCH`, ...). Condition numbers use
+  `sparse_ir::fitters::singular_values`.
+- Df64 TSVD/QR remain in-house (`tsvd.rs`); tenferro-linalg is not extended.
+- Small matrix-vector products (`pre == 1`, `post <= 4`, `m*n <= 128^2`, default
+  backend) bypass faer's GEMM dispatch (375 ns for a 52×52 matvec) in
+  `apply_along_axis`.
+- Tests: sparse-ir 252 passed; sparse-ir-capi 53+18+2+3 (59 with `system-blas`);
+  C++ `cxx_tests` via `run_with_rust_capi.sh` all passed.
+
+## Benchmark after migration (same machine, `RAYON_NUM_THREADS=1`)
+
+| case | main (ms) | tenferro (ms) |
+| --- | ---: | ---: |
+| SVE Λ=1e5 ε=1e-6 f64 | 109 | 112 |
+| SVE Λ=1e5 ε=1e-10 Df64 | 5368 | 5258 |
+| basis Λ=1e5 L=95 (incl. SVE) | 5305 | 5324 |
+| MatsubaraSampling::new Λ=1e5 | 356 | 375 |
+| tau eval Λ=1e3 extra=1 dim=0 | 0.0003 | 0.0005 |
+| tau fit Λ=1e5 extra=1 / 100 / 10000 (dim 0) | 0.0018 / 0.069 / 6.63 | 0.0023 / 0.070 / 6.57 |
+| tau fit Λ=1e5 extra=10000 dim=1 | 7.95 | 6.46 |
+| matsu fit Λ=1e5 extra=1 / 100 / 10000 (dim 0) | 0.0074 / 0.317 / 30.8 | 0.0090 / 0.296 / 29.2 |
+| ir2dlr Λ=1e5 extra=10000 dim=1 | 8.06 | 6.44 |
+
+Basis generation (SVE) is at parity within run-to-run noise (±3%). Fits and
+evaluations with non-trivial batch sizes are equal or faster (up to 20–25% for
+`dim=1`). Single-vector calls are 0.2–0.5 µs slower in absolute terms because of
+tensor construction overhead (feedback item 12).
+
+## Rebuilt on 0.10.0 (2026-09-30)
+
+The branch was rebuilt on `origin/main` 8ef34ad (0.10.0) instead of 0579962;
+the old head is kept as `archive/tenferro-migration-0579962`. Each commit of
+the old branch is re-applied in order.
+
+- Array migration: `sparse_ir::Error` of main (typed errors, #296/#300)
+  replaces the branch's error type; it gains `Gemm` and `Tensor` variants.
+  The fitters keep main's contract (whole-shape checks of `out`, nothing
+  written on an error, SVD failures naming the matrix, condition numbers).
+  Samplings keep main's point order and argument checks.
+- Tests: every test of main is kept. The in-file fitter and gemm tests whose
+  API is gone are covered by the rewritten tests; the ones not covered were
+  carried over (`fitters/contract_tests.rs`), and the doc examples restored.
+- Local results after the migration commit (Linux x86_64): sparse-ir lib 383
+  passed, integration tests 19, doctests 18; sparse-ir-capi 79 + 37 + 11 + 2
+  + 3 + 43 + 1; Rust tutorial `scripts/check.sh --run` passes (examples match
+  the committed reference values); C headers unchanged.

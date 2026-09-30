@@ -9,11 +9,11 @@
 
 use std::ops::Neg;
 
-use mdarray::{DynRank, Tensor};
 use num_complex::Complex64;
 use rustfft::FftPlanner;
 use sparse_ir::{
-    Basis, Error, MatsubaraFreq, MatsubaraSampling, Statistics, StatisticsType, TauSampling,
+    Basis, Error, Matrix, MatsubaraFreq, MatsubaraSampling, Statistics, StatisticsType,
+    TauSampling, TypedTensor,
 };
 
 /// Reorders and re-signs `values`, sampled on `points` and laid out row-major
@@ -303,23 +303,19 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
     /// The IR coefficients behind values given at the sampling times.
     pub fn tau_to_l(&self, values: &[Complex64], ncols: usize) -> Result<Vec<Complex64>, Error> {
         let input = to_tensor(values, self.n_tau(), ncols);
-        Ok(from_tensor(&self.tau.fit_nd_zz(None, &input.expr(), 0)?))
+        Ok(from_tensor(&self.tau.fit_nd_zz(None, &input, 0)?))
     }
 
     /// IR coefficients → values at the sampling times.
     pub fn l_to_tau(&self, coeffs: &[Complex64], ncols: usize) -> Result<Vec<Complex64>, Error> {
         let input = to_tensor_rows(coeffs, ncols);
-        Ok(from_tensor(&self.tau.evaluate_nd_zz(
-            None,
-            &input.expr(),
-            0,
-        )?))
+        Ok(from_tensor(&self.tau.evaluate_nd_zz(None, &input, 0)?))
     }
 
     /// IR coefficients → values at the sampling frequencies.
     pub fn l_to_wn(&self, coeffs: &[Complex64], ncols: usize) -> Result<Vec<Complex64>, Error> {
         let input = to_tensor_rows(coeffs, ncols);
-        Ok(from_tensor(&self.wn.evaluate_nd(None, &input.expr(), 0)?))
+        Ok(from_tensor(&self.wn.evaluate_nd(None, &input, 0)?))
     }
 
     /// `G(τ) → G(β − τ)` for a function of this mesh's statistics.
@@ -352,11 +348,11 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
 /// of which apply the statistics of the basis they belong to — which is what
 /// makes a cross-statistics evaluation safe.
 pub fn evaluate_rows(
-    functions: &mdarray::DTensor<f64, 2>,
+    functions: &Matrix<f64>,
     coefficients: &[Complex64],
     ncols: usize,
 ) -> Vec<Complex64> {
-    let (n_points, size) = *functions.shape();
+    let (n_points, size) = (functions.shape()[0], functions.shape()[1]);
     assert!(ncols > 0, "a row needs at least one column");
     assert_eq!(
         coefficients.len(),
@@ -367,7 +363,7 @@ pub fn evaluate_rows(
     let mut out = vec![Complex64::default(); n_points * ncols];
     for i in 0..n_points {
         for l in 0..size {
-            let f = functions[[i, l]];
+            let f = *functions.get(&[i, l]).expect("index within the matrix");
             if f == 0.0 {
                 continue;
             }
@@ -381,7 +377,7 @@ pub fn evaluate_rows(
 
 /// Wraps `values` as an `nrows × ncols` tensor, taking the number of rows
 /// from the length — which is how many IR coefficients there turned out to be.
-fn to_tensor_rows(values: &[Complex64], ncols: usize) -> Tensor<Complex64, DynRank> {
+fn to_tensor_rows(values: &[Complex64], ncols: usize) -> TypedTensor<Complex64> {
     assert!(ncols > 0, "a row needs at least one column");
     assert_eq!(
         values.len() % ncols,
@@ -392,18 +388,27 @@ fn to_tensor_rows(values: &[Complex64], ncols: usize) -> Tensor<Complex64, DynRa
     to_tensor(values, values.len() / ncols, ncols)
 }
 
-fn to_tensor(values: &[Complex64], nrows: usize, ncols: usize) -> Tensor<Complex64, DynRank> {
+/// Wraps the row-major `values` as an `nrows × ncols` tensor. Tensors are
+/// column-major, so the rows are transposed into columns.
+fn to_tensor(values: &[Complex64], nrows: usize, ncols: usize) -> TypedTensor<Complex64> {
     assert_eq!(
         values.len(),
         nrows * ncols,
         "expected {nrows} rows of {ncols} values, got {} values",
         values.len()
     );
-    Tensor::<Complex64, DynRank>::from_fn(&[nrows, ncols][..], |index| {
-        values[index[0] * ncols + index[1]]
-    })
+    let column_major: Vec<Complex64> = (0..nrows * ncols)
+        .map(|k| values[(k % nrows) * ncols + k / nrows])
+        .collect();
+    TypedTensor::from_vec_col_major(vec![nrows, ncols], column_major)
+        .expect("the length was checked above")
 }
 
-fn from_tensor(tensor: &Tensor<Complex64, DynRank>) -> Vec<Complex64> {
-    tensor.iter().copied().collect()
+/// The elements of an `nrows × ncols` tensor, row-major.
+fn from_tensor(tensor: &TypedTensor<Complex64>) -> Vec<Complex64> {
+    let [nrows, ncols] = [tensor.shape()[0], tensor.shape()[1]];
+    let data = tensor.host_data().expect("owned tensors live on the host");
+    (0..nrows * ncols)
+        .map(|k| data[(k / ncols) + nrows * (k % ncols)])
+        .collect()
 }

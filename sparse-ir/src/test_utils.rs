@@ -1,13 +1,74 @@
 //! Common test utilities
 
-use mdarray::{DynRank, Tensor};
 use num_complex::Complex;
+use num_traits::{One, Zero};
+use tenferro_tensor::{TensorRank, TensorScalar, TypedTensor};
+
+/// Column-major multi-index of linear offset `lin`.
+fn unravel(mut lin: usize, shape: &[usize], idx: &mut [usize]) {
+    for (i, &n) in idx.iter_mut().zip(shape) {
+        *i = lin % n;
+        lin /= n;
+    }
+}
+
+/// Column-major linear offset of multi-index `idx`.
+fn ravel(idx: &[usize], shape: &[usize]) -> usize {
+    idx.iter()
+        .zip(shape)
+        .rev()
+        .fold(0, |acc, (&i, &n)| acc * n + i)
+}
+
+/// Build a column-major tensor from an index function.
+pub fn tensor_from_fn<T: TensorScalar>(
+    shape: &[usize],
+    mut f: impl FnMut(&[usize]) -> T,
+) -> TypedTensor<T> {
+    let len = shape.iter().product();
+    let mut idx = vec![0; shape.len()];
+    let data = (0..len)
+        .map(|lin| {
+            unravel(lin, shape, &mut idx);
+            f(&idx)
+        })
+        .collect();
+    TypedTensor::from_vec_col_major(shape.to_vec(), data).unwrap()
+}
+
+/// Column-major tensor filled with `value`.
+pub fn tensor_filled<T: TensorScalar + Copy>(shape: &[usize], value: T) -> TypedTensor<T> {
+    tensor_from_fn(shape, |_| value)
+}
+
+/// Element access by multi-index for test assertions.
+pub trait At<T> {
+    /// Element at multi-index `idx` (panics when out of range).
+    fn at(&self, idx: &[usize]) -> T;
+}
+
+impl<T: TensorScalar + Copy + One + Zero, R: TensorRank> At<T> for TypedTensor<T, R> {
+    fn at(&self, idx: &[usize]) -> T {
+        *self.get(idx).unwrap()
+    }
+}
+
+impl<T: Copy> At<T> for crate::matrix::Mat<T> {
+    fn at(&self, idx: &[usize]) -> T {
+        self[idx]
+    }
+}
 
 /// Move axis from position src to position dst
 ///
 /// Equivalent to numpy.moveaxis or libsparseir's movedim.
-pub fn movedim<T: Clone>(arr: &Tensor<T, DynRank>, src: usize, dst: usize) -> Tensor<T, DynRank> {
-    let rank = arr.rank();
+pub fn movedim<T: TensorScalar + Copy>(
+    arr: &TypedTensor<T>,
+    src: usize,
+    dst: usize,
+) -> TypedTensor<T> {
+    let shape = arr.shape().to_vec();
+    let rank = shape.len();
     assert!(
         src < rank && dst < rank,
         "src={}, dst={} must be < rank={}",
@@ -16,16 +77,19 @@ pub fn movedim<T: Clone>(arr: &Tensor<T, DynRank>, src: usize, dst: usize) -> Te
         rank
     );
 
-    if src == dst {
-        return arr.clone();
-    }
-
-    // Create permutation: move src to dst
+    // Output axis k reads input axis perm[k].
     let mut perm: Vec<usize> = (0..rank).collect();
     perm.remove(src);
     perm.insert(dst, src);
-
-    arr.permute(&perm[..]).to_tensor()
+    let out_shape: Vec<usize> = perm.iter().map(|&p| shape[p]).collect();
+    let data = arr.host_data().unwrap();
+    let mut src_idx = vec![0; rank];
+    tensor_from_fn(&out_shape, |idx| {
+        for (k, &p) in perm.iter().enumerate() {
+            src_idx[p] = idx[k];
+        }
+        data[ravel(&src_idx, &shape)]
+    })
 }
 
 /// Simple deterministic pseudo-random number generator (LCG)
@@ -199,16 +263,18 @@ pub fn generate_nd_test_data<T, S, K>(
     seed: u64,
     extra_dims: &[usize],
 ) -> (
-    Tensor<T, DynRank>,
-    Tensor<T, DynRank>,
-    Tensor<num_complex::Complex<f64>, DynRank>,
+    TypedTensor<T>,
+    TypedTensor<T>,
+    TypedTensor<num_complex::Complex<f64>>,
 )
 where
     T: RandomGenerate
         + ConvertFromReal
-        + Clone
+        + TensorScalar
+        + Copy
+        + One
+        + Zero
         + std::ops::Mul<f64, Output = T>
-        + Default
         + From<f64>
         + std::ops::Sub<Output = T>
         + std::ops::Mul<Output = T>,
@@ -229,15 +295,15 @@ where
     // Create tensors
     let mut coeffs_shape = vec![basis_size];
     coeffs_shape.extend_from_slice(extra_dims);
-    let mut coeffs: Tensor<T, DynRank> = Tensor::zeros(&coeffs_shape[..]);
+    let mut coeffs = tensor_filled(&coeffs_shape, T::zero());
 
     let mut gtau_shape = vec![tau_points.len()];
     gtau_shape.extend_from_slice(extra_dims);
-    let mut gtau_values: Tensor<T, DynRank> = Tensor::zeros(&gtau_shape[..]);
+    let mut gtau_values = tensor_filled(&gtau_shape, T::zero());
 
     let mut giwn_shape = vec![matsubara_freqs.len()];
     giwn_shape.extend_from_slice(extra_dims);
-    let mut giwn_values: Tensor<Complex<f64>, DynRank> = Tensor::zeros(&giwn_shape[..]);
+    let mut giwn_values = tensor_filled(&giwn_shape, Complex::new(0.0, 0.0));
 
     // Generate data for each extra index
     for flat_idx in 0..total_extra {
@@ -258,7 +324,7 @@ where
 
             let mut full_idx = vec![l];
             full_idx.extend_from_slice(&extra_idx);
-            coeffs[&full_idx[..]] = scaled_coeff;
+            *coeffs.get_mut(&full_idx).unwrap() = scaled_coeff;
         }
 
         // Random pole position for this slice
@@ -269,7 +335,7 @@ where
             let g = gtau_single_pole::<S>(tau, omega, beta).unwrap();
             let mut full_idx = vec![i];
             full_idx.extend_from_slice(&extra_idx);
-            gtau_values[&full_idx[..]] = T::from_real(g);
+            *gtau_values.get_mut(&full_idx).unwrap() = T::from_real(g);
         }
 
         // Compute G(iν) values
@@ -277,7 +343,7 @@ where
             let g = giwn_single_pole::<S>(freq, omega, beta).unwrap();
             let mut full_idx = vec![i];
             full_idx.extend_from_slice(&extra_idx);
-            giwn_values[&full_idx[..]] = g;
+            *giwn_values.get_mut(&full_idx).unwrap() = g;
         }
     }
 
@@ -288,18 +354,39 @@ where
 // Condition-number oracle
 // ============================================================================
 
+/// A host matrix that the oracles accept: the internal [`crate::matrix::Mat`]
+/// or a [`crate::Matrix`] (`TypedTensor` of rank 2)
+pub trait ToMat<T> {
+    /// Column-major copy as a `Mat`
+    fn to_mat(&self) -> crate::matrix::Mat<T>;
+}
+
+impl<T: Clone> ToMat<T> for crate::matrix::Mat<T> {
+    fn to_mat(&self) -> crate::matrix::Mat<T> {
+        self.clone()
+    }
+}
+
+impl<T: TensorScalar + Copy> ToMat<T> for crate::Matrix<T> {
+    fn to_mat(&self) -> crate::matrix::Mat<T> {
+        crate::matrix::Mat::from_typed(self).unwrap()
+    }
+}
+
 /// Condition number `σ_max / σ_min` of a real matrix, as an independent oracle
 ///
 /// The singular values are computed in double-double precision by the
 /// nalgebra-based [`crate::tsvd::compute_svd_dtensor`], which shares no code
 /// with the faer SVD that the fitters (and so the samplings' `condition_number`)
 /// use.
-pub fn oracle_condition_number(matrix: &mdarray::DTensor<f64, 2>) -> f64 {
+pub fn oracle_condition_number(matrix: &impl ToMat<f64>) -> f64 {
     use crate::Df64;
+    use crate::matrix::Mat;
     use crate::numeric::CustomNumeric;
 
+    let matrix = matrix.to_mat();
     let (rows, cols) = *matrix.shape();
-    let a = mdarray::DTensor::<Df64, 2>::from_fn([rows, cols], |idx| Df64::from(matrix[idx]));
+    let a = Mat::<Df64>::from_fn([rows, cols], |idx| Df64::from(matrix[idx]));
     let (_, s, _) = crate::tsvd::compute_svd_dtensor(&a).unwrap();
     // compute_svd_dtensor truncates below 2 eps_Df64 * σ_max; it must not have
     // dropped a singular value, or s_min below would not be σ_min.
@@ -322,9 +409,10 @@ pub fn oracle_condition_number(matrix: &mdarray::DTensor<f64, 2>) -> f64 {
 
 /// `[Re A; Im A]` (2n × m) of a complex n × m matrix `A`: the matrix of the
 /// real least-squares problem `[Re A; Im A] x = [Re g; Im g]`
-pub fn stack_re_im(a: &mdarray::DTensor<Complex<f64>, 2>) -> mdarray::DTensor<f64, 2> {
+pub fn stack_re_im(a: &impl ToMat<Complex<f64>>) -> crate::matrix::Mat<f64> {
+    let a = a.to_mat();
     let (n, m) = *a.shape();
-    mdarray::DTensor::<f64, 2>::from_fn([2 * n, m], |idx| {
+    crate::matrix::Mat::<f64>::from_fn([2 * n, m], |idx| {
         let z = a[[idx[0] % n, idx[1]]];
         if idx[0] < n { z.re } else { z.im }
     })
@@ -333,9 +421,10 @@ pub fn stack_re_im(a: &mdarray::DTensor<Complex<f64>, 2>) -> mdarray::DTensor<f6
 /// Real embedding `[[Re A, -Im A], [Im A, Re A]]` (2n × 2m) of a complex n × m
 /// matrix `A`; it has the singular values of `A`, each twice, and so the
 /// condition number of `A`
-pub fn realify(a: &mdarray::DTensor<Complex<f64>, 2>) -> mdarray::DTensor<f64, 2> {
+pub fn realify(a: &impl ToMat<Complex<f64>>) -> crate::matrix::Mat<f64> {
+    let a = a.to_mat();
     let (n, m) = *a.shape();
-    mdarray::DTensor::<f64, 2>::from_fn([2 * n, 2 * m], |idx| {
+    crate::matrix::Mat::<f64>::from_fn([2 * n, 2 * m], |idx| {
         let z = a[[idx[0] % n, idx[1] % m]];
         match (idx[0] < n, idx[1] < m) {
             (true, true) | (false, false) => z.re,

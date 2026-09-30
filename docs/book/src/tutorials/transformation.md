@@ -43,7 +43,7 @@ let weight = 1.0 / (0.5 * beta * pole).tanh();
 // evaluate_omega gives a [points, size] matrix of v_l(ω).
 let v_at_pole = basis.evaluate_omega(&[pole])?;
 let g_l: Vec<f64> = (0..basis.size())
-    .map(|l| -basis.s()[l] * v_at_pole[[0, l]] * weight)
+    .map(|l| -basis.s()[l] * v_at_pole.get(&[0, l]).unwrap() * weight)
     .collect();
 
 assert_eq!(g_l.len(), 34);

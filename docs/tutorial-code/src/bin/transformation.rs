@@ -18,11 +18,11 @@
 
 use std::error::Error;
 
-use mdarray::{DTensor, Tensor};
 use sparse_ir::{
     Basis, Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
     MatsubaraSampling, TauSampling,
 };
+use sparse_ir::{Matrix, TypedTensor};
 use sparse_ir_tutorial::{
     Table, integrate_segments, output_path, provenance, three_gaussians as rho, write_table,
 };
@@ -90,9 +90,9 @@ fn poles() -> Result<(), Box<dyn Error>> {
     // `1/tanh(βω̄/2)` factor, so that is what the basis expands.
     let regularized = POLE_WEIGHT / (0.5 * POLE_BETA * POLE_POSITION).tanh();
 
-    let v_at_pole: DTensor<f64, 2> = basis.evaluate_omega(&[POLE_POSITION])?;
+    let v_at_pole: Matrix<f64> = basis.evaluate_omega(&[POLE_POSITION])?;
     let rho_l: Vec<f64> = (0..basis.size())
-        .map(|l| v_at_pole[[0, l]] * regularized)
+        .map(|l| *v_at_pole.get(&[0, l]).unwrap() * regularized)
         .collect();
     let g_l: Vec<f64> = basis
         .s()
@@ -104,7 +104,7 @@ fn poles() -> Result<(), Box<dyn Error>> {
     // The DLR says the same thing in one call: it knows how a pole maps onto
     // the basis, so it takes the pole weights and returns `Gₗ` directly.
     let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, vec![POLE_POSITION])?;
-    let weights = Tensor::<f64, _>::from_fn([1], |_| regularized).into_dyn();
+    let weights = TypedTensor::from_vec_col_major(vec![1], vec![regularized])?;
     let g_l_dlr = dlr.to_ir_nd::<f64>(None, &weights, 0)?;
 
     let mut table = Table::new(provenance(EXAMPLE));
@@ -113,7 +113,9 @@ fn poles() -> Result<(), Box<dyn Error>> {
     table.push("g_l", g_l);
     table.push(
         "g_l_dlr",
-        (0..basis.size()).map(|l| g_l_dlr[[l]]).collect::<Vec<_>>(),
+        (0..basis.size())
+            .map(|l| *g_l_dlr.get(&[l]).unwrap())
+            .collect::<Vec<_>>(),
     );
     write_table(&output_path(EXAMPLE, "pole_coefficients")?, &table)?;
 
@@ -180,11 +182,11 @@ fn smooth_spectrum() -> Result<FiniteTempBasis<LogisticKernel, Fermionic>, Box<d
 
     // The expansion is good on any ω you ask for, not only on the knots.
     let omegas = linspace(-5.0, 5.0, N_OMEGA);
-    let v_at_omegas: DTensor<f64, 2> = basis.evaluate_omega(&omegas)?;
+    let v_at_omegas: Matrix<f64> = basis.evaluate_omega(&omegas)?;
     let reconstructed: Vec<f64> = (0..omegas.len())
         .map(|i| {
             (0..basis.size())
-                .map(|l| v_at_omegas[[i, l]] * rho_l[l])
+                .map(|l| *v_at_omegas.get(&[i, l]).unwrap() * rho_l[l])
                 .sum()
         })
         .collect();
@@ -217,9 +219,13 @@ fn imaginary_time(
     let taus = linspace(0.0, BETA, N_TAU);
 
     // Directly: `G(τ) = Σₗ uₗ(τ) Gₗ`.
-    let u_at_taus: DTensor<f64, 2> = basis.evaluate_tau(&taus)?;
+    let u_at_taus: Matrix<f64> = basis.evaluate_tau(&taus)?;
     let g_tau_direct: Vec<f64> = (0..taus.len())
-        .map(|i| (0..basis.size()).map(|l| u_at_taus[[i, l]] * g_l[l]).sum())
+        .map(|i| {
+            (0..basis.size())
+                .map(|l| *u_at_taus.get(&[i, l]).unwrap() * g_l[l])
+                .sum()
+        })
         .collect();
 
     // Or through `TauSampling`, which builds the same matrix once and can also
@@ -240,7 +246,9 @@ fn imaginary_time(
         let u_at_tau = basis
             .evaluate_tau(&[tau])
             .expect("τ is inside [0, β] by construction");
-        (0..basis.size()).map(|l| u_at_tau[[0, l]] * g_l[l]).sum()
+        (0..basis.size())
+            .map(|l| *u_at_tau.get(&[0, l]).unwrap() * g_l[l])
+            .sum()
     });
 
     let mut table = Table::new(provenance(EXAMPLE));
@@ -273,7 +281,9 @@ fn narrow_basis(
         let u_at_tau = basis
             .evaluate_tau(&[tau])
             .expect("τ is inside [0, β] by construction");
-        (0..basis.size()).map(|l| u_at_tau[[0, l]] * g_l[l]).sum()
+        (0..basis.size())
+            .map(|l| *u_at_tau.get(&[0, l]).unwrap() * g_l[l])
+            .sum()
     });
 
     // The point of the section: the coefficients do not follow the singular
@@ -309,11 +319,16 @@ fn matrix_valued(
     let size = basis.size();
     // Two orbital indices times the basis, each Green's function a fixed
     // multiple of `Gₗ` so that the round trip has something to check.
-    let coeffs = Tensor::<f64, _>::from_fn([2, 3, size], |index| {
-        let (i, j, l) = (index[0], index[1], index[2]);
-        (1.0 + i as f64 + 2.0 * j as f64) * g_l[l]
-    })
-    .into_dyn();
+    // Tensors are column-major: the first index runs fastest.
+    let mut data = Vec::with_capacity(2 * 3 * size);
+    for g in g_l {
+        for j in 0..3 {
+            for i in 0..2 {
+                data.push((1.0 + i as f64 + 2.0 * j as f64) * g);
+            }
+        }
+    }
+    let coeffs = TypedTensor::from_vec_col_major(vec![2, 3, size], data)?;
 
     let sampling = MatsubaraSampling::<Fermionic>::new(basis)?;
     let values = sampling.evaluate_nd_real(None, &coeffs, 2)?;
@@ -323,7 +338,9 @@ fn matrix_valued(
     for i in 0..2 {
         for j in 0..3 {
             for l in 0..size {
-                worst = worst.max((recovered[[i, j, l]] - coeffs[[i, j, l]]).abs());
+                worst = worst.max(
+                    (*recovered.get(&[i, j, l]).unwrap() - *coeffs.get(&[i, j, l]).unwrap()).abs(),
+                );
             }
         }
     }

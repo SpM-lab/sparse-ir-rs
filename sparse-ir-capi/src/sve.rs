@@ -583,10 +583,12 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 .piecewise(&segs_y_dd)
                 .map_err(|e| status_from(&e))?;
 
-            // Convert matrix from C array to DTensor
+            // Convert matrix from C array to a Mat
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix =
-                mdarray::DTensor::<Df64, 2>::from_elem([nx as usize, ny as usize], Df64::new(0.0));
+            let mut matrix = sparse_ir::matrix::Mat::<Df64>::from_elem(
+                [nx as usize, ny as usize],
+                Df64::new(0.0),
+            );
 
             match memory_order {
                 MemoryOrder::RowMajor => {
@@ -626,9 +628,9 @@ pub extern "C" fn spir_sve_result_from_matrix(
             Ok(Box::into_raw(Box::new(sve_wrapper)))
         } else {
             // Double precision path
-            // Convert matrix from C array to DTensor
+            // Convert matrix from C array to a Mat
             let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            let mut matrix = mdarray::DTensor::<f64, 2>::zeros([nx as usize, ny as usize]);
+            let mut matrix = sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
 
             match memory_order {
                 MemoryOrder::RowMajor => {
@@ -882,7 +884,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
             if let Some(k_low_slice) = k_low_slice {
                 use sparse_ir::Df64;
                 use sparse_ir::numeric::CustomNumeric;
-                let mut matrix_dd = mdarray::DTensor::<Df64, 2>::from_elem(
+                let mut matrix_dd = sparse_ir::matrix::Mat::<Df64>::from_elem(
                     [nx as usize, ny as usize],
                     Df64::new(0.0),
                 );
@@ -907,11 +909,10 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                     }
                 }
                 // The centrosymmetric SVE is computed in double precision
-                mdarray::DTensor::<f64, 2>::from_fn(*matrix_dd.shape(), |idx| {
-                    matrix_dd[idx].to_f64()
-                })
+                matrix_dd.map(|v| v.to_f64())
             } else {
-                let mut matrix_f64 = mdarray::DTensor::<f64, 2>::zeros([nx as usize, ny as usize]);
+                let mut matrix_f64 =
+                    sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
                 match memory_order {
                     MemoryOrder::RowMajor => {
                         for i in 0..(nx as usize) {
@@ -1725,7 +1726,7 @@ mod tests {
     const MATRICES_LAMBDA: f64 = 10.0;
     const MATRICES_EPSILON: f64 = 1e-6;
 
-    fn row_major(m: &mdarray::DTensor<f64, 2>) -> Vec<f64> {
+    fn row_major(m: &sparse_ir::matrix::Mat<f64>) -> Vec<f64> {
         let (rows, cols) = *m.shape();
         (0..rows * cols).map(|k| m[[k / cols, k % cols]]).collect()
     }

@@ -4,9 +4,9 @@ use crate::error::Error;
 use crate::gauss::Rule;
 use crate::interpolation1d::legendre_collocation_matrix;
 use crate::kernel::SymmetryType;
+use crate::matrix::{Mat, Mat3};
 use crate::numeric::CustomNumeric;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
-use mdarray::DTensor;
 
 /// Remove Gauss weights from SVD matrix
 ///
@@ -24,10 +24,10 @@ use mdarray::DTensor;
 ///
 /// Matrix with weights removed
 pub(crate) fn remove_weights<T: CustomNumeric>(
-    matrix: &DTensor<T, 2>,
+    matrix: &Mat<T>,
     weights: &[T],
     is_row: bool,
-) -> DTensor<T, 2> {
+) -> Mat<T> {
     let mut result = matrix.clone();
 
     let shape = *result.shape();
@@ -130,13 +130,12 @@ pub(crate) fn extend_to_full_domain(
             let full_segments = mirror_segments_to_full_domain(&poly.knots);
 
             // Normalize by 1/sqrt(2) and convert to f64
-            let pos_data = DTensor::<f64, 2>::from_fn(*poly.data.shape(), |idx| {
-                poly.data[idx] / 2.0_f64.sqrt()
-            });
+            let pos_data =
+                Mat::<f64>::from_fn(poly.data.dims(), |idx| poly.data[idx] / 2.0_f64.sqrt());
 
             // Create negative part by reversing columns and applying signs
             let pos_shape = *pos_data.shape();
-            let mut neg_data = DTensor::<f64, 2>::from_fn([pos_shape.0, pos_shape.1], |idx| {
+            let mut neg_data = Mat::<f64>::from_fn([pos_shape.0, pos_shape.1], |idx| {
                 // Reverse column order: map column j to column (n_cols - 1 - j)
                 let reversed_col = pos_shape.1 - 1 - idx[1];
                 pos_data[[idx[0], reversed_col]]
@@ -151,7 +150,7 @@ pub(crate) fn extend_to_full_domain(
             }
 
             // Combine negative and positive parts (concatenate along axis 1)
-            let combined_data = DTensor::<f64, 2>::from_fn([pos_shape.0, pos_shape.1 * 2], |idx| {
+            let combined_data = Mat::<f64>::from_fn([pos_shape.0, pos_shape.1 * 2], |idx| {
                 if idx[1] < pos_shape.1 {
                     neg_data[[idx[0], idx[1]]]
                 } else {
@@ -195,7 +194,7 @@ pub(crate) fn extend_to_full_domain(
 /// * [`Error::InvalidParameter`] if `segments` has fewer than 2 entries
 /// * The errors of [`PiecewiseLegendrePoly::new`] for the segments
 pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
-    u_or_v: &DTensor<T, 2>,
+    u_or_v: &Mat<T>,
     segments: &[T],
     gauss_rule: &Rule<f64>,
     n_gauss: usize,
@@ -214,7 +213,7 @@ pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
     // Reshape to 3D: (n_gauss, n_segments, n_svals)
     // Note: Due to QR early termination, u_or_v may have fewer rows than expected
     // We need to handle the case where row_idx exceeds the actual number of rows
-    let mut tensor_3d = DTensor::<f64, 3>::zeros([n_gauss, n_segments, n_svals]);
+    let mut tensor_3d = Mat3::<f64>::zeros([n_gauss, n_segments, n_svals]);
     for i in 0..n_gauss {
         for j in 0..n_segments {
             for k in 0..n_svals {
@@ -234,7 +233,7 @@ pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
 
     // Transform to Legendre basis
     let cmat_shape = *cmat.shape();
-    let mut u_data = DTensor::<f64, 3>::zeros([cmat_shape.0, n_segments, n_svals]);
+    let mut u_data = Mat3::<f64>::zeros([cmat_shape.0, n_segments, n_svals]);
     for j in 0..n_segments {
         for k in 0..n_svals {
             for i in 0..cmat_shape.0 {
@@ -271,7 +270,7 @@ pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
     for k in 0..n_svals {
         // Extract data for this singular value: (n_coeffs, n_segments)
         let u_data_shape = u_data.shape();
-        let mut data = DTensor::<f64, 2>::zeros([u_data_shape.0, n_segments]);
+        let mut data = Mat::<f64>::zeros([u_data_shape.0, n_segments]);
         for i in 0..u_data_shape.0 {
             for j in 0..n_segments {
                 data[[i, j]] = u_data[[i, j, k]];
@@ -459,7 +458,7 @@ mod tests {
 
     #[test]
     fn test_remove_weights() {
-        let matrix = DTensor::<f64, 2>::from_fn([2, 2], |idx| (idx[0] * 2 + idx[1] + 1) as f64);
+        let matrix = Mat::<f64>::from_fn([2, 2], |idx| (idx[0] * 2 + idx[1] + 1) as f64);
         let weights = vec![1.0, 4.0];
 
         let result = remove_weights(&matrix, &weights, true);

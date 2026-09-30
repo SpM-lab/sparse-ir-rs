@@ -1,6 +1,7 @@
 //! SVE result container
 
 use crate::error::{Error, require_nonzero_size, require_threshold};
+use crate::matrix::Mat;
 use crate::poly::PiecewiseLegendrePolyVector;
 
 /// Result of Singular Value Expansion computation
@@ -57,7 +58,7 @@ impl SVEResult {
     /// * The errors of [`Self::new`], in particular [`Error::EmptyInput`] for
     ///   a matrix of rank 0, which has no singular functions
     pub fn from_discretized_matrix<T: crate::numeric::CustomNumeric + 'static>(
-        matrix: &mdarray::DTensor<T, 2>,
+        matrix: &Mat<T>,
         gauss_x: &crate::gauss::Rule<T>,
         gauss_y: &crate::gauss::Rule<T>,
         segments_x: &[f64],
@@ -75,12 +76,8 @@ impl SVEResult {
         let u_unweighted = crate::sve::utils::remove_weights(&u, gauss_x.w.as_slice(), true);
         let v_unweighted = crate::sve::utils::remove_weights(&v, gauss_y.w.as_slice(), true);
 
-        let u_f64 = mdarray::DTensor::<f64, 2>::from_fn(*u_unweighted.shape(), |idx| {
-            u_unweighted[idx].to_f64()
-        });
-        let v_f64 = mdarray::DTensor::<f64, 2>::from_fn(*v_unweighted.shape(), |idx| {
-            v_unweighted[idx].to_f64()
-        });
+        let u_f64 = Mat::<f64>::from_fn(u_unweighted.dims(), |idx| u_unweighted[idx].to_f64());
+        let v_f64 = Mat::<f64>::from_fn(v_unweighted.dims(), |idx| v_unweighted[idx].to_f64());
 
         let gauss_rule_f64 = crate::gauss::legendre::<f64>(n_gauss);
         let u_polys =
@@ -119,8 +116,8 @@ impl SVEResult {
     ///   are empty
     #[allow(clippy::too_many_arguments)]
     pub fn from_discretized_matrices_centrosymmetric(
-        even: &mdarray::DTensor<f64, 2>,
-        odd: &mdarray::DTensor<f64, 2>,
+        even: &Mat<f64>,
+        odd: &Mat<f64>,
         gauss_x: &crate::gauss::Rule<f64>,
         gauss_y: &crate::gauss::Rule<f64>,
         segments_x: &[f64],
@@ -139,7 +136,7 @@ impl SVEResult {
         }
 
         let gauss_rule_f64 = crate::gauss::legendre::<f64>(n_gauss);
-        let block = |matrix: &mdarray::DTensor<f64, 2>, symmetry: SymmetryType| {
+        let block = |matrix: &Mat<f64>, symmetry: SymmetryType| {
             let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
             let u_unweighted = crate::sve::utils::remove_weights(&u, gauss_x.w.as_slice(), true);
             let v_unweighted = crate::sve::utils::remove_weights(&v, gauss_y.w.as_slice(), true);

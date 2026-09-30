@@ -5,6 +5,7 @@
 use crate::basis::FiniteTempBasis;
 use crate::freq::{BosonicFreq, FermionicFreq};
 use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel};
+use crate::matrix::mat;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::polyfourier::{
     BosonicPiecewiseLegendreFT, FermionicPiecewiseLegendreFT, FermionicPiecewiseLegendreFTVector,
@@ -12,12 +13,11 @@ use crate::polyfourier::{
 };
 use crate::special_functions::spherical_bessel_j;
 use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
-use mdarray::tensor;
 use num_complex::Complex64;
 
 #[test]
 fn test_fermionic_ft_creation() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
@@ -30,7 +30,7 @@ fn test_fermionic_ft_creation() {
 
 #[test]
 fn test_bosonic_ft_creation() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
@@ -43,7 +43,7 @@ fn test_bosonic_ft_creation() {
 
 #[test]
 fn test_ft_evaluation_fermionic() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
@@ -60,7 +60,7 @@ fn test_ft_evaluation_fermionic() {
 
 #[test]
 fn test_ft_evaluation_bosonic() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
@@ -77,8 +77,8 @@ fn test_ft_evaluation_bosonic() {
 
 #[test]
 fn test_ft_vector_creation() {
-    let data1 = tensor![[1.0], [0.0]];
-    let data2 = tensor![[0.0], [1.0]];
+    let data1 = mat![[1.0], [0.0]];
+    let data2 = mat![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
@@ -94,8 +94,8 @@ fn test_ft_vector_creation() {
 
 #[test]
 fn test_ft_vector_from_poly_vector() {
-    let data1 = tensor![[1.0], [0.0]];
-    let data2 = tensor![[0.0], [1.0]];
+    let data1 = mat![[1.0], [0.0]];
+    let data2 = mat![[0.0], [1.0]];
     let knots = vec![-1.0, 1.0];
 
     let poly1 = PiecewiseLegendrePoly::new(data1, knots.clone(), 0, None, 0).unwrap();
@@ -111,7 +111,7 @@ fn test_ft_vector_from_poly_vector() {
 
 #[test]
 fn test_ft_vector_evaluation() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
@@ -127,7 +127,7 @@ fn test_ft_vector_evaluation() {
 
 #[test]
 fn test_power_model_creation() {
-    let data = tensor![[1.0, 0.0], [0.0, 1.0]];
+    let data = mat![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0).unwrap();
 
@@ -140,7 +140,7 @@ fn test_power_model_creation() {
 
 #[test]
 fn test_invalid_domain_panic() {
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![0.0, 2.0]; // Invalid domain for Fourier transform
 
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
@@ -157,7 +157,7 @@ fn test_invalid_domain_panic() {
 #[test]
 fn test_get_tnl_basic_values() {
     // Create a simple polynomial for testing
-    let data = tensor![[1.0, 0.0], [0.0, 1.0]];
+    let data = mat![[1.0, 0.0], [0.0, 1.0]];
     let knots = vec![-1.0, 0.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 1, None, 0).unwrap();
 
@@ -210,7 +210,7 @@ fn test_get_tnl_basic_values() {
 /// Test spherical Bessel function implementation
 #[test]
 fn test_spherical_bessel_basic() {
-    let data = tensor![[1.0]];
+    let data = mat![[1.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
     let _ft_poly = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
@@ -242,7 +242,7 @@ fn test_spherical_bessel_basic() {
 #[test]
 fn test_constant_polynomial_fourier_transform() {
     // Create constant polynomial f(x) = 1
-    let data = tensor![[1.0], [0.0]];
+    let data = mat![[1.0], [0.0]];
     let knots = vec![-1.0, 1.0];
     let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
 
@@ -556,9 +556,8 @@ fn test_ft_vector_set_rejects_index_past_the_end() {
     use crate::error::Error;
 
     let knots = vec![-1.0, 1.0];
-    let poly0 =
-        PiecewiseLegendrePoly::new(tensor![[1.0], [0.0]], knots.clone(), 0, None, 0).unwrap();
-    let poly1 = PiecewiseLegendrePoly::new(tensor![[0.0], [1.0]], knots, 1, None, 0).unwrap();
+    let poly0 = PiecewiseLegendrePoly::new(mat![[1.0], [0.0]], knots.clone(), 0, None, 0).unwrap();
+    let poly1 = PiecewiseLegendrePoly::new(mat![[0.0], [1.0]], knots, 1, None, 0).unwrap();
     let ft0 = FermionicPiecewiseLegendreFT::new(poly0, Fermionic, None).unwrap();
     let ft1 = FermionicPiecewiseLegendreFT::new(poly1, Fermionic, None).unwrap();
     let mut ft_vector =
@@ -593,7 +592,7 @@ fn test_ft_new_checks_its_arguments() {
     use crate::error::Error;
 
     let poly_on = |lo: f64, hi: f64| {
-        PiecewiseLegendrePoly::new(tensor![[1.0], [0.5]], vec![lo, hi], 0, None, 1).unwrap()
+        PiecewiseLegendrePoly::new(mat![[1.0], [0.5]], vec![lo, hi], 0, None, 1).unwrap()
     };
     let err = FermionicPiecewiseLegendreFT::new(poly_on(-2.0, 2.0), Fermionic, None).unwrap_err();
     assert_eq!(
@@ -633,8 +632,7 @@ fn test_ft_new_checks_its_arguments() {
 fn test_evaluate_at_n_rejects_the_wrong_parity() {
     use crate::error::Error;
 
-    let poly =
-        PiecewiseLegendrePoly::new(tensor![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 1).unwrap();
+    let poly = PiecewiseLegendrePoly::new(mat![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 1).unwrap();
     let ft = FermionicPiecewiseLegendreFT::new(poly, Fermionic, None).unwrap();
     assert_eq!(
         ft.evaluate_at_n(2),
@@ -660,8 +658,7 @@ fn test_sign_changes_of_functions_without_parity_are_not_supported() {
     use crate::freq::MatsubaraFreq;
     use crate::polyfourier::{find_extrema, sign_changes};
 
-    let poly =
-        PiecewiseLegendrePoly::new(tensor![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 0).unwrap();
+    let poly = PiecewiseLegendrePoly::new(mat![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 0).unwrap();
     let not_supported = |r: Result<Vec<i64>, Error>| {
         let err = r.unwrap_err();
         assert!(

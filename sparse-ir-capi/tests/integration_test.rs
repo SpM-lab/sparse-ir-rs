@@ -5,8 +5,9 @@
 
 use num_complex::Complex64;
 use rstest::rstest;
+use sparse_ir::matrix::Mat;
 use sparse_ir::tsvd::compute_svd_dtensor;
-use sparse_ir::{CustomNumeric, DTensor, Df64};
+use sparse_ir::{CustomNumeric, Df64};
 use sparse_ir_capi::{
     SPIR_COMPUTATION_SUCCESS, SPIR_INPUT_DIMENSION_MISMATCH, SPIR_INTERNAL_ERROR,
     SPIR_INVALID_ARGUMENT, SPIR_INVALID_DIMENSION, SPIR_ORDER_COLUMN_MAJOR, SPIR_ORDER_ROW_MAJOR,
@@ -1350,7 +1351,7 @@ fn test_concurrent_matsubara_fit_zd_positive_only_is_thread_safe() {
 /// sigma_max / sigma_min of a real row-major `rows x cols` matrix (oracle).
 fn oracle_cond(rows: usize, cols: usize, a: &[f64]) -> f64 {
     assert_eq!(a.len(), rows * cols);
-    let m = DTensor::<Df64, 2>::from_fn([rows, cols], |idx| Df64::from(a[idx[0] * cols + idx[1]]));
+    let m = Mat::<Df64>::from_fn([rows, cols], |idx| Df64::from(a[idx[0] * cols + idx[1]]));
     let (_, s, _) = compute_svd_dtensor(&m).unwrap();
     // compute_svd_dtensor truncates below 2 eps_Df64 * sigma_max; it must not
     // have dropped a singular value, or s_min below would not be sigma_min.
@@ -2210,7 +2211,7 @@ fn test_dlr_funcs_equal_the_core_dlr_bit_for_bit() {
                 for (k, &i) in poles.iter().enumerate() {
                     assert_eq!(
                         out[k].to_bits(),
-                        core_tau[[j, i]].to_bits(),
+                        (*core_tau.get(&[j, i]).unwrap()).to_bits(),
                         "{name}: u_{i}({tau})"
                     );
                 }
@@ -2230,7 +2231,7 @@ fn test_dlr_funcs_equal_the_core_dlr_bit_for_bit() {
                 for (k, &i) in poles.iter().enumerate() {
                     assert_eq!(
                         batch[j * poles.len() + k].to_bits(),
-                        core_tau[[j, i]].to_bits()
+                        (*core_tau.get(&[j, i]).unwrap()).to_bits()
                     );
                 }
             }
@@ -2243,7 +2244,7 @@ fn test_dlr_funcs_equal_the_core_dlr_bit_for_bit() {
             for (j, &n) in ns.iter().enumerate() {
                 assert_eq!(spir_funcs_eval_matsu(funcs, n, out.as_mut_ptr()), 0);
                 for (k, &i) in poles.iter().enumerate() {
-                    let (c, r) = (out[k], core_matsu[[j, i]]);
+                    let (c, r) = (out[k], (*core_matsu.get(&[j, i]).unwrap()));
                     assert_eq!(
                         (c.re.to_bits(), c.im.to_bits()),
                         (r.re.to_bits(), r.im.to_bits()),

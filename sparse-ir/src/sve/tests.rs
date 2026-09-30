@@ -10,10 +10,10 @@ use crate::kernel::{
     AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints,
     RegularizedBoseKernel, SVEHints, SymmetryType,
 };
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::traits::StatisticsType;
-use mdarray::DTensor;
 use std::fmt::Debug;
 
 /// Create a simple polynomial on positive domain [0, 1]
@@ -21,7 +21,7 @@ fn create_simple_poly_on_positive_domain() -> PiecewiseLegendrePoly {
     // Create a simple polynomial: f(x) = 1 + 2x on [0, 1]
     // Legendre basis: P_0(x) = 1, P_1(x) = x
     // On [0, 1], we need to map to [-1, 1] internally
-    let data = DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 2.0 });
+    let data = Mat::<f64>::from_fn([2, 1], |idx| if idx[0] == 0 { 1.0 } else { 2.0 });
     let knots = vec![0.0, 1.0];
     let delta_x = vec![1.0];
     PiecewiseLegendrePoly::new(data, knots, 0, Some(delta_x), 0).unwrap()
@@ -31,7 +31,7 @@ fn create_simple_poly_on_positive_domain() -> PiecewiseLegendrePoly {
 fn create_poly_with_segments() -> PiecewiseLegendrePoly {
     // Two segments: [0, 0.5] and [0.5, 1.0]
     let data_vec = [1.0, 1.5, 0.5, 1.0];
-    let data = DTensor::<f64, 2>::from_fn([2, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
+    let data = Mat::<f64>::from_fn([2, 2], |idx| data_vec[idx[0] * 2 + idx[1]]);
     let knots = vec![0.0, 0.5, 1.0];
     let delta_x = vec![0.5, 0.5];
     PiecewiseLegendrePoly::new(data, knots, 0, Some(delta_x), 0).unwrap()
@@ -317,7 +317,7 @@ fn test_sve_decomposition_regularized_bose_kernel() {
 /// `sqrt(2) * (c + 2x - 1)`, carrying `l = k` as `svd_to_polynomials` does for
 /// column `k` of one even/odd SVD block.
 fn half_domain_poly(c: f64, k: i32) -> PiecewiseLegendrePoly {
-    let data = DTensor::<f64, 2>::from_fn([2, 1], |idx| if idx[0] == 0 { c } else { 1.0 });
+    let data = Mat::<f64>::from_fn([2, 1], |idx| if idx[0] == 0 { c } else { 1.0 });
     PiecewiseLegendrePoly::new(data, vec![0.0, 1.0], k, Some(vec![1.0]), 0).unwrap()
 }
 
@@ -1087,7 +1087,7 @@ fn test_sve_result_part_checks_its_parameters() {
 #[test]
 fn test_extend_to_full_domain_requires_the_half_domain() {
     for start in [-0.5, 0.25] {
-        let data = DTensor::<f64, 2>::from_elem([1, 1], 1.0);
+        let data = Mat::<f64>::from_elem([1, 1], 1.0);
         let poly = PiecewiseLegendrePoly::new(data, vec![start, 1.0], 0, None, 0).unwrap();
         let err = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0).unwrap_err();
         assert!(
@@ -1103,7 +1103,7 @@ fn test_extend_to_full_domain_requires_the_half_domain() {
 #[test]
 fn test_canonicalize_signs_uses_the_end_of_the_domain() {
     use super::utils::canonicalize_signs;
-    let minus_one = DTensor::<f64, 2>::from_elem([1, 1], -1.0);
+    let minus_one = Mat::<f64>::from_elem([1, 1], -1.0);
     let u = PiecewiseLegendrePoly::new(minus_one.clone(), vec![-1.0, 0.5], 0, None, 0).unwrap();
     let v = PiecewiseLegendrePoly::new(minus_one, vec![-1.0, 1.0], 0, None, 0).unwrap();
     let (u, v) = canonicalize_signs(vec![u], vec![v]);
@@ -1117,7 +1117,7 @@ fn test_canonicalize_signs_uses_the_end_of_the_domain() {
 fn test_svd_to_polynomials_needs_a_segment() {
     use super::utils::svd_to_polynomials;
     let rule = crate::gauss::legendre::<f64>(2);
-    let u = DTensor::<f64, 2>::zeros([2, 1]);
+    let u = Mat::<f64>::zeros([2, 1]);
     let err = svd_to_polynomials(&u, &[0.0_f64], &rule, 2).unwrap_err();
     assert!(
         matches!(

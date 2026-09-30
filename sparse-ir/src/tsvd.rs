@@ -6,8 +6,8 @@
 use crate::Df64;
 use crate::col_piv_qr::ColPivQR;
 use crate::error::Error;
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
-use mdarray::DTensor;
 use nalgebra::{ComplexField, DMatrix, DVector, RealField};
 use num_traits::{One, ToPrimitive, Zero};
 
@@ -415,8 +415,8 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
 /// # Panics
 /// Panics if `T` is neither `f64` nor `Df64`
 pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
-    matrix: &DTensor<T, 2>,
-) -> Result<(DTensor<T, 2>, Vec<T>, DTensor<T, 2>), Error> {
+    matrix: &Mat<T>,
+) -> Result<(Mat<T>, Vec<T>, Mat<T>), Error> {
     use nalgebra::DMatrix;
     use std::any::TypeId;
 
@@ -432,14 +432,14 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
         let result = tsvd(&matrix_f64, TSVDConfig::new(rtol))?;
 
         // Convert back to DTensor<T>
-        let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
+        let u = Mat::<T>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
             T::from_f64_unchecked(result.u[(i, j)])
         });
 
         let s: Vec<T> = result.s.iter().map(|x| T::from_f64_unchecked(*x)).collect();
 
-        let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
+        let v = Mat::<T>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
             T::from_f64_unchecked(result.v[(i, j)])
         });
@@ -459,14 +459,14 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
         let result = tsvd_df64(&matrix_df64, rtol)?;
 
         // Convert back to DTensor<T> without going through f64 to preserve Df64 precision
-        let u = DTensor::<T, 2>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
+        let u = Mat::<T>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
             T::convert_from(result.u[(i, j)])
         });
 
         let s: Vec<T> = result.s.iter().map(|x| T::convert_from(*x)).collect();
 
-        let v = DTensor::<T, 2>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
+        let v = Mat::<T>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
             let [i, j] = [idx[0], idx[1]];
             T::convert_from(result.v[(i, j)])
         });
@@ -585,12 +585,12 @@ mod tests {
 
     #[test]
     fn test_compute_svd_dtensor_reports_errors() {
-        let empty = DTensor::<f64, 2>::zeros([0, 3]);
+        let empty = Mat::<f64>::zeros([0, 3]);
         assert_eq!(
             compute_svd_dtensor(&empty).unwrap_err(),
             Error::EmptyInput { name: "matrix" }
         );
-        let nan = DTensor::<f64, 2>::from_fn([2, 2], |idx| {
+        let nan = Mat::<f64>::from_fn([2, 2], |idx| {
             if idx[0] == 1 && idx[1] == 0 {
                 f64::NAN
             } else {
@@ -601,7 +601,7 @@ mod tests {
             compute_svd_dtensor(&nan),
             Err(Error::NonFiniteInput { name: "matrix", .. })
         ));
-        let nan_df64 = DTensor::<Df64, 2>::from_fn([2, 2], |idx| {
+        let nan_df64 = Mat::<Df64>::from_fn([2, 2], |idx| {
             Df64::from(if idx[0] == 1 && idx[1] == 0 {
                 f64::NAN
             } else {

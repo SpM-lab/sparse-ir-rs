@@ -794,9 +794,9 @@ where
         self.default_matsubara_sampling_points(positive_only)
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<crate::Matrix<f64>, Error> {
+        use crate::matrix::Mat;
         use crate::taufuncs::normalize_tau;
-        use mdarray::DTensor;
 
         let basis_size = self.size();
 
@@ -809,52 +809,47 @@ where
             .map(|&t| normalize_tau::<S>(t, self.beta))
             .collect::<Result<Vec<(f64, f64)>, Error>>()?;
         if normalized.is_empty() {
-            // mdarray 0.7.2 runs the closure of from_fn for a zero extent
-            // (https://github.com/fre-hu/mdarray/issues/21).
-            return Ok(DTensor::<f64, 2>::from_elem([0, basis_size], 0.0));
+            // An empty set of points gives an empty matrix.
+            return Ok(Mat::<f64>::from_elem([0, basis_size], 0.0).into_typed());
         }
 
         // Result: matrix[i, l] = u_l(tau[i])
-        Ok(DTensor::<f64, 2>::from_fn(
-            [normalized.len(), basis_size],
-            |idx| {
-                let (tau_norm, sign) = normalized[idx[0]];
-                sign * self.u[idx[1]].evaluate(tau_norm)
-            },
-        ))
+        Ok(Mat::<f64>::from_fn([normalized.len(), basis_size], |idx| {
+            let (tau_norm, sign) = normalized[idx[0]];
+            sign * self.u[idx[1]].evaluate(tau_norm)
+        })
+        .into_typed())
     }
 
     fn evaluate_matsubara(
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
-    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error> {
-        use mdarray::DTensor;
+    ) -> Result<crate::Matrix<num_complex::Complex<f64>>, Error> {
+        use crate::matrix::Mat;
         use num_complex::Complex;
 
         let n_points = freqs.len();
         let basis_size = self.size();
         if n_points == 0 {
-            // See evaluate_tau (mdarray#21).
-            return Ok(DTensor::<Complex<f64>, 2>::from_elem(
-                [0, basis_size],
-                Complex::new(0.0, 0.0),
-            ));
+            // See evaluate_tau.
+            return Ok(
+                Mat::<Complex<f64>>::from_elem([0, basis_size], Complex::new(0.0, 0.0))
+                    .into_typed(),
+            );
         }
 
         // Evaluate each basis function at all Matsubara frequencies
         // Result: matrix[i, l] = uhat_l(iν[i])
-        Ok(DTensor::<Complex<f64>, 2>::from_fn(
-            [n_points, basis_size],
-            |idx| {
-                let i = idx[0]; // frequency index
-                let l = idx[1]; // basis function index
-                self.uhat[l].evaluate(&freqs[i])
-            },
-        ))
+        Ok(Mat::<Complex<f64>>::from_fn([n_points, basis_size], |idx| {
+            let i = idx[0]; // frequency index
+            let l = idx[1]; // basis function index
+            self.uhat[l].evaluate(&freqs[i])
+        })
+        .into_typed())
     }
 
-    fn evaluate_omega(&self, omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
-        use mdarray::DTensor;
+    fn evaluate_omega(&self, omega: &[f64]) -> Result<crate::Matrix<f64>, Error> {
+        use crate::matrix::Mat;
 
         let basis_size = self.size();
         // The v polynomials are on [-ωmax, ωmax] exactly (from_sve_result
@@ -868,15 +863,15 @@ where
             });
         }
         if omega.is_empty() {
-            // See evaluate_tau (mdarray#21).
-            return Ok(DTensor::<f64, 2>::from_elem([0, basis_size], 0.0));
+            // See evaluate_tau.
+            return Ok(Mat::<f64>::from_elem([0, basis_size], 0.0).into_typed());
         }
 
         // Result: matrix[i, l] = V_l(omega[i])
-        Ok(DTensor::<f64, 2>::from_fn(
-            [omega.len(), basis_size],
-            |idx| self.v[idx[1]].evaluate(omega[idx[0]]),
-        ))
+        Ok(Mat::<f64>::from_fn([omega.len(), basis_size], |idx| {
+            self.v[idx[1]].evaluate(omega[idx[0]])
+        })
+        .into_typed())
     }
 
     fn default_omega_sampling_points(&self) -> Result<Vec<f64>, Error> {

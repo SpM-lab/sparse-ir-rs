@@ -67,8 +67,7 @@ singular values. `evaluate_tau` returns \\(u_l(\tau_i)\\) with the points along
 the first axis:
 
 ```rust
-use mdarray::DTensor;
-use sparse_ir::{Basis, Fermionic, FiniteTempBasis, LogisticKernel};
+use sparse_ir::{Basis, Fermionic, FiniteTempBasis, LogisticKernel, Matrix};
 
 let beta = 100.0;
 let wmax = 4.0;
@@ -76,12 +75,12 @@ let kernel = LogisticKernel::new(beta * wmax)?;
 let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(1e-10), None)?;
 
 let taus: Vec<f64> = (0..401).map(|i| beta * i as f64 / 400.0).collect();
-let u: DTensor<f64, 2> = basis.evaluate_tau(&taus)?;
+let u: Matrix<f64> = basis.evaluate_tau(&taus)?;
 
 let mut a = vec![0.0; taus.len() * basis.size()];
 for i in 0..taus.len() {
     for l in 0..basis.size() {
-        a[i * basis.size() + l] = u[[i, l]] * basis.s()[l];
+        a[i * basis.size() + l] = u.get(&[i, l]).unwrap() * basis.s()[l];
     }
 }
 

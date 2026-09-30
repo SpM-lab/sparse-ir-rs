@@ -4,8 +4,8 @@
 //! the singular vectors on the Gauss grid into piecewise Legendre polynomials.
 
 use crate::gauss::{Rule, legendre_vandermonde};
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
-use mdarray::DTensor;
 
 /// Create Legendre collocation matrix (inverse of Vandermonde matrix)
 ///
@@ -18,7 +18,7 @@ use mdarray::DTensor;
 ///
 /// # Returns
 /// Collocation matrix C where V * C ≈ I
-pub fn legendre_collocation_matrix<T: CustomNumeric>(gauss_rule: &Rule<T>) -> DTensor<T, 2> {
+pub fn legendre_collocation_matrix<T: CustomNumeric>(gauss_rule: &Rule<T>) -> Mat<T> {
     let n = gauss_rule.x.len();
 
     // Create Legendre Vandermonde matrix
@@ -31,7 +31,7 @@ pub fn legendre_collocation_matrix<T: CustomNumeric>(gauss_rule: &Rule<T>) -> DT
 
     // Compute: res = permutedims(V .* w) .* invnorm
     // This is equivalent to: result[i,j] = V[j,i] * w[j] * invnorm[i]
-    DTensor::<T, 2>::from_fn([n, n], |idx| {
+    Mat::<T>::from_fn([n, n], |idx| {
         let (i, j) = (idx[0], idx[1]);
         v[[j, i]] * gauss_rule.w[j] * invnorm[i]
     })

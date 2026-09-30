@@ -425,7 +425,10 @@ pub extern "C" fn spir_ir2dlr_dd(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -447,8 +450,8 @@ pub extern "C" fn spir_ir2dlr_dd(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -539,7 +542,10 @@ pub extern "C" fn spir_ir2dlr_zz(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -561,8 +567,8 @@ pub extern "C" fn spir_ir2dlr_zz(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -649,7 +655,10 @@ pub extern "C" fn spir_dlr2ir_dd(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -671,8 +680,8 @@ pub extern "C" fn spir_dlr2ir_dd(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -763,7 +772,10 @@ pub extern "C" fn spir_dlr2ir_zz(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -785,8 +797,8 @@ pub extern "C" fn spir_dlr2ir_zz(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS

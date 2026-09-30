@@ -142,6 +142,26 @@ mod tests {
                 },
                 SPIR_OUTPUT_DIMENSION_MISMATCH,
             ),
+            (
+                Error::Gemm(sparse_ir::gemm::GemmError::DimensionOverflow {
+                    name: "m",
+                    value: 1 << 40,
+                    abi: "LP64",
+                }),
+                SPIR_INVALID_ARGUMENT,
+            ),
+            (
+                Error::Gemm(sparse_ir::gemm::GemmError::InvalidArgument(
+                    "lda is too small".to_string(),
+                )),
+                SPIR_INTERNAL_ERROR,
+            ),
+            (
+                Error::Tensor {
+                    reason: "shape [2, 3] does not match 5 elements".to_string(),
+                },
+                SPIR_INTERNAL_ERROR,
+            ),
         ];
         for (err, status) in &table {
             assert_eq!(status_from(err), *status, "{err:?}");

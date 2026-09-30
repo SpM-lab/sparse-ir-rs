@@ -5,8 +5,8 @@
 
 use crate::gauss::Rule;
 use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SymmetryType};
+use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
-use mdarray::DTensor;
 use std::fmt::Debug;
 
 /// This structure stores a discrete kernel matrix along with the corresponding
@@ -16,7 +16,7 @@ use std::fmt::Debug;
 #[derive(Debug, Clone)]
 pub struct DiscretizedKernel<T> {
     /// Discrete kernel matrix
-    pub matrix: DTensor<T, 2>,
+    pub matrix: Mat<T>,
     /// Gauss quadrature rule for x coordinates
     pub gauss_x: Rule<T>,
     /// Gauss quadrature rule for y coordinates
@@ -30,7 +30,7 @@ pub struct DiscretizedKernel<T> {
 impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
     /// Create a new DiscretizedKernel
     pub fn new(
-        matrix: DTensor<T, 2>,
+        matrix: Mat<T>,
         gauss_x: Rule<T>,
         gauss_y: Rule<T>,
         segments_x: Vec<T>,
@@ -46,7 +46,7 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
     }
 
     /// Create a new DiscretizedKernel without segments (legacy)
-    pub fn new_legacy(matrix: DTensor<T, 2>, gauss_x: Rule<T>, gauss_y: Rule<T>) -> Self {
+    pub fn new_legacy(matrix: Mat<T>, gauss_x: Rule<T>, gauss_y: Rule<T>) -> Self {
         Self {
             matrix,
             gauss_x: gauss_x.clone(),
@@ -78,7 +78,7 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
     /// This applies the square root of Gauss weights to the matrix,
     /// which is required before performing SVD for SVE computation.
     /// The original matrix remains unchanged.
-    pub fn apply_weights_for_sve(&self) -> DTensor<T, 2> {
+    pub fn apply_weights_for_sve(&self) -> Mat<T> {
         let mut weighted_matrix = self.matrix.clone();
         let shape = *weighted_matrix.shape();
 
@@ -180,7 +180,7 @@ pub fn matrix_from_gauss_with_segments<
 
     let n = gauss_x.x.len();
     let m = gauss_y.x.len();
-    let mut result = DTensor::<T, 2>::from_elem([n, m], T::zero());
+    let mut result = Mat::<T>::from_elem([n, m], T::zero());
 
     // Evaluate kernel at all combinations of Gauss points
     for i in 0..n {
@@ -239,7 +239,7 @@ pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelP
 
     let n = gauss_x.x.len();
     let m = gauss_y.x.len();
-    let mut result = DTensor::<T, 2>::from_elem([n, m], T::zero());
+    let mut result = Mat::<T>::from_elem([n, m], T::zero());
 
     // Evaluate kernel at all combinations of Gauss points
     for i in 0..n {
@@ -286,7 +286,7 @@ pub fn matrix_from_gauss_noncentrosymmetric<
 
     let n = gauss_x.x.len();
     let m = gauss_y.x.len();
-    let mut result = DTensor::<T, 2>::from_elem([n, m], T::zero());
+    let mut result = Mat::<T>::from_elem([n, m], T::zero());
 
     // Evaluate kernel directly at all combinations of Gauss points
     for i in 0..n {

@@ -1,6 +1,6 @@
 use crate::gauss::{legendre_generic, legendre_vandermonde};
 use crate::interpolation1d::legendre_collocation_matrix;
-use mdarray::DTensor;
+use crate::matrix::Mat;
 
 #[test]
 fn test_legendre_collocation_matrix_inverse() {
@@ -15,7 +15,7 @@ fn test_legendre_collocation_matrix_inverse() {
         let collocation = legendre_collocation_matrix(&gauss_rule);
 
         // Compute V * C and check if it's approximately the identity matrix
-        let mut product = DTensor::<f64, 2>::from_elem([n, n], 0.0);
+        let mut product = Mat::<f64>::from_elem([n, n], 0.0);
         for i in 0..n {
             for j in 0..n {
                 for k in 0..n {

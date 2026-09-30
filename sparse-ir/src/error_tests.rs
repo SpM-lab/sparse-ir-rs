@@ -88,6 +88,22 @@ fn every_variant() -> Vec<(Error, ErrorKind, &'static str)> {
             ErrorKind::InputDimensionMismatch,
             "input has the shape [4, 2], expected [5, 2]",
         ),
+        (
+            Error::Gemm(crate::gemm::GemmError::DimensionOverflow {
+                name: "m",
+                value: 1 << 40,
+                abi: "LP64",
+            }),
+            ErrorKind::InvalidArgument,
+            "GEMM argument m=1099511627776 exceeds the LP64 integer range",
+        ),
+        (
+            Error::Tensor {
+                reason: "shape [2, 3] does not match 5 elements".to_string(),
+            },
+            ErrorKind::Internal,
+            "tensor operation failed: shape [2, 3] does not match 5 elements",
+        ),
     ]
 }
 
@@ -168,10 +184,12 @@ fn variant_number(err: &Error) -> usize {
         Error::NotSupported { .. } => 8,
         Error::AxisOutOfRange { .. } => 9,
         Error::ShapeMismatch { .. } => 10,
+        Error::Gemm(_) => 11,
+        Error::Tensor { .. } => 12,
     }
 }
 
-const VARIANT_COUNT: usize = 11;
+const VARIANT_COUNT: usize = 13;
 
 #[test]
 fn test_every_variant_lists_each_variant_once() {

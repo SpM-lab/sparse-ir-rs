@@ -4,7 +4,6 @@
 //! details from C code.
 
 use crate::{SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
-use mdarray::{DynRank, Slice, ViewMut};
 use num_complex::Complex;
 use sparse_ir::basis::FiniteTempBasis;
 use sparse_ir::basis_trait::Basis;
@@ -19,6 +18,7 @@ use sparse_ir::sve::SVEResult;
 use sparse_ir::taufuncs::normalize_tau;
 use sparse_ir::traits::{Statistics, StatisticsType};
 use sparse_ir::{Bosonic, Fermionic};
+use sparse_ir::{TypedTensorView, TypedTensorViewMut};
 use std::sync::Arc;
 
 /// Convert Statistics enum to C-API integer
@@ -634,14 +634,18 @@ impl DlrOf {
 }
 
 /// The columns `poles` of an `n_points × n_poles` matrix, as rows
-fn columns<T: Copy>(
-    matrix: &mdarray::DTensor<T, 2>,
+fn columns<T: sparse_ir::TensorScalar + Copy>(
+    matrix: &sparse_ir::Matrix<T>,
     poles: &[usize],
     n_points: usize,
 ) -> Vec<Vec<T>> {
+    // Owned tensors are compact column-major: column i starts at i * n_points.
+    let data = matrix
+        .host_data()
+        .expect("an owned matrix is host-resident");
     poles
         .iter()
-        .map(|&i| (0..n_points).map(|j| matrix[[j, i]]).collect())
+        .map(|&i| data[i * n_points..(i + 1) * n_points].to_vec())
         .collect()
 }
 
@@ -1238,9 +1242,9 @@ impl InplaceFitter for SamplingType {
     fn evaluate_nd_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<f64, DynRank>,
+        coeffs: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
+        out: &mut TypedTensorViewMut<'_, f64>,
     ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {
@@ -1257,9 +1261,9 @@ impl InplaceFitter for SamplingType {
     fn evaluate_nd_dz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<f64, DynRank>,
+        coeffs: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
     ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::MatsubaraFermionic(s) => {
@@ -1282,9 +1286,9 @@ impl InplaceFitter for SamplingType {
     fn evaluate_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        coeffs: &Slice<Complex<f64>, DynRank>,
+        coeffs: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
     ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {
@@ -1311,9 +1315,9 @@ impl InplaceFitter for SamplingType {
     fn fit_nd_dd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<f64, DynRank>,
+        values: &TypedTensorView<'_, f64>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
+        out: &mut TypedTensorViewMut<'_, f64>,
     ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {
@@ -1330,9 +1334,9 @@ impl InplaceFitter for SamplingType {
     fn fit_nd_zd_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<Complex<f64>, DynRank>,
+        values: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, f64, DynRank>,
+        out: &mut TypedTensorViewMut<'_, f64>,
     ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::MatsubaraFermionic(s) => {
@@ -1355,9 +1359,9 @@ impl InplaceFitter for SamplingType {
     fn fit_nd_zz_to(
         &self,
         backend: Option<&GemmBackendHandle>,
-        values: &Slice<Complex<f64>, DynRank>,
+        values: &TypedTensorView<'_, Complex<f64>>,
         dim: usize,
-        out: &mut ViewMut<'_, Complex<f64>, DynRank>,
+        out: &mut TypedTensorViewMut<'_, Complex<f64>>,
     ) -> Result<(), sparse_ir::Error> {
         match self {
             SamplingType::TauFermionic(s) => {

@@ -5,6 +5,7 @@
 //! that its message locates the problem. [`Error::kind`] sorts the variants
 //! into the categories that the C API reports as status codes.
 
+use crate::gemm::GemmError;
 use crate::traits::Statistics;
 
 /// Which array of an operation has the wrong shape, in
@@ -136,6 +137,24 @@ pub enum Error {
         /// What failed, with the values involved
         reason: String,
     },
+    /// The GEMM backend rejected a call, e.g. a dimension exceeds the integer
+    /// range of an injected BLAS.
+    #[error(transparent)]
+    Gemm(#[from] GemmError),
+    /// A tenferro tensor operation failed.
+    #[error("tensor operation failed: {reason}")]
+    Tensor {
+        /// The message of the tenferro error
+        reason: String,
+    },
+}
+
+impl From<tenferro_tensor::Error> for Error {
+    fn from(e: tenferro_tensor::Error) -> Self {
+        Error::Tensor {
+            reason: e.to_string(),
+        }
+    }
 }
 
 /// Category of an [`Error`]
@@ -183,7 +202,10 @@ impl Error {
                 which: ArrayRole::Output,
                 ..
             } => ErrorKind::OutputDimensionMismatch,
-            Error::DecompositionFailed { .. } => ErrorKind::Internal,
+            Error::Gemm(GemmError::DimensionOverflow { .. }) => ErrorKind::InvalidArgument,
+            Error::DecompositionFailed { .. }
+            | Error::Gemm(GemmError::InvalidArgument(_))
+            | Error::Tensor { .. } => ErrorKind::Internal,
         }
     }
 }
@@ -272,6 +294,9 @@ pub(crate) fn require_nonzero_size(name: &'static str, size: Option<usize>) -> R
         _ => Ok(()),
     }
 }
+
+/// Result type of the fallible public functions of this crate
+pub type Result<T, E = Error> = std::result::Result<T, E>;
 
 #[cfg(test)]
 #[path = "error_tests.rs"]

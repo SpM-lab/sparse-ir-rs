@@ -155,7 +155,7 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// [`Error::OutOfDomain`] if a τ is outside [-β, β] or NaN; no value is
     /// computed then.
-    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error>;
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<crate::Matrix<f64>, Error>;
 
     /// Evaluate basis functions at Matsubara frequencies
     ///
@@ -181,7 +181,7 @@ pub trait Basis<S: StatisticsType> {
     fn evaluate_matsubara(
         &self,
         freqs: &[MatsubaraFreq<S>],
-    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error>
+    ) -> Result<crate::Matrix<num_complex::Complex<f64>>, Error>
     where
         S: 'static;
 
@@ -203,7 +203,7 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// * [`Error::OutOfDomain`] if an ω is outside [-ωmax, ωmax] or NaN
     /// * [`Error::NotSupported`] for the DLR basis
-    fn evaluate_omega(&self, omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error>;
+    fn evaluate_omega(&self, omega: &[f64]) -> Result<crate::Matrix<f64>, Error>;
 
     /// Get default omega (real frequency) sampling points
     ///

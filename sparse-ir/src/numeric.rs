@@ -217,7 +217,7 @@ impl CustomNumeric for Df64 {
 // in the ndarray crate for standard numeric types.
 
 // Note: Df64ArrayOps trait and impl removed after ndarray migration
-// Array operations should now be done using mdarray Tensor methods directly
+// Array operations should now be done on tenferro tensors directly
 
 #[cfg(test)]
 mod tests {

@@ -10,15 +10,12 @@
 //! Run with: `cargo run --example roundtrip`
 //! Or use the wrapper script: `./examples/run_roundtrip.sh` (saves log to logs/roundtrip_*.log)
 
-use mdarray::{DTensor, DynRank, Shape, Tensor, expr};
 use num_complex::{Complex, ComplexFloat};
 use sparse_ir::{
-    Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
-    MatsubaraSampling, RegularizedBoseKernel, TauSampling,
+    Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel, Matrix,
+    MatsubaraSampling, RegularizedBoseKernel, TauSampling, TensorScalar, TypedTensor,
     basis_trait::Basis,
-    gemm::matmul_par,
     kernel::{CentrosymmKernel, KernelProperties},
-    sampling::movedim,
     sve::{SVEResult, TworkType, compute_sve},
     traits::StatisticsType,
 };
@@ -30,17 +27,17 @@ use std::ops::Sub;
 /// rather than max(|a - b| / |a|) for each element.
 ///
 /// Works with both real (`f64`) and complex (`Complex<f64>`) tensors.
-fn max_relative_error<T>(a: &Tensor<T, DynRank>, b: &Tensor<T, DynRank>) -> f64
+fn max_relative_error<T>(a: &TypedTensor<T>, b: &TypedTensor<T>) -> f64
 where
-    T: ComplexFloat<Real = f64> + Sub<Output = T>,
+    T: TensorScalar + ComplexFloat<Real = f64> + Sub<Output = T>,
 {
-    // Compute max |a - b|
-    let max_diff = expr::fold(expr::zip(a.expr(), b.expr()), 0.0_f64, |acc, (x, y)| {
-        acc.max((*x - *y).abs())
-    });
-
-    // Compute max |a|
-    let max_ref = expr::fold(a.expr(), 0.0_f64, |acc, x| acc.max(x.abs()));
+    assert_eq!(a.shape(), b.shape());
+    let (a, b) = (a.host_data().unwrap(), b.host_data().unwrap());
+    let max_diff = a
+        .iter()
+        .zip(b)
+        .fold(0.0_f64, |acc, (x, y)| acc.max((*x - *y).abs()));
+    let max_ref = a.iter().fold(0.0_f64, |acc, x| acc.max(x.abs()));
 
     // Avoid division by zero (behavior similar to C++ helper)
     if max_ref < 1e-15 {
@@ -51,20 +48,24 @@ where
 }
 
 /// Compute maximum relative error between two real tensors
-///
-/// Convenience wrapper for `max_relative_error` with `f64`.
-fn max_relative_error_real(a: &Tensor<f64, DynRank>, b: &Tensor<f64, DynRank>) -> f64 {
+fn max_relative_error_real(a: &TypedTensor<f64>, b: &TypedTensor<f64>) -> f64 {
     max_relative_error(a, b)
 }
 
 /// Compute maximum relative error between two complex tensors
-///
-/// Convenience wrapper for `max_relative_error` with `Complex<f64>`.
-fn max_relative_error_complex(
-    a: &Tensor<Complex<f64>, DynRank>,
-    b: &Tensor<Complex<f64>, DynRank>,
-) -> f64 {
+fn max_relative_error_complex(a: &TypedTensor<Complex<f64>>, b: &TypedTensor<Complex<f64>>) -> f64 {
     max_relative_error(a, b)
+}
+
+/// Promote a real tensor to complex element-wise.
+fn to_complex(t: &TypedTensor<f64>) -> TypedTensor<Complex<f64>> {
+    let data = t
+        .host_data()
+        .unwrap()
+        .iter()
+        .map(|&x| Complex::new(x, 0.0))
+        .collect();
+    TypedTensor::from_vec_col_major(t.shape().to_vec(), data).unwrap()
 }
 
 /// Get dimensions for N-dimensional tensor with target_dim at specified position
@@ -88,67 +89,39 @@ fn get_dims(target_dim_size: usize, extra_dims: &[usize], target_dim: usize) -> 
 ///
 /// This function performs: result = matrix @ coeffs (along target_dim)
 /// where `matrix` is a 2D matrix [n_points, n_poles] and `coeffs` is an N-dimensional
-/// tensor with size `n_poles` along `target_dim`.
-///
-/// # Arguments
-/// * `matrix` - 2D transformation matrix [n_points, n_poles]
-/// * `coeffs` - N-dimensional tensor of coefficients with size `n_poles` along `target_dim`
-/// * `target_dim` - Dimension along which to contract (must have size = n_poles)
-///
-/// # Returns
-/// N-dimensional tensor with size `n_points` along `target_dim` instead of `n_poles`
+/// column-major tensor with size `n_poles` along `target_dim`. It is a plain
+/// reference loop, independent of the library's GEMM path.
 fn contract_along_dim<T>(
-    matrix: &DTensor<T, 2>,
-    coeffs: &Tensor<T, DynRank>,
+    matrix: &Matrix<T>,
+    coeffs: &TypedTensor<T>,
     target_dim: usize,
-) -> Tensor<T, DynRank>
+) -> TypedTensor<T>
 where
-    T: num_complex::ComplexFloat + faer_traits::ComplexField + num_traits::One + Copy + 'static,
+    T: TensorScalar + ComplexFloat + Copy,
 {
-    let (n_points, n_poles) = *matrix.shape();
-    let rank = coeffs.rank();
-    assert!(
-        target_dim < rank,
-        "target_dim {} must be < rank {}",
-        target_dim,
-        rank
-    );
-    assert_eq!(
-        coeffs.shape().dim(target_dim),
-        n_poles,
-        "coeffs.shape().dim({}) = {} must equal n_poles = {}",
-        target_dim,
-        coeffs.shape().dim(target_dim),
-        n_poles
-    );
-
-    // 1. Move target dimension to position 0
-    let coeffs_dim0 = movedim(coeffs, target_dim, 0);
-
-    // 2. Reshape to 2D: [n_poles, extra_size]
-    let extra_size = coeffs_dim0.len() / n_poles;
-    let coeffs_2d_dyn = coeffs_dim0.reshape(&[n_poles, extra_size][..]).to_tensor();
-
-    // 3. Convert DynRank to fixed Rank<2> for matmul_par
-    let coeffs_2d = DTensor::<T, 2>::from_fn([n_poles, extra_size], |idx| {
-        coeffs_2d_dyn[&[idx[0], idx[1]][..]]
-    });
-
-    // 4. Matrix multiply: result_2d = matrix @ coeffs_2d
-    let result_2d = matmul_par(matrix, &coeffs_2d, None);
-
-    // 5. Reshape back to N-D with n_points at position 0
-    let mut result_shape = vec![n_points];
-    coeffs_dim0.shape().with_dims(|dims| {
-        for i in 1..dims.len() {
-            result_shape.push(dims[i]);
+    let (n_points, n_poles) = (matrix.shape()[0], matrix.shape()[1]);
+    let shape = coeffs.shape().to_vec();
+    assert!(target_dim < shape.len(), "invalid target_dim");
+    assert_eq!(shape[target_dim], n_poles, "size mismatch along target_dim");
+    let pre: usize = shape[..target_dim].iter().product();
+    let post: usize = shape[target_dim + 1..].iter().product();
+    let a = matrix.host_data().unwrap();
+    let x = coeffs.host_data().unwrap();
+    let mut y = vec![T::zero(); pre * n_points * post];
+    for q in 0..post {
+        for i in 0..n_points {
+            for p in 0..pre {
+                let mut sum = T::zero();
+                for k in 0..n_poles {
+                    sum = sum + a[i + n_points * k] * x[p + pre * (k + n_poles * q)];
+                }
+                y[p + pre * (i + n_points * q)] = sum;
+            }
         }
-    });
-
-    let result_dim0 = result_2d.into_dyn().reshape(&result_shape[..]).to_tensor();
-
-    // 6. Move dimension 0 back to original position target_dim
-    movedim(&result_dim0, 0, target_dim)
+    }
+    let mut out_shape = shape;
+    out_shape[target_dim] = n_points;
+    TypedTensor::from_vec_col_major(out_shape, y).unwrap()
 }
 
 /// Generate random DLR coefficient for a given pole
@@ -183,10 +156,8 @@ fn random_pole_coeff(seed: u64, idx: &[usize], pole: f64) -> f64 {
 /// Create a tensor filled with random DLR coefficients
 ///
 /// This function creates a multi-dimensional tensor with random coefficients
-/// generated using `random_pole_coeff`. It first fills a 2D array of shape
-/// [n_poles, n_rest], then reshapes and moves the pole dimension to the
-/// requested `target_dim`. This avoids the `Tensor::from_fn` bug with
-/// `DynRank` shapes.
+/// generated using `random_pole_coeff` over a 2D [n_poles, n_rest] index space and lays it out with the pole dimension at
+/// the requested `target_dim`.
 ///
 /// # Arguments
 /// * `n_poles` - Number of DLR poles (size of the target dimension)
@@ -196,54 +167,35 @@ fn random_pole_coeff(seed: u64, idx: &[usize], pole: f64) -> f64 {
 /// * `target_dim` - Dimension index along which poles are applied
 ///
 /// # Returns
-/// A `Tensor<f64, DynRank>` filled with random coefficients
+/// A `TypedTensor<f64>` filled with random coefficients
 fn create_random_dlr_coeffs(
     n_poles: usize,
     extra_dims: &[usize],
     seed: u64,
     poles: &[f64],
     target_dim: usize,
-) -> Tensor<f64, DynRank> {
+) -> TypedTensor<f64> {
     // Compute full dimensions using get_dims
     let dims = get_dims(n_poles, extra_dims, target_dim);
     let ndim = dims.len();
     assert!(ndim >= 1, "dims must have at least one dimension");
     assert!(target_dim < ndim, "invalid target_dim");
 
-    // Product of all dimensions and product of the rest (excluding target_dim)
     let total_size: usize = dims.iter().product();
-    let n_rest = total_size / n_poles;
 
-    // First create a 2D tensor [n_poles, n_rest] and fill it with random coefficients.
-    //
-    // The random generator uses the 2D index [i, j] so that the random value
-    // depends on the pole index and the "rest" index, but not on the full
-    // N-dimensional layout.
-    let mut coeffs_2d = DTensor::<f64, 2>::from_elem([n_poles, n_rest], 0.0);
-    for i in 0..n_poles {
-        let pole = poles[i];
-        for j in 0..n_rest {
-            let idx_2d = [i, j];
-            coeffs_2d[[i, j]] = random_pole_coeff(seed, &idx_2d, pole);
-        }
-    }
-
-    // Now reshape [n_poles, n_rest] to an N-dimensional tensor where the pole
-    // dimension is at position 0: shape_dim0 = [n_poles, extra_dims...].
-    let mut shape_dim0 = Vec::with_capacity(ndim);
-    shape_dim0.push(n_poles);
-    for (k, &d) in dims.iter().enumerate() {
-        if k == target_dim {
-            continue;
-        }
-        shape_dim0.push(d);
-    }
-
-    let coeffs_dim0 = coeffs_2d.into_dyn().reshape(&shape_dim0[..]).to_tensor();
-
-    // Finally, move the pole dimension from position 0 to target_dim so that
-    // the resulting tensor has the desired shape `dims`.
-    movedim(&coeffs_dim0, 0, target_dim)
+    // The random generator uses the index [i, j] of the pole index and the
+    // "rest" index (column-major over the remaining axes), so the values do
+    // not depend on where the pole axis sits.
+    let pre: usize = dims[..target_dim].iter().product();
+    let data = (0..total_size)
+        .map(|lin| {
+            let p = lin % pre;
+            let i = (lin / pre) % n_poles;
+            let q = lin / (pre * n_poles);
+            random_pole_coeff(seed, &[i, p + pre * q], poles[i])
+        })
+        .collect();
+    TypedTensor::from_vec_col_major(dims, data).unwrap()
 }
 
 /// Run the integration example for a specific configuration
@@ -356,19 +308,18 @@ fn run_integration_example_single<K, S>(
     // Step 4: Generate random DLR coefficients
     println!("Step 4: Generating random DLR coefficients...");
     // Create N-dimensional tensor for DLR coefficients with target_dim at specified position.
-    // We use a dedicated helper to avoid the `Tensor::from_fn` bug with DynRank shapes.
     let seed = 982743u64;
     let dlr_coeffs = create_random_dlr_coeffs(n_poles, extra_dims, seed, dlr.poles(), target_dim);
     println!(
         "  Generated DLR coefficients with shape: {:?}",
-        dlr_coeffs.shape().dims()
+        dlr_coeffs.shape()
     );
     println!();
 
     // Step 5: Convert DLR to IR
     println!("Step 5: Converting DLR coefficients to IR...");
     let ir_coeffs = dlr.to_ir_nd(None, &dlr_coeffs, target_dim).unwrap();
-    println!("  IR coefficients shape: {:?}", ir_coeffs.shape().dims());
+    println!("  IR coefficients shape: {:?}", ir_coeffs.shape());
     println!();
 
     // Step 6: Evaluate on tau grid from both DLR and IR
@@ -377,7 +328,7 @@ fn run_integration_example_single<K, S>(
     let g_tau_ir = tau_sampling
         .evaluate_nd(None, &ir_coeffs, target_dim)
         .unwrap();
-    println!("  g_tau_ir shape: {:?}", g_tau_ir.shape().dims());
+    println!("  g_tau_ir shape: {:?}", g_tau_ir.shape());
 
     // From DLR coefficients (evaluate DLR basis functions at tau points)
     // Use Basis trait to call evaluate_tau
@@ -401,7 +352,7 @@ fn run_integration_example_single<K, S>(
     let g_iw_ir = matsubara_sampling
         .evaluate_nd(None, &ir_coeffs, target_dim)
         .unwrap();
-    println!("  g_iw_ir shape: {:?}", g_iw_ir.shape().dims());
+    println!("  g_iw_ir shape: {:?}", g_iw_ir.shape());
 
     // From DLR coefficients (evaluate DLR basis functions at Matsubara frequencies)
     // Use Basis trait to call evaluate_matsubara
@@ -410,8 +361,7 @@ fn run_integration_example_single<K, S>(
             .unwrap();
     // For multi-dimensional case, similar to tau evaluation
     // Convert real DLR coefficients to complex for matrix multiplication
-    let dlr_coeffs_complex: Tensor<Complex<f64>, DynRank> =
-        expr::FromExpression::from_expr(expr::map(dlr_coeffs.expr(), |x| Complex::new(*x, 0.0)));
+    let dlr_coeffs_complex = to_complex(&dlr_coeffs);
     let g_iw_dlr = contract_along_dim(&dlr_uhat_matsu, &dlr_coeffs_complex, target_dim);
 
     // Compare
@@ -431,7 +381,7 @@ fn run_integration_example_single<K, S>(
     let ir_coeffs_recovered = tau_sampling.fit_nd(None, &g_tau_ir, target_dim).unwrap();
     println!(
         "  Recovered IR coefficients shape: {:?}",
-        ir_coeffs_recovered.shape().dims()
+        ir_coeffs_recovered.shape()
     );
 
     // Compare recovered IR coefficients with original
@@ -446,10 +396,7 @@ fn run_integration_example_single<K, S>(
 
     // Now evaluate recovered IR coefficients on Matsubara grid
     // Cast recovered real IR coefficients to complex tensor element-wise
-    let ir_coeffs_recovered_complex: Tensor<Complex<f64>, DynRank> =
-        expr::FromExpression::from_expr(expr::map(ir_coeffs_recovered.expr(), |x| {
-            Complex::new(*x, 0.0)
-        }));
+    let ir_coeffs_recovered_complex = to_complex(&ir_coeffs_recovered);
     let g_iw_ir_reconst = matsubara_sampling
         .evaluate_nd(None, &ir_coeffs_recovered_complex, target_dim)
         .unwrap();

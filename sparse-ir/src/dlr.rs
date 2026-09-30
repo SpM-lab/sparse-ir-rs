@@ -5,14 +5,16 @@
 //! real-frequency axis.
 
 use crate::error::{Error, require_finite, require_positive_finite};
+use crate::fitters::FitScalar;
 use crate::fitters::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
+use crate::matrix::Mat;
 use crate::taufuncs::normalize_tau;
 use crate::traits::{Statistics, StatisticsType};
-use mdarray::DTensor;
 use num_complex::Complex;
 use std::marker::PhantomData;
+use tenferro_tensor::TypedTensor;
 
 /// Generic single-pole Green's function at imaginary time τ
 ///
@@ -285,11 +287,9 @@ where
     /// the physical kernel of the source basis.
     pole_weights: Vec<f64>,
 
-    /// Fitting matrix from IR: fitmat = -s · V(poles)
-    /// Used for to_IR transformation
-    fitmat: DTensor<f64, 2>,
-
-    /// Fitter for from_IR transformation (uses SVD of fitmat)
+    /// Fitter for the IR <-> DLR transformation on the fitting matrix
+    /// `fitmat = -s · V(poles)` (`basis_size x n_poles`); the SVD for
+    /// `from_ir` is computed lazily.
     fitter: RealMatrixFitter,
 
     /// Marker for statistics type
@@ -323,7 +323,7 @@ where
     /// Number of functions of the IR basis this DLR was built from: the
     /// extent of the IR axis of [`Self::from_ir_nd`] and [`Self::to_ir_nd`]
     pub fn ir_basis_size(&self) -> usize {
-        self.fitmat.shape().0
+        self.fitter.n_points()
     }
 
     /// Create DLR from IR basis with custom poles
@@ -368,9 +368,8 @@ where
         if S::STATISTICS == Statistics::Fermionic && basis.kernel().ypower() == 1 {
             return Err(Error::KernelStatisticsMismatch);
         }
-        // Without poles the fitting matrix has no columns, and its SVD would
-        // transpose [n, 0] arrays, which mdarray 0.7.2 does out of bounds
-        // (https://github.com/fre-hu/mdarray/issues/21).
+        // Without poles the fitting matrix has no columns and the DLR has no
+        // functions.
         if poles.is_empty() {
             return Err(Error::EmptyInput { name: "poles" });
         }
@@ -415,7 +414,7 @@ where
 
         // Compute fitting matrix: fitmat = -s · V(poles)
         // This transforms DLR coefficients to IR coefficients
-        let v_at_poles = basis.evaluate_omega(&poles)?; // shape: [n_poles, basis_size]
+        let v_at_poles = crate::sampling::mat_from_matrix(&basis.evaluate_omega(&poles)?)?; // shape: [n_poles, basis_size]
         let s = basis.svals(); // Non-normalized singular values (same as C++)
 
         let basis_size = basis.size();
@@ -423,14 +422,14 @@ where
 
         // fitmat[l, i] = -s[l] * V_l(pole[i])
         // C++: fitmat = (-A_array * s_array.replicate(1, A.cols())).matrix()
-        let fitmat = DTensor::<f64, 2>::from_fn([basis_size, n_poles], |idx| {
+        let fitmat = Mat::<f64>::from_fn([basis_size, n_poles], |idx| {
             let l = idx[0];
             let i = idx[1];
             -s[l] * v_at_poles[[i, l]]
         });
 
         // Create fitter for from_IR (inverse operation)
-        let fitter = RealMatrixFitter::new(fitmat.clone());
+        let fitter = RealMatrixFitter::new(fitmat);
 
         let lambda = beta * wmax;
         let logistic_kernel = LogisticKernel::new(lambda)?;
@@ -449,7 +448,6 @@ where
             accuracy,
             regularizers,
             pole_weights,
-            fitmat,
             fitter,
             _phantom: PhantomData,
         })
@@ -545,67 +543,15 @@ where
     ///   [`Self::ir_basis_size`] entries along `dim`
     /// * [`Error::DecompositionFailed`] if the SVD of the fitting matrix fails
     ///   (its entries are finite, since the poles are)
-    pub fn from_ir_nd<T>(
+    pub fn from_ir_nd<T: FitScalar>(
         &self,
         backend: Option<&GemmBackendHandle>,
-        gl: &mdarray::Tensor<T, mdarray::DynRank>,
+        gl: &TypedTensor<T>,
         dim: usize,
-    ) -> Result<mdarray::Tensor<T, mdarray::DynRank>, Error>
-    where
-        T: num_complex::ComplexFloat
-            + faer_traits::ComplexField
-            + From<f64>
-            + Copy
-            + Default
-            + 'static,
-    {
-        use mdarray::{DTensor, Shape};
-
-        let mut gl_shape = vec![];
-        gl.shape().with_dims(|dims| {
-            gl_shape.extend_from_slice(dims);
-        });
-
-        let basis_size = self.ir_basis_size();
-        // Check the axis and its extent before anything reads gl_shape[dim].
-        crate::fitters::common::check_input_shape(&gl_shape, dim, basis_size)?;
-
-        if gl.is_empty() {
-            // Zero-extent guard: an empty batch has nothing to convert.
-            // Returning early keeps it away from the permuted copies that
-            // mdarray 0.7.2 does out of bounds for a zero extent
-            // (https://github.com/fre-hu/mdarray/issues/21) and from
-            // zero-size GEMMs.
-            let out_shape = crate::sampling::build_output_shape(gl.shape(), dim, self.poles.len());
-            return Ok(mdarray::Tensor::zeros(&out_shape[..]));
-        }
-
-        // Move target dimension to position 0
-        let gl_dim0 = crate::sampling::movedim(gl, dim, 0);
-
-        // Reshape to 2D
-        let extra_size = gl_dim0.len() / basis_size;
-        let gl_2d_dyn = gl_dim0.reshape(&[basis_size, extra_size][..]).to_tensor();
-
-        let gl_2d = DTensor::<T, 2>::from_fn([basis_size, extra_size], |idx| {
-            gl_2d_dyn[&[idx[0], idx[1]][..]]
-        });
-
-        // Fit using fitter's generic 2D method. It fails only if the SVD of
-        // the fitting matrix does.
-        let g_dlr_2d = self.fitter.fit_2d_generic::<T>(backend, &gl_2d)?;
-
-        // Reshape back
-        let n_poles = self.poles.len();
-        let mut g_dlr_shape = vec![n_poles];
-        gl_dim0.shape().with_dims(|dims| {
-            for i in 1..dims.len() {
-                g_dlr_shape.push(dims[i]);
-            }
-        });
-
-        let g_dlr_dim0 = g_dlr_2d.into_dyn().reshape(&g_dlr_shape[..]).to_tensor();
-        Ok(crate::sampling::movedim(&g_dlr_dim0, 0, dim))
+    ) -> Result<TypedTensor<T>, Error> {
+        // An empty batch gives an empty result; the fit fails only if the
+        // SVD of the fitting matrix does.
+        self.fitter.fit_nd(backend, gl, dim)
     }
 
     /// Convert DLR coefficients to IR (N-dimensional, generic over real/complex)
@@ -627,67 +573,13 @@ where
     /// * [`Error::ShapeMismatch`] of the input if `g_dlr` does not have
     ///   [`Basis::size`](crate::basis_trait::Basis::size) (the number of
     ///   poles) entries along `dim`
-    pub fn to_ir_nd<T>(
+    pub fn to_ir_nd<T: FitScalar>(
         &self,
         backend: Option<&GemmBackendHandle>,
-        g_dlr: &mdarray::Tensor<T, mdarray::DynRank>,
+        g_dlr: &TypedTensor<T>,
         dim: usize,
-    ) -> Result<mdarray::Tensor<T, mdarray::DynRank>, Error>
-    where
-        T: num_complex::ComplexFloat
-            + faer_traits::ComplexField
-            + From<f64>
-            + Copy
-            + Default
-            + 'static,
-    {
-        use mdarray::{DTensor, Shape};
-
-        let mut g_dlr_shape = vec![];
-        g_dlr.shape().with_dims(|dims| {
-            g_dlr_shape.extend_from_slice(dims);
-        });
-
-        let n_poles = self.poles.len();
-        // Check the axis and its extent before anything reads g_dlr_shape[dim].
-        crate::fitters::common::check_input_shape(&g_dlr_shape, dim, n_poles)?;
-
-        if g_dlr.is_empty() {
-            // Zero-extent guard: an empty batch has nothing to convert.
-            // Returning early keeps it away from the permuted copies that
-            // mdarray 0.7.2 does out of bounds for a zero extent
-            // (https://github.com/fre-hu/mdarray/issues/21) and from
-            // zero-size GEMMs.
-            let out_shape =
-                crate::sampling::build_output_shape(g_dlr.shape(), dim, self.ir_basis_size());
-            return Ok(mdarray::Tensor::zeros(&out_shape[..]));
-        }
-
-        // Move target dimension to position 0
-        let g_dlr_dim0 = crate::sampling::movedim(g_dlr, dim, 0);
-
-        // Reshape to 2D
-        let extra_size = g_dlr_dim0.len() / n_poles;
-        let g_dlr_2d_dyn = g_dlr_dim0.reshape(&[n_poles, extra_size][..]).to_tensor();
-
-        let g_dlr_2d = DTensor::<T, 2>::from_fn([n_poles, extra_size], |idx| {
-            g_dlr_2d_dyn[&[idx[0], idx[1]][..]]
-        });
-
-        // Evaluate using fitter's generic 2D method
-        let gl_2d = self.fitter.evaluate_2d_generic::<T>(backend, &g_dlr_2d);
-
-        // Reshape back
-        let basis_size = self.ir_basis_size();
-        let mut gl_shape = vec![basis_size];
-        g_dlr_dim0.shape().with_dims(|dims| {
-            for i in 1..dims.len() {
-                gl_shape.push(dims[i]);
-            }
-        });
-
-        let gl_dim0 = gl_2d.into_dyn().reshape(&gl_shape[..]).to_tensor();
-        Ok(crate::sampling::movedim(&gl_dim0, 0, dim))
+    ) -> Result<TypedTensor<T>, Error> {
+        self.fitter.evaluate_nd(backend, g_dlr, dim)
     }
 }
 
@@ -762,9 +654,7 @@ where
         })
     }
 
-    fn evaluate_tau(&self, tau: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
-        use mdarray::DTensor;
-
+    fn evaluate_tau(&self, tau: &[f64]) -> Result<crate::Matrix<f64>, Error> {
         let n_poles = self.poles.len();
         // Normalize every τ first: this rejects a τ outside [-β, β] and NaN
         // for every pole, including the bosonic pole at 0, whose limit does
@@ -774,82 +664,74 @@ where
             .map(|&t| normalize_tau::<S>(t, self.beta))
             .collect::<Result<Vec<(f64, f64)>, Error>>()?;
         if normalized.is_empty() {
-            // mdarray 0.7.2 runs the closure of from_fn for a zero extent
-            // (https://github.com/fre-hu/mdarray/issues/21).
-            return Ok(DTensor::<f64, 2>::from_elem([0, n_poles], 0.0));
+            // An empty set of points gives an empty matrix.
+            return Ok(Mat::<f64>::from_elem([0, n_poles], 0.0).into_typed());
         }
-        Ok(DTensor::<f64, 2>::from_fn(
-            [normalized.len(), n_poles],
-            |idx| {
-                let (tau_norm, sign) = normalized[idx[0]];
-                let pole = self.poles[idx[1]];
-                let pole_weight = self.pole_weights[idx[1]];
-                match S::STATISTICS {
-                    Statistics::Fermionic => {
-                        sign * fermionic_single_pole_unchecked(tau_norm, pole, self.beta)
-                            * pole_weight
-                    }
-                    Statistics::Bosonic => {
-                        // The bosonic sign of normalize_tau is always 1.
-                        if pole == 0.0 {
-                            self.zero_pole_tau_limit()
-                        } else if pole > 0.0 {
-                            let denominator = -(-self.beta * pole).exp_m1();
-                            -(-tau_norm * pole).exp() * pole_weight / denominator
-                        } else {
-                            let denominator = -(self.beta * pole).exp_m1();
-                            (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
-                        }
+        Ok(Mat::<f64>::from_fn([normalized.len(), n_poles], |idx| {
+            let (tau_norm, sign) = normalized[idx[0]];
+            let pole = self.poles[idx[1]];
+            let pole_weight = self.pole_weights[idx[1]];
+            match S::STATISTICS {
+                Statistics::Fermionic => {
+                    sign * fermionic_single_pole_unchecked(tau_norm, pole, self.beta) * pole_weight
+                }
+                Statistics::Bosonic => {
+                    // The bosonic sign of normalize_tau is always 1.
+                    if pole == 0.0 {
+                        self.zero_pole_tau_limit()
+                    } else if pole > 0.0 {
+                        let denominator = -(-self.beta * pole).exp_m1();
+                        -(-tau_norm * pole).exp() * pole_weight / denominator
+                    } else {
+                        let denominator = -(self.beta * pole).exp_m1();
+                        (pole * (self.beta - tau_norm)).exp() * pole_weight / denominator
                     }
                 }
-            },
-        ))
+            }
+        })
+        .into_typed())
     }
 
     fn evaluate_matsubara(
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
-    ) -> Result<mdarray::DTensor<num_complex::Complex<f64>, 2>, Error> {
-        use mdarray::DTensor;
+    ) -> Result<crate::Matrix<num_complex::Complex<f64>>, Error> {
         use num_complex::Complex;
 
         let n_points = freqs.len();
         let n_poles = self.poles.len();
         if n_points == 0 {
-            // See evaluate_tau (mdarray#21).
-            return Ok(DTensor::<Complex<f64>, 2>::from_elem(
-                [0, n_poles],
-                Complex::new(0.0, 0.0),
-            ));
+            // See evaluate_tau.
+            return Ok(
+                Mat::<Complex<f64>>::from_elem([0, n_poles], Complex::new(0.0, 0.0)).into_typed(),
+            );
         }
 
         // Evaluate MatsubaraPoles basis functions
-        Ok(DTensor::<Complex<f64>, 2>::from_fn(
-            [n_points, n_poles],
-            |idx| {
-                let freq = &freqs[idx[0]];
-                let pole = self.poles[idx[1]];
-                let pole_weight = self.pole_weights[idx[1]];
+        Ok(Mat::<Complex<f64>>::from_fn([n_points, n_poles], |idx| {
+            let freq = &freqs[idx[0]];
+            let pole = self.poles[idx[1]];
+            let pole_weight = self.pole_weights[idx[1]];
 
-                // iν = iπn/β, with n = freq.n() (odd for fermions, even for bosons)
-                let iv = freq.value_imaginary(self.beta);
+            // iν = iπn/β, with n = freq.n() (odd for fermions, even for bosons)
+            let iv = freq.value_imaginary(self.beta);
 
-                // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the
-                // regularizer w(β, ω_i) of the source kernel.
-                if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
-                    if crate::freq::is_zero(freq) {
-                        Complex::new(self.zero_pole_matsubara_limit(), 0.0)
-                    } else {
-                        Complex::new(0.0, 0.0)
-                    }
+            // u_i(iν) = pole_weight / (iν - pole_i), where `pole_weight` is the
+            // regularizer w(β, ω_i) of the source kernel.
+            if S::STATISTICS == Statistics::Bosonic && pole == 0.0 {
+                if crate::freq::is_zero(freq) {
+                    Complex::new(self.zero_pole_matsubara_limit(), 0.0)
                 } else {
-                    Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0))
+                    Complex::new(0.0, 0.0)
                 }
-            },
-        ))
+            } else {
+                Complex::new(pole_weight, 0.0) / (iv - Complex::new(pole, 0.0))
+            }
+        })
+        .into_typed())
     }
 
-    fn evaluate_omega(&self, _omega: &[f64]) -> Result<mdarray::DTensor<f64, 2>, Error> {
+    fn evaluate_omega(&self, _omega: &[f64]) -> Result<crate::Matrix<f64>, Error> {
         // TODO(#205): For the IR basis, evaluate_omega returns V_l(omega).
         // For DLR, the "basis functions" in omega-space are single-pole
         // functions (conceptually delta functions at the pole positions),

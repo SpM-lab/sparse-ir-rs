@@ -290,20 +290,16 @@ fn test_default_tau_sampling_points_conditioning() {
     let basis_size = basis.size();
     println!("Sampling matrix shape: {}x{}", num_points, basis_size);
 
-    // Compute SVD using mdarray-linalg (Faer backend)
-    use mdarray_linalg::prelude::SVD;
-    use mdarray_linalg_faer::Faer;
-    let mut matrix_copy = matrix.clone();
-    let svd = Faer.svd(&mut *matrix_copy).expect("SVD computation failed");
+    let sv = crate::fitters::singular_values(matrix.host_data().unwrap(), num_points, basis_size)
+        .expect("SVD computation failed");
 
     println!("\nSampling matrix SVD:");
-    let min_dim = svd.s.shape().0.min(svd.s.shape().1);
+    let min_dim = sv.len();
     println!("  Rank: {}", min_dim);
-    // mdarray-linalg stores singular values in first row: s[[0, i]]
-    println!("  First singular value: {:.6e}", svd.s[[0, 0]]);
-    println!("  Last singular value: {:.6e}", svd.s[[0, min_dim - 1]]);
+    println!("  First singular value: {:.6e}", sv[0]);
+    println!("  Last singular value: {:.6e}", sv[min_dim - 1]);
 
-    let condition_number = svd.s[[0, 0]] / svd.s[[0, min_dim - 1]];
+    let condition_number = sv[0] / sv[min_dim - 1];
     println!("  Condition number: {:.6e}", condition_number);
 
     // Reference condition number (from Julia/C++ for beta=1, lambda=10)

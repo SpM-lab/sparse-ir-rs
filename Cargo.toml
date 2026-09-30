@@ -11,12 +11,12 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
-mdarray = "0.7.2"
-mdarray-linalg = "0.1.2"
-mdarray-linalg-faer = "0.1.2"
 sparse-ir = { version = "0.10.0", path = "sparse-ir" }
-faer = "0.23"
-faer-traits = "0.23"
+faer = "0.24"
+faer-traits = "0.24"
+tenferro-tensor = "0.7.1"
+tenferro-linalg = "0.7.1"
+tenferro-cpu = "0.7.1"
 num-complex = "0.4"
 num-traits = "0.2"
 special = "0.2"
@@ -37,7 +37,7 @@ cargo-husky = "1.5"
 [workspace.package]
 version = "0.10.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.96"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/SpM-lab/sparse-ir-rs"
 authors = ["SparseIR Team"]

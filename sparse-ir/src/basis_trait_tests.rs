@@ -1,5 +1,6 @@
 //! Tests for Basis trait
 
+use crate::test_utils::At;
 use crate::{Basis, Bosonic, Fermionic, FiniteTempBasis, LogisticKernel};
 
 #[test]
@@ -102,17 +103,17 @@ fn test_basis_trait_evaluate_tau() {
     let matrix = basis.evaluate_tau(&tau_points).unwrap();
 
     // Check shape
-    assert_eq!(*matrix.shape(), (tau_points.len(), basis.size()));
+    assert_eq!(matrix.shape(), &[tau_points.len(), basis.size()]);
 
     // Values should be finite
     for i in 0..tau_points.len() {
         for l in 0..basis.size() {
             assert!(
-                matrix[[i, l]].is_finite(),
+                matrix.at(&[i, l]).is_finite(),
                 "matrix[{}, {}] = {}",
                 i,
                 l,
-                matrix[[i, l]]
+                matrix.at(&[i, l])
             );
         }
     }
@@ -143,12 +144,12 @@ fn test_basis_trait_evaluate_matsubara() {
     let matrix = basis.evaluate_matsubara(&freqs).unwrap();
 
     // Check shape
-    assert_eq!(*matrix.shape(), (freqs.len(), basis.size()));
+    assert_eq!(matrix.shape(), &[freqs.len(), basis.size()]);
 
     // Values should be finite
     for i in 0..freqs.len() {
         for l in 0..basis.size() {
-            let val = matrix[[i, l]];
+            let val = matrix.at(&[i, l]);
             assert!(
                 val.re.is_finite() && val.im.is_finite(),
                 "matrix[{}, {}] = {:?}",
@@ -198,18 +199,18 @@ fn test_basis_evaluate_checks_the_points() {
     Basis::evaluate_omega(&basis, &[-wmax, wmax]).unwrap();
 
     assert_eq!(
-        *Basis::evaluate_tau(&basis, &[]).unwrap().shape(),
-        (0, size)
+        Basis::evaluate_tau(&basis, &[]).unwrap().shape(),
+        &[0, size]
     );
     assert_eq!(
-        *Basis::evaluate_omega(&basis, &[]).unwrap().shape(),
-        (0, size)
+        Basis::evaluate_omega(&basis, &[]).unwrap().shape(),
+        &[0, size]
     );
     let no_freqs: [MatsubaraFreq<Fermionic>; 0] = [];
     assert_eq!(
-        *Basis::evaluate_matsubara(&basis, &no_freqs)
+        Basis::evaluate_matsubara(&basis, &no_freqs)
             .unwrap()
             .shape(),
-        (0, size)
+        &[0, size]
     );
 }
