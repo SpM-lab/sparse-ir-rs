@@ -548,3 +548,25 @@ Final local verification (Linux x86_64, session-only affinity to CPUs 0-3,
   (67 warnings each); rustdoc warnings decrease from 37 to 22, with no new
   warning after removing a redundant link target introduced by the split.
 - Self-review covers the migration, ABI/binding and tutorial changes.
+
+### Intel Fortran CI correction
+
+The first PR CI run exposed a missing FPU guard in MiniPole's shared SVD and
+eigenvalue helpers. With Intel's FZ/DAZ startup flags, the Fortran test's
+analytic two-pole model was reduced to one pole. A Rust test reproduces the
+same failure before the correction and also checks that the caller's FZ/DAZ
+flags are preserved. The helpers now reuse the core's existing `FpuGuard`;
+no compiler flags, ABI declarations or numerical tolerances were changed.
+
+Post-correction focused checks: 18 MiniPole/ESPRIT/reference tests, the C++
+MiniPole case (28 assertions), Python's full 105-test suite against the fresh
+C API, and the executable MiniPole tutorial pass. The existing Fortran
+MiniPole program compiled with gfortran `-ffast-math` also reproduces the
+one-pole failure against the old library and passes against the corrected
+library, emulating Intel's FZ/DAZ state without installing a compiler.
+
+Strict MiniPole clippy with `--no-deps` passes. The additional dependency-
+inclusive `-D warnings` check is blocked by three existing core lints
+(`manual_range_contains`, `clone_on_copy`, `needless_range_loop`); unrelated
+core cleanup is not included in this correction. Hosted Intel CI remains
+the merge gate for the real compiler.

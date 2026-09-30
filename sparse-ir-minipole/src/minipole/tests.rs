@@ -97,6 +97,31 @@ fn matsubara_data(
     (w, TypedTensor::from_vec_col_major(vec![nw], g).unwrap())
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[test]
+fn matsubara_recovers_poles_with_flush_to_zero() {
+    use sparse_ir_core::fpu_check::get_fpu_state;
+
+    // Same analytic model as the Intel Fortran test, without changing its bounds.
+    let spec = [(-0.5, 0.4), (0.3, 0.6)];
+    let (w, g) = matsubara_data(40.0, 1.0, 120, &spec, 0.0, 1);
+    let original = get_fpu_state().mxcsr;
+    let dangerous = original | (1 << 15) | (1 << 6);
+    // SAFETY: initialized stack u32; only the valid FZ/DAZ flags are changed.
+    unsafe { std::arch::asm!("ldmxcsr [{}]", in(reg) &dangerous, options(nostack)) };
+    // Restore the calling thread's register even if a numerical assertion panics.
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let rep = mini_pole(&g, &w, &MiniPoleParams::new(1e-8)).unwrap();
+        let state = get_fpu_state();
+        assert!(state.flush_to_zero && state.denormals_are_zero);
+        assert_eq!(rep.pole_location.len(), 2, "{:?}", rep.pole_location);
+        assert_poles_close(&rep, &spec, 1e-6, 1e-6);
+    }));
+    // SAFETY: restore the original valid MXCSR from initialized stack storage.
+    unsafe { std::arch::asm!("ldmxcsr [{}]", in(reg) &original, options(nostack)) };
+    outcome.unwrap();
+}
+
 #[test]
 fn from_dlr_recovers_discrete_poles() {
     let (beta, wmax) = (50.0, 2.0);

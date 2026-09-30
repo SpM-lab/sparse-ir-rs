@@ -3,6 +3,7 @@
 use crate::error::{Error, Result};
 use crate::fitters::common::compute_pinv_truncated;
 use num_complex::Complex;
+use sparse_ir_core::fpu_check::FpuGuard;
 use tenferro_cpu::CpuBackend;
 use tenferro_linalg::TypedTensorLinalgExt;
 use tenferro_tensor::{BackendSessionHost, TypedTensor};
@@ -12,6 +13,7 @@ type C64 = Complex<f64>;
 /// Singular values and `Vᴴ` (`k x m`, `k = min(n, m)`) of an `n x m` matrix,
 /// as `np.linalg.svd(a, full_matrices=False)[1:]`.
 pub(crate) fn svd_s_vh(a: &[C64], n: usize, m: usize) -> Result<(Vec<f64>, Vec<C64>)> {
+    let _guard = FpuGuard::new_protect_computation();
     let tensor = TypedTensor::<C64>::from_vec_col_major(vec![n, m], a.to_vec())?;
     let mut host = CpuBackend::new();
     let (_u, s, vt) = host
@@ -48,6 +50,7 @@ pub(crate) fn eigvals(a: &[C64], r: usize) -> Result<Vec<C64>> {
     if r == 0 {
         return Ok(Vec::new());
     }
+    let _guard = FpuGuard::new_protect_computation();
     let tensor = TypedTensor::<C64>::from_vec_col_major(vec![r, r], a.to_vec())?;
     let mut host = CpuBackend::new();
     let (values, _vectors) = host
