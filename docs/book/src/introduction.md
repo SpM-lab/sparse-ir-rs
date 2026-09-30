@@ -6,6 +6,10 @@ frequency, it gives you a basis whose size grows only logarithmically with the
 cutoff `Λ = β ω_max`, together with the handful of sampling points at which you
 need to know a function to recover its expansion.
 
+For how the IR basis, the discrete Lehmann representation (DLR) and MiniPole
+are related, where each came from and what each is convenient for, see
+[IR, DLR and MiniPole: history and comparison](https://spm-lab.github.io/sparse-ir-doc/src/history_comparison.html) on the theory site.
+
 This book is the tutorial for the Rust implementation. Every code block it
 shows is compiled, and every figure it shows was drawn from numbers a program
 in `docs/tutorial-code/` actually produced — the same programs the test suite

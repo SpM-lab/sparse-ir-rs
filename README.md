@@ -20,6 +20,7 @@ Most end users should start from the ecosystem documentation / tutorials and use
 | **[MiniPole: choosing the contour](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html)** | Illustrated `n0`/`nmax` comparison and input contracts |
 | **[Current Rust API](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html)** | API documentation built from `main` |
 | **[Ecosystem Documentation](https://spm-lab.github.io/sparse-ir-doc/)** | Theory and usage across languages |
+| **[IR, DLR and MiniPole: history and comparison](https://spm-lab.github.io/sparse-ir-doc/src/history_comparison.html)** | How the three representations are related and when to use which |
 | **[Python/Julia Tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/)** | Interactive tutorials with Jupyter notebooks |
 | **[Rust API: sparse-ir (docs.rs)](https://docs.rs/sparse-ir)** | Core Rust crate API documentation |
 | **[Rust API: sparse-ir-capi (docs.rs)](https://docs.rs/sparse-ir-capi)** | C-API Rust crate API documentation |
