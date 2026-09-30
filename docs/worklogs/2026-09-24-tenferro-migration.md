@@ -439,3 +439,42 @@ sparse-ir-capi      -> sparse-ir (C ABI unchanged)
   sparse-ir-dlr 97, sparse-ir-minipole 98, sparse-ir-basis 109. A user of the
   DLR or MiniPole alone no longer pulls xprec, simba or nalgebra; tenferro
   (and faer) stay in the core by design.
+
+## MiniPole: port of the reference implementation (2026-09-30)
+
+- The earlier `minipole` module was written from the paper, not from the
+  reference code, and differs from Green-Phys/MiniPole in the contour
+  (`ν_a = max(2.5 ln(1/tol)/β, π/β)`, `ν_b = ν_a + 10 ωmax` against
+  `(2n0+1)π/β` and `(2 nmax+1)π/β`), the ESPRIT details (Hankel layout, no
+  control loop), the pole filter (`|Im ξ| >= ν_a/2`), the missing z-plane
+  refit and the missing gapless map. Its default `ν_a` grows as `tol`
+  tightens and then resolves low-energy poles worse.
+- New module `sparse_ir::mpm`: a port of `esprit.py`, `con_map.py`
+  (`ConMapGeneric`, `ConMapGapless`), `mini_pole_dlr.py` and `mini_pole.py`
+  at commit 15e4a54 (MIT, Copyright (c) 2024 lzphy). The notice is in
+  `sparse-ir-minipole/LICENSE-THIRD-PARTY` and in the module headers.
+  - Not ported: the knee detection (`kneed`, BSD-3) that picks the ESPRIT
+    order when neither `err` nor `M` is given, so one of them is required;
+    the real-frequency variants (`mini_pole_rf*.py`).
+  - The contour integrals of `mini_pole` use composite Gauss–Legendre
+    quadrature (order 32, doubling panels until two results agree to
+    `0.01 err_max`) instead of QUADPACK QAWO.
+  - `mini_pole_dlr_from` takes a `DiscreteLehmannRepresentation` and its
+    coefficients (`A_l = g_l w_l`).
+- Parity tests (`sparse-ir-minipole/tests/reference_parity.rs`) read
+  fixtures written by `tests/reference/gen_reference.py` from the reference:
+  - ESPRIT (abs, rel, fixed M, 2 channels with noise, real input):
+    singular values and nodes agree to 1e-15, M identical.
+  - MiniPoleDLR (exact input, fermionic, rel, fixed M, bosonic grid, 2x2,
+    symmetric): moments to 1e-14, poles and weights to 1e-12.
+  - MiniPole on exact data (fixed n0, constant term, bosonic grid, 2x2,
+    G_symmetric, symmetric scalar and 2x2): n0 and the number of poles
+    identical, moments to 1e-13, poles to 1e-10, G(iω_n) to 5e-8.
+  - MiniPole on noisy data (η = 1e-7, err = 1e-6; automatic n0, plane w,
+    fixed M): moments to 1e-8, within the reference's quadrature tolerance,
+    and poles to 3e-5.
+- The reference also returns poles with weights of order `err_max` near
+  the contour (Im ξ ≈ 0.1–0.3 for n0 = 3 at β = 100) for exact data; they
+  are kept, as in the reference.
+- The `minipole` module, its C API and wrapper tests are unchanged. Which of
+  its deviations to keep on top of the port is still open.
