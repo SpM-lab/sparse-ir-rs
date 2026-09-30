@@ -383,6 +383,7 @@ def _normalize_type_string(type_str):
     normalized = normalized.replace('struct spir_sampling', 'spir_sampling')
     normalized = normalized.replace('struct spir_sve_result', 'spir_sve_result')
     normalized = normalized.replace('struct spir_gemm_backend', 'spir_gemm_backend')
+    normalized = normalized.replace('struct spir_pole_repr', 'spir_pole_repr')
     normalized = normalized.replace('struct Complex64', 'c_double_complex')
     return normalized
 
@@ -395,7 +396,7 @@ def _setup_prototypes():
 
     # Import necessary types into local namespace for eval
     from ctypes import c_int, c_double, c_int64, c_size_t, c_bool, POINTER, c_char_p
-    from .ctypes_wrapper import spir_kernel, spir_funcs, spir_basis, spir_sampling, spir_sve_result, spir_gemm_backend
+    from .ctypes_wrapper import spir_kernel, spir_funcs, spir_basis, spir_sampling, spir_sve_result, spir_gemm_backend, spir_pole_repr
     # Use the c_double_complex from this module (core.py), not from ctypes_autogen
     # This ensures type consistency
 
@@ -408,6 +409,7 @@ def _setup_prototypes():
         'spir_basis': spir_basis, 'spir_sampling': spir_sampling,
         'spir_sve_result': spir_sve_result,
         'spir_gemm_backend': spir_gemm_backend,
+        'spir_pole_repr': spir_pole_repr,
         'c_double_complex': c_double_complex,  # Use the one defined in this module
     }
 

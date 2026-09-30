@@ -571,8 +571,8 @@ pub extern "C" fn spir_basis_get_singular_values(
 /// * `b` - Basis object
 /// * `num_points` - Pointer to store the number of points
 ///
-/// A DLR has no default τ sampling points: for a DLR this returns
-/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
+/// For a DLR the default points are its τ interpolation nodes, one per pole
+/// (the DLR had none up to 0.10).
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -615,8 +615,8 @@ pub extern "C" fn spir_basis_get_n_default_taus(
 /// * `b` - Basis object
 /// * `points` - Pre-allocated array to store tau points
 ///
-/// A DLR has no default τ sampling points: for a DLR this returns
-/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+/// For a DLR the default points are its τ interpolation nodes, one per pole
+/// (the DLR had none up to 0.10).
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -656,8 +656,8 @@ pub extern "C" fn spir_basis_get_default_taus(
 ///   sets include n = 0)
 /// * `num_points` - Pointer to store the number of points
 ///
-/// A DLR has no default Matsubara sampling points: for a DLR this returns
-/// `SPIR_COMPUTATION_SUCCESS` with 0 points.
+/// For a DLR the default points are its Matsubara interpolation nodes, one
+/// per pole (the DLR had none up to 0.10).
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
@@ -699,8 +699,8 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 /// * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
 ///   (iν = iπn/β)
 ///
-/// A DLR has no default Matsubara sampling points: for a DLR this returns
-/// `SPIR_COMPUTATION_SUCCESS` with 0 points and writes nothing.
+/// For a DLR the default points are its Matsubara interpolation nodes, one
+/// per pole (the DLR had none up to 0.10).
 ///
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success

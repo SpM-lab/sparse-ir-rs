@@ -35,6 +35,8 @@ def map_c_type_to_fortran(ctype):
         return 'integer(c_int), value'
     elif kind == TypeKind.UINT or kind == TypeKind.UINT:
         return 'integer(c_int), value'
+    elif kind in (TypeKind.LONG, TypeKind.LONGLONG):
+        return 'integer(c_int64_t), value'
     elif kind == TypeKind.POINTER:
         depth = count_pointer_depth(ctype)
         if depth == 1:
@@ -47,10 +49,11 @@ def map_c_type_to_fortran(ctype):
         return 'complex(c_double_complex), value'
     elif kind == TypeKind.ENUM:
         return 'integer(c_int), value'
-    elif kind == TypeKind.ELABORATED:
-        type_name = ctype.get_canonical().spelling
-        if type_name in ["int32_t", "int32_t"]:
-            return 'integer(c_int), value'
+    elif kind in (TypeKind.ELABORATED, TypeKind.TYPEDEF):
+        # Resolve typedefs (e.g. `typedef int StatusCode`) to their canonical type.
+        canonical = ctype.get_canonical()
+        if canonical.kind != kind:
+            return map_c_type_to_fortran(canonical)
         return 'type(c_ptr)'
     else:
         return 'type(c_ptr)'  # default fallback
@@ -400,7 +403,20 @@ def main():
 
     header_path = sys.argv[1]
     index = Index.create()
-    tu = index.parse(header_path, args=['-x', 'c', '-std=c99'])
+    args = ['-x', 'c', '-std=c99']
+    # Without the system and compiler headers, <stdbool.h> is not found and
+    # `bool` silently parses as `int`.
+    import shutil
+    import subprocess
+    if shutil.which('clang'):
+        res = subprocess.run(['clang', '-print-resource-dir'], capture_output=True, text=True)
+        if res.returncode == 0:
+            args += ['-isystem', os.path.join(res.stdout.strip(), 'include')]
+    if sys.platform == 'darwin':
+        sdk = subprocess.run(['xcrun', '--show-sdk-path'], capture_output=True, text=True)
+        if sdk.returncode == 0:
+            args += ['-isysroot', sdk.stdout.strip()]
+    tu = index.parse(header_path, args=args)
 
     # Find C types first
     types = find_c_types(header_path)

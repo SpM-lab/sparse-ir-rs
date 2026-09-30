@@ -264,22 +264,27 @@ def test_a_regularizer_undefined_at_half_of_omega_max():
     _lib.spir_kernel_release(k1)
 
 
-def test_a_dlr_has_no_default_sampling_points():
-    """S12: a DLR reports no default points, with success."""
+def test_the_default_sampling_points_of_a_dlr_are_its_nodes():
+    """S12: a DLR reports its interpolation nodes, one per pole, with success
+    (it reported none up to 0.10)."""
     basis = _fermionic_basis(1)
     status = c_int(SPIR_COMPUTATION_SUCCESS)
     dlr = _lib.spir_dlr_new(basis, byref(status))
     assert status.value == SPIR_COMPUTATION_SUCCESS
 
+    n_poles = c_int(-1)
+    assert _lib.spir_dlr_get_npoles(dlr, byref(n_poles)) == SPIR_COMPUTATION_SUCCESS
+    assert n_poles.value > 0
+
     n_taus = c_int(-1)
     assert _lib.spir_basis_get_n_default_taus(
         dlr, byref(n_taus)) == SPIR_COMPUTATION_SUCCESS
-    assert n_taus.value == 0
+    assert n_taus.value == n_poles.value
 
     n_matsus = c_int(-1)
     assert _lib.spir_basis_get_n_default_matsus(
         dlr, False, byref(n_matsus)) == SPIR_COMPUTATION_SUCCESS
-    assert n_matsus.value == 0
+    assert n_matsus.value == n_poles.value
 
     _lib.spir_basis_release(dlr)
     _lib.spir_basis_release(basis)
