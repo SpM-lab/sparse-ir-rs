@@ -169,3 +169,68 @@ fn invalid_options_are_rejected() {
     let rep = minipole_from_dlr(&dlr, &g, &MiniPoleOptions::new(1e-8)).unwrap();
     assert!(rep.poles.is_empty());
 }
+
+/// Odd bosonic spectrum `ρ(-ω) = -ρ(ω)` (a susceptibility-like `χ(iν)`,
+/// finite at `ν = 0`) with a low-energy pair at `β|ξ| = 2`. Pairs with
+/// `β|ξ| < 1` are below the resolution of the method for either statistics.
+#[test]
+fn from_dlr_bosonic_odd_spectrum_with_low_energy_pair() {
+    let (beta, wmax) = (20.0, 3.0);
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::new(beta, wmax, 1e-12).unwrap();
+    let x = 2.0 / beta;
+    let spec = vec![(-0.4 * wmax, -0.2), (-x, -0.3), (x, 0.3), (0.4 * wmax, 0.2)];
+    let g = dlr_coeffs(&dlr, &spec);
+    let rep = minipole_from_dlr(&dlr, &g, &MiniPoleOptions::new(1e-8)).unwrap();
+    assert_poles_close(&rep, &spec, 1e-3, 1e-3);
+    // χ(0) is real and finite; its error is amplified by 1/ξ² of the pair.
+    let v = rep.evaluate(&[c(0.0, 0.0)]).unwrap().host_data().unwrap()[0];
+    let exact = g_exact(&spec, c(0.0, 0.0));
+    assert!((v - exact).norm() < 1e-2 * exact.norm(), "{v} vs {exact}");
+}
+
+#[test]
+fn from_matsubara_bosonic_with_noise() {
+    let (beta, wmax, eta) = (100.0, 1.0, 1e-7);
+    let spec = spectrum(wmax);
+    // Irregular, unsorted even frequencies including ν = 0.
+    let freqs: Vec<MatsubaraFreq<Bosonic>> = (0..120)
+        .map(|k| {
+            let m: i64 = if k % 2 == 0 { k } else { -k - 3 };
+            MatsubaraFreq::new(2 * m).unwrap()
+        })
+        .collect();
+    let mut s = 54321u64;
+    let mut rnd = || {
+        s = s
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        2.0 * ((s >> 11) as f64 / (1u64 << 53) as f64) - 1.0
+    };
+    let v: Vec<C64> = freqs
+        .iter()
+        .map(|f| g_exact(&spec, f.value_imaginary(beta)) + c(eta * rnd(), eta * rnd()))
+        .collect();
+    let v = TypedTensor::from_vec_col_major(vec![freqs.len()], v).unwrap();
+    let rep = minipole_from_matsubara(beta, wmax, 1e-10, &freqs, &v, &MiniPoleOptions::new(1e-5))
+        .unwrap();
+    assert!(rep.diagnostics.dlr_fit_residual.unwrap() < 1e-5);
+    assert_poles_close(&rep, &spec, 2e-3, 2e-3);
+
+    let held: Vec<MatsubaraFreq<Bosonic>> = [7, 301, -45]
+        .iter()
+        .map(|&k| MatsubaraFreq::new(2 * k).unwrap())
+        .collect();
+    let ev = rep.evaluate_matsubara(beta, &held).unwrap();
+    for (f, got) in held.iter().zip(ev.host_data().unwrap()) {
+        assert!((got - g_exact(&spec, f.value_imaginary(beta))).norm() < 1e-3);
+    }
+    // At ν = 0 the pole and residue errors are amplified by 1/ξ² and 1/ξ of
+    // the pole closest to the origin.
+    let z0 = MatsubaraFreq::<Bosonic>::new(0).unwrap();
+    let got = rep
+        .evaluate_matsubara(beta, &[z0])
+        .unwrap()
+        .host_data()
+        .unwrap()[0];
+    assert!((got - g_exact(&spec, c(0.0, 0.0))).norm() < 1e-2);
+}
