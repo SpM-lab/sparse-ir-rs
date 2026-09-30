@@ -1137,6 +1137,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "omeco"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd9b9ad7716ee4ed2a6a5277f4fd1a65f683eda2c05f0f45c8fc6482795a1edc"
+dependencies = [
+ "priority-queue",
+ "rand 0.9.4",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1220,6 +1234,17 @@ checksum = "479ca8adacdd7ce8f1fb39ce9ecccbfe93a3f1344b3d0d97f20bc0196208f62b"
 dependencies = [
  "proc-macro2",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "priority-queue"
+version = "2.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93980406f12d9f8140ed5abe7155acb10bb1e69ea55c88960b9c2f117445ef96"
+dependencies = [
+ "equivalent",
+ "indexmap",
+ "serde",
 ]
 
 [[package]]
@@ -1627,6 +1652,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
+ "serde_derive",
 ]
 
 [[package]]
@@ -1749,6 +1775,7 @@ dependencies = [
  "special",
  "statrs",
  "tenferro-cpu",
+ "tenferro-einsum",
  "tenferro-linalg",
  "tenferro-tensor",
  "thiserror 1.0.69",
@@ -1996,6 +2023,25 @@ dependencies = [
  "strided-basic",
  "strided-fused",
  "tenferro-cpu-basic",
+ "tenferro-tensor",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "tenferro-einsum"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf9a52646809d654ce638d5c3d3d741ab1d30f3744ddf2c95b7b9b3995944ae0"
+dependencies = [
+ "computegraph",
+ "lru",
+ "omeco",
+ "smallvec",
+ "tenferro-ad",
+ "tenferro-cpu",
+ "tenferro-internal-extension-macros",
+ "tenferro-internal-ops",
+ "tenferro-runtime",
  "tenferro-tensor",
  "thiserror 2.0.18",
 ]

@@ -17,6 +17,7 @@ faer-traits = "0.24"
 tenferro-tensor = "0.7.1"
 tenferro-linalg = "0.7.1"
 tenferro-cpu = "0.7.1"
+tenferro-einsum = { version = "0.7.1", default-features = false, features = ["cpu-faer"] }
 num-complex = "0.4"
 num-traits = "0.2"
 special = "0.2"
