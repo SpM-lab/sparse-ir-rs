@@ -595,7 +595,21 @@ impl SvdScalar for Complex<f64> {
 /// # Errors
 /// Propagates tenferro errors (for example a non-converging SVD).
 pub(crate) fn compute_pinv<T: SvdScalar>(a: &[T], n: usize, m: usize) -> Result<PinvFactors<T>> {
-    compute_pinv_of(a, n, m, || sampling_matrix((n, m)))
+    compute_pinv_impl(a, n, m, None, || sampling_matrix((n, m)))
+}
+
+/// Like [`compute_pinv`], but keeps only singular values `s_l > rtol * s_0`
+/// (truncated-SVD regularization).
+///
+/// # Errors
+/// [`Error::DecompositionFailed`] if the SVD fails.
+pub(crate) fn compute_pinv_truncated<T: SvdScalar>(
+    a: &[T],
+    n: usize,
+    m: usize,
+    rtol: f64,
+) -> Result<PinvFactors<T>> {
+    compute_pinv_impl(a, n, m, Some(rtol), || sampling_matrix((n, m)))
 }
 
 /// Name of a `rows × cols` sampling matrix in an error
@@ -620,6 +634,16 @@ pub(crate) fn compute_pinv_of<T: SvdScalar>(
     a: &[T],
     n: usize,
     m: usize,
+    name: impl FnOnce() -> String,
+) -> Result<PinvFactors<T>> {
+    compute_pinv_impl(a, n, m, None, name)
+}
+
+fn compute_pinv_impl<T: SvdScalar>(
+    a: &[T],
+    n: usize,
+    m: usize,
+    rtol: Option<f64>,
     name: impl FnOnce() -> String,
 ) -> Result<PinvFactors<T>> {
     use tenferro_cpu::CpuBackend;
@@ -656,6 +680,16 @@ pub(crate) fn compute_pinv_of<T: SvdScalar>(
         ));
     }
     let (ldu, ldvt) = (u_shape[0], vt_shape[0]);
+    let singular_values: Vec<f64> = s[..rank].iter().map(|&v| T::real_part(v)).collect();
+    let rank = match rtol {
+        Some(rtol) => {
+            let s0 = T::real_part(s[0]);
+            (0..rank)
+                .take_while(|&l| T::real_part(s[l]) > rtol * s0)
+                .count()
+        }
+        None => rank,
+    };
 
     // U^H: uh[l + r*i] = conj(U[i, l])
     let mut uh = vec![T::zero(); rank * n];
@@ -672,11 +706,10 @@ pub(crate) fn compute_pinv_of<T: SvdScalar>(
             v_scaled[j + m * l] = vt[l + ldvt * j].conj_().scale(inv_s);
         }
     }
-    let s: Vec<f64> = s[..rank].iter().map(|&v| T::real_part(v)).collect();
     Ok(PinvFactors {
         uh,
         v_scaled,
-        s,
+        s: singular_values,
         n,
         m,
         rank,
