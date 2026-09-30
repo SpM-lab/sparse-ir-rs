@@ -176,6 +176,31 @@ the old branch is re-applied in order.
   passed, integration tests 19, doctests 18; sparse-ir-capi 79 + 37 + 11 + 2
   + 3 + 43 + 1; Rust tutorial `scripts/check.sh --run` passes (examples match
   the committed reference values); C headers unchanged.
+- All 11 commits of the old branch are re-applied, one commit each; the
+  per-milestone sections below carry a "Rebuild on 0.10.0" note where the
+  port differs from the old branch.
+- Rust API changes against 0.10.0 (breaking, allowed by #259):
+  `DiscreteLehmannRepresentation::new(&basis)` is `from_ir(&basis)`,
+  `with_poles` is `from_ir_with_poles`, and `new(beta, wmax, eps)` /
+  `DlrBuilder` build the independent DLR; `ir_basis_size()` returns
+  `Option<usize>` (`None` for an independent DLR, whose `from_ir_nd` /
+  `to_ir_nd` are `NotSupported`); sampling `from_matrix` takes `&Matrix`;
+  arrays are `TypedTensor` / `Matrix`.
+- Behavior change decided by the maintainer (2026-09-30): the default τ and
+  Matsubara points of a DLR, in Rust and through
+  `spir_basis_get_{n_,}default_{taus,matsus}`, are its interpolation nodes,
+  one per pole (0.10.0 reported none). The status tests of 0.10.0 (S12 in
+  C++, Fortran, Python) and `test_dlr_basis_methods_report_errors` were
+  changed to this contract, and the C docs say so. The `_ext` variants still
+  report 0 points for a DLR.
+- Kept from main over the old branch: DLR pole weights are the kernel
+  regularizers (#286), Matsubara samplings keep the given point order
+  (#291), and every error is a `sparse_ir::Error`.
+- Final local results on the last code commit (Linux x86_64, 4 build jobs):
+  sparse-ir lib 407 passed (1 ignored), integration tests 19, doctests 19;
+  sparse-ir-capi lib 81 plus integration tests; system-blas layer green;
+  C++ 2/2 suites (26 cases in cinterface_core); Fortran 13/13; Python 102
+  passed; headers match cbindgen 0.29.2. The Rust tutorial check passes.
 
 
 ## Milestone B: independent DLR (2026-09-25)

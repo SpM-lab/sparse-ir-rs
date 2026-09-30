@@ -59,6 +59,9 @@ directory unless `--clean` is given.
   `cargo build` that follows it is a full rebuild. On macOS such a build also
   emits hundreds of spurious `(arm64) ... unable to open object file` linker
   warnings; see `build-warning-baseline`.
+- After a change to the C API, delete `python/.venv` and
+  `python/pylibsparseir/*.so` before `uv sync --locked`; otherwise the tests
+  load the previous build of the library and fail on the new symbols.
 - After moving a worktree, delete `python/.venv` before the Python layer — its
   shebangs hold absolute paths.
 - `python3 check_version.py` checks that the versions in `Cargo.toml`,
