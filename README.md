@@ -6,24 +6,52 @@ SparseIR Rust Workspace
 [![docs.rs sparse-ir](https://docs.rs/sparse-ir/badge.svg)](https://docs.rs/sparse-ir)
 [![docs.rs sparse-ir-capi](https://docs.rs/sparse-ir-capi/badge.svg)](https://docs.rs/sparse-ir-capi)
 
-High-performance Rust implementation of the sparse intermediate representation (IR) for quantum many-body physics.
+Rust implementation of the intermediate representation (IR), independent discrete Lehmann representation (DLR), ESPRIT/MiniPole, and sparse sampling for quantum many-body physics.
 
 Most end users should start from the ecosystem documentation / tutorials and use the full-featured Python/Julia libraries; this workspace focuses on Rust crates and low-level bindings.
 
 ## Documentation
 
-**Start here:** **[Ecosystem Documentation](https://spm-lab.github.io/sparse-ir-doc/)** (theory + usage across all languages)
+**Start here for Rust:** **[Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/)** — browser-readable tutorials with figures, runnable examples, and conventions.
 
 | Resource | Description |
 |----------|-------------|
+| **[Rust Tutorials](https://spm-lab.github.io/sparse-ir-rs/)** | Sparse sampling, IR/DLR transformations, MiniPole, and applied examples |
+| **[MiniPole: choosing the contour](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html)** | Illustrated `n0`/`nmax` comparison and input contracts |
+| **[Current Rust API](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html)** | API documentation built from `main` |
+| **[Ecosystem Documentation](https://spm-lab.github.io/sparse-ir-doc/)** | Theory and usage across languages |
 | **[Python/Julia Tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/)** | Interactive tutorials with Jupyter notebooks |
 | **[Rust API: sparse-ir (docs.rs)](https://docs.rs/sparse-ir)** | Core Rust crate API documentation |
 | **[Rust API: sparse-ir-capi (docs.rs)](https://docs.rs/sparse-ir-capi)** | C-API Rust crate API documentation |
 
+The Rust guide and current API follow `main`; docs.rs describes the latest
+published release, whose API may differ. Use the guide's Git installation
+instructions to run its examples.
+
+### Tutorial sources and local browsing
+
+- [Book contents](docs/book/src/SUMMARY.md): Markdown chapters and figures in `docs/book/`.
+- [Runnable Rust examples](docs/tutorial-code/src/bin/): the source of the included code and CSV data.
+- [Plotting scripts](docs/plotting/): render figures from those CSVs.
+
+With [mdBook 0.5.2](https://rust-lang.github.io/mdBook/) installed, browse locally:
+
+```bash
+mdbook serve docs/book --open
+```
+
+To reproduce the MiniPole figures from the repository root:
+
+```bash
+cargo run --manifest-path docs/tutorial-code/Cargo.toml --profile ci --locked --bin minipole
+uv run --project docs/plotting python docs/plotting/minipole_plot.py
+```
+
 ## Quick start (Rust)
 
-- Use the Rust API docs: **[docs.rs/sparse-ir](https://docs.rs/sparse-ir)**
-- Run the round-trip example (DLR/IR/sampling):
+- Follow the [installation guide](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html) for the current Git dependency.
+- This checkout requires **Rust 1.96 or newer**.
+- From a checkout, run the round-trip example (DLR/IR/sampling):
 
 ```bash
 cargo run --example roundtrip --release
@@ -105,7 +133,7 @@ See [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE` for detail
 ### Project structure
 
 ```
-sparseir-rust/
+sparse-ir-rs/
 ├── sparse-ir/           # Rust library facade (crates.io: sparse-ir): re-exports
 │   ├── examples/        # Rust examples
 │   └── tests/           # Integration tests
@@ -124,7 +152,11 @@ sparseir-rust/
 ├── cxx_tests/           # C/C++ integration tests
 ├── capi_benchmark/      # C-API benchmarks
 ├── notebook/            # Technical notes (algorithms, design)
-└── docs/                # Development documentation
+└── docs/
+    ├── book/            # Browser-readable Rust guide (mdBook), including figures
+    ├── tutorial-code/   # Executable examples, CSV outputs and numerical checks
+    ├── plotting/        # CSV-to-figure scripts
+    └── worklogs/        # Development records
 ```
 
 ### Build
@@ -222,7 +254,11 @@ The release process is done in **two stages** because Julia bindings depend on t
    version = "X.Y.Z"  # Update this
    
    [workspace.dependencies]
-   sparse-ir = { version = "X.Y.Z", path = "sparse-ir" }  # And this
+   sparse-ir = { version = "X.Y.Z", path = "sparse-ir" }
+   sparse-ir-core = { version = "X.Y.Z", path = "sparse-ir-core" }
+   sparse-ir-dlr = { version = "X.Y.Z", path = "sparse-ir-dlr" }
+   sparse-ir-minipole = { version = "X.Y.Z", path = "sparse-ir-minipole" }
+   sparse-ir-basis = { version = "X.Y.Z", path = "sparse-ir-basis" }
    ```
 
 2. Update the Python bindings version in `python/pyproject.toml`:
@@ -270,7 +306,9 @@ The release process is done in **two stages** because Julia bindings depend on t
    gh run watch "$RUN_ID"
    ```
 
-   The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `vX.Y.Z`.
+   The workflow publishes `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`,
+   `sparse-ir-basis`, `sparse-ir`, and `sparse-ir-capi` in dependency order,
+   waiting for registry visibility before proceeding. Only then does it push `vX.Y.Z`.
 
 8. The manual Rust release workflow updates the `libsparseir` Yggdrasil branch from the new release tag. After that workflow succeeds, dispatch the standalone PyPI workflow from the release tag. The upload job is defined directly in this workflow because PyPI Trusted Publishing does not support reusable workflow jobs:
    ```bash

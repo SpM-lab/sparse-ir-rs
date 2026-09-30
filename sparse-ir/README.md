@@ -9,8 +9,19 @@ A high-performance Rust implementation of the SparseIR (Sparse Intermediate Repr
 ## Features
 
 - Intermediate Representation (IR) basis for fermionic and bosonic statistics
-- Discrete Lehmann Representation (DLR) basis for fermionic and bosonic statistics
+- Independent Discrete Lehmann Representation (DLR) basis for fermionic and bosonic statistics
+- ESPRIT and MiniPole pole reconstruction
 - Sparse Sampling in imaginary time and Matsubara frequencies
+
+## Documentation
+
+The **[Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/)** provides
+browser-readable tutorials with figures, including
+[MiniPole contour selection](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html).
+The guide and [current API reference](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html)
+follow `main` (Rust 1.96+). Follow the guide's
+[Git installation instructions](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html)
+to run its examples; the crates.io release API may differ.
 
 ## Installation
 
@@ -77,7 +88,8 @@ fn main() -> Result<(), sparse_ir::Error> {
 
 ## API Documentation
 
-The complete API documentation is available at [docs.rs/sparse-ir](https://docs.rs/sparse-ir).
+The released API documentation is available at [docs.rs/sparse-ir](https://docs.rs/sparse-ir).
+For the current `main` API, use the [guide's API reference](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html).
 
 ## Performance
 
@@ -112,7 +124,7 @@ Modifications and additions to the nalgebra code (including early termination su
 
 ## Contributing
 
-Contributions are welcome! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+Contributions are welcome! Please see our [development guide](../README.md#development) for details.
 
 ## References
 
