@@ -170,3 +170,17 @@ the old branch is re-applied in order.
   regularizers, as on main (#286); construction errors are `sparse_ir::Error`
   (`DlrError` is gone). `ir_basis_size()` is `None` for an independent DLR, and
   `from_ir_nd` / `to_ir_nd` are `NotSupported` for it.
+
+## Milestone C: ESPRIT module (2026-09-25)
+
+- `sparse_ir::esprit`: block-Hankel ESPRIT with nodes shared across channels
+  (input `[N, ...]`, trailing axes flattened), `ModelOrder::Fixed(r)` or
+  `ModelOrder::Tolerance(rtol)` (σ_i > rtol·σ_0, optional `max_order`), default
+  pencil `L ≈ N d/(d+1)`. Diagnostics: all Hankel singular values, order,
+  pencil, σ_r/σ_0, max and relative residual. `EspritResult::evaluate`
+  handles non-integer positions.
+- Linear algebra: Hankel SVD and the r×r general eigenproblem go through
+  tenferro-linalg (`svd`, `eig`). Least squares reuse the crate pinv factors.
+- Rebuild on 0.10.0: argument errors are `Error::InvalidParameter` (named
+  `samples`, `pencil`, `order`, `tolerance`) and failed decompositions
+  `Error::DecompositionFailed`.

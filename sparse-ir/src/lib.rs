@@ -26,6 +26,7 @@ mod debug; // SPARSEIR_DEBUG switch for debug diagnostics
 pub mod dlr; // Discrete Lehmann Representation utilities
 mod dlr_id; // Interpolative-decomposition construction of the DLR
 pub mod error; // Error type of the public API
+pub mod esprit; // Exponential-sum estimation (ESPRIT)
 pub mod fitters; // Least-squares fitters (real/complex matrices)
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod freq;
