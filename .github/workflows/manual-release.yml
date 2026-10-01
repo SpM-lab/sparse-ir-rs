@@ -69,6 +69,7 @@ jobs:
           fi
 
           python3 check_version.py
+          python3 scripts/check_publish_metadata.py
 
           version="$(python3 - <<'PY'
           import re

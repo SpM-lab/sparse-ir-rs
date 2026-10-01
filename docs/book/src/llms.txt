@@ -1,0 +1,42 @@
+# sparse-ir for Rust
+
+> Rust library for sparse intermediate representations, DLR, IR bases, and MiniPole.
+
+## Guide
+
+- [Introduction](https://spm-lab.github.io/sparse-ir-rs/introduction.html): Project overview and capabilities.
+- [Installation](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html): Rust version, dependency, and backend setup.
+- [Conventions](https://spm-lab.github.io/sparse-ir-rs/getting-started/conventions.html): Statistics, frequency indices, imaginary-time sampling, and SVE reuse.
+
+## Tutorials
+
+- [Sparse sampling](https://spm-lab.github.io/sparse-ir-rs/tutorials/sparse_sampling.html): Construct and use sparse sampling points.
+- [Transformation](https://spm-lab.github.io/sparse-ir-rs/tutorials/transformation.html): Transform between imaginary time and Matsubara frequency.
+- [Discrete Lehmann representation](https://spm-lab.github.io/sparse-ir-rs/tutorials/dlr.html): Build and evaluate a DLR.
+- [MiniPole](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html): Compress DLR or Matsubara data and choose a contour.
+- [Sparse modeling](https://spm-lab.github.io/sparse-ir-rs/tutorials/spm.html): Use sparse modeling for coefficient recovery.
+- [Analytic continuation](https://spm-lab.github.io/sparse-ir-rs/tutorials/analytic_continuation.html): Reconstruct real-frequency behavior.
+
+## Applied examples
+
+- [Second-order perturbation](https://spm-lab.github.io/sparse-ir-rs/tutorials/second_order_perturbation.html): Apply the basis in a perturbation calculation.
+- [GW](https://spm-lab.github.io/sparse-ir-rs/tutorials/gw.html): Green-function workflow for GW calculations.
+- [Exchange interactions](https://spm-lab.github.io/sparse-ir-rs/tutorials/liechtenstein.html): Evaluate exchange interactions.
+- [Orbital magnetic susceptibility](https://spm-lab.github.io/sparse-ir-rs/tutorials/orbital_magnetic_susceptibility.html): Compute an orbital response.
+- [DMFT with IPT](https://spm-lab.github.io/sparse-ir-rs/tutorials/dmft_ipt.html): Use sparse sampling in an IPT solver.
+- [Two-particle self-consistency](https://spm-lab.github.io/sparse-ir-rs/tutorials/tpsc.html): Apply the representation in TPSC.
+- [Fluctuation exchange](https://spm-lab.github.io/sparse-ir-rs/tutorials/flex.html): Use the representation in FLEX.
+- [Eliashberg-Holstein](https://spm-lab.github.io/sparse-ir-rs/tutorials/eliashberg_holstein.html): Solve an Eliashberg-Holstein example.
+
+## API reference
+
+- [Facade crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html): Main Rust API and re-exports.
+- [Core crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_core/index.html): Statistics, tensors, sampling, fitters, and errors.
+- [DLR crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_dlr/index.html): Discrete Lehmann representation.
+- [MiniPole crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_minipole/index.html): ESPRIT and minimal-pole routines.
+- [Basis crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_basis/index.html): Kernels, SVE, and IR basis.
+- [C API crate](https://docs.rs/sparse-ir-capi/): C ABI and Rust wrapper API.
+
+## Agent usage
+
+- [Rust usage skill](https://github.com/SpM-lab/sparse-ir-rs/blob/main/agent-skills/sparse-ir-rust-usage/SKILL.md): Choosing crates, imports, numerical conventions, and common first-use errors.

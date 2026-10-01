@@ -19,7 +19,9 @@ The **[Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/)** provides
 browser-readable tutorials with figures, including
 [MiniPole contour selection](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html).
 The guide and [current API reference](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html)
-follow `main` (Rust 1.96+). Follow the guide's
+follow `main` (Rust 1.96+). For AI-assisted Rust use, load the [SparseIR
+Rust usage skill](https://github.com/SpM-lab/sparse-ir-rs/blob/main/agent-skills/sparse-ir-rust-usage/SKILL.md)
+when choosing crates, imports, or numerical conventions. Follow the guide's
 [Git installation instructions](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html)
 to run its examples; the crates.io release API may differ.
 
@@ -31,7 +33,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sparse-ir = "0.10.0"
+sparse-ir = "0.11.0"
 ```
 
 #### Optional: System BLAS Support
@@ -40,7 +42,7 @@ By default, `sparse-ir` uses [Faer](https://crates.io/crates/faer) (pure Rust) f
 
 ```toml
 [dependencies]
-sparse-ir = { version = "0.10.0", features = ["system-blas"] }
+sparse-ir = { version = "0.11.0", features = ["system-blas"] }
 ```
 
 **Note**: When `system-blas` is enabled, `fit` and `evaluate` operations will use BLAS. When not linked, Faer is used as the fallback.

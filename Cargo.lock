@@ -1500,7 +1500,7 @@ checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
 
 [[package]]
 name = "sparse-ir"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "cargo-husky",
  "num-complex",
@@ -1517,7 +1517,7 @@ dependencies = [
 
 [[package]]
 name = "sparse-ir-basis"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "approx",
  "dashu-base",
@@ -1536,7 +1536,7 @@ dependencies = [
 
 [[package]]
 name = "sparse-ir-capi"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "blas-sys",
  "libc",
@@ -1548,7 +1548,7 @@ dependencies = [
 
 [[package]]
 name = "sparse-ir-core"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "blas-sys",
  "faer",
@@ -1567,7 +1567,7 @@ dependencies = [
 
 [[package]]
 name = "sparse-ir-dlr"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "num-complex",
  "num-traits",
@@ -1578,7 +1578,7 @@ dependencies = [
 
 [[package]]
 name = "sparse-ir-minipole"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "num-complex",
  "sparse-ir",

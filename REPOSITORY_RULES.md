@@ -3,10 +3,10 @@
 These are sparse-ir-rs-specific rules. Apply them in addition to the shared
 [SpM-lab agent rules](https://github.com/SpM-lab/spm-agent-rules).
 
-The workspace publishes two Rust crates: the core `sparse-ir` crate and the
-`sparse-ir-capi` C ABI crate. It also maintains thin Python and Fortran bindings
-to that C ABI. Rules below protect the numerical contracts and the boundaries
-between those layers.
+The workspace publishes six Rust crates: four implementation crates,
+the `sparse-ir` facade, and the `sparse-ir-capi` C ABI crate. It also maintains
+thin Python and Fortran bindings to that C ABI. Rules below protect the
+numerical contracts and the boundaries between those layers.
 
 Apply these rules to new and modified code. Existing violations are not
 precedent, but they do not authorize unrelated cleanup. Remediation outside the
@@ -445,8 +445,10 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
   `python/pyproject.toml` `[project].version` and the `sparse-ir/README.md`
   install snippets with the workspace version and run
   `python3 check_version.py`, which fails on either mismatch.
-- Publish `sparse-ir` before `sparse-ir-capi`, and push the `vX.Y.Z` tag only
-  after both intended crates are successfully published to crates.io.
+- Publish `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`,
+  `sparse-ir-basis`, `sparse-ir`, and `sparse-ir-capi` in dependency order.
+  The manual release workflow enforces this order and pushes `vX.Y.Z` only
+  after all six are published to crates.io.
 - Update downstream Julia version metadata only after the corresponding crates
   are available from crates.io. Follow `bump_version_downstream.md` for that
   separate stage.
