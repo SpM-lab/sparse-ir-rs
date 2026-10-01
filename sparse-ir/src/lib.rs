@@ -1,3 +1,5 @@
+#![doc = include_str!("../README.md")]
+
 //! # sparse-ir: Rust implementation of SparseIR functionality
 //!
 //! A high-performance implementation of the SparseIR (Sparse Intermediate Representation)

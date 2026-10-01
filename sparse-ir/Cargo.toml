@@ -7,6 +7,8 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "Rust implementation of SparseIR functionality"
+keywords.workspace = true
+categories.workspace = true
 exclude = [
     ".cargo_vcs_info.json",
     "Cargo.toml.orig",
@@ -16,6 +18,10 @@ exclude = [
 [lib]
 name = "sparse_ir"
 crate-type = ["cdylib", "rlib"]
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+no-default-features = true
 
 [dependencies]
 sparse-ir-core.workspace = true
