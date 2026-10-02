@@ -346,8 +346,16 @@ pub struct DlrBuilder<S: StatisticsType> {
 }
 
 impl<S: StatisticsType + 'static> DlrBuilder<S> {
-    /// Default target accuracy.
-    pub const DEFAULT_ACCURACY: f64 = 1e-15;
+    /// Default target accuracy, `1e-14`.
+    ///
+    /// The poles are selected by a pivoted Gram–Schmidt factorization of the
+    /// kernel in double precision, whose residuals cannot fall much below
+    /// `1e-15`. An accuracy below about `1e-14` is therefore beyond what the
+    /// selection can resolve: it keeps adding near-redundant poles chosen by
+    /// rounding, which makes the representation larger and its fits *less*
+    /// accurate. `1e-14` is the tolerance the reference implementations use
+    /// at full precision (cppdlr warns below it).
+    pub const DEFAULT_ACCURACY: f64 = 1e-14;
 
     /// Start a DLR for inverse temperature `beta` and frequency cutoff `wmax`.
     pub fn new(beta: f64, wmax: f64) -> Self {
@@ -361,6 +369,9 @@ impl<S: StatisticsType + 'static> DlrBuilder<S> {
     }
 
     /// Target relative accuracy of the kernel interpolation.
+    ///
+    /// Values below about `1e-14` are beyond double-precision resolution; see
+    /// [`Self::DEFAULT_ACCURACY`].
     pub fn accuracy(mut self, accuracy: f64) -> Self {
         self.accuracy = accuracy;
         self
@@ -444,6 +455,9 @@ where
     /// Build a DLR independently of any IR basis (default construction).
     ///
     /// Equivalent to `DlrBuilder::new(beta, wmax).accuracy(accuracy).build()`.
+    /// An `accuracy` below about `1e-14` is beyond double-precision
+    /// resolution and makes the DLR larger without making it more accurate;
+    /// see [`DlrBuilder::DEFAULT_ACCURACY`].
     ///
     /// # Errors
     /// See [`DlrBuilder::build`].
