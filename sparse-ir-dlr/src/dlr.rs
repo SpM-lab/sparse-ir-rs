@@ -246,10 +246,10 @@ pub fn giwn_single_pole<S: StatisticsType>(
 /// - `a[i]` are expansion coefficients
 /// - `reg[i]` are the kernel regularizers `w(β, ω_i)`
 ///
-/// The public `regularizers` field stores `w(β, ω_i)`: 1 for fermions and
-/// `tanh(βω_i/2)` for bosons with `LogisticKernel`, and `ω_i` for
+/// [`regularizers()`](Self::regularizers) returns `w(β, ω_i)`: 1 for fermions
+/// and `tanh(βω_i/2)` for bosons with `LogisticKernel`, and `ω_i` for
 /// `RegularizedBoseKernel`. The DLR functions are `-K(τ, ω_i)` and its Fourier
-/// transform for the physical kernel `K(τ, ω) = Σ_l U_l(τ) S_l V_l(ω)` of the
+/// transform for the physical kernel `K(τ, ω) = Σ_l u_l(τ) s_l v_l(ω)` of the
 /// source basis.
 ///
 /// Two constructions are available:

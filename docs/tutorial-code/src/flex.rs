@@ -1,7 +1,8 @@
 //! The fluctuation-exchange approximation, shared by `flex` and `flex_scan`.
 //!
-//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial,
-//! whose author is Niklas Witt.
+//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/FLEX_py.html>), whose
+//! author is Niklas Witt.
 //!
 //! FLEX is the self-consistent sum of the bubble and ladder series. Unlike
 //! [`crate::tpsc`] it has no sum rules to satisfy and no root to find: the
@@ -185,6 +186,7 @@ impl<'a> Solver<'a> {
     /// system really is magnetically ordered, it cannot.
     fn renormalise(&mut self) -> Result<(), FlexError> {
         let target = self.settings.u;
+        // ANCHOR: renormalise
         while target * self.max_chi() >= 1.0 {
             self.renormalisation_steps += 1;
             self.u = target / (self.max_chi() * target + 0.01);
@@ -194,6 +196,7 @@ impl<'a> Solver<'a> {
                 break;
             }
         }
+        // ANCHOR_END: renormalise
         Ok(())
     }
 
@@ -218,7 +221,8 @@ impl<'a> Solver<'a> {
         Ok(())
     }
 
-    /// `χ⁰(τ, r) = G(τ, r) G(β − τ, r)`, then back to `(iν^B, q)`.
+    /// `χ⁰(τ, r) = G(τ, r) G(β − τ, r) = −G(τ, r) G(−τ, r)`, then back to
+    /// `(iω, q)`.
     fn irreducible_susceptibility(&mut self) -> Result<(), FlexError> {
         let nk = self.lattice.nk();
         let reversed = self.lattice.mesh_f().reverse_tau(&self.grit, nk);
@@ -235,24 +239,28 @@ impl<'a> Solver<'a> {
 
     /// `V(τ, r)` from the spin and charge susceptibilities.
     ///
-    /// The constant Hartree term `~U` is left out: it is frequency
-    /// independent, so the basis cannot represent it compactly, and in a
-    /// single band it is absorbed into the chemical potential.
+    /// The bare instantaneous `U` (a `δ(τ)` term of the interaction) is left
+    /// out: it is frequency independent, so the basis cannot represent it
+    /// compactly. In `Σ` it would give the Hartree shift `U n/2`, which in a
+    /// single band is absorbed into the chemical potential.
     fn interaction(&mut self) -> Result<Vec<Complex64>, FlexError> {
         let nk = self.lattice.nk();
         let u = self.u;
         self.chi_spin = self.ckio.iter().map(|c| c / (1.0 - u * c)).collect();
         self.chi_charge = self.ckio.iter().map(|c| c / (1.0 + u * c)).collect();
+        // ANCHOR: flex_interaction
         let v: Vec<Complex64> = (0..self.ckio.len())
             .map(|i| u * u * (1.5 * self.chi_spin[i] + 0.5 * self.chi_charge[i] - self.ckio[i]))
             .collect();
         let in_real_space = self.lattice.grid().k_to_r(&v);
         Ok(self.lattice.mesh_b().wn_to_tau(&in_real_space, nk)?)
+        // ANCHOR_END: flex_interaction
     }
 
     /// `Σ(iν, k)` from `V(τ, r) G(τ, r)`.
     fn self_energy(&self, interaction: &[Complex64]) -> Result<Vec<Complex64>, FlexError> {
         let nk = self.lattice.nk();
+        // ANCHOR: flex_self_energy
         let product: Vec<Complex64> = interaction
             .iter()
             .zip(&self.grit)
@@ -260,9 +268,14 @@ impl<'a> Solver<'a> {
             .collect();
         let in_momentum = self.lattice.grid().r_to_k(&product);
         Ok(self.lattice.mesh_f().tau_to_wn(&in_momentum, nk)?)
+        // ANCHOR_END: flex_self_energy
     }
 
-    /// `n = 2 [1 + Re G(τ = 0⁻)]`, the zone average through the basis.
+    /// `n = 2 [1 + Re G(τ = 0⁺)]`, the zone average through the basis.
+    ///
+    /// `uf_at_zero` is `u_l` evaluated at `+0.0`, which the library reads as
+    /// `τ = 0⁺` (only `−0.0` is folded to `β`, i.e. `0⁻`), and
+    /// `G(0⁺) = n_σ − 1`.
     fn filling_at(&mut self, mu: f64) -> Result<f64, Error> {
         let nk = self.lattice.nk();
         self.green(mu);
@@ -359,7 +372,8 @@ pub struct GapSolver {
     delta: Vec<Complex64>,
     /// The `d`-wave seed `cos k_x − cos k_y`, unnormalised.
     seed: Vec<f64>,
-    /// `F(iν, k) = −|G|² Δ` from the last step.
+    /// `F(iν, k) = −|G|² Δ` from the last step. With this sign the gap
+    /// equation is the plain convolution `λΔ = (T/N_k) Σ V^S F`.
     anomalous: Vec<Complex64>,
     /// `V^S(τ, r)`, fixed by the FLEX solution.
     interaction: Vec<Complex64>,
@@ -389,9 +403,10 @@ impl GapSolver {
         normalise(&mut delta);
 
         // The singlet vertex differs from the one in the self-energy: the
-        // charge fluctuations enter with the opposite sign, and the constant
-        // Hartree term drops out because a `d`-wave gap sums to zero over the
-        // zone.
+        // charge fluctuations enter with the opposite sign. The bare
+        // instantaneous `U` of `V^S = U + (3/2)U²χ_sp − (1/2)U²χ_ch` is
+        // dropped; it contributes nothing to a `d`-wave gap, which sums to zero
+        // over the zone.
         let u = solver.u;
         let v: Vec<Complex64> = (0..solver.chi_spin.len())
             .map(|i| u * u * (1.5 * solver.chi_spin[i] - 0.5 * solver.chi_charge[i]))
@@ -414,8 +429,8 @@ impl GapSolver {
     /// for at most `max_iterations` steps.
     ///
     /// Unlike [`Solver::solve`] this one must stop early, and the stopping
-    /// rule has to be a tolerance rather than a fixed count. Dropping the
-    /// Hartree term from the singlet vertex is exact in the `d`-wave channel
+    /// rule has to be a tolerance rather than a fixed count. Dropping the bare
+    /// `U` from the singlet vertex is exact in the `d`-wave channel
     /// but not outside it, and it leaves the operator with a spurious mode
     /// whose eigenvalue is larger in magnitude than `λ_d`. The seed has an
     /// almost vanishing overlap with that mode, so the iterate sits on the

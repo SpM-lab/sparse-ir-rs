@@ -4,7 +4,8 @@
 [![Documentation](https://docs.rs/sparse-ir-capi/badge.svg)](https://docs.rs/sparse-ir-capi)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](https://opensource.org/licenses/MIT)
 
-This crate provides a C API for the SparseIR library.
+This crate provides the C API of [`sparse-ir`](https://crates.io/crates/sparse-ir): the IR
+basis, the DLR, MiniPole and sparse sampling, behind opaque handles and status codes.
 
 ### Language Support
 - Fortran (via ISO_C_BINDING)
@@ -15,9 +16,16 @@ This crate provides a C API for the SparseIR library.
 
 ## Features
 
-### Currently Implemented
+### What is available
 
-See the header file for the complete API: [include/sparseir/sparseir.h](include/sparseir/sparseir.h)
+The header [include/sparseir/sparseir.h](include/sparseir/sparseir.h) documents every function. The main groups:
+
+- **Kernels and SVE**: `spir_logistic_kernel_new`, `spir_reg_bose_kernel_new`, `spir_kernel_compute`, `spir_sve_result_new`, `spir_sve_result_truncate`
+- **IR basis**: `spir_basis_new`, `spir_basis_get_size`, `spir_basis_get_u` / `_uhat` / `_v`, `spir_basis_get_default_taus` / `_matsus` / `_ws`, and `spir_funcs_eval` / `spir_funcs_eval_matsu` on the returned functions
+- **Sampling**: `spir_tau_sampling_new`, `spir_matsu_sampling_new`, `spir_sampling_eval_*`, `spir_sampling_fit_*` (see the table below)
+- **DLR**: `spir_dlr_new_independent` (poles chosen without an IR basis; the recommended constructor), `spir_dlr_new` and `spir_dlr_new_with_poles` (from an IR basis), `spir_dlr_get_poles`, and the transforms `spir_ir2dlr_*` / `spir_dlr2ir_*`. A DLR is a `spir_basis`, so the sampling functions work on it.
+- **MiniPole**: `spir_minipole_from_dlr` (from DLR coefficients) and `spir_minipole_from_matsubara` (from Matsubara data), returning a `spir_pole_repr` read with `spir_pole_repr_get_poles` / `_residues` / `_npoles`
+- **GEMM backends**: `spir_gemm_backend_new_from_fblas_lp64` / `_ilp64` to inject BLAS function pointers at runtime
 
 ### Sampling: Supported Type Patterns
 
@@ -31,7 +39,7 @@ The C-API provides `eval` (coefficients → values) and `fit` (values → coeffi
 |----------|:---:|:----------------:|:-------------------------:|
 | `spir_sampling_eval_dd` | ✅ | ❌ | ❌ |
 | `spir_sampling_eval_dz` | ❌ | ✅ | ✅ |
-| `spir_sampling_eval_zz` | ✅ | ✅ | ✅* |
+| `spir_sampling_eval_zz` | ✅ | ✅ | ✅† |
 
 #### Fit Functions (Values → Coefficients)
 
@@ -45,7 +53,7 @@ The C-API provides `eval` (coefficients → values) and `fit` (values → coeffi
 
 \*\* For Matsubara (positive_only), `fit_zz` internally fits to real coefficients and converts to complex with zero imaginary parts. This is valid because IR coefficients are guaranteed to be real for physical Green's functions.
 
-\* For Matsubara (positive_only), `eval_zz` extracts real parts from input coefficients and evaluates. This is valid because IR coefficients are guaranteed to be real for physical Green's functions.
+† For Matsubara (positive_only), `eval_zz` extracts real parts from input coefficients and evaluates. This is valid because IR coefficients are guaranteed to be real for physical Green's functions.
 
 #### Notes
 
@@ -100,6 +108,14 @@ By default, `cargo cinstall` installs to:
 - **Library**: `/usr/local/lib/libsparse_ir_capi.so` (Linux) or `.dylib` (macOS)
 - **Static library**: `/usr/local/lib/libsparse_ir_capi.a`
 - **pkg-config**: `/usr/local/lib/pkgconfig/sparse_ir_capi.pc`
+
+After `cargo cinstall`, include the installed header as
+
+```c
+#include <sparse_ir_capi/sparse_ir_capi.h>
+```
+
+It is the same file as `include/sparseir/sparseir.h` in this repository; code built against a source checkout (as the C++ tests and the example below do) adds `sparse-ir-capi/include` to the include path and uses `#include <sparseir/sparseir.h>`.
 
 After installation, you can use pkg-config to find the library:
 ```bash
@@ -190,7 +206,12 @@ julia test_julia.jl
 
 All objects returned by `*_new()` functions **must** be released with their corresponding `*_release()` function:
 - `spir_kernel_release()`
-- (more to come: `spir_basis_release()`, etc.)
+- `spir_sve_result_release()`
+- `spir_basis_release()` (IR bases and DLRs)
+- `spir_funcs_release()`
+- `spir_sampling_release()`
+- `spir_pole_repr_release()`
+- `spir_gemm_backend_release()`
 
 All objects are immutable and thread-safe.
 
@@ -199,5 +220,5 @@ All objects are immutable and thread-safe.
 This crate is dual-licensed under the terms of the MIT license and the Apache License (Version 2.0).
 
 - You may use this crate under the terms of either license, at your option:
-  - [MIT License](../LICENSE)
-  - [Apache License 2.0](../LICENSE-APACHE)
+  - [MIT License](https://github.com/SpM-lab/sparse-ir-rs/blob/main/LICENSE)
+  - [Apache License 2.0](https://github.com/SpM-lab/sparse-ir-rs/blob/main/LICENSE-APACHE)

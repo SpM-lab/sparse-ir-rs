@@ -1,14 +1,17 @@
 # Sparse modeling
 
-*Ported from the Python notebook `spm_py.ipynb` of sparse-ir-tutorial. The
-program that produced every number and figure on this page is
-`docs/tutorial-code/src/bin/spm.rs`.*
+*Ported from the Python notebook
+[`spm_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/spm_py.html)
+of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+The program that produced every number and figure on this page is
+`docs/tutorial-code/src/bin/spm.rs`; the code below is included from it.*
 
-Everything so far went the easy way: from a spectral function to `G`. This
-page goes back — from a noisy \\(G(\tau)\\) to the \\(\rho(\omega)\\) that
-produced it. That is analytic continuation, and it is ill posed: the kernel
-smooths, so the inverse sharpens, and it sharpens the noise along with the
-signal.
+This page solves one analytic-continuation problem end to end: from a noisy
+\\(G(\tau)\\) back to the \\(\rho(\omega)\\) that produced it, with an L1
+penalty on the IR coefficients. The problem is ill posed: the kernel smooths,
+so the inverse sharpens, and it sharpens the noise along with the signal.
+[Analytic continuation](analytic_continuation.md) looks at that difficulty
+itself and at two simpler regularisers.
 
 The IR basis makes the difficulty explicit rather than making it go away. In
 the basis,
@@ -39,15 +42,13 @@ decides how many survive.
 
 ## The data
 
-The notebook downloads a sample `Gtau.in` from the SpM repository. A tutorial
-that builds in CI must not fetch anything at run time, so this port ships its
-input instead: `docs/tutorial-code/input/spm/gtau.csv`, written once by
-`scripts/make_spm_input.py`. It is \\(G(\tau)\\) of the three-Gaussian spectral
-function from [the transformation page](transformation.md), at
-\\(\beta = 100\\) and \\(\omega_\mathrm{max} = 4\\), on 401 uniform times, plus
-independent Gaussian noise of size \\(10^{-3}\\) from a fixed seed. Committing
-it means the Rust example and its Python reference start from bit-identical
-numbers — and, unlike the downloaded file, it comes with the exact answer.
+The notebook downloads a sample `Gtau.in` from the SpM repository. This port
+ships its input instead, `docs/tutorial-code/input/spm/gtau.csv`. It is
+\\(G(\tau)\\) of the three-Gaussian spectral function from
+[the transformation page](transformation.md), at \\(\beta = 100\\) and
+\\(\omega_\mathrm{max} = 4\\), on 401 uniform times \\(\tau_i \in [0, \beta]\\),
+plus independent Gaussian noise of size \\(10^{-3}\\). Unlike the downloaded
+file, it comes with the exact answer.
 
 ![The data](spm_gtau.png)
 
@@ -55,37 +56,26 @@ The noise is invisible here — \\(10^{-3}\\) against a curve of order 1 — and
 is what decides how much of the spectrum can be recovered.
 
 ```rust,ignore
-let input = read_table(&input_path("spm", "gtau"))?;
-let taus = input.expect_column("tau").to_vec();
-let g_tau = input.expect_column("g_tau").to_vec();
+{{#include ../../../tutorial-code/src/bin/spm.rs:input}}
 ```
 
 ## Building `A`
+
+The basis has \\(\varepsilon = 10^{-10}\\) and 43 functions:
+
+```rust
+{{#include ../../../tutorial-code/src/bin/spm.rs:imports}}
+{{#include ../../../tutorial-code/src/bin/spm.rs:parameters}}
+{{#include ../../../tutorial-code/src/bin/spm.rs:basis}}
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
 
 \\(A\\) is the matrix of basis functions at the sampled times, scaled by the
 singular values. `evaluate_tau` returns \\(u_l(\tau_i)\\) with the points along
 the first axis:
 
-```rust
-use sparse_ir::{Basis, Fermionic, FiniteTempBasis, LogisticKernel, Matrix};
-
-let beta = 100.0;
-let wmax = 4.0;
-let kernel = LogisticKernel::new(beta * wmax)?;
-let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(1e-10), None)?;
-
-let taus: Vec<f64> = (0..401).map(|i| beta * i as f64 / 400.0).collect();
-let u: Matrix<f64> = basis.evaluate_tau(&taus)?;
-
-let mut a = vec![0.0; taus.len() * basis.size()];
-for i in 0..taus.len() {
-    for l in 0..basis.size() {
-        a[i * basis.size() + l] = u.get(&[i, l]).unwrap() * basis.s()[l];
-    }
-}
-
-assert_eq!(basis.size(), 43);
-# Ok::<(), sparse_ir::Error>(())
+```rust,ignore
+{{#include ../../../tutorial-code/src/bin/spm.rs:design_matrix}}
 ```
 
 43 unknowns against 401 equations — and still ill posed, because the last
@@ -100,28 +90,16 @@ soft thresholding — shrink every coefficient towards zero by a fixed amount an
 clip the ones that would cross.
 
 ```rust,ignore
-use sparse_ir_tutorial::{fista, soft_threshold};
-
-let report = fista(
-    &mut x,
-    lipschitz,
-    |x, grad| { /* grad = Aᵀ(Ax − y) */ },
-    |x, step| soft_threshold(x, step * lambda),
-    20_000,
-    0.0,
-);
+{{#include ../../../tutorial-code/src/bin/spm.rs:solve}}
 ```
 
-Two details matter for reproducibility. The step length is \\(1/L\\) with
-\\(L\\) the largest eigenvalue of \\(A^\mathsf{T} A\\), computed by a
-power iteration with a *fixed* number of steps from a fixed start; and the
-iteration runs for a fixed budget rather than stopping on a tolerance. FISTA's
+The step length is \\(1/L\\), with \\(L\\) the largest eigenvalue of
+\\(A^\mathsf{T} A\\), computed by power iteration. The iteration runs for a
+fixed budget of 20 000 steps rather than stopping on a tolerance: FISTA's
 momentum makes the step-to-step change oscillate rather than fall
-monotonically, so a tolerance is either never reached or reached at an
-iteration a rounding difference can move. Fixing both keeps this program and
-its Python reference on the same trajectory, which is why they agree to
-\\(10^{-14}\\) rather than to the \\(10^{-6}\\) an iterative method would
-otherwise justify.
+monotonically, so a small tolerance is either never reached or reached at an
+unpredictable step. The program checks that every solution has settled to a
+relative change below \\(10^{-6}\\) by the end of the budget.
 
 ## What comes out
 
@@ -172,14 +150,40 @@ Both are small because the L1 fit is already close to the truth, not because
 anything enforced them. If you need a spectrum that is non-negative by
 construction, you need the constrained solver.
 
+## Running it
+
+From `docs/tutorial-code`:
+
+```console
+$ cargo run --release --bin spm
+```
+
+The program writes CSV tables to `docs/tutorial-code/data/spm/`. The figures
+are drawn from those tables; from the repository root, run
+`uv run --project docs/plotting python docs/plotting/spm_plot.py`. The input
+was written once by `docs/tutorial-code/scripts/make_spm_input.py` from a fixed
+seed, so this program and its Python counterpart,
+`docs/tutorial-code/scripts/reference_spm.py`, start from the same numbers.
+Because the power iteration has a fixed number of steps from a fixed start
+and FISTA a fixed budget, the two also follow the same trajectory and agree
+to about \\(10^{-14}\\), far closer than the \\(10^{-6}\\) the iteration itself
+is settled to.
+
 ## Key API pieces
+
+From `sparse-ir`:
 
 | What you want | What to call |
 | --- | --- |
 | \\(u_l(\tau_i)\\) for arbitrary times | `Basis::evaluate_tau` |
 | \\(v_l(\omega_j)\\) for arbitrary frequencies | `Basis::evaluate_omega` |
 | the singular values | `FiniteTempBasis::s` |
-| the solver | `sparse_ir_tutorial::fista`, `soft_threshold` (this tutorial, not the library) |
 
-`fista` and `soft_threshold` live in the tutorial's own crate. `sparse-ir`
-gives you the basis and the transforms; what you do with them is yours.
+From the tutorial crate (`sparse_ir_tutorial`, not part of the library):
+
+| What you want | What to call |
+| --- | --- |
+| the solver | `fista`, `soft_threshold` |
+| the committed input | `read_table`, `input_path` |
+
+`sparse-ir` gives you the basis and the transforms; the solver is up to you.

@@ -6,7 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "Discrete Lehmann representation for sparse-ir"
+description = "Discrete Lehmann representation (DLR) of imaginary-time Green's functions, part of sparse-ir"
+readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 

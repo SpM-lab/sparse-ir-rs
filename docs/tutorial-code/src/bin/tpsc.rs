@@ -1,8 +1,9 @@
 //! The two-particle self-consistent approximation for the square-lattice
 //! Hubbard model.
 //!
-//! Ported from the Python notebook `TPSC_py.ipynb` of sparse-ir-tutorial,
-//! whose author is Niklas Witt.
+//! Ported from the Python notebook `TPSC_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/TPSC_py.html>), whose author is Niklas
+//! Witt.
 //!
 //! TPSC is RPA with the interaction left unknown and then pinned down by the
 //! local sum rules — one equation for the spin vertex, one for the charge

@@ -1,8 +1,11 @@
 # Numerical conventions and performance
 
 - Statistics is represented by types such as `Fermionic` and `Bosonic`; it is
-  not a runtime switch. `MatsubaraFreq` stores the integer index `n`, not the
-  angular frequency. See the [conventions chapter](https://spm-lab.github.io/sparse-ir-rs/getting-started/conventions.html).
+  not a runtime switch. `MatsubaraFreq` stores the *reduced* index `n`,
+  with `iν = i n π/β` (`n` odd for fermions, even for bosons), not the textbook
+  index `m` of `(2m + ζ)π/β`: `n = 2m + ζ`, so `FermionicFreq::new(0)` is an
+  error and `FermionicFreq::new(1)` is `π/β`. The MiniPole DLR entry points use
+  a contour `(2n+1)π/β`, even for bosons. See the [conventions chapter](https://spm-lab.github.io/sparse-ir-rs/getting-started/conventions.html).
 - Imaginary-time sampling points are reported on the symmetric interval
   `[-beta/2, beta/2]`, even though the Green function's domain is `[0, beta)`.
   Apply the fermionic or bosonic folding relation when comparing another

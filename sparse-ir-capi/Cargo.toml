@@ -4,7 +4,8 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "C API for SparseIR Rust implementation"
+description = "C API for sparse-ir: IR basis, DLR, MiniPole and sparse sampling"
+readme = "README.md"
 license.workspace = true
 repository.workspace = true
 keywords = ["sparse-ir", "c-api", "physics", "scientific-computing", "api-bindings"]
@@ -58,7 +59,7 @@ generation = false
 # pkg-config configuration
 [package.metadata.capi.pkg_config]
 name = "sparse-ir-capi"
-description = "C API for SparseIR library"
+description = "C API for sparse-ir"
 
 [profile.release]
 # Keep symbols for C API (overrides workspace default)

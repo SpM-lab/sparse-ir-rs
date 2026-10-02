@@ -1,21 +1,24 @@
 # sparse-ir for Rust
 
-> Rust library for sparse intermediate representations, DLR, IR bases, and MiniPole.
+> Rust library for compact representations of imaginary-time Green's functions: the IR basis with sparse sampling, the discrete Lehmann representation (DLR), and ESPRIT/MiniPole.
 
 ## Guide
 
-- [Introduction](https://spm-lab.github.io/sparse-ir-rs/introduction.html): Project overview and capabilities.
-- [Installation](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html): Rust version, dependency, and backend setup.
-- [Conventions](https://spm-lab.github.io/sparse-ir-rs/getting-started/conventions.html): Statistics, frequency indices, imaginary-time sampling, and SVE reuse.
+- [Introduction](https://spm-lab.github.io/sparse-ir-rs/introduction.html): The three representations (IR, DLR, MiniPole) and how the book is organised.
+- [Installation](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html): Rust version, crates.io dependency, crate layout, and backend setup.
+- [Conventions](https://spm-lab.github.io/sparse-ir-rs/getting-started/conventions.html): Notation, accuracy parameter per representation, the reduced Matsubara index n (iν = inπ/β), imaginary-time sampling, and SVE reuse.
 
-## Tutorials
+## Representations
 
 - [Sparse sampling](https://spm-lab.github.io/sparse-ir-rs/tutorials/sparse_sampling.html): Construct and use sparse sampling points.
 - [Transformation](https://spm-lab.github.io/sparse-ir-rs/tutorials/transformation.html): Transform between imaginary time and Matsubara frequency.
-- [Discrete Lehmann representation](https://spm-lab.github.io/sparse-ir-rs/tutorials/dlr.html): Build and evaluate a DLR.
-- [MiniPole](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html): Compress DLR or Matsubara data and choose a contour.
-- [Sparse modeling](https://spm-lab.github.io/sparse-ir-rs/tutorials/spm.html): Use sparse modeling for coefficient recovery.
+- [Discrete Lehmann representation](https://spm-lab.github.io/sparse-ir-rs/tutorials/dlr.html): Build a DLR independently or from an IR basis, sample at its nodes, and fit.
+- [MiniPole](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html): Extract a few complex poles from Matsubara data with ESPRIT; entry points and contour choice.
+
+## Analytic continuation
+
 - [Analytic continuation](https://spm-lab.github.io/sparse-ir-rs/tutorials/analytic_continuation.html): Reconstruct real-frequency behavior.
+- [Sparse modeling](https://spm-lab.github.io/sparse-ir-rs/tutorials/spm.html): Use sparse modeling for coefficient recovery.
 
 ## Applied examples
 

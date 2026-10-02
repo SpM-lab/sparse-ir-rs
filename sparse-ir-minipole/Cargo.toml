@@ -6,7 +6,8 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "ESPRIT and minimal pole representations for sparse-ir"
+description = "ESPRIT and MiniPole: minimal pole representations of Matsubara data, part of sparse-ir"
+readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 

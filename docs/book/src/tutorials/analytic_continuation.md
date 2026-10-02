@@ -1,12 +1,18 @@
 # Analytic continuation
 
-*Ported from the Python notebook `analytic_continuation_py.ipynb` of
-sparse-ir-tutorial. The program that produced every number and figure on this
-page is `docs/tutorial-code/src/bin/analytic_continuation.rs`.*
+*Ported from the Python notebook
+[`analytic_continuation_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/analytic_continuation_py.html)
+of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+The program that produced every number and figure on this page is
+`docs/tutorial-code/src/bin/analytic_continuation.rs`; the code below is
+included from it.*
 
-Everything else in this book goes in the easy direction: from a spectral
-function to a Green's function. This page goes the other way, and it is worth
-a page of its own because it is the one direction that does not work.
+Going from a spectral function to a Green's function is a smoothing integral
+and always works. This page looks at the inverse, from \\(G\\) back to
+\\(\rho(\omega)\\), and shows why it is ill posed: what fails, what two simple
+regularisers buy, and why the IR coefficients of \\(\rho\\) are the wrong
+unknowns. [Sparse modeling](spm.md) then solves one such problem in full, and
+[MiniPole](minipole.md) takes a different route by fitting poles.
 
 ## The problem
 
@@ -25,17 +31,10 @@ Every \\(s_l\\) is strictly positive, so the inverse exists. It is also
 useless, because the \\(s_l\\) fall off exponentially:
 
 ```rust
-use sparse_ir::{Fermionic, FiniteTempBasis, LogisticKernel};
-
-let beta = 40.0;
-let wmax = 2.0;
-let kernel = LogisticKernel::new(beta * wmax)?;
-let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(2e-8), None)?;
-
-let s = basis.s().to_vec();
-assert_eq!(s.len(), 24);
-assert!(s[23] / s[0] < 3e-8);
-# Ok::<(), sparse_ir::Error>(())
+{{#include ../../../tutorial-code/src/bin/analytic_continuation.rs:imports}}
+{{#include ../../../tutorial-code/src/bin/analytic_continuation.rs:parameters}}
+{{#include ../../../tutorial-code/src/bin/analytic_continuation.rs:basis}}
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 ![The singular values](analytic_continuation_singular_values.png)
@@ -56,14 +55,12 @@ the other is the same band split by a gap.
 
 ![The two models](analytic_continuation_models.png)
 
+`shifted_semicircle_overlaps` (a tutorial helper) computes \\(\rho_l\\) of one
+semicircle by quadrature, and \\(G_l = -s_l \rho_l\\):
+
 ```rust,ignore
-let rho_semi = shifted_semicircle_overlaps(&basis, 0.0, WMAX, 1.0);
-let rho_insul = {
-    let right = shifted_semicircle_overlaps(&basis, WMAX / 2.0, WMAX / 4.0, 0.5);
-    let left = shifted_semicircle_overlaps(&basis, -WMAX / 2.0, WMAX / 4.0, 0.5);
-    right.iter().zip(&left).map(|(a, b)| a + b).collect::<Vec<_>>()
-};
-let g_l: Vec<f64> = s.iter().zip(&rho_semi).map(|(sl, rho)| -sl * rho).collect();
+{{#include ../../../tutorial-code/src/bin/analytic_continuation.rs:models}}
+{{#include ../../../tutorial-code/src/bin/analytic_continuation.rs:coefficients}}
 ```
 
 Then noise is added to \\(G_l\\), at \\(0.3\,(s_{L-1}/s_0)\\) of
@@ -73,9 +70,8 @@ coefficient the basis still resolves.
 ![The noisy coefficients](analytic_continuation_noisy_coefficients.png)
 
 The noise is far below every coefficient that matters and level with the ones
-at the end. It is committed in `input/analytic_continuation/noise.csv` rather
-than drawn, so the Rust and Python results are comparable number by number;
-see that file's header for where the draws came from.
+at the end. The standard-normal draws are read from
+`docs/tutorial-code/input/analytic_continuation/noise.csv`.
 
 ## Truncated SVD
 
@@ -107,11 +103,7 @@ which passes the large singular values through unchanged and rolls the small
 ones off instead of dividing by them.
 
 ```rust,ignore
-let rho_l: Vec<f64> = s
-    .iter()
-    .zip(&g_l_noisy)
-    .map(|(sl, g)| -sl / (sl * sl + alpha * alpha) * g)
-    .collect();
+{{#include ../../../tutorial-code/src/bin/analytic_continuation.rs:ridge}}
 ```
 
 ![Ridge regression](analytic_continuation_ridge.png)
@@ -138,6 +130,11 @@ all — it is still of order one at \\(l = 23\\), and would be at \\(l = 200\\).
 Truncating it at \\(L'\\) is not an approximation of anything; a penalty on
 \\(\sum_l |\rho_l|^2\\) is a penalty on coefficients that were never going to
 become small.
+
+A spectrum made of a few poles is, on the other hand, exactly the case that
+pole-fitting methods handle well. [MiniPole](minipole.md) uses ESPRIT to fit a
+small number of poles and residues directly to Matsubara data, instead of
+expanding \\(\rho\\) in any basis.
 
 ## A real-axis basis instead
 
@@ -178,27 +175,37 @@ substitution \\(\omega = \omega_m + \eta \tan t\\) turns
 spreads the peak across the whole interval, leaving a polynomial to integrate:
 
 ```rust,ignore
-let edges: Vec<f64> = v
-    .get_knots(None)
-    .into_iter()
-    .map(|omega| ((omega - centre) / eta).atan())
-    .collect();
-integrate_segments(
-    |t| poly.evaluate(centre + eta * t.tan()) / std::f64::consts::PI,
-    &edges,
-    v.get_polyorder() + 24,
-)
+{{#include ../../../tutorial-code/src/bin/analytic_continuation.rs:lorentz_overlaps}}
 ```
 
 ## What this page stops short of
 
-Solving the least-squares problem in \\(a\\) — with \\(a \geq 0\\) and the sum
-rule — is what [Sparse modeling](spm.md) does, in the IR coefficients and
-without the constraints. Putting the two together, on the Lorentzian basis and
-with the constraints imposed, is the maximum-entropy and sparse-modeling
-literature, and is past where a tutorial ends.
+This page does not solve the constrained least-squares problem in \\(a\\).
+[Sparse modeling](spm.md) solves a related one: an L1-regularised fit in the
+IR coefficients \\(\rho_l\\), *without* \\(\rho \geq 0\\) or the sum rule.
+Solving on the Lorentzian basis with both constraints imposed is the subject
+of the maximum-entropy and sparse-modeling literature, and is past where a
+tutorial ends.
+
+## Running it
+
+From `docs/tutorial-code`:
+
+```console
+$ cargo run --release --bin analytic_continuation
+```
+
+The program writes CSV tables to `docs/tutorial-code/data/analytic_continuation/`.
+The figures are drawn from those tables; from the repository root, run
+`uv run --project docs/plotting python docs/plotting/analytic_continuation_plot.py`.
+The noise is committed rather than drawn at run time, so that this program and
+its Python counterpart,
+`docs/tutorial-code/scripts/reference_analytic_continuation.py`, use the same
+numbers; the header of `noise.csv` says where the draws came from.
 
 ## Key API pieces
+
+From `sparse-ir`:
 
 | What you want | What to call |
 | --- | --- |
@@ -207,3 +214,10 @@ literature, and is past where a tutorial ends.
 | the knots the basis is piecewise-polynomial on | `basis.v().get_knots(None)` |
 | one \\(v_l\\) as a polynomial | `basis.v()[l].evaluate(omega)` |
 | the degree to integrate exactly | `basis.v().get_polyorder()` |
+
+From the tutorial crate (`sparse_ir_tutorial`, not part of the library):
+
+| What you want | What to call |
+| --- | --- |
+| \\(\rho_l\\) of a semicircle | `shifted_semicircle_overlaps` |
+| composite Gauss–Legendre quadrature over segments | `integrate_segments` |

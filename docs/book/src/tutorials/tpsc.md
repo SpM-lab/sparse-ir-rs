@@ -1,9 +1,12 @@
 # Two-particle self-consistency
 
-*Ported from the Python notebook `TPSC_py.ipynb` of sparse-ir-tutorial, whose
-author is Niklas Witt. The programs that produced every number and figure on
-this page are `docs/tutorial-code/src/bin/tpsc.rs` and
-`docs/tutorial-code/src/bin/tpsc_scan.rs`.*
+*Ported from the Python notebook
+[`TPSC_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/TPSC_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
+whose author is Niklas Witt. The programs that produced every number and
+figure on this page are `docs/tutorial-code/src/bin/tpsc.rs` and
+`docs/tutorial-code/src/bin/tpsc_scan.rs`; the solver is in
+`docs/tutorial-code/src/tpsc.rs`, and the code below is included from there.*
 
 The previous page iterated a self-consistency loop thousands of times. This
 one does not iterate at all: the two-particle self-consistent approach fixes
@@ -16,12 +19,15 @@ TPSC starts where RPA starts, with the irreducible susceptibility of the
 square lattice at half bandwidth \\(4t\\),
 
 \\[
-\chi^0(\mathrm{i}\nu^B, q) \;=\; -\frac{1}{N_k}\sum_{k}
+\chi^0(\mathrm{i}\omega, q) \;=\; -\frac{1}{N_k}\sum_{k}
 \int_0^\beta \mathrm{d}\tau\;
-\mathrm{e}^{\mathrm{i}\nu^B\tau}\, G(\tau, k)\, G(-\tau, k - q),
+\mathrm{e}^{\mathrm{i}\omega\tau}\, G(\tau, k)\, G(-\tau, k - q),
 \\]
 
-and dresses it in the usual geometric way,
+with \\(\mathrm{i}\omega\\) a bosonic Matsubara frequency (even reduced
+index) and \\(\mathrm{i}\nu\\) a fermionic one (odd), as in the
+[conventions](../getting-started/conventions.md), and dresses it in the usual
+geometric way,
 
 \\[
 \chi_\mathrm{sp} = \frac{\chi^0}{1 - U_\mathrm{sp}\chi^0},
@@ -34,14 +40,14 @@ from. RPA sets both to the bare \\(U\\) and is done. TPSC instead demands that
 the two susceptibilities satisfy the local sum rules exactly,
 
 \\[
-\frac{2}{N_k\beta}\sum_{q,m} \chi_\mathrm{sp}(\mathrm{i}\nu^B_m, q)
+\frac{2}{N_k\beta}\sum_{q,\omega} \chi_\mathrm{sp}(\mathrm{i}\omega, q)
  = n - 2\langle n_\uparrow n_\downarrow\rangle,
 \qquad
-\frac{2}{N_k\beta}\sum_{q,m} \chi_\mathrm{ch}(\mathrm{i}\nu^B_m, q)
+\frac{2}{N_k\beta}\sum_{q,\omega} \chi_\mathrm{ch}(\mathrm{i}\omega, q)
  = n + 2\langle n_\uparrow n_\downarrow\rangle - n^2,
 \\]
 
-and closes the first of them with the Kanamori–Brueckner ansatz
+where \\(n\\) on the right is the filling, and closes the first of them with the Kanamori–Brueckner ansatz
 \\(\langle n_\uparrow n_\downarrow\rangle = \tfrac14 (U_\mathrm{sp}/U)\,n^2\\).
 That makes the spin rule an equation in \\(U_\mathrm{sp}\\) alone; the double
 occupancy that comes out of it then makes the charge rule an equation in
@@ -52,39 +58,48 @@ sum over every bosonic Matsubara frequency is, in the basis, the value of the
 zone-averaged susceptibility at \\(\tau = 0\\): fit once, evaluate once.
 
 ```rust,ignore
-let chi = rpa(chi_0, vertex);
-let averaged: Vec<Complex64> = (0..mesh_b.n_wn())
-    .map(|i| chi[i * nk..(i + 1) * nk].iter().sum::<Complex64>() / nk as f64)
-    .collect();
-let coefficients = mesh_b.wn_to_l(&averaged, 1)?;
-Ok(evaluate_rows(&ub_at_zero, &coefficients, 1)[0].re)
+{{#include ../../../tutorial-code/src/tpsc.rs:sum_rule}}
 ```
 
 Each evaluation of the sum rule costs one fit of 31 sampling points onto 30
-basis functions and one evaluation of \\(U^B_\ell(0)\\), so putting it inside
-a bisection is affordable. With a truncated Matsubara sum it would not be:
-the tail of \\(\chi\\) decays as \\(1/\nu^2\\) and the sum rule is precisely
-the quantity that tail controls. This is also why `roots.rs` — Brent's method
-and a plain bisection — is back in the tutorial crate; every earlier page
-needed only forward evaluation.
+basis functions and one evaluation of \\(u^B_l(0)\\), so putting it inside
+a root search (Brent's method) is affordable. With a truncated Matsubara sum
+it would not be: the tail of \\(\chi\\) decays as \\(1/\omega^2\\) and the
+sum rule is precisely the quantity that tail controls.
 
 \\(\chi^0\\) itself is the same convolution as on the GW page, built as a
 product in \\((\tau, r)\\):
 
 ```rust,ignore
-let gkt = mesh_f.wn_to_tau(gkio, nk)?;
-let grt = grid.k_to_r(&gkt);
-let reversed = mesh_f.reverse_tau(&grt, nk);
-let product: Vec<Complex64> = grt.iter().zip(&reversed).map(|(a, b)| a * b).collect();
-mesh_b.tau_to_wn(&grid.r_to_k(&product), nk)
+{{#include ../../../tutorial-code/src/tpsc.rs:chi0}}
 ```
 
-The one subtlety is `reverse_tau`, which produces \\(G(-\tau)\\) by reading
-the sampling points backwards. That is legitimate only because the fermionic
-and bosonic \\(\tau\\) grids of a shared kernel are the same grid and are
-symmetric about \\(\beta/2\\); `Lattice::new` asserts both facts rather than
-trusting them. It is also what lets the product, sampled on fermionic times,
+The one subtlety is `reverse_tau`. It returns \\(G(\beta - \tau)\\): the
+sampling points read backwards *together with* the fermionic sign,
+\\(G(\beta - \tau) = -G(-\tau)\\). The product is therefore
+\\(-G(\tau)G(-\tau)\\), which is where the minus sign in \\(\chi^0\\) comes
+from. Reading the points backwards works because the sampling times lie on
+\\([-\beta/2, \beta/2]\\) and are (nearly) symmetric about \\(0\\) — a
+point at \\(\beta/2\\) is matched with its image one period away;
+`tau_reversal` panics if some \\(-\tau\\) is missing. And the fermionic and
+bosonic \\(\tau\\) grids coincide, because the logistic kernel gives both
+statistics the same \\(u_l(\tau)\\); `Bases::from_sve` asserts that the two
+grids are equal. That is what lets the product, sampled on fermionic times,
 be fitted with the bosonic sampling object.
+
+With the two vertices fixed, the self-energy is one more product in
+\\((\tau, r)\\),
+
+\\[
+\Sigma(\tau, r) = V(\tau, r)\, G(\tau, r),
+\qquad
+V = \frac{U}{4}\left(3U_\mathrm{sp}\chi_\mathrm{sp}
+                     + U_\mathrm{ch}\chi_\mathrm{ch}\right),
+\\]
+
+built from the non-interacting \\(G\\), after which \\(\mu\\) is refixed for
+the interacting \\(G\\). As on the [FLEX page](flex.md), the instantaneous
+Hartree shift is left out of \\(V\\) and absorbed into \\(\mu\\).
 
 ## One solve at U = 4
 
@@ -127,20 +142,18 @@ momentum-selective: a factor of about 8.5 at the peak against 1.7 at
 \\(\Gamma\\). The peak is not at \\(M\\). At \\(n = 0.85\\) the system is
 doped, nesting is incommensurate, and the maximum sits one grid step away at
 \\((\pi, 11\pi/12)\\) with the value \\(3.559\\) against \\(2.434\\) at
-\\(M\\) itself. The verification test asserts the peak lies on
-\\(k_x = \pi\\) within one grid step of \\(M\\), not at \\(M\\).
+\\(M\\) itself.
 
 ## Scanning U
 
 `tpsc_scan` repeats the solve at half filling and \\(T = 0.4\\) for 51 values
 of \\(U\\) from \\(0.01\\) to \\(5\\), which is the sweep behind Fig. 2 of
-Vilk and Tremblay (1997).
+Y. M. Vilk and A.-M. S. Tremblay, J. Phys. I France **7**, 1309 (1997).
 
 ![U_sp and U_ch against U](tpsc_scan_vertices.png)
 
-\\(U_\mathrm{crit} = 2.7789\\) is a property of \\(\chi^0\\) and so is the
-same at every point of the scan — the test checks that it is literally
-constant. \\(U_\mathrm{sp}\\) rises from \\(0.00999\\) and flattens against
+\\(U_\mathrm{crit} = 2.7789\\) is a property of \\(\chi^0\\), which does not
+depend on \\(U\\), and so is the same at every point of the scan. \\(U_\mathrm{sp}\\) rises from \\(0.00999\\) and flattens against
 that ceiling, reaching \\(2.318\\), i.e. \\(83\%\\) of \\(U_\mathrm{crit}\\),
 at \\(U = 5\\). \\(U_\mathrm{ch}\\) has no such bound and runs away to
 \\(18.9\\). Between them the double occupancy falls from \\(0.2497\\) — the
@@ -154,27 +167,48 @@ doubling at \\(\Gamma\\). The saturating \\(U_\mathrm{sp}\\) is what keeps
 that growth finite: in RPA the same sweep would have diverged long before
 \\(U = 5\\).
 
+## Beyond the imaginary axis
+
+The output here is \\(G\\), \\(\Sigma\\) and \\(\chi\\) on the sampling
+frequencies. For real-frequency spectra — the pseudogap in \\(A(k,\omega)\\),
+say — see [analytic continuation](analytic_continuation.md),
+[sparse modeling](spm.md) and [MiniPole](minipole.md); for a compact pole
+representation of the same data, see the [DLR](dlr.md).
+
 ## Running it
+
+From `docs/tutorial-code`:
+
+```console
+$ cargo run --profile ci --bin tpsc
+$ cargo run --profile ci --bin tpsc_scan
+$ uv run --project ../plotting python ../plotting/tpsc_plot.py
+```
 
 Both programs are fast. `tpsc` is a single solve of a \\(24\times24\\)
 lattice; `tpsc_scan` is 51 of them at a smaller basis and finishes in a
-fraction of a second, so despite the name it is registered as an ordinary
-example rather than gated behind `SPARSEIR_TUTORIAL_SCANS`:
-
-```console
-$ SPARSEIR_TUTORIAL_RUN=1 cargo test --release \
-      --test tutorial_binaries --test verification
-```
-
-or `scripts/check.sh --run --release`.
+fraction of a second. The repository's checks compare the outputs with the
+Python notebook; they also assert that the \\(n = 0.85\\) peak lies on
+\\(k_x = \pi\\) within one grid step of \\(M\\) (not at \\(M\\)) and that
+\\(U_\mathrm{crit}\\) is constant along the scan.
 
 ## Key API pieces
 
+From `sparse-ir`:
+
 | What you want | What to call |
 | --- | --- |
-| a Matsubara sum over all frequencies | `IrMesh::wn_to_l`, then evaluate \\(U_\ell(0)\\) with `evaluate_rows` |
-| \\(G(-\tau)\\) on the sampling grid | `IrMesh::reverse_tau` |
-| a fermionic product fitted as bosonic | `IrMesh::wn_to_tau` on one mesh, `IrMesh::tau_to_wn` on the other |
 | one SVE for both statistics | `compute_sve`, then `FiniteTempBasis::from_sve_result` twice |
+| \\(u_l(0)\\), the row that turns a Matsubara sum into an evaluation | `Basis::evaluate_tau(&[0.0])` |
+| fits and evaluations at the sampling points | `TauSampling`, `MatsubaraSampling` (wrapped by `IrMesh`) |
+
+From the tutorial crate (`docs/tutorial-code/src`):
+
+| What you want | Tutorial helper |
+| --- | --- |
+| a Matsubara sum over all frequencies | `IrMesh::wn_to_l`, then `evaluate_rows` with \\(u^B_l(0)\\) |
+| \\(G(\beta - \tau) = -G(-\tau)\\) on the sampling grid | `IrMesh::reverse_tau` |
+| a fermionic product fitted as bosonic | `IrMesh::wn_to_tau` on one mesh, `IrMesh::tau_to_wn` on the other |
+| both bases and meshes from one SVE | `sve_for`, `Bases::from_sve` (inside `Lattice::new`) |
 | \\(\chi^0\\) as a real-space product | `MomentumGrid::k_to_r`, `MomentumGrid::r_to_k` |
 | solving a sum rule for a vertex | `brent` from `tutorial::roots` |

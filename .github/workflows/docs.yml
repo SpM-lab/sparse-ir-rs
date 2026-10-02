@@ -49,6 +49,9 @@ jobs:
       - name: Check release metadata and guide index
         run: python3 scripts/check_publish_metadata.py
 
+      - name: Check that every book include resolves
+        run: python3 docs/tutorial-code/scripts/check-book-includes.py
+
       - name: Build the book
         run: mdbook build docs/book
 

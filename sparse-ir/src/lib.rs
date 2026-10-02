@@ -1,17 +1,14 @@
 #![doc = include_str!("../README.md")]
 
-//! # sparse-ir: Rust implementation of SparseIR functionality
+//! ## Where to go next
 //!
-//! A high-performance implementation of the SparseIR (Sparse Intermediate Representation)
-//! library in Rust, providing analytical continuation and sparse representation
-//! functionality for quantum many-body physics calculations.
-//!
-//! This crate re-exports the crates it is made of, under their usual paths:
-//! - `sparse-ir-core`: statistics, errors, GEMM, fitters, the [`Basis`] trait
-//!   and sparse sampling;
-//! - `sparse-ir-basis`: kernels, the SVE and the IR basis [`FiniteTempBasis`];
-//! - `sparse-ir-dlr`: the discrete Lehmann representation;
-//! - `sparse-ir-minipole`: ESPRIT and minimal pole representations.
+//! - The [Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/) walks
+//!   through sparse sampling, IR/DLR transforms, MiniPole and applied
+//!   calculations, with runnable examples.
+//! - [`FiniteTempBasis`], [`TauSampling`] and [`MatsubaraSampling`] are the
+//!   entry points for the IR basis; [`DiscreteLehmannRepresentation`] and
+//!   [`DlrBuilder`] for the DLR; [`minipole`] and [`esprit`] for pole
+//!   reconstruction.
 
 pub use sparse_ir_core::debug_warn;
 pub use sparse_ir_core::{

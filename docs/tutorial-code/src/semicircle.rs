@@ -1,7 +1,7 @@
 //! The semicircular spectral function, and its IR coefficients.
 //!
 //! Two of the examples use the same model — the semicircle of full bandwidth
-//! 2 — so the quadrature that turns it into `ρₗ` lives here rather than in
+//! 2 — so the quadrature that turns it into `ρ_l` lives here rather than in
 //! either of them.
 
 use sparse_ir::{CentrosymmKernel, FiniteTempBasis, KernelProperties, StatisticsType};
@@ -26,7 +26,10 @@ pub fn shifted_semicircle(omega: f64, center: f64, half_width: f64, weight: f64)
     }
 }
 
-/// `ρₗ = ∫ dω vₗ(ω) ρ(ω)` for the semicircular `ρ`, to machine precision.
+/// `ρ_l = ∫ dω v_l(ω) ρ(ω)` for the semicircular `ρ`, to machine precision.
+///
+/// The integral is done by quadrature (see [`shifted_semicircle_overlaps`]),
+/// not in closed form.
 pub fn semicircle_overlaps<K, S>(basis: &FiniteTempBasis<K, S>) -> Vec<f64>
 where
     K: KernelProperties + CentrosymmKernel + Clone + 'static,
@@ -35,7 +38,7 @@ where
     shifted_semicircle_overlaps(basis, 0.0, 1.0, 1.0)
 }
 
-/// `ρₗ = ∫ dω vₗ(ω) ρ(ω)` for a semicircle of total weight `weight` centred at
+/// `ρ_l = ∫ dω v_l(ω) ρ(ω)` for a semicircle of total weight `weight` centred at
 /// `center` with half-bandwidth `half_width`,
 ///
 /// ```text
@@ -104,7 +107,7 @@ where
         .collect()
 }
 
-/// `Gₗ = −sₗ ρₗ` for the semicircular `ρ`.
+/// `g_l = −s_l ρ_l` for the semicircular `ρ`.
 pub fn semicircle_coefficients<K, S>(basis: &FiniteTempBasis<K, S>) -> (Vec<f64>, Vec<f64>)
 where
     K: KernelProperties + CentrosymmKernel + Clone + 'static,
