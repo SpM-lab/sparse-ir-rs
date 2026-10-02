@@ -974,18 +974,14 @@ fn orbital_magnetic_susceptibility_matches_the_python_reference() {
 }
 
 /// `dmft_ipt`: the Bethe lattice at `D = 2`, `β = 20`, `U = 5`, `ε = 10⁻¹⁵`,
-/// stopped where the notebook stops it.
+/// stopped where the notebook stops it, then run on with and without the
+/// particle-hole symmetry projection.
 ///
-/// The tolerances here are loose by the standards of this file — parts in
-/// `10⁷` rather than parts in `10¹³` — and that is the example's subject
-/// rather than a concession. The notebook stops when the *change* of `Σ` from
-/// one iteration to the next falls below `10⁻⁵`, which happens while the
-/// trajectory is still passing the unstable fixed point that separates the
-/// metal from the insulator. Near that point a difference grows by about 40%
-/// per iteration, so the `10⁻¹⁶` by which two implementations differ in their
-/// starting `G⁰` has become `10⁻⁷` by iteration 65. The fixed points
-/// themselves are reproducible to machine precision; this snapshot of the walk
-/// towards one is not, and `dmft_ipt_scan` is where the converged numbers are.
+/// With the projection the loop is contracting, so the two implementations
+/// follow the same trajectory to rounding and the stopped snapshot compares
+/// almost as tightly as the fixed point. Without it the symmetric solution is
+/// unstable, and where the run ends up is decided by rounding; that run is
+/// compared only by its shape.
 #[test]
 fn dmft_ipt_matches_the_python_reference() {
     if !examples_requested() {
@@ -1007,34 +1003,28 @@ fn dmft_ipt_matches_the_python_reference() {
         "basis_size",
         "n_tau",
         "n_wn",
-        // The iteration count is exact because the residual crosses `10⁻⁵`
-        // with 1% to spare, far more than the trajectories differ by there.
         "iterations",
-        // The unconstrained run has no criterion to cross at all, and it ends
-        // on the insulator from either implementation.
         "long_iterations",
-        "long_z",
     ] {
         assert_exact_integers(&actual, &expected, column);
     }
-    // measured 1.1e-7
-    assert_close(&actual, &expected, "z", 1e-6);
+    assert_close(&actual, &expected, "z", 1e-12); // measured 2.5e-15
+    assert_close(&actual, &expected, "long_z", 1e-12); // measured 4.6e-15
 
     let (actual, expected) = (output(example, "green"), reference(example, "green"));
     assert_exact_integers(&actual, &expected, "n");
-    assert_close(&actual, &expected, "g_im", 5e-6); // measured 3.3e-7
-    // Half filling with a symmetric density of states: the real part vanishes
-    // by particle-hole symmetry, which the loop preserves exactly. What is
-    // left of it is the same amplified rounding error as above.
-    assert_negligible(&actual, "g_re", "g_im", 5e-6); // measured 4.9e-7
+    assert_close(&actual, &expected, "g_im", 1e-12); // measured 1.3e-15
+    // Particle-hole symmetry makes G(iν) purely imaginary, and the projection
+    // keeps it so exactly.
+    assert_negligible(&actual, "g_re", "g_im", 1e-15);
 
     let (actual, expected) = (
         output(example, "self_energy"),
         reference(example, "self_energy"),
     );
     assert_exact_integers(&actual, &expected, "n");
-    assert_close(&actual, &expected, "sigma_im", 5e-6); // measured 3.2e-7
-    assert_negligible(&actual, "sigma_re", "sigma_im", 5e-6); // measured 4.7e-7
+    assert_close(&actual, &expected, "sigma_im", 1e-12); // measured 4.3e-15
+    assert_negligible(&actual, "sigma_re", "sigma_im", 1e-15);
 
     // `Σ(τ)` is real, and the Python reference reports it on `[0, β)`: the
     // reference script folds its grid onto `[−β/2, β/2]` with the fermionic
@@ -1044,45 +1034,65 @@ fn dmft_ipt_matches_the_python_reference() {
         reference(example, "self_energy_tau"),
     );
     assert_close(&actual, &expected, "tau", 1e-15); // measured 0
-    assert_close(&actual, &expected, "sigma_re", 5e-6); // measured 3.1e-7
-    assert_negligible(&actual, "sigma_im", "sigma_re", 5e-6); // measured 3.0e-7
+    assert_close(&actual, &expected, "sigma_re", 1e-11); // measured 4.3e-15T
+    assert_negligible(&actual, "sigma_im", "sigma_re", 1e-12);
 
     let (actual, expected) = (
         output(example, "convergence"),
         reference(example, "convergence"),
     );
     assert_exact_integers(&actual, &expected, "iteration");
-    assert_close(&actual, &expected, "residual", 1e-7); // measured 1.1e-9
+    assert_close(&actual, &expected, "residual", 1e-12); // measured 8.6e-16
 
-    // The long run's trajectory is not compared value by value, and cannot be:
-    // it leaves an unstable fixed point at a moment that rounding decides, so
-    // the two implementations peak two iterations and a factor of two apart.
-    // What both do is climb back to order one after the criterion above was
-    // satisfied, and then converge for real.
-    let (actual, expected) = (
+    // The symmetric long run converges for real and never leaves the
+    // symmetric subspace.
+    for table in [
         output(example, "long_convergence"),
         reference(example, "long_convergence"),
-    );
-    for table in [&actual, &expected] {
+    ] {
         let residual = table.expect_column("residual");
-        let rebound = residual[65..].iter().fold(0.0_f64, |acc, &r| acc.max(r));
         assert!(
-            rebound > 0.1,
-            "the loop must leave the unstable fixed point it was stopped next to, \
-             but the change never rose above {rebound:.1e} again"
+            residual[1000..].iter().all(|&r| r < 1e-15),
+            "the symmetric long run must converge"
         );
         assert!(
-            residual[3000..].iter().all(|&r| r < 1e-15),
-            "the long run must actually converge"
+            table.expect_column("asymmetry").iter().all(|&a| a == 0.0),
+            "the projected run must stay exactly particle-hole symmetric"
+        );
+    }
+
+    // The unprojected run starts at rounding level and leaves the symmetric
+    // solution: the asymmetry grows to order one, from either implementation.
+    for table in [
+        output(example, "unconstrained_convergence"),
+        reference(example, "unconstrained_convergence"),
+    ] {
+        let asymmetry = table.expect_column("asymmetry");
+        assert!(
+            asymmetry[0] < 1e-12,
+            "the unprojected run must start symmetric to rounding, got {:.1e}",
+            asymmetry[0]
+        );
+        let peak = asymmetry.iter().fold(0.0_f64, |acc, &a| acc.max(a));
+        assert!(
+            peak > 0.1,
+            "rounding must drive the unprojected run off the symmetric solution, \
+             but the asymmetry never exceeded {peak:.1e}"
         );
     }
 
     // --- and the physics ----------------------------------------------------
     let summary = output(example, "summary");
     let z = summary.expect_column("z")[0];
+    let long_z = summary.expect_column("long_z")[0];
     assert!(
-        (0.0..=1.0).contains(&z),
-        "the quasiparticle weight must lie in [0, 1], got {z}"
+        (0.0..=1.0).contains(&z) && z > 0.0,
+        "U = 5 is a metal: the quasiparticle weight must lie in (0, 1], got {z}"
+    );
+    assert!(
+        (z - long_z).abs() < 1e-3,
+        "the run stopped at the threshold ({z}) and the converged one ({long_z}) \
+         must be the same metal"
     );
 
     let green = output(example, "green");
@@ -1113,11 +1123,11 @@ fn dmft_ipt_matches_the_python_reference() {
 }
 
 /// `dmft_ipt_scan`: `Z(U)` over 66 interaction strengths from three starting
-/// points, each run for a fixed 5000 iterations.
+/// points, each run for a fixed 5000 iterations with particle-hole symmetry
+/// enforced.
 ///
-/// These are fixed points rather than snapshots of a walk towards one, and
-/// they agree to parts in `10¹⁵` — the contrast with `dmft_ipt` above is the
-/// whole reason the scan does not stop on a threshold.
+/// These are fixed points rather than snapshots of a walk towards one, so the
+/// two implementations agree to rounding.
 #[test]
 fn dmft_ipt_scan_matches_the_python_reference() {
     if !scans_requested() {
@@ -1154,13 +1164,13 @@ fn dmft_ipt_scan_matches_the_python_reference() {
     );
     assert_exact_integers(&actual, &expected, "n");
     for column in [
-        "sigma_im_u30",
-        "sigma_im_u32",
-        "sigma_im_u34",
-        "sigma_im_u35",
-        "sigma_im_u40",
+        "sigma_im_u50",
+        "sigma_im_u54",
+        "sigma_im_u57",
+        "sigma_im_u58",
+        "sigma_im_u60",
     ] {
-        assert_close(&actual, &expected, column, 1e-12); // measured ≤ 1.4e-14
+        assert_close(&actual, &expected, column, 1e-12); // measured ≤ 1.1e-14
     }
 
     // --- and the physics ----------------------------------------------------

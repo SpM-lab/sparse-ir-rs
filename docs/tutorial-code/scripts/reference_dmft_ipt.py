@@ -7,10 +7,17 @@ perturbation theory: the self-energy is `U² 𝒢(τ)³`, so every iteration is 
 round trip through the basis and the whole solver is four lines.
 
 `write` produces the single `U = 5` calculation at the notebook's convergence
-threshold. `write_scan` produces the renormalisation factor `Z(U)` from three
-different starting points, converged far harder, which is slow enough to be a
-separate example — and which disagrees with the single calculation about
-whether `U = 5` is a metal.
+threshold, plus two long runs: one with particle-hole symmetry enforced, and
+one without it, which shows rounding driving the loop off the symmetric
+solution. `write_scan` produces the renormalisation factor `Z(U)` from three
+different starting points, each run to machine precision, which is slow
+enough to be a separate example.
+
+Unlike the notebook, the loop projects each new self-energy onto its
+particle-hole symmetric part (purely imaginary and odd in ν). The symmetric
+solution is an unstable fixed point of the unprojected loop, so without the
+projection the notebook's long runs end on symmetry-broken states, and its
+apparent Mott transition near U = 3.5 is that instability.
 """
 
 from __future__ import annotations
@@ -34,22 +41,18 @@ MAXITER = 300
 SFC_TOL = 1e-5
 MIX = 0.25
 # The same calculation carried on for a fixed number of iterations instead of
-# stopped at a threshold, which is what shows the threshold up.
+# stopped at a threshold, with and without the symmetry projection.
 LONG_ITERATIONS = 5000
 # The scan: 66 interaction strengths, each run for a fixed number of
-# iterations rather than to a threshold on the change of `Σ`. Near the
-# transition the loop spends hundreds of iterations next to the unstable fixed
-# point that separates the metal from the insulator, and the change of `Σ`
-# there is tiny while the distance still to go is not — so a threshold stops
-# on the way past and reports a metal that is not one. `dmft_ipt` shows the
-# same thing happening at `U = 5`.
+# iterations rather than to a threshold on the change of `Σ`, so that every
+# point is a fixed point to machine precision.
 U_MAX = 6.5
 U_NUM = 66
 SCAN_ITERATIONS = 5000
 # The interaction strengths whose self-energy the scan writes out, as indices
-# into `U_arr`: on either side of `U_c1 = 3.2` and of `U_c2`, which lies
-# between 3.4 and 3.5.
-SCAN_PROBES = (30, 32, 34, 35, 40)
+# into `U_arr`: U = 5.0, 5.4 below the coexistence window, 5.7 the last metal
+# reached from G0, and 5.8, 6.0 above U_c2.
+SCAN_PROBES = (50, 54, 57, 58, 60)
 
 
 def density_of_states(omega: np.ndarray) -> np.ndarray:
@@ -67,6 +70,13 @@ class Mesh:
         self.iwn = 1j * self.wn.sampling_points * np.pi * TEMPERATURE
         # The index of the lowest positive Matsubara frequency, n = 1.
         self.iw0 = int(np.where(self.wn.sampling_points == 1)[0][0])
+        # mirror[i] is the index of -n_i; the points come in ± pairs.
+        points = list(self.wn.sampling_points)
+        self.mirror = np.array([points.index(-n) for n in points])
+
+    def particle_hole_symmetric(self, sigma: np.ndarray) -> np.ndarray:
+        """`i·½[Im Σ(iν) − Im Σ(−iν)]`: purely imaginary and odd."""
+        return 0.5j * (sigma.imag - sigma.imag[self.mirror])
 
     def wn_to_tau(self, values: np.ndarray) -> np.ndarray:
         return self.tau.evaluate(self.wn.fit(values))
@@ -81,22 +91,34 @@ class Mesh:
 
 
 def solve(
-    mesh: Mesh, g_loc: np.ndarray, u: float, maxiter: int, sfc_tol: float
-) -> tuple[np.ndarray, np.ndarray, list[float]]:
-    """The DMFT loop. Returns the converged `G_loc`, `Σ`, and the residuals.
+    mesh: Mesh,
+    g_loc: np.ndarray,
+    u: float,
+    maxiter: int,
+    sfc_tol: float,
+    symmetric: bool = True,
+) -> tuple[np.ndarray, np.ndarray, list[float], list[float]]:
+    """The DMFT loop. Returns `G_loc`, `Σ`, and per iteration the residual
+    and the distance of `Σ` from its particle-hole symmetric part.
 
     Every iteration is the impurity solver `Σ(τ) = U² 𝒢(τ)³` — one fit and one
     evaluation each way — followed by the Dyson equation and the Bethe-lattice
-    self-consistency `𝒢⁻¹ = iν − t² G_loc`.
+    self-consistency `𝒢⁻¹ = iν − t² G_loc`. With `symmetric`, each new `Σ` is
+    projected onto its particle-hole symmetric part: at half filling the
+    symmetric solution is an unstable fixed point of the loop with respect to
+    symmetry-breaking perturbations, so rounding would otherwise take over.
     """
     t = D / 2
     sigma = np.zeros_like(g_loc)
     g_weiss = 1 / (mesh.iwn - t**2 * g_loc)
     residuals: list[float] = []
+    asymmetry: list[float] = []
 
     for _ in range(maxiter):
         previous = sigma
         new = mesh.tau_to_wn(u**2 * mesh.wn_to_tau(g_weiss) ** 3)
+        if symmetric:
+            new = mesh.particle_hole_symmetric(new)
         sigma = new * MIX + sigma * (1 - MIX)
 
         g_loc = 1 / (1 / g_weiss - sigma)
@@ -106,9 +128,10 @@ def solve(
         # change of nothing is not a number; that case is converged.
         scale = np.sum(abs(sigma))
         residuals.append(np.sum(abs(sigma - previous)) / scale if scale > 0 else 0.0)
+        asymmetry.append(float(np.max(abs(sigma - mesh.particle_hole_symmetric(sigma)))))
         if residuals[-1] < sfc_tol:
             break
-    return g_loc, sigma, residuals
+    return g_loc, sigma, residuals, asymmetry
 
 
 def renormalisation(mesh: Mesh, sigma: np.ndarray) -> float:
@@ -126,9 +149,12 @@ def write() -> None:
     comment = provenance(EXAMPLE)
     mesh = Mesh()
     g0 = mesh.noninteracting()
-    g_loc, sigma, residuals = solve(mesh, g0, U, MAXITER, SFC_TOL)
-    # A threshold of zero is never met, so this one runs the full count.
-    _, long_sigma, long_residuals = solve(mesh, g0, U, LONG_ITERATIONS, 0.0)
+    g_loc, sigma, residuals, asymmetry = solve(mesh, g0, U, MAXITER, SFC_TOL)
+    # A threshold of zero is never met, so these run the full count.
+    _, long_sigma, long_residuals, long_asymmetry = solve(mesh, g0, U, LONG_ITERATIONS, 0.0)
+    _, _, free_residuals, free_asymmetry = solve(
+        mesh, g0, U, LONG_ITERATIONS, 0.0, symmetric=False
+    )
 
     write_table(
         EXAMPLE,
@@ -171,13 +197,18 @@ def write() -> None:
         comment,
     )
 
-    for name, values in (("convergence", residuals), ("long_convergence", long_residuals)):
+    for name, values, asym in (
+        ("convergence", residuals, asymmetry),
+        ("long_convergence", long_residuals, long_asymmetry),
+        ("unconstrained_convergence", free_residuals, free_asymmetry),
+    ):
         write_table(
             EXAMPLE,
             name,
             {
                 "iteration": np.arange(1, len(values) + 1, dtype=float),
                 "residual": np.array(values),
+                "asymmetry": np.array(asym),
             },
             comment,
         )
@@ -196,7 +227,7 @@ def write_scan() -> None:
 
     # Every calculation from the non-interacting Green's function.
     for index, u in enumerate(u_arr):
-        _, sigma, _ = solve(mesh, g0, u, SCAN_ITERATIONS, 0.0)
+        _, sigma, _, _ = solve(mesh, g0, u, SCAN_ITERATIONS, 0.0)
         from_g0[index] = renormalisation(mesh, sigma)
         if index in SCAN_PROBES:
             probes[index] = sigma
@@ -205,11 +236,11 @@ def write_scan() -> None:
     # insulator, each calculation starting where the previous one stopped.
     g_metal, g_insulator = g0, g0
     for index in range(U_NUM):
-        g_metal, sigma, _ = solve(mesh, g_metal, u_arr[index], SCAN_ITERATIONS, 0.0)
+        g_metal, sigma, _, _ = solve(mesh, g_metal, u_arr[index], SCAN_ITERATIONS, 0.0)
         metal[index] = renormalisation(mesh, sigma)
 
         other = U_NUM - 1 - index
-        g_insulator, sigma, _ = solve(mesh, g_insulator, u_arr[other], SCAN_ITERATIONS, 0.0)
+        g_insulator, sigma, _, _ = solve(mesh, g_insulator, u_arr[other], SCAN_ITERATIONS, 0.0)
         insulator[other] = renormalisation(mesh, sigma)
 
     write_table(
