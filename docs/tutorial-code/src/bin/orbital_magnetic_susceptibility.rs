@@ -1,8 +1,8 @@
 //! Orbital magnetic susceptibility of a tight-binding model.
 //!
 //! Ported from the Python notebook `orbital_magnetic_susceptibility_py.ipynb`
-//! of sparse-ir-tutorial, whose authors are Soshun Ozaki and Takashi
-//! Koretsune.
+//! of sparse-ir-tutorial-v2 (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>),
+//! whose authors are Soshun Ozaki and Takashi Koretsune.
 //!
 //! For a tight-binding model the orbital susceptibility is the Matsubara sum
 //!
@@ -12,9 +12,12 @@
 //!                + ½ (γx G γy G + γy G γx G) γxy G]
 //! ```
 //!
-//! with `γi = ∂H/∂kᵢ` and `γxy = ∂²H/∂kx∂ky`. The summand falls off as
-//! `1/ν³`, so summing it directly converges slowly; through the basis the sum
-//! is one evaluation at `τ = 0`, because `T Σ_ν F(iν) = F(τ = 0)`.
+//! with `γi = ∂H/∂kᵢ` and `γxy = ∂²H/∂kx∂ky`. The prefactor `e²/ħ²` is
+//! dropped, the `k` sum is an average over the zone (`1/N_k`), and there is
+//! no spin factor. The summand falls off as a power of `ν` (`ν⁻⁴` for the
+//! square lattice, `ν⁻⁶` for graphene), so summing it directly converges
+//! slowly; through the basis the sum is one evaluation at `τ = 0`, because
+//! `T Σ_ν F(iν) = F(τ = 0)`.
 //!
 //! Two lattices are computed. The square lattice has one band, so every
 //! matrix above is a number and the trace is a product; graphene has two
@@ -36,6 +39,7 @@ use sparse_ir_tutorial::{
 
 const EXAMPLE: &str = "orbital_magnetic_susceptibility";
 
+// ANCHOR: parameters
 const T_HOPPING: f64 = 1.0;
 const LATTICE: f64 = 1.0;
 const TEMPERATURE: f64 = 0.1;
@@ -51,6 +55,7 @@ const MU_MAX: f64 = 4.5;
 /// both lattices are particle-hole symmetric there and `χ(iν)` comes out
 /// real, which would hide a mistake in its imaginary part.
 const PROBE_MU: f64 = -1.0;
+// ANCHOR_END: parameters
 
 fn chemical_potentials() -> Vec<f64> {
     let step = (MU_MAX - MU_MIN) / (N_MU - 1) as f64;
@@ -146,6 +151,7 @@ fn chi_square(grid: &MomentumGrid, nu: &[f64], mu: &[f64]) -> Vec<Complex64> {
     for index in 0..grid.len() {
         let (k1, k2) = grid.coordinates(index);
         let (ek, gx, gy, gxy) = square(k1, k2);
+        // ANCHOR: square_summand
         for (i, &nu) in nu.iter().enumerate() {
             for (m, &mu) in mu.iter().enumerate() {
                 let g = Complex64::new(-(ek - mu), nu).inv();
@@ -153,9 +159,13 @@ fn chi_square(grid: &MomentumGrid, nu: &[f64], mu: &[f64]) -> Vec<Complex64> {
                 chi[i * n_mu + m] += gx * gx * gy * gy * g2 * g2 + gx * gy * gxy * g2 * g;
             }
         }
+        // ANCHOR_END: square_summand
     }
+    // ANCHOR: zone_average
+    // The k sum is an average over the zone: χ per unit cell.
     let nk = grid.len() as f64;
     chi.iter().map(|z| z / nk).collect()
+    // ANCHOR_END: zone_average
 }
 
 /// `χ(iν)` of graphene, summed over the zone and averaged.
@@ -165,6 +175,7 @@ fn chi_graphene(grid: &MomentumGrid, nu: &[f64], mu: &[f64]) -> Vec<Complex64> {
     for index in 0..grid.len() {
         let (k1, k2) = grid.coordinates(index);
         let (hamiltonian, velocities) = graphene(k1, k2);
+        // ANCHOR: graphene_summand
         let eigen = hamiltonian.eigen();
         // In the eigenbasis `G` is diagonal, so the traces below are products
         // of 2×2 matrices and two numbers rather than of four matrices.
@@ -185,6 +196,7 @@ fn chi_graphene(grid: &MomentumGrid, nu: &[f64], mu: &[f64]) -> Vec<Complex64> {
                 chi[i * n_mu + m] += trace(&xy, &xy) + 0.5 * (trace(&xy, &xyg) + trace(&yx, &xyg));
             }
         }
+        // ANCHOR_END: graphene_summand
     }
     let nk = grid.len() as f64;
     chi.iter().map(|z| z / nk).collect()
@@ -220,9 +232,11 @@ fn main() -> Result<(), Box<dyn StdError>> {
     let mu = chemical_potentials();
     let nu: Vec<f64> = mesh.wn().iter().map(|w| w.value(BETA)).collect();
 
+    // ANCHOR: u_at_zero
     // `T Σ_ν F(iν) = F(τ = 0)`: the Matsubara sum is the basis expansion read
     // at one point. This is the row of basis functions that reads it.
     let u_at_zero = basis.evaluate_tau(&[0.0])?;
+    // ANCHOR_END: u_at_zero
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("t", vec![T_HOPPING]);
@@ -265,11 +279,13 @@ fn main() -> Result<(), Box<dyn StdError>> {
         );
         write_table(&output_path(EXAMPLE, &format!("{name}_matsubara"))?, &table)?;
 
+        // ANCHOR: matsubara_sum
         let coefficients = mesh.wn_to_l(&chi_iw, N_MU)?;
         let chi: Vec<f64> = evaluate_rows(&u_at_zero, &coefficients, N_MU)
             .iter()
             .map(|z| z.re)
             .collect();
+        // ANCHOR_END: matsubara_sum
         let mut table = Table::new(provenance(EXAMPLE));
         table.push("mu", mu.clone());
         table.push("chi", chi);

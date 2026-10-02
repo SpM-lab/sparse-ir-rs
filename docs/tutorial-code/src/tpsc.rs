@@ -113,7 +113,7 @@ pub fn solve(lattice: &Lattice, u: f64, filling: f64) -> Result<Solution, TpscEr
 
     let trace = |vertex: f64| -> Result<f64, Error> { rpa_trace(lattice, &chi_0, vertex) };
 
-    // The spin sum rule: 2 Σ_q,m χ_sp = n − ½ (U_sp/U) n², with the double
+    // The spin sum rule: (2/(nk β)) Σ_{q,n} χ_sp = n − ½ (U_sp/U) n², with the double
     // occupancy already eliminated by Kanamori–Brueckner screening.
     let spin_equation = |u_sp: f64| -> Result<f64, Error> {
         Ok(2.0 * trace(u_sp)? - filling + 0.5 * (u_sp / u) * filling * filling)
@@ -168,10 +168,12 @@ fn green(lattice: &Lattice, sigma: &[Complex64], mu: f64) -> Vec<Complex64> {
     out
 }
 
-/// The filling `n = 2(1 + G(τ = 0))` of the zone-averaged Green's function.
+/// The filling `n = 2(1 + G(τ = 0⁺))` of the zone-averaged Green's function.
 ///
-/// `G(τ = 0)` is the Matsubara sum, which is one evaluation of the fitted
+/// `G(0⁺)` is a Matsubara sum, which is one evaluation of the fitted
 /// coefficients — the same trick the exchange-interaction example leans on.
+/// `evaluate_tau(&[0.0])` reads `+0.0` as `τ = 0⁺` (only `−0.0` is folded to
+/// `β`, i.e. `0⁻`), and `G(0⁺) = −⟨c c†⟩ = n_σ − 1`.
 fn filling_of(lattice: &Lattice, sigma: &[Complex64], mu: f64) -> Result<f64, Error> {
     let nk = lattice.nk();
     let gkio = green(lattice, sigma, mu);
@@ -207,12 +209,17 @@ fn find_chemical_potential(
     )
 }
 
-/// `χ⁰(iν^B, q)` from `G(τ, r) G(β − τ, r)`.
+/// `χ⁰(iω, q)` from `G(τ, r) G(β − τ, r)`.
+///
+/// `reverse_tau` returns `G(β − τ) = −G(−τ)` (reversal together with the
+/// fermionic sign), so the product is `−G(τ, r) G(−τ, r)`: that is where the
+/// minus sign of `χ⁰` comes from.
 fn irreducible_susceptibility(
     lattice: &Lattice,
     gkio: &[Complex64],
 ) -> Result<Vec<Complex64>, Error> {
     let nk = lattice.nk();
+    // ANCHOR: chi0
     let grt = {
         let gkt = lattice.mesh_f().wn_to_tau(gkio, nk)?;
         lattice.grid().k_to_r(&gkt)
@@ -221,6 +228,7 @@ fn irreducible_susceptibility(
     let product: Vec<Complex64> = grt.iter().zip(&reversed).map(|(a, b)| a * b).collect();
     let in_momentum = lattice.grid().r_to_k(&product);
     lattice.mesh_b().tau_to_wn(&in_momentum, nk)
+    // ANCHOR_END: chi0
 }
 
 /// The RPA-like susceptibility `χ⁰/(1 − U χ⁰)`.
@@ -228,24 +236,29 @@ fn rpa(chi_0: &[Complex64], vertex: f64) -> Vec<Complex64> {
     chi_0.iter().map(|c| c / (1.0 - vertex * c)).collect()
 }
 
-/// `Σ_q,m χ(iν^B_m, q) / nk`, which is the RPA-like susceptibility at
-/// `τ = 0`: one fit and one evaluation instead of a truncated Matsubara sum.
+/// `(1/(nk β)) Σ_{q,n} χ(iω_n, q)`, which is the zone-averaged RPA-like
+/// susceptibility at `τ = 0`: one fit and one evaluation instead of a
+/// truncated Matsubara sum. (`χ(τ)` is bosonic and continuous at `τ = 0`, so
+/// the side does not matter here.)
 fn rpa_trace(lattice: &Lattice, chi_0: &[Complex64], vertex: f64) -> Result<f64, Error> {
     let nk = lattice.nk();
+    // ANCHOR: sum_rule
     let chi = rpa(chi_0, vertex);
     let averaged: Vec<Complex64> = (0..lattice.mesh_b().n_wn())
         .map(|i| chi[i * nk..(i + 1) * nk].iter().sum::<Complex64>() / nk as f64)
         .collect();
     let coefficients = lattice.mesh_b().wn_to_l(&averaged, 1)?;
     Ok(evaluate_rows(lattice.ub_at_zero(), &coefficients, 1)[0].re)
+    // ANCHOR_END: sum_rule
 }
 
 /// `Σ(iν, k)` from `V(τ, r) G(τ, r)`, where
 /// `V = U/4 (3 U_sp χ_sp + U_ch χ_ch)`.
 ///
-/// The constant Hartree term is left out: it is a frequency-independent shift
-/// that the basis cannot represent compactly, and in a single band it is
-/// absorbed into the chemical potential.
+/// The instantaneous (δ(τ)) part of the interaction is left out: in `Σ` it
+/// would be the frequency-independent Hartree shift `U n/2`, which the basis
+/// cannot represent compactly and which in a single band is absorbed into the
+/// chemical potential.
 fn self_energy(
     lattice: &Lattice,
     gkio: &[Complex64],

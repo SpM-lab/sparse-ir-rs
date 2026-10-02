@@ -1,8 +1,9 @@
 //! The `d`-wave superconducting transition line of the square-lattice Hubbard
 //! model in FLEX.
 //!
-//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial,
-//! whose author is Niklas Witt; this is the calculation behind Figs. 3(b) and
+//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/FLEX_py.html>), whose author is Niklas
+//! Witt; this is the calculation behind Figs. 3(b) and
 //! 4 of Arita et al. (2000), and Fig. 2(a) of Witt et al. (2021).
 //!
 //! The point of interest for the basis is the sweep itself. `Λ = β ω_max` is
@@ -36,8 +37,10 @@ const TEMPERATURES: [f64; 7] = [0.08, 0.07, 0.06, 0.05, 0.04, 0.03, 0.025];
 const PROBE: usize = 5;
 
 fn main() -> Result<(), Box<dyn StdError>> {
+    // ANCHOR: shared_sve
     let beta_init = 1.0 / TEMPERATURES[0];
     let (kernel, sve) = sve_for(beta_init, LAMBDA / beta_init, EPS)?;
+    // ANCHOR_END: shared_sve
 
     let settings = Settings {
         u: U,
@@ -57,9 +60,11 @@ fn main() -> Result<(), Box<dyn StdError>> {
     let mut chi_path = Vec::new();
     let mut basis_report = None;
 
+    // ANCHOR: lattice_per_beta
     for (index, &temperature) in TEMPERATURES.iter().enumerate() {
         let beta = 1.0 / temperature;
         let lattice = Lattice::from_sve(kernel, sve.clone(), NK_LIN, NK_LIN, T_HOP, beta, EPS)?;
+        // ANCHOR_END: lattice_per_beta
         let mut solver = match sigma.take() {
             Some(previous) => Solver::new(&lattice, settings, previous)?,
             None => Solver::from_scratch(&lattice, settings)?,

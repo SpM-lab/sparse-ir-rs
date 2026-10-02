@@ -1,8 +1,9 @@
 //! The fluctuation-exchange approximation for the square-lattice Hubbard
 //! model, and the linearised Eliashberg equation built on top of it.
 //!
-//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial,
-//! whose author is Niklas Witt.
+//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/FLEX_py.html>), whose author is Niklas
+//! Witt.
 //!
 //! Where `tpsc` fixed its vertices by sum rules and stopped, FLEX iterates
 //! the Dyson equation with the bare `U` until the self-energy settles, and

@@ -14,6 +14,86 @@
 //!   quadrature instead of QUADPACK's QAWO, to the same tolerance;
 //! - arrays are column-major tensors, and the channels of a matrix-valued
 //!   function are its trailing axes.
+//!
+//! # Entry points
+//!
+//! - [`mini_pole_dlr_from`] takes a DLR and the coefficients `g_l` that
+//!   `MatsubaraSampling::fit_nd` returns for it, and forms the residues
+//!   `A_l = g_l w_l` with `dlr.pole_weights()`. Bosonic DLR coefficients are
+//!   therefore not residues; do not pass them to [`mini_pole_dlr`].
+//! - [`mini_pole_dlr`] takes real poles `x_l`, their actual residues `A_l`
+//!   (pole axis first, channels on the trailing axes, column-major) and `β`.
+//! - [`mini_pole`] takes Matsubara data on a uniform grid of non-negative
+//!   *physical* frequencies `ω_n` (real numbers, not indices and not `iω_n`).
+//!
+//! All three return a [`MiniPoleResult`]; [`MiniPoleResult::evaluate`] sums the
+//! poles and the constant term at arbitrary complex `z`.
+//!
+//! # The contour of the DLR entry points
+//!
+//! Without symmetry ([`MiniPoleDlrParams::symmetry`] false), the conformal map
+//! uses the imaginary-axis segment `[iω_{n0}, iω_{nmax}]` with
+//! `ω_n = (2n + 1)π/β`, **also for a bosonic DLR**. This is a contour index,
+//! not the physical bosonic grid and not the reduced Matsubara index `n`
+//! (frequency `nπ/β`) of the rest of the library and of the C API.
+//!
+//! - `n0` is chosen by the caller; there is no automatic choice for DLR input.
+//!   Increasing it raises the lower end of the contour.
+//! - `nmax: None` uses the numerical value of `β` in the units of the input.
+//!   An explicit `Some(nmax)` must exceed `n0`; it is a floating-point cutoff,
+//!   not a number of samples.
+//! - With symmetry the gapless map uses the lower end only, and `nmax` does
+//!   not enter.
+//!
+//! Changing the segment changes the mapped poles and moments that ESPRIT
+//! sees, so the same coefficients and tolerance need not give the same number
+//! of poles.
+//!
+//! # Tolerance and number of poles
+//!
+//! `err` is the ESPRIT tolerance: absolute with [`ErrType::Abs`] (the
+//! default), relative to the largest singular value with [`ErrType::Rel`].
+//! It is **not** a bound on the reconstruction error of `G`. With the DLR
+//! entry points one may instead set `m = Some(count)` and `err = None` when the
+//! model order is known; one of the two is required, because the automatic
+//! choice by knee detection is not ported.
+//!
+//! # Matsubara input ([`mini_pole`])
+//!
+//! - At least three finite, non-negative, strictly increasing, uniformly
+//!   spaced frequencies, with data of shape `[n_w]` or `[n_w, n_orb, n_orb]`.
+//!   Sparse DLR/IR sampling nodes, irregular grids and negative frequencies
+//!   are not accepted; fit a DLR and use [`mini_pole_dlr_from`] for those.
+//! - `n0` is a **position in the supplied array**: the contour starts at
+//!   `w[n0]` and, without symmetry, ends at the last element. There is no
+//!   `nmax`; extend the data for a larger upper end. The default is
+//!   [`N0::Auto`] with `shift: 0`; inspect [`MiniPoleResult::n0`] and compare
+//!   with [`N0::Fixed`] if needed. With symmetry `w[n0]` must be positive, so a
+//!   bosonic zero frequency cannot be the lower end of the gapless map.
+//! - `err` is required and should be at least the noise level of the data.
+//!   [`MiniPoleResult::err_max`] reports the precision of the first ESPRIT
+//!   interpolation, not a certified reconstruction error; it is `None` for
+//!   DLR input.
+//! - [`MiniPoleParams::g_symmetric`] symmetrizes matrix data as
+//!   `G_ij = G_ji`, independently of the up-down `symmetry` flag.
+//!   [`MiniPoleParams::compute_const`] fits a constant term and cannot be
+//!   combined with `symmetry`.
+//! - Residues default to a least-squares fit in [`Plane::Z`] without symmetry
+//!   and to the mapped [`Plane::W`] with symmetry;
+//!   [`MiniPoleParams::include_n0`] also includes the first `n0` points in the
+//!   z-plane fit.
+//!
+//! # C API
+//!
+//! `spir_minipole_from_matsubara` takes reduced Matsubara indices `n`
+//! (`1, 3, 5, ...` for fermions, `0, 2, 4, ...` for bosons) and converts them
+//! as `ω = nπ/β`; a negative `n0` selects the automatic choice and `n0_shift`
+//! adds to it. `spir_minipole_from_dlr` follows [`mini_pole_dlr_from`], with
+//! `nmax <= 0` selecting `β`. The getters expose the poles, residues, constant,
+//! the `n0` used and the Matsubara-only `err_max`.
+//!
+//! A worked example with figures is the MiniPole page of the sparse-ir Rust
+//! user guide: <https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html>.
 
 mod con_map;
 mod mini_pole;

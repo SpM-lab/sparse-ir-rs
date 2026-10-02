@@ -1,6 +1,8 @@
 //! DMFT on the Bethe lattice, solved by iterated perturbation theory.
 //!
-//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial.
+//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/DMFT_IPT_py.html>), whose author is
+//! Niklas Witt.
 //!
 //! The impurity solver is one line — `Σ(τ) = U² 𝒢(τ)³` — because the
 //! self-energy is a *product* in imaginary time and the Dyson equation is a

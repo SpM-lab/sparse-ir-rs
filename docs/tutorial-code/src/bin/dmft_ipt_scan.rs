@@ -1,6 +1,8 @@
 //! The Mott transition of the `dmft_ipt` model, and its hysteresis.
 //!
-//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial.
+//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/DMFT_IPT_py.html>), whose author is
+//! Niklas Witt.
 //!
 //! The same loop as `dmft_ipt`, run for 66 interaction strengths from three
 //! different starting points: always from the non-interacting Green's

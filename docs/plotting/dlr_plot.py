@@ -21,6 +21,8 @@ def main() -> None:
     dlr = read_table(EXAMPLE, "dlr_coefficients")
     reconstruction = read_table(EXAMPLE, "reconstruction")
     matsubara = read_table(EXAMPLE, "matsubara")
+    independent = read_table(EXAMPLE, "independent_matsubara")
+    nodes = read_table(EXAMPLE, "independent_nodes")
 
     # Only even l: the semicircle is even in ω, so odd coefficients vanish.
     even = slice(None, None, 2)
@@ -34,7 +36,7 @@ def main() -> None:
 
     fig, ax = plt.subplots(figsize=(5.5, 4))
     ax.plot(dlr["pole"], dlr["c_p"], marker="x", ls="")
-    ax.set_xlabel(r"$\bar{\omega}_p$")
+    ax.set_xlabel(r"$\omega_p$")
     ax.set_ylabel(r"$c_p$")
     save(fig, f"{EXAMPLE}_poles")
 
@@ -61,6 +63,33 @@ def main() -> None:
     ax.set_ylabel(r"Im $G(\mathrm{i}\nu)$")
     ax.legend(frameon=False)
     save(fig, f"{EXAMPLE}_matsubara")
+
+    # The independent DLR: error of G(iν) against the closed form, far beyond
+    # the nodes it was fitted at (positive nodes marked along the bottom).
+    fig, ax = plt.subplots(figsize=(5.5, 4))
+    ax.loglog(
+        independent["nu"],
+        independent["error"],
+        marker="x",
+        ls="",
+        label="fitted at the Matsubara nodes",
+    )
+    ax.loglog(
+        independent["nu"],
+        independent["error_from_tau"],
+        marker="+",
+        ls="",
+        label=r"refitted from $G(\tau)$ at the $\tau$ nodes",
+    )
+    positive = nodes["nu"][nodes["nu"] > 0]
+    ax.plot(
+        positive, np.full_like(positive, 1e-17), marker="|", ls="", color="k", label="Matsubara nodes"
+    )
+    ax.set_xlabel(r"$\nu$")
+    ax.set_ylabel(r"$|G_\mathrm{DLR}(\mathrm{i}\nu) - G(\mathrm{i}\nu)|$")
+    ax.set_ylim(3e-18, 1e-10)
+    ax.legend(frameon=False, loc="upper right")
+    save(fig, f"{EXAMPLE}_independent")
 
 
 if __name__ == "__main__":

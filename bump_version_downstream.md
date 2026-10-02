@@ -11,10 +11,10 @@ This note covers the downstream version bumps most likely to matter after a new 
 
 1. Bump the Rust workspace version in `Cargo.toml`.
 2. Bump the Python wrapper version in `python/pyproject.toml`.
-3. Bump the install snippets in `sparse-ir/README.md`.
+3. Bump the install snippets in `sparse-ir/README.md`, the root `README.md` quick start, and `docs/book/src/getting-started/installation.md`.
 4. Run `python3 check_version.py`.
 5. Merge the release PR.
-6. Run `.github/workflows/manual-release.yml` to publish `sparse-ir` and `sparse-ir-capi`.
+6. Run `.github/workflows/manual-release.yml` to publish the six crates `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`, `sparse-ir-basis`, `sparse-ir` and `sparse-ir-capi`, in that order.
 7. Let the release workflow push tag `vX.Y.Z`.
 8. Let `.github/workflows/PublishPyPI.yml` publish `pylibsparseir` from that tag.
 9. Confirm that `pylibsparseir X.Y.Z` is actually available on PyPI before bumping downstream Python consumers that resolve from package indexes.
@@ -121,7 +121,7 @@ So the repo-local bump is still "update the BinaryBuilder recipe". This is separ
 
 Before bumping Julia:
 
-- `sparse-ir` and `sparse-ir-capi` for `X.Y.Z` must already be published on crates.io
+- all six crates (`sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`, `sparse-ir-basis`, `sparse-ir`, `sparse-ir-capi`) for `X.Y.Z` must already be published on crates.io
 - tag `vX.Y.Z` must already exist
 
 This ordering matters because `julia/update_build_tarballs.jl` runs `git rev-parse <tag>` and embeds the tagged commit hash into `julia/build_tarballs.jl`.

@@ -1,8 +1,11 @@
 # Second-order perturbation
 
-*Ported from the Python notebook `second_order_perturbation_py.ipynb` of
-sparse-ir-tutorial. The program that produced every number and figure on this
-page is `docs/tutorial-code/src/bin/second_order_perturbation.rs`.*
+*Ported from the Python notebook
+[`second_order_perturbation_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/second_order_perturbation_py.html)
+of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+The program that produced every number and figure on this page is
+`docs/tutorial-code/src/bin/second_order_perturbation.rs`; the code below is
+included from it.*
 
 This is the first page where the basis earns its keep on a real problem: the
 second-order self-energy of the Hubbard model on a square lattice, on a
@@ -20,7 +23,7 @@ The Hubbard model at half filling,
   - \mu \sum_i (n_{i\uparrow} + n_{i\downarrow}),
 \\]
 
-with \\(t = 1\\) and \\(\mu = U/2\\), has the non-interacting dispersion
+with \\(t = 1\\), \\(U = 2\\) and \\(\mu = U/2\\), has the non-interacting dispersion
 
 \\[
 \epsilon(\boldsymbol{k}) = -2(\cos k_x + \cos k_y)
@@ -29,14 +32,16 @@ with \\(t = 1\\) and \\(\mu = U/2\\), has the non-interacting dispersion
 and the non-interacting Green's function
 
 \\[
-G(\mathrm{i}\nu, \boldsymbol{k}) =
-  \frac{1}{\mathrm{i}\nu - \epsilon(\boldsymbol{k}) + \mu}.
+G(\mathrm{i}\nu_n, \boldsymbol{k}) =
+  \frac{1}{\mathrm{i}\nu_n - \epsilon(\boldsymbol{k}) + \tilde\mu},
+\qquad \nu_n = n\pi/\beta,\ n \text{ odd}.
 \\]
 
-The first-order (Hartree) term of the self-energy is absorbed into the
-chemical potential, so at half filling \\(\mu = 0\\) and the dispersion is used
-as it stands. The second-order term is a product in imaginary time and real
-space:
+Here \\(\tilde\mu = \mu - U\langle n_{\bar\sigma}\rangle\\) is the chemical
+potential shifted by the first-order (Hartree) self-energy. At half filling
+\\(\langle n_{\bar\sigma}\rangle = 1/2\\), so \\(\mu = U/2\\) gives
+\\(\tilde\mu = 0\\) and the dispersion is used as it stands. The
+second-order term is a product in imaginary time and real space:
 
 \\[
 \Sigma(\tau, \boldsymbol{r}) =
@@ -63,19 +68,15 @@ are FFTs, which is what makes 65536 momenta affordable.
 
 ## The basis and the sampling points
 
-\\(\Lambda = 10^5\\), \\(\beta = 10^3\\) and \\(\varepsilon = 10^{-7}\\) give a
-basis of 70 functions.
+\\(\Lambda = 10^5\\), \\(\beta = 10^3\\) (so \\(\omega_\mathrm{max} = 100\\))
+and \\(\varepsilon = 10^{-7}\\) give a basis of 70 functions, with 70 sampling
+times and 70 sampling frequencies.
 
 ```rust
-use sparse_ir::{Fermionic, FiniteTempBasis, LogisticKernel};
-
-let beta = 1e3;
-let wmax = 1e5 / beta;
-let kernel = LogisticKernel::new(beta * wmax)?;
-let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, beta, Some(1e-7), None)?;
-
-assert_eq!(basis.size(), 70);
-# Ok::<(), sparse_ir::Error>(())
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:imports}}
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:parameters}}
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:basis}}
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 The condition numbers of the two samplings are about 163 and 466, so a fit
@@ -88,11 +89,7 @@ tutorial crate that holds a `TauSampling` and a `MatsubaraSampling` for one
 basis and moves a whole array of Green's functions between them:
 
 ```rust,ignore
-use sparse_ir_tutorial::{IrMesh, MomentumGrid};
-
-let mesh = IrMesh::<Fermionic>::new(&basis)?;
-let grid = MomentumGrid::new(256, 256);
-let nk = grid.len();
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:mesh}}
 ```
 
 Arrays are stored row-major as `(frequency or time, momentum)`, so `nk` is the
@@ -100,24 +97,20 @@ column count every transform is told about.
 
 ## From the Matsubara axis to \\((\tau, \boldsymbol{r})\\)
 
-\\(G_0\\) is written down frequency by frequency,
+\\(G_0\\) is written down frequency by frequency, at the sampling
+frequencies of the mesh,
 
 ```rust,ignore
-let ek = grid.square_lattice_dispersion(1.0);
-let mut gkf = Vec::with_capacity(mesh.n_wn() * nk);
-for &nu in &nu {
-    for &e in &ek {
-        gkf.push(Complex64::new(-e, nu).inv());
-    }
-}
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:dispersion}}
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:green}}
 ```
 
-and then fitted to the basis and evaluated at the sampling times:
+and then fitted to the basis, evaluated at the sampling times, and moved into
+real space:
 
 ```rust,ignore
-let gkl = mesh.wn_to_l(&gkf, nk)?;   // values → coefficients
-let gkt = mesh.l_to_tau(&gkl, nk)?;  // coefficients → values
-let grt = grid.k_to_r(&gkt);         // and into real space
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:to_tau}}
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:to_real_space}}
 ```
 
 ![Im G(iν) at Γ](second_order_perturbation_green_matsubara.png)
@@ -149,36 +142,29 @@ G(\beta - \tau) = \zeta\, G(-\tau),
 so the sign has to come along. `IrMesh::reverse_tau` is exactly that
 operation, and it is the only place in the applied tutorials where the
 relation appears. It does not assume the grid is closed under
-\(\tau \to -\tau\): a sampling time may sit at exactly \(\beta/2\), whose
-mirror is the same point one period away, and the extra \(\zeta\) from that
+\\(\tau \to -\tau\\): a sampling time may sit at exactly \\(\beta/2\\), whose
+mirror is the same point one period away, and the extra \\(\zeta\\) from that
 period is applied where it is needed (see [GW](gw.md), whose grid has such a
 point):
 
 ```rust,ignore
-let reversed = mesh.reverse_tau(&grt, nk);
-let srt: Vec<Complex64> = grt
-    .iter()
-    .zip(&reversed)
-    .map(|(g, g_reversed)| U * U * g * g * g_reversed)
-    .collect();
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:self_energy}}
 ```
 
 ![Σ at the sampling times](second_order_perturbation_self_energy_tau.png)
 
 Getting the sign wrong, or reversing without it, changes \\(\Sigma\\) by a
-factor of order one — a picture that still looks plausible. That is why the
-relation is pinned by its own test
-(`docs/tutorial-code/tests/tau_convention.rs`) against a direct evaluation of
-\\(u_l(\beta - \tau)\\), rather than trusted to a reading of the convention.
+factor of order one — a picture that still looks plausible. So check the
+relation against a direct evaluation of \\(u_l(\beta - \tau)\\) rather than
+trusting a reading of the convention.
 
 ## Back to the Matsubara axis
 
 The way back is the way in, in reverse:
 
 ```rust,ignore
-let srl = mesh.tau_to_l(&srt, nk)?;   // values → coefficients
-let skl = grid.r_to_k(&srl);          // and back to momentum
-let sigma_iv = mesh.l_to_wn(&skl, nk)?;
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:back_to_l}}
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:to_matsubara}}
 ```
 
 ![The IR coefficients of Σ](second_order_perturbation_self_energy_coefficients.png)
@@ -189,15 +175,12 @@ well — the fact the whole method rests on.
 
 Because the answer is a set of coefficients, \\(\Sigma\\) can be evaluated on
 any frequencies at all, not only on the ones that were sampled. Here on every
-tenth fermionic frequency out to \\(|n| = 20000\\):
+twentieth fermionic frequency out to \\(|n| \approx 20000\\): the textbook
+index \\(m\\) runs in steps of 20, so the reduced index \\(n = 2m + 1\\) runs
+in steps of 40, from \\(-19999\\) to \\(19961\\).
 
 ```rust,ignore
-let freqs: Vec<FermionicFreq> = (-10000..10000)
-    .step_by(20)
-    .map(|n| FermionicFreq::new(2 * n + 1))
-    .collect::<Result<_, _>>()?;
-let sampling = MatsubaraSampling::<Fermionic>::with_sampling_points(&basis, freqs)?;
-let sigma_far = sampling.evaluate(&skl_gamma)?;
+{{#include ../../../tutorial-code/src/bin/second_order_perturbation.rs:far}}
 ```
 
 ![Im Σ(iν) at Γ](second_order_perturbation_self_energy_matsubara.png)
@@ -205,15 +188,47 @@ let sigma_far = sampling.evaluate(&skl_gamma)?;
 The sampled points lie on the evaluated curve, which is the whole claim: 70
 numbers per momentum hold the frequency dependence of \\(\Sigma\\) everywhere.
 
+## Going further
+
+This page uses only the IR basis and stays on the imaginary axis. For
+real-frequency output, see [MiniPole](minipole.md), which fits a few poles to
+Matsubara data by ESPRIT, and [Analytic continuation](analytic_continuation.md)
+for why that step is ill posed. [The DLR page](dlr.md) shows the pole-based
+representation of imaginary-axis data.
+
+## Running it
+
+From `docs/tutorial-code`:
+
+```console
+$ cargo run --release --bin second_order_perturbation
+```
+
+The program writes CSV tables to `docs/tutorial-code/data/second_order_perturbation/`.
+The figures are drawn from those tables; from the repository root, run
+`uv run --project docs/plotting python docs/plotting/second_order_perturbation_plot.py`.
+The reversal behind `IrMesh::reverse_tau` and `reverse_tau_as`
+(`reverse_tau_rows`) is checked against a direct evaluation of
+\\(u_l(\beta - \tau)\\) in `docs/tutorial-code/tests/tau_convention.rs`.
+
 ## Key API pieces
+
+From `sparse-ir`:
 
 | What you want | What to call |
 | --- | --- |
 | values at the sampling frequencies → coefficients | `MatsubaraSampling::fit_nd` |
 | coefficients → values at the sampling times | `TauSampling::evaluate_nd_zz` |
 | the same, for a whole array of momenta | the `_nd` variants, with the momentum axis as the columns |
-| \\(G(\beta - \tau)\\) | reverse the rows and apply \\(\zeta\\); `IrMesh::reverse_tau` |
 | \\(\Sigma\\) on frequencies you choose | `MatsubaraSampling::with_sampling_points` |
+
+From the tutorial crate (`sparse_ir_tutorial`, not part of the library):
+
+| What you want | What to call |
+| --- | --- |
+| both samplings of one basis, applied to a block of columns | `IrMesh::wn_to_l`, `l_to_tau`, `tau_to_l`, `l_to_wn` |
+| \\(G(\beta - \tau)\\) on the symmetric grid | `IrMesh::reverse_tau` (reverse the rows, apply \\(\zeta\\)) |
+| FFTs between momentum and real space | `MomentumGrid::k_to_r`, `r_to_k` |
 
 The `_nd` variants are what keep this example fast: one call moves all 65536
 momenta between representations, where a loop over `evaluate` would pay the

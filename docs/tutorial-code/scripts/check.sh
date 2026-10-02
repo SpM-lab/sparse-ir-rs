@@ -45,6 +45,9 @@ if [[ $RUN_EXAMPLES -eq 1 ]]; then
         --test tutorial_binaries --test verification -- --nocapture --test-threads=1
 fi
 
+step "book includes"
+python3 "$TUTORIAL_DIR/scripts/check-book-includes.py"
+
 step "mdbook test"
 SPARSEIR_TUTORIAL_PROFILE="$PROFILE" "$TUTORIAL_DIR/scripts/test-mdbook.sh"
 

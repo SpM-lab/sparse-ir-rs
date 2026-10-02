@@ -2,8 +2,9 @@
 //! model, at one temperature.
 //!
 //! Ported from the Python notebook `eliashberg_holstein_py.ipynb` of
-//! sparse-ir-tutorial, whose authors are Shintaro Hoshino and Hiroshi
-//! Shinaoka.
+//! sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/eliashberg_holstein_py.html>), whose
+//! authors are Shintaro Hoshino and Hiroshi Shinaoka.
 //!
 //! Every quantity here is local, so the loop is as small as a self-consistent
 //! calculation gets: four transforms between `τ` and the Matsubara
@@ -40,7 +41,9 @@ const MAX_ITERATIONS: usize = 10_000;
 const ATOL: f64 = 1e-10;
 
 fn main() -> Result<(), Box<dyn StdError>> {
+    // ANCHOR: bases
     let bases = Bases::new(BETA, WMAX, EPS)?;
+    // ANCHOR_END: bases
     let mesh_f = bases.mesh_f();
     let mesh_b = bases.mesh_b();
     let g = coupling(LAMBDA0, OMEGA0);

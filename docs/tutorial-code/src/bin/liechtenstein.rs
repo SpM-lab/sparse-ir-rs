@@ -1,7 +1,8 @@
 //! Exchange interactions by the Liechtenstein method.
 //!
 //! Ported from the Python notebook `liechtenstein_py.ipynb` of
-//! sparse-ir-tutorial, whose author is Takuya Nomoto.
+//! sparse-ir-tutorial-v2 (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>),
+//! whose author is Takuya Nomoto.
 //!
 //! The Liechtenstein formula reads the parameters of a classical Heisenberg
 //! model off an itinerant one by comparing second derivatives of the total
@@ -17,8 +18,8 @@
 //! That is the whole point of the example. Summed naively the series
 //! converges like `1/N_M`, because the product falls off as `1/ν²`; fitted to
 //! the basis it is one evaluation at `τ = 0`, since
-//! `T Σ_ν F(iν) = F(τ = 0)`, and `F` needs 37 coefficients no matter how cold
-//! the system is.
+//! `T Σ_ν F(iν) = F(τ = 0)`, and `F` needs 37 coefficients at β = 50, a
+//! number that grows only like `log β` (68 at β = 5000).
 
 use std::error::Error as StdError;
 use std::f64::consts::PI;
@@ -31,6 +32,7 @@ use sparse_ir_tutorial::{
 
 const EXAMPLE: &str = "liechtenstein";
 
+// ANCHOR: parameters
 const T_HOPPING: f64 = 1.0;
 const BETA: f64 = 50.0;
 const NK_LIN: usize = 36;
@@ -44,6 +46,7 @@ const LAMBDA: f64 = 2.0 * 8.0 * T_HOPPING * BETA;
 const N_MU: usize = 41;
 /// The truncated Matsubara grids `J₀` is also evaluated on, for comparison.
 const NAIVE: [usize; 5] = [100, 200, 400, 800, 1600];
+// ANCHOR_END: parameters
 
 fn chemical_potentials() -> Vec<f64> {
     (0..N_MU)
@@ -92,9 +95,11 @@ fn main() -> Result<(), Box<dyn StdError>> {
     let ek = grid.square_lattice_dispersion(T_HOPPING);
     let mu = chemical_potentials();
 
+    // ANCHOR: u_at_zero
     // `T Σ_ν F(iν) = F(τ = 0)`: the Matsubara sum is the basis expansion read
     // at one point. This is the row of basis functions that reads it.
     let u_at_zero = basis.evaluate_tau(&[0.0])?;
+    // ANCHOR_END: u_at_zero
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("t", vec![T_HOPPING]);
@@ -109,7 +114,9 @@ fn main() -> Result<(), Box<dyn StdError>> {
     write_table(&output_path(EXAMPLE, "summary")?, &table)?;
 
     // --- J₀ through the basis ------------------------------------------------
+    // ANCHOR: j0
     let occupation = occupation_term(&ek, &mu);
+    // One column per chemical potential, one row per sampling frequency.
     let mut sampled = Vec::with_capacity(mesh.n_wn() * N_MU);
     for freq in mesh.wn() {
         sampled.extend(product_at(freq.value(BETA), &ek, &mu));
@@ -121,6 +128,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
         .zip(&summed)
         .map(|(n, s)| n + s.re)
         .collect();
+    // ANCHOR_END: j0
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("mu", mu.clone());
@@ -160,6 +168,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
     // over the zone. The dispersion is even in `k`, so the second transform is
     // the first one applied to the same array — there is no separate direction
     // to get wrong here.
+    // ANCHOR: even_dispersion
     assert!(
         (0..grid.len()).all(|index| {
             let (k1, k2) = (index / NK_LIN, index % NK_LIN);
@@ -168,6 +177,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
         }),
         "the dispersion must be even in k for G_ji to be the transform of G_ij"
     );
+    // ANCHOR_END: even_dispersion
     let nk = grid.len();
     let mut jij_iw = Vec::with_capacity(mesh.n_wn() * nk);
     for freq in mesh.wn() {
@@ -192,8 +202,10 @@ fn main() -> Result<(), Box<dyn StdError>> {
         .iter()
         .map(|z| z.re)
         .collect();
+    // ANCHOR: drop_onsite
     // The on-site term is not an exchange interaction; the notebook drops it.
     jij[0] = 0.0;
+    // ANCHOR_END: drop_onsite
 
     let distance: Vec<f64> = (0..nk)
         .map(|index| {

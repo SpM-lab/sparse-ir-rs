@@ -67,8 +67,11 @@ impl Dmft {
     }
 
     /// `G⁰(iν)` of the semicircular density of states, through its spectral
-    /// representation `Gₗ = −sₗ ρₗ`.
+    /// representation `g_l = −s_l ρ_l`, with `ρ_l = ∫dω v_l(ω) ρ(ω)` computed by
+    /// Gauss-Legendre quadrature after a substitution that removes the
+    /// square-root band edges (see [`shifted_semicircle_overlaps`]).
     pub fn noninteracting(&self) -> Result<Vec<Complex64>, Error> {
+        // ANCHOR: noninteracting
         let rho_l = shifted_semicircle_overlaps(&self.basis, 0.0, self.d, 1.0);
         let g_l: Vec<Complex64> = self
             .basis
@@ -78,6 +81,7 @@ impl Dmft {
             .map(|(s, rho)| Complex64::new(-s * rho, 0.0))
             .collect();
         self.mesh.l_to_wn(&g_l, 1)
+        // ANCHOR_END: noninteracting
     }
 
     /// The DMFT loop.
@@ -109,10 +113,12 @@ impl Dmft {
         for _ in 0..maxiter {
             let previous = sigma.clone();
 
+            // ANCHOR: ipt_step
             // Σ(τ) = U² 𝒢(τ)³, which is the whole impurity solver.
             let g_tau = self.mesh.wn_to_tau(&g_weiss, 1)?;
             let sigma_tau: Vec<Complex64> = g_tau.iter().map(|g| u * u * g * g * g).collect();
             let fresh = self.mesh.tau_to_wn(&sigma_tau, 1)?;
+            // ANCHOR_END: ipt_step
             for (slot, new) in sigma.iter_mut().zip(&fresh) {
                 *slot = new * MIX + *slot * (1.0 - MIX);
             }
@@ -147,7 +153,8 @@ impl Dmft {
     }
 
     /// `Z` from the slope of `Im Σ` between the two lowest positive
-    /// frequencies.
+    /// frequencies: a finite difference, `∂ Im Σ/∂ν ≈ (Im Σ(iν₃) − Im Σ(iν₁))
+    /// / (2π/β)` with the reduced indices `n = 1, 3`.
     ///
     /// A negative slope means the self-energy turns upwards as `ν → 0`, which
     /// is the insulator; `Z` is zero there rather than negative.

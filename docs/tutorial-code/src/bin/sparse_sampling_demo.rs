@@ -1,7 +1,7 @@
 //! Sparse sampling: recovering the IR coefficients from a handful of points.
 //!
-//! Ported from the Python notebook `sparse_sampling_demo_py.ipynb` of
-//! sparse-ir-tutorial.
+//! Ported from the Python notebook `sparse_sampling_demo_py.ipynb` of the
+//! sparse-ir tutorials (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
 //!
 //! The spectral function is the semicircle of full bandwidth 2,
 //!
@@ -9,7 +9,7 @@
 //!     ρ(ω) = (2/π) √(1 − ω²)   for |ω| < 1,   0 otherwise,
 //! ```
 //!
-//! whose IR coefficients `Gₗ = −sₗ ρₗ` are known to machine precision. The
+//! whose IR coefficients `gₗ = −sₗ ρₗ` are known to machine precision. The
 //! example then throws that knowledge away: it evaluates `G` on the default
 //! sampling times and on the default sampling frequencies, fits the
 //! coefficients back from those few values alone, and writes down how far the
@@ -18,23 +18,29 @@
 use std::error::Error;
 use std::f64::consts::PI;
 
+// ANCHOR: imports
 use num_complex::Complex64;
 use sparse_ir::{Fermionic, FiniteTempBasis, LogisticKernel, MatsubaraSampling, TauSampling};
+// ANCHOR_END: imports
 use sparse_ir_tutorial::{Table, output_path, provenance, semicircle_overlaps, write_table};
 
 const EXAMPLE: &str = "sparse_sampling_demo";
 
+// ANCHOR: constants
 /// Inverse temperature. Large enough that the basis is interesting (a few tens
 /// of functions) while `ωmax = 1` keeps the spectral function simple.
 const BETA: f64 = 10_000.0;
 const WMAX: f64 = 1.0;
 const EPS: f64 = 1e-15;
+// ANCHOR_END: constants
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // ANCHOR: basis
     let kernel = LogisticKernel::new(BETA * WMAX)?;
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, BETA, Some(EPS), None)?;
+    // ANCHOR_END: basis
 
-    // Gₗ = −sₗ ∫ dω vₗ(ω) ρ(ω), computed exactly enough to be a reference.
+    // gₗ = −sₗ ∫ dω vₗ(ω) ρ(ω), computed exactly enough to be a reference.
     let rho_l = semicircle_overlaps(&basis);
     let g_l: Vec<f64> = basis
         .s()
@@ -51,6 +57,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_table(&output_path(EXAMPLE, "coefficients")?, &table)?;
 
     // --- from the sampling times -------------------------------------------
+    // ANCHOR: tau_sampling
     let tau_sampling = TauSampling::<Fermionic>::new(&basis)?;
     let tau_points = tau_sampling.sampling_points().to_vec();
     // The default sampling times are folded around β/2, so they are reported
@@ -62,8 +69,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             .all(|&tau| (-BETA / 2.0..=BETA / 2.0).contains(&tau)),
         "the default sampling times must lie in [-β/2, β/2]"
     );
-    let g_tau = tau_sampling.evaluate(&g_l)?;
-    let g_l_from_tau = tau_sampling.fit(&g_tau)?;
+    let g_tau = tau_sampling.evaluate(&g_l)?; // coefficients -> values
+    let g_l_from_tau = tau_sampling.fit(&g_tau)?; // values -> coefficients
+    // ANCHOR_END: tau_sampling
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("tau", tau_points.clone());
@@ -71,7 +79,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     write_table(&output_path(EXAMPLE, "tau_sampling")?, &table)?;
 
     // --- from the sampling frequencies -------------------------------------
+    // ANCHOR: matsubara_sampling
     let matsubara_sampling = MatsubaraSampling::<Fermionic>::new(&basis)?;
+    // The points are MatsubaraFreq values; n() is the reduced index n of
+    // iν_n = i n π/β, which is odd for fermions.
     let matsubara_points: Vec<i64> = matsubara_sampling
         .sampling_points()
         .iter()
@@ -81,6 +92,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         matsubara_points.iter().all(|n| n % 2 != 0),
         "fermionic Matsubara indices must be odd"
     );
+    // G(iν) is complex, so the coefficients go in, and come back, as Complex64.
     let g_l_complex: Vec<Complex64> = g_l.iter().map(|&g| Complex64::new(g, 0.0)).collect();
     let g_iv = matsubara_sampling.evaluate(&g_l_complex)?;
     let g_l_from_matsubara: Vec<f64> = matsubara_sampling
@@ -88,6 +100,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|c| c.re)
         .collect();
+    // ANCHOR_END: matsubara_sampling
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push(

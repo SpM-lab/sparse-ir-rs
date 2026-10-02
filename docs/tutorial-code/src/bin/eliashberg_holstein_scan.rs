@@ -2,8 +2,9 @@
 //! superconducting transition.
 //!
 //! Ported from the Python notebook `eliashberg_holstein_py.ipynb` of
-//! sparse-ir-tutorial, whose authors are Shintaro Hoshino and Hiroshi
-//! Shinaoka.
+//! sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/eliashberg_holstein_py.html>), whose
+//! authors are Shintaro Hoshino and Hiroshi Shinaoka.
 //!
 //! The specific heat is a numerical derivative of the internal energy, so
 //! every temperature is solved twice, at `T` and at `T + dt`. The sweep holds
@@ -66,8 +67,10 @@ fn main() -> Result<(), Box<dyn StdError>> {
 
     // `Λ` is fixed by the coldest point, which is the one that needs the
     // largest basis.
+    // ANCHOR: shared_sve
     let lambda_ir = WMAX / T_MIN;
     let (kernel, sve) = sve_for(1.0 / T_MIN, lambda_ir * T_MIN, EPS)?;
+    // ANCHOR_END: shared_sve
 
     let mut sigma = read_noise("scan_noise")?;
     let mut delta: Option<Vec<Complex64>> = None;
@@ -75,9 +78,11 @@ fn main() -> Result<(), Box<dyn StdError>> {
     let mut iterations = Vec::new();
     let mut energies = Vec::new();
 
+    // ANCHOR: bases_per_beta
     for &temperature in &temperatures {
         let beta = 1.0 / temperature;
         let bases = Bases::from_sve(kernel, sve.clone(), beta, EPS)?;
+        // ANCHOR_END: bases_per_beta
         let mut solver = Solver::new(&bases, settings, sigma.clone());
         if let Some(delta) = delta.clone() {
             solver.set_gap(delta);

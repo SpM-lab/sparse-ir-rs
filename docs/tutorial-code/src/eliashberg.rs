@@ -2,8 +2,9 @@
 //! `eliashberg_holstein` and `eliashberg_holstein_scan`.
 //!
 //! Ported from the Python notebook `eliashberg_holstein_py.ipynb` of
-//! sparse-ir-tutorial, whose authors are Shintaro Hoshino and Hiroshi
-//! Shinaoka.
+//! sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/eliashberg_holstein_py.html>), whose
+//! authors are Shintaro Hoshino and Hiroshi Shinaoka.
 //!
 //! The electrons live on a semicircular density of states and are coupled to
 //! a local phonon. Both propagators are dressed self-consistently, and the
@@ -58,8 +59,9 @@ pub struct Solver<'a> {
     iv_b: Vec<Complex64>,
     /// The bare phonon propagator `D₀(iν^B) = 2ω₀/((iν^B)² − ω₀²)`.
     d0_iv: Vec<Complex64>,
-    /// Index of the smallest positive sampling time, which is where the
-    /// notebook reads `F(0⁺)`.
+    /// Index of the smallest positive sampling time `τ₀`. The notebook's
+    /// `F(0⁺)` (and the phonon term of the energy) is read there: an
+    /// approximation to the `τ → 0⁺` limit, not the limit itself.
     tau_zero_plus: usize,
     sigma: Vec<Complex64>,
     delta: Vec<Complex64>,
@@ -156,11 +158,13 @@ impl<'a> Solver<'a> {
 
         for _ in 0..self.settings.max_iterations {
             self.iterations += 1;
+            // ANCHOR: to_tau
             let (g_iv, f_iv) = self.green();
             self.g_iv = g_iv;
             self.f_iv = f_iv;
             let mut g_tau = mesh_f.wn_to_tau(&self.g_iv, 1)?;
             let f_tau = mesh_f.wn_to_tau(&self.f_iv, 1)?;
+            // ANCHOR_END: to_tau
 
             // Particle-hole symmetry is a symmetry of the solution at half
             // filling, but not of every iterate; imposing it on `G` keeps the
@@ -171,6 +175,7 @@ impl<'a> Solver<'a> {
             }
             clamp_to_negative(&mut g_tau, mesh_f.tau_points());
 
+            // ANCHOR: phonon
             // `Π(τ) = −4g² [G(τ)G(β − τ) + F(τ)²]`, fitted as a bosonic
             // function of the shared τ grid.
             let reversed = mesh_f.reverse_tau(&g_tau, 1);
@@ -188,7 +193,9 @@ impl<'a> Solver<'a> {
                 .map(|i| 1.0 / (1.0 / self.d0_iv[i] - self.phi_iv[i]))
                 .collect();
             self.d_tau = mesh_b.wn_to_tau(&self.d_iv, 1)?;
+            // ANCHOR_END: phonon
 
+            // ANCHOR: electron
             // `Σ(τ) = −4g² D(τ) G(τ)`.
             let sigma_tau: Vec<Complex64> = (0..g_tau.len())
                 .map(|i| -four_g2 * self.d_tau[i] * g_tau[i])
@@ -196,7 +203,9 @@ impl<'a> Solver<'a> {
             let sigma_new = mesh_f.tau_to_wn(&sigma_tau, 1)?;
 
             // `Δ(τ) = U_eff(τ) F(τ)`. The instantaneous part of `U_eff` is
-            // `(U + 2J)δ(τ)`, which contributes the constant `(U + 2J)F(0⁺)`.
+            // `(U + 2J)δ(τ)`, which contributes the constant `(U + 2J)F(0⁺)`;
+            // as in the notebook, `F(0⁺)` is approximated by `F(τ₀)` at the
+            // smallest positive sampling time.
             let delta_tau: Vec<Complex64> = (0..f_tau.len())
                 .map(|i| four_g2 * self.d_tau[i] * f_tau[i])
                 .collect();
@@ -207,6 +216,7 @@ impl<'a> Solver<'a> {
                 .into_iter()
                 .map(|value| value + instantaneous)
                 .collect();
+            // ANCHOR_END: electron
 
             let moved =
                 max_deviation(&sigma_new, &self.sigma).max(max_deviation(&delta_new, &self.delta));
@@ -258,11 +268,19 @@ impl<'a> Solver<'a> {
     /// The internal energy `⟨H⟩`, whose temperature derivative is the
     /// specific heat.
     ///
-    /// Each of the three terms is a Matsubara sum with a `e^{iν0⁺}`
-    /// convergence factor, which in the basis is a fit followed by one
-    /// evaluation at `τ = 0` — the same trick the TPSC sum rules use. The
-    /// constant subtracted inside each fit removes the `1/iν` tail that the
-    /// basis cannot represent.
+    /// Each of the three terms is a Matsubara sum, which in the basis is a fit
+    /// followed by one evaluation at `τ = 0` — the same trick the TPSC sum
+    /// rules use. The constant subtracted inside each fit (`iνG → 1`) is the
+    /// part the basis cannot represent; what is left decays at least as `1/iν`.
+    ///
+    /// `uf_at_zero` evaluates at `+0.0`, i.e. the `τ → 0⁺` side, whereas a
+    /// convergence factor `e^{iν0⁺}` would ask for `0⁻`. The two sides differ
+    /// by the `1/iν` coefficient of the fitted function. For `e1` and `e2`
+    /// that coefficient vanishes here (`μ = 0`, a symmetric density of states,
+    /// `Σ(iν) → 0`), and the two sides agree to ~1e-14, so the choice does not
+    /// matter in this model. The phonon term is read at the smallest positive
+    /// sampling time `τ₀`, as the notebook does; it is bosonic and continuous
+    /// at `τ = 0`, so this approximates its `τ = 0` value.
     pub fn internal_energy(&self) -> Result<f64, Error> {
         let mesh_f = self.bases.mesh_f();
         let mesh_b = self.bases.mesh_b();
@@ -281,8 +299,8 @@ impl<'a> Solver<'a> {
             Ok(evaluate_rows(self.bases.uf_at_zero(), &coefficients, 1)[0])
         };
 
-        // The phonon term is read at the first sampling time rather than at
-        // `τ = 0`, which is what the notebook does.
+        // The phonon term is read at the smallest positive sampling time `τ₀`
+        // rather than at `τ = 0`, which is what the notebook does.
         let f2: Vec<Complex64> = (0..self.iv_b.len())
             .map(|i| {
                 (self.iv_b[i] * self.iv_b[i] * self.d_iv[i] - 2.0 * self.settings.omega0)
@@ -360,12 +378,14 @@ fn clamp_to_negative(values: &mut [Complex64], points: &[f64]) {
         points.len(),
         "one value per sampling time is needed to fold the comparison"
     );
+    // ANCHOR: clamp
     for (value, &tau) in values.iter_mut().zip(points) {
         let folded = if tau > 0.0 { *value } else { -*value };
         if folded.re > 0.0 || (folded.re == 0.0 && folded.im > 0.0) {
             *value = Complex64::default();
         }
     }
+    // ANCHOR_END: clamp
 }
 
 /// `max |a − b|`, the movement the loop stops on.

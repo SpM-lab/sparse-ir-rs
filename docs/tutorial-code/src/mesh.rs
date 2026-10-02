@@ -319,6 +319,11 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
     }
 
     /// `G(τ) → G(β − τ)` for a function of this mesh's statistics.
+    ///
+    /// For a fermionic `G` this is `G(β − τ) = −G(−τ)`: the sampling points
+    /// read backwards *and* the sign `ζ = −1`. It relies on the grid being
+    /// (nearly) symmetric about `τ = 0`, which [`tau_reversal`] checks by
+    /// panicking if some `−τ` is missing.
     pub fn reverse_tau(&self, values: &[Complex64], ncols: usize) -> Vec<Complex64> {
         self.reverse_tau_as::<S>(values, ncols)
     }
@@ -338,12 +343,15 @@ impl<S: StatisticsType + 'static> IrMesh<S> {
     }
 }
 
-/// `Σₗ cₗ f(xᵢ)` for a matrix of basis functions `f[i][l]` and a row-major
+/// `Σ_l c_l f_l(x_i)` for a matrix of basis functions `f[i][l]` and a row-major
 /// `(size, ncols)` block of IR coefficients.
 ///
 /// This is how the applied examples leave the basis for points the sampling
 /// did not choose: a fermionic function at the bosonic sampling times, or the
-/// Matsubara sum of a product, which is that product at `τ = 0`. The matrix
+/// Matsubara sum of a product, which is that product at `τ = 0`. (Evaluating
+/// at `τ = 0.0` gives the `0⁺` side; `−0.0` would give `0⁻`. The two differ
+/// only for a function with a jump at `τ = 0`, such as a fermionic `G`.) The
+/// matrix
 /// comes from [`Basis::evaluate_tau`] or [`Basis::evaluate_matsubara`], both
 /// of which apply the statistics of the basis they belong to — which is what
 /// makes a cross-statistics evaluation safe.

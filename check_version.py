@@ -6,7 +6,8 @@ This script:
 1. Reads the canonical version from [workspace.package] in Cargo.toml
 2. Fails if the Python (pyproject.toml) version doesn't match
 3. Fails if a sparse-ir / sparse-ir-capi dependency snippet in a README
-   (README.md or */README.md) pins a different version
+   (README.md, */README.md, or the user guide's installation page) pins a
+   different version
 4. Warns if the Julia (build_tarballs.jl) version doesn't match
 """
 
@@ -183,7 +184,12 @@ def main() -> int:
     # Check README install snippets (error if mismatch). The crate README is
     # packaged into the published crate and rendered on crates.io, so it must
     # be bumped in the same release PR as Cargo.toml, before publishing.
-    readme_paths = [script_dir / "README.md", *sorted(script_dir.glob("*/README.md"))]
+    # The user guide's installation page shows the same snippet.
+    readme_paths = [
+        script_dir / "README.md",
+        *sorted(script_dir.glob("*/README.md")),
+        script_dir / "docs/book/src/getting-started/installation.md",
+    ]
     readme_snippets = []
     for readme_path in readme_paths:
         if not readme_path.is_file():

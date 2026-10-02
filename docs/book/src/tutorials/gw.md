@@ -1,17 +1,26 @@
 # GW
 
-*Ported from the Python notebook `GW_py.ipynb` of sparse-ir-tutorial. The
-program that produced every number and figure on this page is
-`docs/tutorial-code/src/bin/gw.rs`.*
+*Ported from the Python notebook
+[`GW_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/GW_py.html)
+of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+The program that produced every number and figure on this page is
+`docs/tutorial-code/src/bin/gw.rs`; the code below is included from it.*
 
 The previous page evaluated one diagram once. This one runs a self-consistent
-loop, and in doing so touches every representation the library offers —
-several times per iteration, in both statistics.
+loop, and in doing so moves between imaginary time, IR coefficients and
+Matsubara frequencies several times per iteration, in both statistics. It
+uses the IR basis only.
+
+The parameters are \\(T = 0.1\\) (\\(\beta = 10\\)),
+\\(\omega_\mathrm{max} = 1\\), \\(U = 0.5\\), the default accuracy of the
+basis, and twenty iterations. The non-interacting \\(G_0\\) has a
+semicircular spectral function of half-width 1.
 
 ## Theory
 
-The Hedin equations, in the \\(GW\\) approximation and for a single site with
-a bare interaction \\(U\\), are
+The loop follows the structure of Hedin's equations in the \\(GW\\)
+approximation, for a single site with a bare interaction \\(U\\). In the
+notebook's conventions, which this port keeps, they read
 
 \\[
 P(\tau) = G(\tau)\, G(\beta - \tau),
@@ -28,35 +37,50 @@ algebraic on the Matsubara axis, and so is the Dyson equation. One iteration
 is therefore a tour:
 
 ```text
-G(iν) → Gₗ → G(τ) → P(τ) → Pₗ → P(iω) → W(iω) → Wₗ → W(τ) → Σ(τ) → Σₗ → Σ(iν) → G(iν)
+G(iν) → g_l → G(τ) → P(τ) → P_l → P(iω) → W(iω) → W_l → W(τ) → Σ(τ) → Σ_l → Σ(iν) → G(iν)
 ```
 
-Only the constant part of \\(W\\) is split off and left behind: what is carried
-into \\(\Sigma\\) is \\(U/(1 - UP) - U\\), the bare interaction itself being
-the first-order (Hartree) term, which is computed separately as
-\\(U G(\beta^-)\\) and kept out of the Dyson equation — it is a shift of the
-chemical potential.
+Here \\(\mathrm{i}\nu\\) is fermionic and \\(\mathrm{i}\omega\\) bosonic.
+
+These signs are not the textbook ones. Since \\(G(\tau) \le 0\\) on
+\\((0, \beta)\\), \\(P(\tau) = G(\tau) G(\beta - \tau)\\) is positive; it is
+minus the usual single-spin bubble \\(G(\tau) G(-\tau)\\). The textbook
+self-energy is \\(\Sigma = -GW\\), with a spin sum in \\(P\\). The two sign
+changes cancel at order \\(U^2\\), so the second-order term has the textbook
+sign; the higher-order terms of the screening series do not. The
+example is about the structure of the loop — which product lives in which
+representation — not a quantitatively faithful \\(GW\\) for this model.
+
+Only the constant part of \\(W\\) is split off: what is carried into
+\\(\Sigma\\) is \\(U/(1 - UP) - U\\). The instantaneous part \\(U\\) would
+give the static term \\(U G(\beta^-) = -U\langle n \rangle\\), with
+\\(\langle n\rangle\\) the occupation per spin. In Hedin's equations that is
+the exchange (Fock) term, not the Hartree term; the code calls it `hartree`
+after the notebook. It is computed separately and kept out of the Dyson
+equation, because a constant only shifts the chemical potential.
 
 ## Two statistics, one loop
 
 \\(G\\) and \\(\Sigma\\) are fermionic; \\(P\\) and \\(W\\) are bosonic. The
 two products mix them: \\(P\\) is a product of \\(G\\)'s evaluated at the
-*bosonic* sampling times, and \\(\Sigma\\) a product of \\(W\\)'s at the
+*bosonic* sampling times, and \\(\Sigma\\) needs \\(W\\) at the
 *fermionic* ones. So the example carries two bases and two meshes:
 
 ```rust,ignore
-let basis_f = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel_f, BETA, None, None)?;
-let basis_b = FiniteTempBasis::<LogisticKernel, Bosonic>::new(kernel_b, BETA, None, None)?;
-let mesh_f = IrMesh::<Fermionic>::new(&basis_f)?;
-let mesh_b = IrMesh::<Bosonic>::new(&basis_b)?;
+{{#include ../../../tutorial-code/src/bin/gw.rs:bases}}
 ```
 
-and two evaluation matrices, built once outside the loop:
+Both bases use the same kernel, so they could share one singular value
+expansion. Calling `FiniteTempBasis::new` twice computes it twice; at
+\\(\Lambda = 10\\) that costs nothing, but for a large \\(\Lambda\\) compute the
+SVE once and build both bases with `FiniteTempBasis::from_sve_result`, as
+[Conventions](../getting-started/conventions.md) shows.
+
+The loop also needs two evaluation matrices, built once outside it, and the
+row \\(u_l(\beta^-)\\) for the static term:
 
 ```rust,ignore
-// The fermionic basis functions at the bosonic sampling times, and vice versa.
-let uf_at_tau_b = basis_f.evaluate_tau(mesh_b.tau_points())?;
-let ub_at_tau_f = basis_b.evaluate_tau(mesh_f.tau_points())?;
+{{#include ../../../tutorial-code/src/bin/gw.rs:cross}}
 ```
 
 `Basis::evaluate_tau` is the operation that makes this safe. The sampling
@@ -83,23 +107,19 @@ one period away. The reversal must therefore allow for a wrap, which brings a
 second \\(\zeta\\); at \\(\beta/2\\) the two cancel and the row maps to itself
 with a plus sign.
 
+`evaluate_rows` (a tutorial helper) contracts a matrix of basis-function
+values with a block of coefficients:
+
 ```rust,ignore
-// G is fermionic even though these are the bosonic times.
-let g_beta_minus_tau = mesh_b.reverse_tau_as::<Fermionic>(&g_tau_b, 1);
-let p_tau_b: Vec<Complex64> = g_tau_b
-    .iter()
-    .zip(&g_beta_minus_tau)
-    .map(|(g, g_reversed)| g * g_reversed)
-    .collect();
+{{#include ../../../tutorial-code/src/bin/gw.rs:polarization}}
 ```
 
-For this particular model the check is worth stating plainly: the atom is
+For this particular model the check is worth stating plainly: the model is
 particle-hole symmetric, so \\(G(\beta - \tau) = G(\tau)\\) and a plot of the
-two would show one curve. The fermionic and bosonic sampling times happen to
-coincide as well. Neither the picture nor the abscissa would reveal a missing
-\\(\zeta\\) — only the numbers would, which is why the relation is pinned by
-`docs/tutorial-code/tests/tau_convention.rs` and by a comparison of every
-table on this page against the Python implementation.
+two would show one curve. The fermionic and bosonic sampling times coincide
+as well, because the logistic kernel gives both statistics the same
+\\(u_l(\tau)\\). Neither the picture nor the abscissa would reveal a missing
+\\(\zeta\\) — only the numbers would.
 
 ![P at the sampling times](gw_polarization_tau.png)
 
@@ -110,9 +130,7 @@ imaginary time — on the *fermionic* grid, because that is where it meets
 \\(G\\):
 
 ```rust,ignore
-let w_iw_b: Vec<Complex64> = p_iw_b.iter().map(|p| U / (1.0 - U * p) - U).collect();
-let w_l_b = mesh_b.wn_to_l(&w_iw_b, 1)?;
-let w_tau_f = contract(&ub_at_tau_f, &w_l_b);   // bosonic basis, fermionic times
+{{#include ../../../tutorial-code/src/bin/gw.rs:screened}}
 ```
 
 ![W on both axes](gw_screened.png)
@@ -120,12 +138,13 @@ let w_tau_f = contract(&ub_at_tau_f, &w_l_b);   // bosonic basis, fermionic time
 ## The self-energy, and the loop
 
 ```rust,ignore
-let e_tau_f: Vec<Complex64> = g_tau_f.iter().zip(&w_tau_f).map(|(g, w)| g * w).collect();
-let e_l_f = mesh_f.tau_to_l(&e_tau_f, 1)?;
-let e_iw_f = mesh_f.l_to_wn(&e_l_f, 1)?;
-let hartree: Complex64 = U * contract(&uf_at_beta, &g_l_f)[0];
-// The Dyson equation, with the Hartree term left out of it.
-g_iw_f = ...  // 1/(1/G₀ − Σ)
+{{#include ../../../tutorial-code/src/bin/gw.rs:self_energy}}
+```
+
+and the Dyson equation \\(G = 1/(G_0^{-1} - \Sigma)\\) closes the loop:
+
+```rust,ignore
+{{#include ../../../tutorial-code/src/bin/gw.rs:dyson}}
 ```
 
 ![Σ at the sampling times](gw_self_energy_tau.png)
@@ -145,14 +164,45 @@ about a decade per step and reaches the rounding floor around iteration 18.
 
 ![G before and after](gw_green_matsubara.png)
 
+## Going further
+
+This page uses only the IR basis and stays on the imaginary axis. For
+real-frequency output, see [MiniPole](minipole.md), which fits a few poles to
+Matsubara data by ESPRIT, and [Analytic continuation](analytic_continuation.md)
+for why that step is ill posed. [The DLR page](dlr.md) shows the pole-based
+representation of imaginary-axis data.
+
+## Running it
+
+From `docs/tutorial-code`:
+
+```console
+$ cargo run --release --bin gw
+```
+
+The program writes CSV tables to `docs/tutorial-code/data/gw/`. The figures
+are drawn from those tables; from the repository root, run
+`uv run --project docs/plotting python docs/plotting/gw_plot.py`. The reversal behind `IrMesh::reverse_tau` and `reverse_tau_as`
+(`reverse_tau_rows`) is checked against a direct evaluation of
+\\(u_l(\beta - \tau)\\) in `docs/tutorial-code/tests/tau_convention.rs`.
+
 ## Key API pieces
+
+From `sparse-ir`:
 
 | What you want | What to call |
 | --- | --- |
 | a basis function of one statistics at the other's sampling times | `Basis::evaluate_tau` |
-| \\(u_l(\beta^-)\\), for the Hartree term | `Basis::evaluate_tau(&[beta])` |
+| \\(u_l(\beta^-)\\), for the static term | `Basis::evaluate_tau(&[beta])` |
+| two bases from one SVE | `compute_sve`, then `FiniteTempBasis::from_sve_result` |
+
+From the tutorial crate (`sparse_ir_tutorial`, not part of the library):
+
+| What you want | What to call |
+| --- | --- |
 | \\(G(\beta - \tau)\\) for a function whose statistics is not the mesh's | `IrMesh::reverse_tau_as::<S>` |
 | the round trip through the basis | `IrMesh::wn_to_l`, `l_to_tau`, `tau_to_l`, `l_to_wn` |
+| a matrix of basis-function values times a block of coefficients | `evaluate_rows` |
 
 The whole loop is 19 + 19 coefficients wide. Nothing in it ever sees a dense
 imaginary-time grid.
