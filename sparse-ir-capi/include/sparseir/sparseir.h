@@ -669,7 +669,10 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
  * * `statistics` - `SPIR_STATISTICS_FERMIONIC` or `SPIR_STATISTICS_BOSONIC`
  * * `beta` - Inverse temperature (must be > 0)
  * * `omega_max` - Frequency cutoff (must be > 0)
- * * `epsilon` - Target relative accuracy of the representation (must be > 0)
+ * * `epsilon` - Target relative accuracy of the representation (must be > 0).
+ *   Values below about 1e-14 are beyond double-precision resolution: they add
+ *   near-redundant poles without improving accuracy. 1e-14 is recommended for
+ *   full precision.
  * * `status` - Pointer to store the status code
  *
  * # Returns

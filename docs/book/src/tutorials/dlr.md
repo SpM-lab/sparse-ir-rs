@@ -105,9 +105,10 @@ produce the same \\(G\\). Compare values of \\(G\\), not coefficients.
 \\(\varepsilon\\) decides the number of poles, and asking for too much does
 not pay. At \\(\varepsilon = 10^{-15}\\) the ID returns 192 poles instead of 98, the
 node matrices become numerically singular (`condition_number` returns
-infinity), and \\(G(\mathrm{i}\nu)\\) comes out no more accurate. At this \\(\Lambda\\),
+infinity), and \\(G(\mathrm{i}\nu)\\) comes out less accurate, not more.
 \\(10^{-14}\\) is about as small as \\(\varepsilon\\) usefully goes in double
-precision.
+precision, which is why the examples here pass it explicitly rather than
+rely on the default.
 
 ## A DLR from an IR basis
 
