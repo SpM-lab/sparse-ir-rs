@@ -46,6 +46,7 @@ each page says which one.
 The Rust code on these pages is included from the example programs in
 `docs/tutorial-code/` rather than copied by hand, so it is the code that is
 actually compiled and run, and every figure was drawn from numbers those
-programs wrote. The examples are checked against reference values from the
-Python implementation. Each page ends with the command that reproduces it; run
+programs wrote. Most examples are checked against reference values from the
+Python implementation; the rest, such as the IR-independent DLR and MiniPole,
+check themselves against closed-form results. Each page ends with the command that reproduces it; run
 it from `docs/tutorial-code`.

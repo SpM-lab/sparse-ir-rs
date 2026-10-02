@@ -4,7 +4,7 @@
 
 ```toml
 [dependencies]
-sparse-ir = "0.11"
+sparse-ir = "0.11.0"
 ```
 
 This book is written against `sparse-ir` 0.11. The `sparse-ir` crate re-exports
@@ -27,7 +27,7 @@ on your machine, turn on the `system-blas` feature:
 
 ```toml
 [dependencies]
-sparse-ir = { version = "0.11", features = ["system-blas"] }
+sparse-ir = { version = "0.11.0", features = ["system-blas"] }
 ```
 
 Both backends compute the same numbers; the feature only changes which

@@ -11,7 +11,7 @@ This note covers the downstream version bumps most likely to matter after a new 
 
 1. Bump the Rust workspace version in `Cargo.toml`.
 2. Bump the Python wrapper version in `python/pyproject.toml`.
-3. Bump the install snippets in `sparse-ir/README.md` and the root `README.md` quick start.
+3. Bump the install snippets in `sparse-ir/README.md`, the root `README.md` quick start, and `docs/book/src/getting-started/installation.md`.
 4. Run `python3 check_version.py`.
 5. Merge the release PR.
 6. Run `.github/workflows/manual-release.yml` to publish the six crates `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`, `sparse-ir-basis`, `sparse-ir` and `sparse-ir-capi`, in that order.

@@ -525,7 +525,7 @@ where
     /// Convert IR coefficients to DLR (N-dimensional, generic over real/complex)
     ///
     /// # Type Parameters
-    /// * `T` - Element type (f64 or Complex<f64>)
+    /// * `T` - Element type (`f64` or `Complex<f64>`)
     ///
     /// # Arguments
     /// * `gl` - IR coefficients as N-D tensor
@@ -557,7 +557,7 @@ where
     /// Convert DLR coefficients to IR (N-dimensional, generic over real/complex)
     ///
     /// # Type Parameters
-    /// * `T` - Element type (f64 or Complex<f64>)
+    /// * `T` - Element type (`f64` or `Complex<f64>`)
     ///
     /// # Arguments
     /// * `g_dlr` - DLR coefficients as N-D tensor
