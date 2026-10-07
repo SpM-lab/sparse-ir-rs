@@ -6,7 +6,7 @@ SparseIR Rust Workspace
 [![docs.rs sparse-ir](https://docs.rs/sparse-ir/badge.svg)](https://docs.rs/sparse-ir)
 [![docs.rs sparse-ir-capi](https://docs.rs/sparse-ir-capi/badge.svg)](https://docs.rs/sparse-ir-capi)
 
-Rust implementation of the intermediate representation (IR), the discrete Lehmann representation (DLR, built with or without an IR basis), ESPRIT/MiniPole, and sparse sampling for imaginary-time Green's functions. All of these are in the 0.11 release on crates.io.
+Rust implementation of the intermediate representation (IR), the discrete Lehmann representation (DLR, built with or without an IR basis), ESPRIT/MiniPole, and sparse sampling for imaginary-time Green's functions. All of these are in the 0.12 release on crates.io.
 
 Most end users should start from the ecosystem documentation / tutorials and use the full-featured Python/Julia libraries; this workspace focuses on Rust crates and low-level bindings.
 
@@ -25,7 +25,7 @@ Most end users should start from the ecosystem documentation / tutorials and use
 | **[Rust API: sparse-ir (docs.rs)](https://docs.rs/sparse-ir)** | Core Rust crate API documentation |
 | **[Rust API: sparse-ir-capi (docs.rs)](https://docs.rs/sparse-ir-capi)** | C-API Rust crate API documentation |
 
-The Rust guide is written against the 0.11 release on crates.io, which docs.rs
+The Rust guide is written against the 0.12 release on crates.io, which docs.rs
 documents. The guide's "Current Rust API" link is built from `main` and may run
 ahead of the release.
 
@@ -54,7 +54,7 @@ uv run --project docs/plotting python docs/plotting/minipole_plot.py
 
   ```toml
   [dependencies]
-  sparse-ir = "0.11.0"
+  sparse-ir = "0.12.0"
   ```
 
   The [installation guide](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html) covers the optional `system-blas` feature and the Git dependency on `main`; the [`sparse-ir` README](sparse-ir/README.md) has fit/evaluate and DLR examples.
