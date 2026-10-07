@@ -325,15 +325,47 @@ fn modulus_cost() {
     }
     let dtd = t.elapsed().as_secs_f64();
     let t = Instant::now();
+    let mut accn = Df64::from(0.0);
+    for &x in &xs {
+        accn += x.norm1();
+    }
+    let dtn = t.elapsed().as_secs_f64();
+    let t = Instant::now();
+    let mut accs = Df64::from(0.0);
+    for &x in &xs {
+        accs += x * x;
+    }
+    let dts = t.elapsed().as_secs_f64();
+    let t = Instant::now();
+    let mut accm = Df64::from(0.0);
+    for &x in &xs {
+        accm += Df64::from(x.to_f64().abs());
+    }
+    let dtm = t.elapsed().as_secs_f64();
+    let t = Instant::now();
     let mut acc64 = 0.0f64;
     for &x in &xs64 {
         acc64 += x.abs();
     }
     let dtf = t.elapsed().as_secs_f64();
     let per = dtd / n as f64;
+    // loop + read + convert overhead, to subtract from the numbers above
+    let t = Instant::now();
+    let mut accf = 0.0f64;
+    for &x in &xs {
+        accf += x.to_f64();
+    }
+    let dto = t.elapsed().as_secs_f64();
+    let ns0 = |d: f64| d / n as f64 * 1e9;
     println!(
-        "\nDf64 modulus(): {dtd:.3} s for {n} = {:.2} ns each (f64 abs: {dtf:.3} s)",
-        per * 1e9
+        "loop+read+convert+f64-add overhead = {:.2} ns/iter",
+        ns0(dto)
+    );
+    let ns = |d: f64| d / n as f64 * 1e9;
+    println!(
+        "
+per-element ns: norm1()={:.2} (icamax_full)  x*x={:.2}  to_f64().abs()={:.2}  f64 abs={:.2}  [modulus()={:.2}]",
+        ns(dtn), ns(dts), ns(dtm), ns(dtf), ns(dtd)
     );
     // trailing-search work of the QR: sum_i (m-i)(n-i) for m=1440, n=1920, k=165
     let (m, n_, k) = (1440f64, 1920f64, 165f64);
@@ -342,5 +374,5 @@ fn modulus_cost() {
         .sum();
     println!("  QR pivot-search elements for {m}x{n_} x {k} steps = {s:.3e}");
     println!("  -> implied cost of modulus() alone = {:.1} s", s * per);
-    std::hint::black_box((acc, acc64));
+    std::hint::black_box((acc, accn, accs, accm, acc64));
 }
