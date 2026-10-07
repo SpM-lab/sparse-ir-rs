@@ -9,7 +9,7 @@ functions, in pure Rust.
 
 ## Features
 
-All of these are in the 0.11 release on crates.io:
+All of these are in the 0.12 release on crates.io:
 
 - Intermediate representation (IR) basis for fermionic and bosonic statistics
 - Discrete Lehmann representation (DLR), built independently of an IR basis
@@ -21,7 +21,7 @@ All of these are in the 0.11 release on crates.io:
 ## Documentation
 
 The **[Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/)** has
-tutorials with figures and runnable examples, written against the 0.11
+tutorials with figures and runnable examples, written against the 0.12
 release; start with its
 [installation](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html)
 and [conventions](https://spm-lab.github.io/sparse-ir-rs/getting-started/conventions.html)
@@ -38,7 +38,7 @@ when choosing crates, imports, or numerical conventions.
 
 ```toml
 [dependencies]
-sparse-ir = "0.11.0"
+sparse-ir = "0.12.0"
 ```
 
 ### Optional: system BLAS
@@ -50,7 +50,7 @@ LP64 BLAS installed on your system (e.g. OpenBLAS, Intel MKL), enable the
 
 ```toml
 [dependencies]
-sparse-ir = { version = "0.11.0", features = ["system-blas"] }
+sparse-ir = { version = "0.12.0", features = ["system-blas"] }
 ```
 
 Both backends compute the same numbers; the feature only changes which

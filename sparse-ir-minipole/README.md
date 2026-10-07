@@ -12,7 +12,7 @@ which re-exports this crate together with the rest of the library under the
 ## Documentation
 
 - [Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/): tutorials and
-  conventions, written against the 0.11 release.
+  conventions, written against the 0.12 release.
 - API reference: [docs.rs/sparse-ir-minipole](https://docs.rs/sparse-ir-minipole).
 - Source: [SpM-lab/sparse-ir-rs](https://github.com/SpM-lab/sparse-ir-rs).
 

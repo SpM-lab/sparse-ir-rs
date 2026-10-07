@@ -4,10 +4,10 @@
 
 ```toml
 [dependencies]
-sparse-ir = "0.11.0"
+sparse-ir = "0.12.0"
 ```
 
-This book is written against `sparse-ir` 0.11. The `sparse-ir` crate re-exports
+This book is written against `sparse-ir` 0.12. The `sparse-ir` crate re-exports
 everything the book uses; it is built from four crates you can also depend on
 directly: `sparse-ir-core` (statistics, sampling, fitting), `sparse-ir-basis`
 (kernels, SVE and the IR basis), `sparse-ir-dlr` (the DLR) and
@@ -27,7 +27,7 @@ on your machine, turn on the `system-blas` feature:
 
 ```toml
 [dependencies]
-sparse-ir = { version = "0.11.0", features = ["system-blas"] }
+sparse-ir = { version = "0.12.0", features = ["system-blas"] }
 ```
 
 Both backends compute the same numbers; the feature only changes which
