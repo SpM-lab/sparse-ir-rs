@@ -134,9 +134,10 @@ python3 check_version.py
 ```
 
 This reads the canonical version from `[workspace.package]` in `Cargo.toml`.
-See the "Version management" section of `README.md` and
-`bump_version_downstream.md` for the release process itself; do not duplicate
-that process here. See also "Release And Version Integrity" below for the
+See the "Version management" section of `README.md` and the shared
+`sparse-ir-release` skill in `spm-agent-rules`
+(`skills/sparse-ir-release/SKILL.md`) for the release process itself; do not
+duplicate that process here. See also "Release And Version Integrity" below for the
 release-order rules themselves.
 
 ## C API Surface
@@ -450,8 +451,10 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
   The manual release workflow enforces this order and pushes `vX.Y.Z` only
   after all six are published to crates.io.
 - Update downstream Julia version metadata only after the corresponding crates
-  are available from crates.io. Follow `bump_version_downstream.md` for that
-  separate stage.
+  are available from crates.io. Follow the shared `sparse-ir-release` skill
+  for that separate stage.
+- The tag pushed by `manual-release.yml` does not start `PublishPyPI.yml` or
+  `publish_conda.yml`. Dispatch both with `--ref vX.Y.Z` after every release.
 - Use `.github/workflows/manual-release.yml` for the manual Rust release flow.
   Do not bypass its expected-version and publication-order checks with ad hoc
   local publication commands.

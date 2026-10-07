@@ -162,7 +162,7 @@ sparse-ir-rs/
 ├── capi_benchmark/      # C-API benchmarks
 ├── notebook/            # Technical notes (algorithms, design)
 ├── agent-skills/        # Repo-local agent skills (Rust usage, releases)
-├── bump_version_downstream.md  # Release checklist for downstream wrappers
+├── bump_version_downstream.md  # Redirect to the shared sparse-ir-release skill
 └── docs/
     ├── book/            # Browser-readable Rust guide (mdBook), including figures
     ├── tutorial-code/   # Executable examples, CSV outputs and numerical checks
@@ -280,8 +280,15 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 3. Update the install snippets in `sparse-ir/README.md` (`sparse-ir = "X.Y.Z"` and
    `sparse-ir = { version = "X.Y.Z", features = ["system-blas"] }`) and the quick start of the
-   root `README.md`. The crate README is packaged with the crate and rendered on crates.io, so
-   `check_version.py` fails until they match.
+   root `README.md`, and the snippets in `docs/book/src/getting-started/installation.md`. The
+   crate README is packaged with the crate and rendered on crates.io, so `check_version.py` fails
+   until they all match. Also update the prose that names the release the docs are written
+   against ("the 0.N release") in `README.md`, `sparse-ir/README.md`, the four sub-crate READMEs
+   and `installation.md`; `check_version.py` does not check it.
+
+   Regenerate the lock files: `cargo update -w`, `(cd python && uv lock)`, and
+   `(cd docs/tutorial-code && cargo update -p sparse-ir)` (check that only the workspace crates
+   moved).
 
 4. Verify version consistency and test publishing (dry run):
    ```bash
@@ -298,7 +305,8 @@ The release process is done in **two stages** because Julia bindings depend on t
 5. Create a PR for the version bump:
    ```bash
    git checkout -b release/vX.Y.Z
-   git add Cargo.toml python/pyproject.toml README.md sparse-ir/README.md
+   git add Cargo.toml Cargo.lock python/pyproject.toml python/uv.lock README.md sparse-ir*/README.md \
+     docs/book/src/getting-started/installation.md docs/tutorial-code/Cargo.lock
    git commit -m "chore: bump version to X.Y.Z"
    git push origin release/vX.Y.Z
    ```
@@ -331,6 +339,17 @@ The release process is done in **two stages** because Julia bindings depend on t
    gh run watch "$PYPI_RUN_ID"
    curl -fsSL "https://pypi.org/pypi/pylibsparseir/X.Y.Z/json" >/dev/null
    ```
+
+   Dispatch the conda workflow from the release tag as well. Like `PublishPyPI.yml`, it does not start on its own, because the release workflow pushes the tag with `GITHUB_TOKEN`:
+   ```bash
+   gh workflow run publish_conda.yml --ref vX.Y.Z
+   CONDA_RUN_ID=$(gh run list --workflow publish_conda.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run watch "$CONDA_RUN_ID"
+   curl -fsS https://api.anaconda.org/package/spm-lab/pylibsparseir \
+     | jq -r --arg v X.Y.Z '[.files[] | select(.version == $v)] | length'   # > 0
+   ```
+
+   For the full cross-repository release (Yggdrasil, `SparseIR.jl`, `sparse-ir`), follow the shared [`sparse-ir-release`](https://github.com/SpM-lab/spm-agent-rules/blob/main/skills/sparse-ir-release/SKILL.md) skill.
 
    If the Python publish needs to be retried after the tag already exists, rerun the same workflow from the release tag:
    ```bash
