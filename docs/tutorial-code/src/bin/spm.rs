@@ -1,6 +1,7 @@
 //! Sparse modeling: recovering a spectral function from noisy `G(τ)`.
 //!
-//! Ported from the Python notebook `spm_py.ipynb` of sparse-ir-tutorial.
+//! Ported from the Python notebook `spm_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
 //!
 //! Analytic continuation is the hard direction. Going from a spectral function
 //! to `G(τ)` is a smoothing integral; going back amplifies whatever noise the
@@ -23,8 +24,10 @@
 
 use std::error::Error;
 
-use mdarray::DTensor;
+// ANCHOR: imports
+use sparse_ir::Matrix;
 use sparse_ir::{Basis, Fermionic, FiniteTempBasis, LogisticKernel};
+// ANCHOR_END: imports
 use sparse_ir_tutorial::{
     Table, fista, input_path, integrate_segments, output_path, provenance, read_table,
     soft_threshold, three_gaussians, write_table,
@@ -32,10 +35,12 @@ use sparse_ir_tutorial::{
 
 const EXAMPLE: &str = "spm";
 
-/// These must agree with `scripts/make_spm_input.py`, which wrote the input.
+// ANCHOR: parameters
+// These must agree with `scripts/make_spm_input.py`, which wrote the input.
 const BETA: f64 = 100.0;
 const WMAX: f64 = 4.0;
 const EPS: f64 = 1e-10;
+// ANCHOR_END: parameters
 
 /// The ω grid the recovered spectrum is reported on.
 const N_OMEGA: usize = 501;
@@ -69,25 +74,31 @@ const FISTA_TOL: f64 = 0.0;
 const SETTLED: f64 = 1e-6;
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // ANCHOR: input
     let input = read_table(&input_path(EXAMPLE, "gtau"))?;
     let taus = input.expect_column("tau").to_vec();
     let g_tau = input.expect_column("g_tau").to_vec();
     let g_tau_clean = input.expect_column("g_tau_clean").to_vec();
     let n_tau = taus.len();
+    // ANCHOR_END: input
 
+    // ANCHOR: basis
     let kernel = LogisticKernel::new(BETA * WMAX)?;
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, BETA, Some(EPS), None)?;
     let size = basis.size();
+    // ANCHOR_END: basis
 
+    // ANCHOR: design_matrix
     // `A_{il} = u_l(τ_i) s_l` maps IR coefficients of ρ to −G(τ).
-    let u_at_taus: DTensor<f64, 2> = basis.evaluate_tau(&taus)?;
+    let u_at_taus: Matrix<f64> = basis.evaluate_tau(&taus)?;
     let mut a = vec![0.0; n_tau * size];
     for i in 0..n_tau {
         for l in 0..size {
-            a[i * size + l] = u_at_taus[[i, l]] * basis.s()[l];
+            a[i * size + l] = *u_at_taus.get(&[i, l]).unwrap() * basis.s()[l];
         }
     }
     let y: Vec<f64> = g_tau.iter().map(|g| -g).collect();
+    // ANCHOR_END: design_matrix
 
     let lipschitz = largest_eigenvalue_of_ata(&a, n_tau, size);
     println!("basis size {size}, {n_tau} times, Lipschitz bound {lipschitz:.6e}");
@@ -98,11 +109,15 @@ fn main() -> Result<(), Box<dyn Error>> {
     let d_omega = omegas[1] - omegas[0];
     let rho_exact: Vec<f64> = omegas.iter().map(|&w| three_gaussians(w)).collect();
     let rho_l_exact = overlap_with_v(&basis, three_gaussians);
-    let v_at_omegas: DTensor<f64, 2> = basis.evaluate_omega(&omegas)?;
+    let v_at_omegas: Matrix<f64> = basis.evaluate_omega(&omegas)?;
 
     let spectrum = |rho_l: &[f64]| -> Vec<f64> {
         (0..omegas.len())
-            .map(|i| (0..size).map(|l| v_at_omegas[[i, l]] * rho_l[l]).sum())
+            .map(|i| {
+                (0..size)
+                    .map(|l| *v_at_omegas.get(&[i, l]).unwrap() * rho_l[l])
+                    .sum()
+            })
             .collect()
     };
 
@@ -214,6 +229,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// ANCHOR: solve
 /// Minimises `½‖y − A x‖² + λ‖x‖₁` from `x = 0`.
 fn solve(
     a: &[f64],
@@ -241,6 +257,7 @@ fn solve(
     );
     (x, report)
 }
+// ANCHOR_END: solve
 
 /// `out = A x`, with `A` stored row by row.
 fn multiply(a: &[f64], cols: usize, x: &[f64], out: &mut [f64]) {

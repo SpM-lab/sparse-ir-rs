@@ -114,7 +114,7 @@ If you prefer to build the Rust C-API manually:
 #### Step 1: Build Rust C-API
 
 ```sh
-cd ../sparseir-rust
+cd ..   # repository root
 cargo build --release -p sparse-ir-capi
 ```
 
@@ -204,6 +204,24 @@ Key functions:
 - `ir2dlr` - Convert IR coefficients to DLR coefficients
 - `dlr2ir` - Convert DLR coefficients to IR coefficients
 - `finalize_ir` - Clean up IR basis object
+
+The DLR and MiniPole are available through the raw bindings in `sparse_ir_c`,
+which mirror the C API one to one (`c_spir_<name>` calls `spir_<name>`; see
+[`sparse-ir-capi/README.md`](../sparse-ir-capi/README.md)):
+
+- DLR: `c_spir_dlr_new_independent` (poles chosen without an IR basis),
+  `c_spir_dlr_new` and `c_spir_dlr_new_with_poles` (from an IR basis),
+  `c_spir_dlr_get_npoles`, `c_spir_dlr_get_poles`, and the transforms
+  `c_spir_ir2dlr_*` / `c_spir_dlr2ir_*`. A DLR is a basis object, so the
+  sampling bindings work on it.
+- MiniPole: `c_spir_minipole_from_dlr`, `c_spir_minipole_from_matsubara`, and
+  `c_spir_pole_repr_get_npoles` / `_poles` / `_residues` on the result,
+  released with `c_spir_pole_repr_release`.
+
+Worked examples are the tests [`test/test_dlr.f90`](test/test_dlr.f90) (DLR
+construction, custom poles, IR ↔ DLR conversion) and
+[`test/test_minipole.f90`](test/test_minipole.f90) (independent DLR and
+MiniPole from Matsubara data).
 
 ---
 

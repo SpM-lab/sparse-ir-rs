@@ -41,6 +41,9 @@ class _spir_sve_result(Structure):
 class _spir_gemm_backend(Structure):
     _fields_ = []
 
+class _spir_pole_repr(Structure):
+    _fields_ = []
+
 # Type aliases
 spir_kernel = POINTER(_spir_kernel)
 spir_funcs = POINTER(_spir_funcs)
@@ -48,6 +51,7 @@ spir_basis = POINTER(_spir_basis)
 spir_sampling = POINTER(_spir_sampling)
 spir_sve_result = POINTER(_spir_sve_result)
 spir_gemm_backend = POINTER(_spir_gemm_backend)
+spir_pole_repr = POINTER(_spir_pole_repr)
 
 # Additional ctypes definitions
 c_int64 = c_longlong

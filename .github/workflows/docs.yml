@@ -46,11 +46,20 @@ jobs:
         with:
           tool: mdbook@${{ env.MDBOOK_VERSION }}
 
+      - name: Check release metadata and guide index
+        run: python3 scripts/check_publish_metadata.py
+
+      - name: Check that every book include resolves
+        run: python3 docs/tutorial-code/scripts/check-book-includes.py
+
       - name: Build the book
         run: mdbook build docs/book
 
+      - name: Verify the index is published
+        run: test -s docs/book/book/llms.txt
+
       - name: Build the API documentation
-        run: cargo doc -p sparse-ir --no-deps --locked
+        run: cargo doc -p sparse-ir -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis --no-deps --locked
 
       - name: Put the API documentation under /api
         run: |
@@ -60,6 +69,9 @@ jobs:
           # landing page, so /api needs one of its own.
           printf '<meta http-equiv="refresh" content="0; url=sparse_ir/index.html">\n' \
             > docs/book/book/api/index.html
+
+      - name: Verify indexed pages exist in the built site
+        run: python3 scripts/check_publish_metadata.py --check-built
 
       - uses: actions/configure-pages@v5
 

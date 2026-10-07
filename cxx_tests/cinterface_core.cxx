@@ -2,6 +2,7 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 #include <cmath>
+#include <complex>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -1049,7 +1050,7 @@ TEST_CASE("Status: a regularizer undefined at omega_max / 2", "[status]")
     spir_kernel_release(k1);
 }
 
-TEST_CASE("Status: a DLR has no default sampling points", "[status]")
+TEST_CASE("Status: the default sampling points of a DLR are its nodes", "[status]")
 {
     int status = SPIR_COMPUTATION_SUCCESS;
     spir_basis* basis = fermionic_basis(1, &status);
@@ -1057,16 +1058,92 @@ TEST_CASE("Status: a DLR has no default sampling points", "[status]")
     spir_basis* dlr = spir_dlr_new(basis, &status);
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
 
+    int n_poles = -1;
+    REQUIRE(spir_dlr_get_npoles(dlr, &n_poles) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n_poles > 0);
+
+    // One interpolation node per pole (there were none up to 0.10)
     int n_taus = -1;
     REQUIRE(spir_basis_get_n_default_taus(dlr, &n_taus) ==
             SPIR_COMPUTATION_SUCCESS);
-    REQUIRE(n_taus == 0);
+    REQUIRE(n_taus == n_poles);
 
     int n_matsus = -1;
     REQUIRE(spir_basis_get_n_default_matsus(dlr, false, &n_matsus) ==
             SPIR_COMPUTATION_SUCCESS);
-    REQUIRE(n_matsus == 0);
+    REQUIRE(n_matsus == n_poles);
 
     spir_basis_release(dlr);
     spir_basis_release(basis);
+}
+
+TEST_CASE("Test spir_dlr_new_independent and MiniPole", "[cinterface]")
+{
+    const double beta = 40.0, wmax = 1.0;
+    const double xs[2] = {-0.5, 0.3};
+    const double amps[2] = {0.4, 0.6};
+
+    int status;
+    spir_basis* dlr = spir_dlr_new_independent(SPIR_STATISTICS_FERMIONIC, beta, wmax,
+                                               1e-12, &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(dlr != nullptr);
+
+    int npoles = 0, ntaus = 0, nmatsus = 0;
+    REQUIRE(spir_dlr_get_npoles(dlr, &npoles) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(spir_basis_get_n_default_taus(dlr, &ntaus) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(spir_basis_get_n_default_matsus(dlr, false, &nmatsus) ==
+            SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(npoles > 0);
+    REQUIRE(ntaus == npoles);
+    REQUIRE(nmatsus == npoles);
+
+    // Uniform non-negative fermionic grid 1, 3, 5, ...
+    std::vector<int64_t> ns;
+    for (int k = 0; k < 120; ++k) {
+        ns.push_back(2 * k + 1);
+    }
+    std::vector<Complex64> values(ns.size());
+    for (size_t i = 0; i < ns.size(); ++i) {
+        std::complex<double> z(0.0, M_PI * ns[i] / beta), g(0.0, 0.0);
+        for (int j = 0; j < 2; ++j) {
+            g += amps[j] / (z - xs[j]);
+        }
+        values[i].re = g.real();
+        values[i].im = g.imag();
+    }
+    int dims[1] = {static_cast<int>(ns.size())};
+    // n0 chosen from the data (-1), err = 1e-8 (absolute), defaults otherwise
+    spir_pole_repr* rep = spir_minipole_from_matsubara(
+        beta, static_cast<int>(ns.size()), ns.data(), SPIR_ORDER_COLUMN_MAJOR, 1, dims,
+        0, values.data(), -1, 0, 1e-8, 0, 0, false, false, false, -1, false, 0, 0.0,
+        &status);
+    REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(rep != nullptr);
+
+    int n = 0;
+    REQUIRE(spir_pole_repr_get_npoles(rep, &n) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n == 2);
+    std::vector<Complex64> poles(n), residues(n);
+    REQUIRE(spir_pole_repr_get_poles(rep, poles.data()) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(spir_pole_repr_get_residues(rep, residues.data()) == SPIR_COMPUTATION_SUCCESS);
+    for (int j = 0; j < 2; ++j) {
+        REQUIRE(std::abs(poles[j].re - xs[j]) < 1e-6);
+        REQUIRE(std::abs(poles[j].im) < 1e-6);
+        REQUIRE(std::abs(residues[j].re - amps[j]) < 1e-6);
+    }
+    int n0 = -1;
+    REQUIRE(spir_pole_repr_get_n0(rep, &n0) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n0 > 0);
+    double err_max = 0.0;
+    REQUIRE(spir_pole_repr_get_err_max(rep, &err_max) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(err_max > 0.0);
+    REQUIRE(err_max < 1e-8);
+    Complex64 cst{1.0, 1.0};
+    REQUIRE(spir_pole_repr_get_constant(rep, &cst) == SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(cst.re == 0.0);
+    REQUIRE(cst.im == 0.0);
+
+    spir_pole_repr_release(rep);
+    spir_basis_release(dlr);
 }

@@ -1,13 +1,14 @@
 //! One GF2 & GW iteration, and then twenty of them.
 //!
-//! Ported from the Python notebook `GW_py.ipynb` of sparse-ir-tutorial.
+//! Ported from the Python notebook `GW_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
 //!
 //! The Hedin equations are each diagonal in one representation or the other,
 //! so a GW iteration is a tour of all of them:
 //!
 //! ```text
-//! G(iν) → Gₗ → G(τ) → P(τ) = G(τ)G(β − τ) → Pₗ → P(iν)
-//!       → W(iν) = U/(1 − UP) − U → Wₗ → W(τ)
+//! G(iν) → Gₗ → G(τ) → P(τ) = G(τ)G(β − τ) → Pₗ → P(iω)
+//!       → W(iω) = U/(1 − UP) − U → Wₗ → W(τ)
 //!       → Σ(τ) = G(τ)W(τ) → Σₗ → Σ(iν) → G(iν)
 //! ```
 //!
@@ -40,6 +41,9 @@ const U: f64 = 0.5;
 const ITERATIONS: usize = 20;
 
 fn main() -> Result<(), Box<dyn StdError>> {
+    // ANCHOR: bases
+    // Two bases with the same Λ = βω_max. `new` runs the SVE for each; for a
+    // larger Λ, compute it once and use `FiniteTempBasis::from_sve_result`.
     let basis_f = FiniteTempBasis::<LogisticKernel, Fermionic>::new(
         LogisticKernel::new(BETA * WMAX)?,
         BETA,
@@ -54,13 +58,16 @@ fn main() -> Result<(), Box<dyn StdError>> {
     )?;
     let mesh_f = IrMesh::<Fermionic>::new(&basis_f)?;
     let mesh_b = IrMesh::<Bosonic>::new(&basis_b)?;
+    // ANCHOR_END: bases
 
+    // ANCHOR: cross
     // The two cross-statistics evaluation matrices, built once: the fermionic
     // basis functions at the bosonic sampling times, and the other way round.
     let uf_at_tau_b = basis_f.evaluate_tau(mesh_b.tau_points())?;
     let ub_at_tau_f = basis_b.evaluate_tau(mesh_f.tau_points())?;
     // u_l(β⁻), for the Hartree term.
     let uf_at_beta = basis_f.evaluate_tau(&[BETA])?;
+    // ANCHOR_END: cross
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("t", vec![T]);
@@ -100,6 +107,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
         let g_tau_f = mesh_f.l_to_tau(&g_l_f, 1)?;
 
         // --- into bosonic statistics ----------------------------------------
+        // ANCHOR: polarization
         let g_tau_b = evaluate_rows(&uf_at_tau_b, &g_l_f, 1);
         // P(τ) = G(τ) G(β − τ), with G(β − τ) = −G(−τ): the reversed array
         // with the *fermionic* sign, even though the times are the bosonic
@@ -113,21 +121,29 @@ fn main() -> Result<(), Box<dyn StdError>> {
             .collect();
         let p_l_b = mesh_b.tau_to_l(&p_tau_b, 1)?;
         let p_iw_b = mesh_b.l_to_wn(&p_l_b, 1)?;
+        // ANCHOR_END: polarization
 
         // --- the screened interaction ----------------------------------------
+        // ANCHOR: screened
         // W = U/(1 − UP); only the frequency-dependent part U/(1 − UP) − U is
         // carried on, the constant being the bare interaction itself.
         let w_iw_b: Vec<Complex64> = p_iw_b.iter().map(|p| U / (1.0 - U * p) - U).collect();
         let w_l_b = mesh_b.wn_to_l(&w_iw_b, 1)?;
         // --- and back into fermionic statistics -------------------------------
         let w_tau_f = evaluate_rows(&ub_at_tau_f, &w_l_b, 1);
+        // ANCHOR_END: screened
 
         // --- the self-energy ---------------------------------------------------
+        // ANCHOR: self_energy
         let e_tau_f: Vec<Complex64> = g_tau_f.iter().zip(&w_tau_f).map(|(g, w)| g * w).collect();
         let e_l_f = mesh_f.tau_to_l(&e_tau_f, 1)?;
         let e_iw_f = mesh_f.l_to_wn(&e_l_f, 1)?;
+        // The static term U G(β⁻) = −U⟨n⟩. The name follows the notebook; in
+        // Hedin's equations this instantaneous piece is the exchange (Fock)
+        // term. It is subtracted, so the reported Σ carries +U⟨n⟩.
         let hartree: Complex64 = U * evaluate_rows(&uf_at_beta, &g_l_f, 1)[0];
         let e_iw_f_hartree: Vec<Complex64> = e_iw_f.iter().map(|e| e - hartree).collect();
+        // ANCHOR_END: self_energy
 
         if let Some(previous) = &previous {
             differences.push(
@@ -209,13 +225,15 @@ fn main() -> Result<(), Box<dyn StdError>> {
             write_table(&output_path(EXAMPLE, "self_energy_matsubara")?, &table)?;
         }
 
-        // The Dyson equation. The Hartree term is left out of it, as in the
+        // ANCHOR: dyson
+        // The Dyson equation. The static term is left out of it, as in the
         // notebook: it is a constant shift of the chemical potential.
         g_iw_f = g_iw_0
             .iter()
             .zip(&e_iw_f)
             .map(|(g0, e)| (g0.inv() - e).inv())
             .collect();
+        // ANCHOR_END: dyson
         sigma = e_iw_f_hartree;
     }
 

@@ -1,34 +1,38 @@
 //! Getting numerical data into the IR basis, and back out again.
 //!
-//! Ported from the Python notebook `transformation_py.ipynb` of
-//! sparse-ir-tutorial.
+//! Ported from the Python notebook `transformation_py.ipynb` of the
+//! sparse-ir tutorials (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
 //!
 //! Four routes in, one route out:
 //!
-//! * from poles, where `ρₗ = Σₚ cₚ vₗ(ω̄ₚ)` is a sum rather than an integral —
+//! * from poles, where `ρₗ = Σₚ cₚ vₗ(ωₚ)` is a sum rather than an integral —
 //!   and the same thing through the DLR;
 //! * from a smooth spectral function, by composite Gauss-Legendre quadrature
 //!   over the segments the basis functions themselves are built on;
-//! * from `Gₗ` to `G(τ)` on any grid you like, directly or through
+//! * from `gₗ` to `G(τ)` on any grid you like, directly or through
 //!   `TauSampling`;
-//! * back from `G(τ)` by `Gₗ = ∫₀^β dτ G(τ) uₗ(τ)`.
+//! * back from `G(τ)` by `gₗ = ∫₀^β dτ G(τ) uₗ(τ)`.
 //!
 //! The last section shows what a too-small `ωmax` looks like: the coefficients
 //! stop following the singular values, which is the signal to widen the basis.
 
+// ANCHOR: imports
 use std::error::Error;
 
-use mdarray::{DTensor, Tensor};
+use sparse_ir::DlrFromIr;
 use sparse_ir::{
     Basis, Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel,
     MatsubaraSampling, TauSampling,
 };
+use sparse_ir::{Matrix, TypedTensor};
+// ANCHOR_END: imports
 use sparse_ir_tutorial::{
     Table, integrate_segments, output_path, provenance, three_gaussians as rho, write_table,
 };
 
 const EXAMPLE: &str = "transformation";
 
+// ANCHOR: pole_constants
 /// The pole section: one bosonic pole, placed just off zero so that the
 /// `1/tanh(βω/2)` regularizer is large but finite.
 const POLE_BETA: f64 = 15.0;
@@ -36,6 +40,7 @@ const POLE_WMAX: f64 = 10.0;
 const POLE_EPS: f64 = 1e-10;
 const POLE_POSITION: f64 = 0.1;
 const POLE_WEIGHT: f64 = 1.0;
+// ANCHOR_END: pole_constants
 
 /// The smooth section: three Gaussian peaks.
 const BETA: f64 = 10.0;
@@ -71,6 +76,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// ANCHOR: pole_basis
 fn pole_basis() -> Result<FiniteTempBasis<LogisticKernel, Bosonic>, Box<dyn Error>> {
     let kernel = LogisticKernel::new(POLE_BETA * POLE_WMAX)?;
     Ok(FiniteTempBasis::<LogisticKernel, Bosonic>::new(
@@ -80,19 +86,21 @@ fn pole_basis() -> Result<FiniteTempBasis<LogisticKernel, Bosonic>, Box<dyn Erro
         None,
     )?)
 }
+// ANCHOR_END: pole_basis
 
-/// `ρ(ω) = Σₚ cₚ δ(ω − ω̄ₚ)` needs no quadrature: the overlap integral is the
+/// `ρ(ω) = Σₚ cₚ δ(ω − ωₚ)` needs no quadrature: the overlap integral is the
 /// value of `vₗ` at the pole.
 fn poles() -> Result<(), Box<dyn Error>> {
+    // ANCHOR: pole
     let basis = pole_basis()?;
 
     // For the logistic kernel the bosonic spectral function carries the
-    // `1/tanh(βω̄/2)` factor, so that is what the basis expands.
+    // `1/tanh(βωₚ/2)` factor, so that is what the basis expands.
     let regularized = POLE_WEIGHT / (0.5 * POLE_BETA * POLE_POSITION).tanh();
 
-    let v_at_pole: DTensor<f64, 2> = basis.evaluate_omega(&[POLE_POSITION])?;
+    let v_at_pole: Matrix<f64> = basis.evaluate_omega(&[POLE_POSITION])?;
     let rho_l: Vec<f64> = (0..basis.size())
-        .map(|l| v_at_pole[[0, l]] * regularized)
+        .map(|l| *v_at_pole.get(&[0, l]).unwrap() * regularized)
         .collect();
     let g_l: Vec<f64> = basis
         .s()
@@ -102,10 +110,13 @@ fn poles() -> Result<(), Box<dyn Error>> {
         .collect();
 
     // The DLR says the same thing in one call: it knows how a pole maps onto
-    // the basis, so it takes the pole weights and returns `Gₗ` directly.
-    let dlr = DiscreteLehmannRepresentation::<Bosonic>::with_poles(&basis, vec![POLE_POSITION])?;
-    let weights = Tensor::<f64, _>::from_fn([1], |_| regularized).into_dyn();
+    // the basis, so it takes the DLR coefficient `cₚ = aₚ/tanh(βωₚ/2)` and
+    // returns `gₗ` directly.
+    let dlr =
+        DiscreteLehmannRepresentation::<Bosonic>::from_ir_with_poles(&basis, vec![POLE_POSITION])?;
+    let weights = TypedTensor::from_vec_col_major(vec![1], vec![regularized])?;
     let g_l_dlr = dlr.to_ir_nd::<f64>(None, &weights, 0)?;
+    // ANCHOR_END: pole
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("l", (0..basis.size()).map(|l| l as f64).collect::<Vec<_>>());
@@ -113,7 +124,9 @@ fn poles() -> Result<(), Box<dyn Error>> {
     table.push("g_l", g_l);
     table.push(
         "g_l_dlr",
-        (0..basis.size()).map(|l| g_l_dlr[[l]]).collect::<Vec<_>>(),
+        (0..basis.size())
+            .map(|l| *g_l_dlr.get(&[l]).unwrap())
+            .collect::<Vec<_>>(),
     );
     write_table(&output_path(EXAMPLE, "pole_coefficients")?, &table)?;
 
@@ -128,6 +141,7 @@ fn poles() -> Result<(), Box<dyn Error>> {
 /// are built on — where `vₗ` is a polynomial on each piece — and using a rule
 /// on every piece converges exponentially in the order, as long as `ρ` is
 /// smooth within a piece.
+// ANCHOR: overlap_with_v
 fn overlap_with_v<F>(basis: &FiniteTempBasis<LogisticKernel, Fermionic>, f: F) -> Vec<f64>
 where
     F: Fn(f64) -> f64,
@@ -142,8 +156,9 @@ where
         })
         .collect()
 }
+// ANCHOR_END: overlap_with_v
 
-/// The same quadrature on the imaginary-time side: `Gₗ = ∫₀^β dτ G(τ) uₗ(τ)`.
+/// The same quadrature on the imaginary-time side: `gₗ = ∫₀^β dτ G(τ) uₗ(τ)`.
 fn overlap_with_u<F>(basis: &FiniteTempBasis<LogisticKernel, Fermionic>, f: F) -> Vec<f64>
 where
     F: Fn(f64) -> f64,
@@ -180,11 +195,11 @@ fn smooth_spectrum() -> Result<FiniteTempBasis<LogisticKernel, Fermionic>, Box<d
 
     // The expansion is good on any ω you ask for, not only on the knots.
     let omegas = linspace(-5.0, 5.0, N_OMEGA);
-    let v_at_omegas: DTensor<f64, 2> = basis.evaluate_omega(&omegas)?;
+    let v_at_omegas: Matrix<f64> = basis.evaluate_omega(&omegas)?;
     let reconstructed: Vec<f64> = (0..omegas.len())
         .map(|i| {
             (0..basis.size())
-                .map(|l| v_at_omegas[[i, l]] * rho_l[l])
+                .map(|l| *v_at_omegas.get(&[i, l]).unwrap() * rho_l[l])
                 .sum()
         })
         .collect();
@@ -202,7 +217,7 @@ fn smooth_spectrum() -> Result<FiniteTempBasis<LogisticKernel, Fermionic>, Box<d
 }
 
 /// Writes `G(τ)` on a dense grid two ways, and the coefficients recovered from
-/// it. Returns `Gₗ`, which the rest of the example reuses.
+/// it. Returns `gₗ`, which the rest of the example reuses.
 fn imaginary_time(
     basis: &FiniteTempBasis<LogisticKernel, Fermionic>,
 ) -> Result<Vec<f64>, Box<dyn Error>> {
@@ -216,17 +231,25 @@ fn imaginary_time(
 
     let taus = linspace(0.0, BETA, N_TAU);
 
-    // Directly: `G(τ) = Σₗ uₗ(τ) Gₗ`.
-    let u_at_taus: DTensor<f64, 2> = basis.evaluate_tau(&taus)?;
+    // ANCHOR: gtau_direct
+    // Directly: `G(τ) = Σₗ uₗ(τ) gₗ`.
+    let u_at_taus: Matrix<f64> = basis.evaluate_tau(&taus)?;
     let g_tau_direct: Vec<f64> = (0..taus.len())
-        .map(|i| (0..basis.size()).map(|l| u_at_taus[[i, l]] * g_l[l]).sum())
+        .map(|i| {
+            (0..basis.size())
+                .map(|l| *u_at_taus.get(&[i, l]).unwrap() * g_l[l])
+                .sum()
+        })
         .collect();
+    // ANCHOR_END: gtau_direct
 
+    // ANCHOR: gtau_sampling
     // Or through `TauSampling`, which builds the same matrix once and can also
     // go the other way. Any set of τ points will do — these are not the
     // default sampling times.
     let sampling = TauSampling::<Fermionic>::with_sampling_points(basis, taus.clone())?;
     let g_tau_sampling = sampling.evaluate(&g_l)?;
+    // ANCHOR_END: gtau_sampling
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("tau", taus);
@@ -240,7 +263,9 @@ fn imaginary_time(
         let u_at_tau = basis
             .evaluate_tau(&[tau])
             .expect("τ is inside [0, β] by construction");
-        (0..basis.size()).map(|l| u_at_tau[[0, l]] * g_l[l]).sum()
+        (0..basis.size())
+            .map(|l| *u_at_tau.get(&[0, l]).unwrap() * g_l[l])
+            .sum()
     });
 
     let mut table = Table::new(provenance(EXAMPLE));
@@ -273,7 +298,9 @@ fn narrow_basis(
         let u_at_tau = basis
             .evaluate_tau(&[tau])
             .expect("τ is inside [0, β] by construction");
-        (0..basis.size()).map(|l| u_at_tau[[0, l]] * g_l[l]).sum()
+        (0..basis.size())
+            .map(|l| *u_at_tau.get(&[0, l]).unwrap() * g_l[l])
+            .sum()
     });
 
     // The point of the section: the coefficients do not follow the singular
@@ -308,22 +335,32 @@ fn matrix_valued(
 ) -> Result<(), Box<dyn Error>> {
     let size = basis.size();
     // Two orbital indices times the basis, each Green's function a fixed
-    // multiple of `Gₗ` so that the round trip has something to check.
-    let coeffs = Tensor::<f64, _>::from_fn([2, 3, size], |index| {
-        let (i, j, l) = (index[0], index[1], index[2]);
-        (1.0 + i as f64 + 2.0 * j as f64) * g_l[l]
-    })
-    .into_dyn();
+    // multiple of `gₗ` so that the round trip has something to check.
+    // Tensors are column-major: the first index runs fastest.
+    let mut data = Vec::with_capacity(2 * 3 * size);
+    for g in g_l {
+        for j in 0..3 {
+            for i in 0..2 {
+                data.push((1.0 + i as f64 + 2.0 * j as f64) * g);
+            }
+        }
+    }
+    let coeffs = TypedTensor::from_vec_col_major(vec![2, 3, size], data)?;
 
+    // ANCHOR: nd
+    // coeffs has shape [2, 3, basis.size()]; transform along axis 2.
     let sampling = MatsubaraSampling::<Fermionic>::new(basis)?;
     let values = sampling.evaluate_nd_real(None, &coeffs, 2)?;
     let recovered = sampling.fit_nd_real(None, &values, 2)?;
+    // ANCHOR_END: nd
 
     let mut worst: f64 = 0.0;
     for i in 0..2 {
         for j in 0..3 {
             for l in 0..size {
-                worst = worst.max((recovered[[i, j, l]] - coeffs[[i, j, l]]).abs());
+                worst = worst.max(
+                    (*recovered.get(&[i, j, l]).unwrap() - *coeffs.get(&[i, j, l]).unwrap()).abs(),
+                );
             }
         }
     }

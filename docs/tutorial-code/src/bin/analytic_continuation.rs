@@ -2,7 +2,7 @@
 //! buys you.
 //!
 //! Ported from the Python notebook `analytic_continuation_py.ipynb` of
-//! sparse-ir-tutorial.
+//! sparse-ir-tutorial-v2 (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
 //!
 //! `G(τ) = −∫dω K(τ, ω) ρ(ω)` inverts, formally, to
 //! `ρ(ω) = −Σ_l v_l(ω) G_l / s_l`. The singular values are all positive, so
@@ -14,8 +14,10 @@
 
 use std::error::Error;
 
-use mdarray::DTensor;
+// ANCHOR: imports
+use sparse_ir::Matrix;
 use sparse_ir::{Basis, Fermionic, FiniteTempBasis, LogisticKernel};
+// ANCHOR_END: imports
 use sparse_ir_tutorial::{
     Table, input_path, integrate_segments, output_path, provenance, read_table, shifted_semicircle,
     shifted_semicircle_overlaps, write_table,
@@ -23,10 +25,12 @@ use sparse_ir_tutorial::{
 
 const EXAMPLE: &str = "analytic_continuation";
 
-/// These must agree with `scripts/make_analytic_continuation_input.py`.
+// ANCHOR: parameters
+// These must agree with `scripts/make_analytic_continuation_input.py`.
 const BETA: f64 = 40.0;
 const WMAX: f64 = 2.0;
 const EPS: f64 = 2e-8;
+// ANCHOR_END: parameters
 
 /// The noise put on `Gₗ`, as a fraction of the basis' own accuracy.
 const NOISE_FRACTION: f64 = 0.3;
@@ -49,10 +53,12 @@ const N_LORENTZ: usize = 21;
 const DISCRETE_POLES: [f64; 4] = [-0.6, -0.1, 0.1, 0.6];
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // ANCHOR: basis
     let kernel = LogisticKernel::new(BETA * WMAX)?;
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::new(kernel, BETA, Some(EPS), None)?;
     let size = basis.size();
     let s = basis.s().to_vec();
+    // ANCHOR_END: basis
 
     let noise = NOISE_FRACTION * s[size - 1] / s[0];
     let alpha = ALPHA_IN_NOISE * noise;
@@ -63,6 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // A semi-elliptic density of states filling the whole band, and an
     // insulating one: the same band split in two by a gap. Both are sums of
     // normalised semicircles, which is what lets `ρₗ` be computed exactly.
+    // ANCHOR: models
     let rho_semi = shifted_semicircle_overlaps(&basis, 0.0, WMAX, 1.0);
     let rho_insul = {
         let right = shifted_semicircle_overlaps(&basis, WMAX / 2.0, WMAX / 4.0, 0.5);
@@ -75,6 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
     let g_semi = coefficients(&s, &rho_semi);
     let g_insul = coefficients(&s, &rho_insul);
+    // ANCHOR_END: models
 
     // --- and the noise on them ----------------------------------------------
     let draws = read_table(&input_path(EXAMPLE, "noise"))?;
@@ -105,7 +113,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // features along with the noise; `L' = L` keeps everything, noise
     // included, and `1/s_{L−1}` is 4×10⁷ here.
     let omegas = linspace(-WMAX, WMAX, N_OMEGA);
-    let v_at_omegas: DTensor<f64, 2> = basis.evaluate_omega(&omegas)?;
+    let v_at_omegas: Matrix<f64> = basis.evaluate_omega(&omegas)?;
     let half = size / 2;
 
     let rho_l_semi_noisy = divide_by_s(&s, &g_semi_noisy);
@@ -164,6 +172,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Instead of a hard cut-off, penalise `Σ|ρₗ|²`. The solution is
     // `ρₗ = −sₗ Gₗ / (sₗ² + α²)`, which passes the large singular values
     // through and rolls the small ones off smoothly.
+    // ANCHOR: ridge
     let ridge: Vec<f64> = s.iter().map(|sl| -sl / (sl * sl + alpha * alpha)).collect();
     let rho_l_semi_ridge: Vec<f64> = ridge
         .iter()
@@ -175,6 +184,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .zip(&g_insul_noisy)
         .map(|(r, g)| r * g)
         .collect();
+    // ANCHOR_END: ridge
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("omega", omegas.clone());
@@ -195,9 +205,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     // it does not decay at all. A regulariser that acts on `ρₗ` is therefore
     // acting on coefficients that never become negligible.
     let poles: Vec<f64> = DISCRETE_POLES.iter().map(|x| x * WMAX).collect();
-    let v_at_poles: DTensor<f64, 2> = basis.evaluate_omega(&poles)?;
+    let v_at_poles: Matrix<f64> = basis.evaluate_omega(&poles)?;
     let rho_discrete: Vec<f64> = (0..size)
-        .map(|l| (0..poles.len()).map(|p| v_at_poles[[p, l]]).sum())
+        .map(|l| {
+            (0..poles.len())
+                .map(|p| *v_at_poles.get(&[p, l]).unwrap())
+                .sum()
+        })
         .collect();
     let g_discrete = coefficients(&s, &rho_discrete);
 
@@ -260,10 +274,12 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+// ANCHOR: coefficients
 /// `Gₗ = −sₗ ρₗ`.
 fn coefficients(s: &[f64], rho_l: &[f64]) -> Vec<f64> {
     s.iter().zip(rho_l).map(|(sl, rho)| -sl * rho).collect()
 }
+// ANCHOR_END: coefficients
 
 /// `ρₗ = −Gₗ/sₗ`, the formal inverse.
 fn divide_by_s(s: &[f64], g_l: &[f64]) -> Vec<f64> {
@@ -281,10 +297,14 @@ fn add_noise(g_l: &[f64], draws: &[f64], noise: f64) -> Vec<f64> {
 }
 
 /// `Σ_{l<cutoff} vₗ(ω) ρₗ` on the grid `v` was evaluated on.
-fn expand(v: &DTensor<f64, 2>, rho_l: &[f64], cutoff: usize) -> Vec<f64> {
-    let points = v.shape().0;
+fn expand(v: &Matrix<f64>, rho_l: &[f64], cutoff: usize) -> Vec<f64> {
+    let points = v.shape()[0];
     (0..points)
-        .map(|i| (0..cutoff).map(|l| v[[i, l]] * rho_l[l]).sum())
+        .map(|i| {
+            (0..cutoff)
+                .map(|l| *v.get(&[i, l]).unwrap() * rho_l[l])
+                .sum()
+        })
         .collect()
 }
 
@@ -315,6 +335,7 @@ fn lorentz(omega: f64, eta: f64) -> f64 {
     eta / (std::f64::consts::PI * (omega * omega + eta * eta))
 }
 
+// ANCHOR: lorentz_overlaps
 /// `∫ dω vₗ(ω) f(ω − centre)` over the basis' ω range, to machine precision.
 ///
 /// `η` is a small fraction of the knot spacing, so quadrature on the knots
@@ -348,6 +369,7 @@ fn lorentz_overlaps(
         })
         .collect()
 }
+// ANCHOR_END: lorentz_overlaps
 
 fn linspace(start: f64, stop: f64, count: usize) -> Vec<f64> {
     assert!(count > 1, "a grid needs at least two points");

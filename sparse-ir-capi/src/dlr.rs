@@ -5,7 +5,7 @@
 //! real-frequency axis.
 //!
 //! Functions:
-//! - Creation: spir_dlr_new, spir_dlr_new_with_poles
+//! - Creation: spir_dlr_new_independent, spir_dlr_new, spir_dlr_new_with_poles
 //! - Introspection: spir_dlr_get_npoles, spir_dlr_get_poles
 //! - Conversion: spir_ir2dlr_dd, spir_ir2dlr_zz, spir_dlr2ir_dd, spir_dlr2ir_zz
 
@@ -19,12 +19,74 @@ use crate::types::{BasisType, spir_basis};
 use crate::utils::{
     MemoryOrder, copy_tensor_to_c_array, read_tensor_nd, transform_dims, validate_dims,
 };
-use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, StatusCode};
+use crate::{
+    SPIR_COMPUTATION_SUCCESS, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED, SPIR_STATISTICS_BOSONIC,
+    SPIR_STATISTICS_FERMIONIC, StatusCode,
+};
+use sparse_ir::DlrFromIr;
 use sparse_ir::dlr::DiscreteLehmannRepresentation;
+use sparse_ir::{Bosonic, Fermionic};
 
 // ============================================================================
 // Creation Functions
 // ============================================================================
+
+/// Creates a new DLR directly from its physical parameters, without an IR basis
+///
+/// This is the recommended DLR constructor. The poles are selected by an
+/// interpolative decomposition of the logistic kernel, so no SVE is computed.
+/// The resulting basis has default τ and Matsubara sampling points (the DLR
+/// interpolation nodes), one per pole.
+///
+/// # Arguments
+/// * `statistics` - `SPIR_STATISTICS_FERMIONIC` or `SPIR_STATISTICS_BOSONIC`
+/// * `beta` - Inverse temperature (must be > 0)
+/// * `omega_max` - Frequency cutoff (must be > 0)
+/// * `epsilon` - Target relative accuracy of the representation (must be > 0).
+///   Values below about 1e-14 are beyond double-precision resolution: they add
+///   near-redundant poles without improving accuracy. 1e-14 is recommended for
+///   full precision.
+/// * `status` - Pointer to store the status code
+///
+/// # Returns
+/// Pointer to the newly created DLR basis object, or NULL if creation fails
+#[unsafe(no_mangle)]
+pub extern "C" fn spir_dlr_new_independent(
+    statistics: libc::c_int,
+    beta: f64,
+    omega_max: f64,
+    epsilon: f64,
+    status: *mut StatusCode,
+) -> *mut spir_basis {
+    let result = catch_unwind(AssertUnwindSafe(
+        || -> Result<*mut spir_basis, StatusCode> {
+            let basis = match statistics {
+                SPIR_STATISTICS_FERMIONIC => spir_basis::new_dlr_fermionic(Arc::new(
+                    DiscreteLehmannRepresentation::<Fermionic>::new(beta, omega_max, epsilon)
+                        .map_err(|e| status_from(&e))?,
+                )),
+                SPIR_STATISTICS_BOSONIC => spir_basis::new_dlr_bosonic(Arc::new(
+                    DiscreteLehmannRepresentation::<Bosonic>::new(beta, omega_max, epsilon)
+                        .map_err(|e| status_from(&e))?,
+                )),
+                _ => return Err(SPIR_INVALID_ARGUMENT),
+            };
+            Ok(Box::into_raw(Box::new(basis)))
+        },
+    ));
+
+    let (ptr, code) = match result {
+        Ok(Ok(ptr)) => (ptr, SPIR_COMPUTATION_SUCCESS),
+        Ok(Err(code)) => (std::ptr::null_mut(), code),
+        Err(_) => (std::ptr::null_mut(), crate::SPIR_INTERNAL_ERROR),
+    };
+    if !status.is_null() {
+        unsafe {
+            *status = code;
+        }
+    }
+    ptr
+}
 
 /// Creates a new DLR from an IR basis with default poles
 ///
@@ -68,22 +130,22 @@ pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) ->
             // Create DLR based on basis type
             let dlr_type = match basis_ref.inner() {
                 BasisType::LogisticFermionic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::LogisticBosonic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseFermionic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseBosonic(ir_basis) => {
-                    let dlr = DiscreteLehmannRepresentation::new(ir_basis.as_ref())
+                    let dlr = DiscreteLehmannRepresentation::from_ir(ir_basis.as_ref())
                         .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
@@ -184,27 +246,35 @@ pub extern "C" fn spir_dlr_new_with_poles(
             // Create DLR based on basis type
             let dlr_type = match basis_ref.inner() {
                 BasisType::LogisticFermionic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::LogisticBosonic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseFermionic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRFermionic(Arc::new(dlr))
                 }
                 BasisType::RegularizedBoseBosonic(ir_basis) => {
-                    let dlr =
-                        DiscreteLehmannRepresentation::with_poles(ir_basis.as_ref(), pole_vec)
-                            .map_err(|e| status_from(&e))?;
+                    let dlr = DiscreteLehmannRepresentation::from_ir_with_poles(
+                        ir_basis.as_ref(),
+                        pole_vec,
+                    )
+                    .map_err(|e| status_from(&e))?;
                     BasisType::DLRBosonic(Arc::new(dlr))
                 }
                 _ => {
@@ -339,10 +409,11 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
 // ============================================================================
 
 /// IR basis size and number of poles of a DLR, or `None` if `b` is not a DLR
+/// built from an IR basis
 fn dlr_sizes(b: &spir_basis) -> Option<(usize, usize)> {
     match b.inner() {
-        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
-        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size(), dlr.poles().len())),
+        BasisType::DLRFermionic(dlr) => Some((dlr.ir_basis_size()?, dlr.poles().len())),
+        BasisType::DLRBosonic(dlr) => Some((dlr.ir_basis_size()?, dlr.poles().len())),
         _ => None,
     }
 }
@@ -370,6 +441,13 @@ fn dlr_sizes(b: &spir_basis) -> Option<(usize, usize)> {
 /// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed, and conditioning or cancellation can amplify
+/// the difference (SpM-lab/sparse-ir-rs#326).
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -425,7 +503,10 @@ pub extern "C" fn spir_ir2dlr_dd(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -447,8 +528,8 @@ pub extern "C" fn spir_ir2dlr_dd(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -480,6 +561,13 @@ pub extern "C" fn spir_ir2dlr_dd(
 /// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed, and conditioning or cancellation can amplify
+/// the difference (SpM-lab/sparse-ir-rs#326).
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -539,7 +627,10 @@ pub extern "C" fn spir_ir2dlr_zz(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -561,8 +652,8 @@ pub extern "C" fn spir_ir2dlr_zz(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -594,6 +685,13 @@ pub extern "C" fn spir_ir2dlr_zz(
 /// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed, and conditioning or cancellation can amplify
+/// the difference (SpM-lab/sparse-ir-rs#326).
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -649,7 +747,10 @@ pub extern "C" fn spir_dlr2ir_dd(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -671,8 +772,8 @@ pub extern "C" fn spir_dlr2ir_dd(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS
@@ -704,6 +805,13 @@ pub extern "C" fn spir_dlr2ir_dd(
 /// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed, and conditioning or cancellation can amplify
+/// the difference (SpM-lab/sparse-ir-rs#326).
 ///
 /// # Safety
 /// Caller must ensure pointers are valid and arrays have correct sizes
@@ -763,7 +871,10 @@ pub extern "C" fn spir_dlr2ir_zz(
         // read_tensor_nd handles memory order internally and returns tensor with orig_dims shape
         // SAFETY: `validate_dims` proved that `orig_dims` has an addressable size;
         // the caller guarantees that `input` holds that many elements.
-        let input_tensor = unsafe { read_tensor_nd(input, &orig_dims, mem_order) };
+        let input_tensor = match unsafe { read_tensor_nd(input, &orig_dims, mem_order) } {
+            Ok(tensor) => tensor,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -785,8 +896,8 @@ pub extern "C" fn spir_dlr2ir_zz(
         };
 
         // Copy result to output with correct memory order
-        unsafe {
-            copy_tensor_to_c_array(result_tensor, out, mem_order);
+        if let Err(e) = unsafe { copy_tensor_to_c_array(result_tensor, out, mem_order) } {
+            return status_from(&e);
         }
 
         SPIR_COMPUTATION_SUCCESS

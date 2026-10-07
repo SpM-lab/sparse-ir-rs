@@ -15,8 +15,10 @@ use crate::mesh::{IrMesh, MomentumGrid};
 /// The singular value expansion shared by both statistics, as
 /// `FiniteTempBasisSet` computes it in Python.
 ///
-/// Sharing it halves the setup cost, and it is what makes the fermionic and
-/// bosonic τ grids identical — which every susceptibility below relies on.
+/// Sharing it halves the setup cost. The fermionic and bosonic τ grids, which
+/// every susceptibility below relies on, coincide for a different reason: the
+/// logistic kernel gives both statistics the same `u_l(τ)` (see
+/// [`Bases::from_sve`]).
 pub fn sve_for(beta: f64, wmax: f64, eps: f64) -> Result<(LogisticKernel, SVEResult), Error> {
     let kernel = LogisticKernel::new(beta * wmax)?;
     let sve = compute_sve(kernel, Some(eps), None, None, TworkType::Auto)?;
@@ -27,17 +29,20 @@ pub fn sve_for(beta: f64, wmax: f64, eps: f64) -> Result<(LogisticKernel, SVERes
 /// sampling meshes that go with them.
 ///
 /// This is `FiniteTempBasisSet` of the Python implementation: both statistics
-/// out of a single expansion, which is what makes their τ grids identical.
+/// out of a single expansion. Their τ grids are identical because the logistic
+/// kernel gives both statistics the same imaginary-time basis functions, and
+/// [`Bases::from_sve`] asserts it.
 pub struct Bases {
     basis_f: FiniteTempBasis<LogisticKernel, Fermionic>,
     basis_b: FiniteTempBasis<LogisticKernel, Bosonic>,
     mesh_f: IrMesh<Fermionic>,
     mesh_b: IrMesh<Bosonic>,
-    /// `u^F_l(0)` and `u^B_l(0)`, the rows that turn a Matsubara sum into an
-    /// evaluation.
-    uf_at_zero: mdarray::DTensor<f64, 2>,
-    ub_at_zero: mdarray::DTensor<f64, 2>,
-    /// The fermionic frequencies `ν = nπ/β` as plain numbers.
+    /// `u^F_l(0⁺)` and `u^B_l(0)`, the rows that turn a Matsubara sum into an
+    /// evaluation. `+0.0` is read as `τ = 0⁺`; only `−0.0` would mean `0⁻`.
+    uf_at_zero: sparse_ir::Matrix<f64>,
+    ub_at_zero: sparse_ir::Matrix<f64>,
+    /// The fermionic frequencies `ν_n = nπ/β` (reduced index `n`, odd) as
+    /// plain numbers.
     nu: Vec<f64>,
     iw0_f: usize,
     iw0_b: usize,
@@ -119,14 +124,14 @@ impl Bases {
         })
     }
 
-    /// `u^F_l(0)`, the row that turns a fermionic Matsubara sum into one
-    /// evaluation.
-    pub fn uf_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    /// `u^F_l(0⁺)`, the row that turns a fermionic Matsubara sum into one
+    /// evaluation (the `τ → 0⁺` side of the jump at `τ = 0`).
+    pub fn uf_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         &self.uf_at_zero
     }
 
     /// `u^B_l(0)`, the same for a bosonic sum.
-    pub fn ub_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn ub_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         &self.ub_at_zero
     }
 
@@ -212,11 +217,11 @@ impl Lattice {
         &self.bases
     }
 
-    pub fn uf_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn uf_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         self.bases.uf_at_zero()
     }
 
-    pub fn ub_at_zero(&self) -> &mdarray::DTensor<f64, 2> {
+    pub fn ub_at_zero(&self) -> &sparse_ir::Matrix<f64> {
         self.bases.ub_at_zero()
     }
 

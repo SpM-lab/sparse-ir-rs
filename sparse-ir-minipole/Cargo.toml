@@ -1,0 +1,27 @@
+[package]
+name = "sparse-ir-minipole"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "ESPRIT and MiniPole: minimal pole representations of Matsubara data, part of sparse-ir"
+readme = "README.md"
+keywords.workspace = true
+categories.workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+no-default-features = true
+
+[dependencies]
+sparse-ir-core.workspace = true
+sparse-ir-dlr.workspace = true
+tenferro-tensor.workspace = true
+tenferro-linalg.workspace = true
+tenferro-cpu.workspace = true
+num-complex.workspace = true
+
+[dev-dependencies]
+sparse-ir = { path = "../sparse-ir" }

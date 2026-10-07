@@ -1,9 +1,11 @@
 # Exchange interactions
 
-*Ported from the Python notebook `liechtenstein_py.ipynb` of
-sparse-ir-tutorial, whose author is Takuya Nomoto. The program that produced
-every number and figure on this page is
-`docs/tutorial-code/src/bin/liechtenstein.rs`.*
+*Ported from the Python notebook
+[`liechtenstein_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/liechtenstein_py.html)
+of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
+whose author is Takuya Nomoto. The program that produced every number and
+figure on this page is `docs/tutorial-code/src/bin/liechtenstein.rs`; the code
+below is included from it.*
 
 Both previous applied pages used the basis to hold a function of imaginary
 time. This one uses it for something narrower and, in its way, more striking:
@@ -36,9 +38,25 @@ J_0 = \frac{B}{2}(n_{0,+} - n_{0,-})
     + B^2 T \sum_\nu G_{00,+}(\mathrm{i}\nu) G_{00,-}(\mathrm{i}\nu).
 \\]
 
-Both are Matsubara sums of a *product* of two Green's functions. That product
-falls off as \\(1/\nu^2\\), so a truncated sum converges like \\(1/N_M\\) —
+Here \\(G_{ij,\pm}\\) is the Green's function of spin \\(\pm\\) in the field,
+and \\(\nu = \nu_n = n\pi/\beta\\) runs over all fermionic frequencies
+(\\(n\\) odd). Both are Matsubara sums of a *product* of two Green's
+functions. That product falls off as \\(1/\nu^2\\), so a truncated sum converges like \\(1/N_M\\) —
 slowly, and the more slowly the colder the system.
+
+## Parameters
+
+The example uses a square lattice with nearest-neighbour hopping
+\\(t = 1\\) on a \\(36 \times 36\\) momentum grid, the field \\(B = 3\\),
+\\(\beta = 50\\) and \\(\varepsilon = 10^{-7}\\). \\(J_0\\) is scanned over 41
+chemical potentials from \\(\mu = -10\\) to \\(10\\); \\(J_{ij}\\) is computed at
+half filling, \\(\mu = 0\\). The basis has to hold both spin-split bands, so
+\\(\omega_\mathrm{max} = 2 \max(W, B) = 16\\) with the bandwidth \\(W = 8t\\),
+and \\(\Lambda = \beta\omega_\mathrm{max} = 800\\).
+
+```rust,ignore
+{{#include ../../../tutorial-code/src/bin/liechtenstein.rs:parameters}}
+```
 
 ## The sum as an evaluation
 
@@ -53,21 +71,20 @@ A product of two Green's functions is as representable in the basis as a
 single one, so the whole sum costs a fit and one evaluation:
 
 ```rust,ignore
-// T Σ_ν F(iν) = F(τ = 0): the row of basis functions that reads the sum off.
-let u_at_zero = basis.evaluate_tau(&[0.0])?;
-
-let coefficients = mesh.wn_to_l(&sampled, N_MU)?;
-let summed = evaluate_rows(&u_at_zero, &coefficients, N_MU);
+{{#include ../../../tutorial-code/src/bin/liechtenstein.rs:u_at_zero}}
+{{#include ../../../tutorial-code/src/bin/liechtenstein.rs:j0}}
 ```
 
 `sampled` holds the product at the 38 sampling frequencies, one column per
-chemical potential; `evaluate_rows` contracts the coefficients with
-\\(u_l(0)\\). At \\(\beta = 50\\) and \\(\Lambda = 800\\) the basis has 37
-functions, and it would have about 37 at \\(\beta = 5000\\) too — the cost of
-the sum does not grow with \\(\beta\\), only logarithmically.
+chemical potential; `evaluate_rows` (a tutorial helper) contracts the
+coefficients with \\(u_l(0)\\). At \\(\beta = 50\\) and \\(\Lambda = 800\\)
+the basis has 37 functions. The size grows only like \\(\log \beta\\): since
+\\(\Lambda = 16t\beta\\) here, \\(\beta = 500\\) gives 53 functions and
+\\(\beta = 5000\\) gives 68, for a hundred times lower temperature.
 
-The example also sums the series the naive way, on grids of 200 to 3200
-frequencies, so that the two can be put side by side:
+The example also sums the series the naive way, on symmetric grids of 200 to
+3200 frequencies (100 to 1600 on each side of zero), so that the two can be
+put side by side:
 
 ![J₀ against μ](liechtenstein_j0.png)
 
@@ -90,29 +107,62 @@ low-carrier regime, where double exchange makes it a ferromagnet.
 average, so a Fourier transform joins the sum. \\(G_{ij}\\) carries
 \\(e^{-\mathrm{i}k\cdot r}\\) and \\(G_{ji}\\) carries
 \\(e^{+\mathrm{i}k\cdot r}\\); since \\(\epsilon_{\boldsymbol{k}}\\) is even,
-the second is the first applied to the same array, which the example asserts
-rather than assumes:
+the second is the first applied to the same array. The program checks that
+before relying on it:
 
 ```rust,ignore
-assert!(
-    /* ε(k) = ε(−k) */,
-    "the dispersion must be even in k for G_ji to be the transform of G_ij"
-);
+{{#include ../../../tutorial-code/src/bin/liechtenstein.rs:even_dispersion}}
+```
+
+The on-site term \\(J_{00}\\) is not an exchange interaction, so it is set to
+zero:
+
+```rust,ignore
+{{#include ../../../tutorial-code/src/bin/liechtenstein.rs:drop_onsite}}
 ```
 
 ![J_ij against distance](liechtenstein_jij.png)
 
-The sum rule \\(J_0 = \sum_j J_{0j}\\) then connects the two calculations,
-which took different routes: one never left momentum space, the other summed
-1296 real-space terms. They agree to \\(4 \times 10^{-8}\\), which is the
-accuracy of the basis (\\(\varepsilon = 10^{-7}\\)) and not machine precision
-— exactly as it should be, and the example asserts that bound.
+The sum rule \\(J_0 = \sum_{j \ne 0} J_{0j}\\) then connects the two
+calculations, which took different routes: one never left momentum space, the
+other summed the 1295 off-site terms of the \\(36 \times 36\\) real-space
+lattice. At \\(\mu = 0\\) they agree to \\(4 \times 10^{-8}\\)
+(\\(J_0 \approx -0.2954590\\)), which is the accuracy of the basis
+(\\(\varepsilon = 10^{-7}\\)) and not machine precision — as it should be.
+
+## Going further
+
+This page uses only the IR basis and stays on the imaginary axis. For
+real-frequency output, see [MiniPole](minipole.md), which fits a few poles to
+Matsubara data by ESPRIT, and [Analytic continuation](analytic_continuation.md)
+for why that step is ill posed. [The DLR page](dlr.md) shows the pole-based
+representation of imaginary-axis data.
+
+## Running it
+
+From `docs/tutorial-code`:
+
+```console
+$ cargo run --release --bin liechtenstein
+```
+
+The program writes CSV tables to `docs/tutorial-code/data/liechtenstein/`. The
+figures are drawn from those tables; from the repository root, run
+`uv run --project docs/plotting python docs/plotting/liechtenstein_plot.py`.
 
 ## Key API pieces
 
+From `sparse-ir`:
+
 | What you want | What to call |
 | --- | --- |
-| a Matsubara sum | fit, then evaluate at `τ = 0` |
+| a Matsubara sum | fit (`MatsubaraSampling::fit_nd`), then evaluate at `τ = 0` |
 | the row \\(u_l(0)\\) | `Basis::evaluate_tau(&[0.0])` |
-| contract it with a block of coefficients | `evaluate_rows` |
-| many chemical potentials at once | one column each; `wn_to_l` takes them together |
+
+From the tutorial crate (`sparse_ir_tutorial`, not part of the library):
+
+| What you want | What to call |
+| --- | --- |
+| many chemical potentials at once | one column each; `IrMesh::wn_to_l` takes them together |
+| contract \\(u_l(0)\\) with a block of coefficients | `evaluate_rows` |
+| FFT from momentum to real space | `MomentumGrid::k_to_r` |

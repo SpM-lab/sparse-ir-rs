@@ -1,6 +1,8 @@
 //! The Mott transition of the `dmft_ipt` model, and its hysteresis.
 //!
-//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial.
+//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/DMFT_IPT_py.html>), whose author is
+//! Niklas Witt.
 //!
 //! The same loop as `dmft_ipt`, run for 66 interaction strengths from three
 //! different starting points: always from the non-interacting Green's
@@ -10,11 +12,11 @@
 //! one it was started in.
 //!
 //! Each run is a fixed number of iterations rather than a threshold on the
-//! change of `Σ`. Near the transition the loop spends hundreds of iterations
-//! next to the unstable fixed point that separates the two solutions, and the
-//! change of `Σ` there is tiny while the distance still to go is not — so a
-//! threshold stops on the way past and reports a metal that is not one, which
-//! is what `dmft_ipt` runs into at `U = 5`.
+//! change of `Σ`, so that every point is a fixed point to machine precision
+//! and not a snapshot on the way to one. The loop enforces particle-hole
+//! symmetry (see `dmft::Symmetry`); without it, rounding drives every run off
+//! the symmetric solution and the scan maps that instability instead of the
+//! Mott transition.
 //!
 //! This is the expensive half of the example, so it lives in its own binary
 //! and runs only in the applied-examples CI job.
@@ -34,9 +36,9 @@ const U_MAX: f64 = 6.5;
 const U_NUM: usize = 66;
 const ITERATIONS: usize = 5000;
 /// The interaction strengths whose self-energy is written out, as indices into
-/// the scan: on either side of `U_c1 = 3.2` and of `U_c2`, which lies between
-/// 3.4 and 3.5.
-const PROBES: [usize; 5] = [30, 32, 34, 35, 40];
+/// the scan: `U = 5.0, 5.4` below the coexistence window, `5.7` the last metal
+/// reached from `G⁰`, and `5.8, 6.0` above `U_c2`.
+const PROBES: [usize; 5] = [50, 54, 57, 58, 60];
 
 fn main() -> Result<(), Box<dyn StdError>> {
     let dmft = Dmft::new(BETA, D, EPS)?;

@@ -6,24 +6,59 @@ SparseIR Rust Workspace
 [![docs.rs sparse-ir](https://docs.rs/sparse-ir/badge.svg)](https://docs.rs/sparse-ir)
 [![docs.rs sparse-ir-capi](https://docs.rs/sparse-ir-capi/badge.svg)](https://docs.rs/sparse-ir-capi)
 
-High-performance Rust implementation of the sparse intermediate representation (IR) for quantum many-body physics.
+Rust implementation of the intermediate representation (IR), the discrete Lehmann representation (DLR, built with or without an IR basis), ESPRIT/MiniPole, and sparse sampling for imaginary-time Green's functions. All of these are in the 0.12 release on crates.io.
 
 Most end users should start from the ecosystem documentation / tutorials and use the full-featured Python/Julia libraries; this workspace focuses on Rust crates and low-level bindings.
 
 ## Documentation
 
-**Start here:** **[Ecosystem Documentation](https://spm-lab.github.io/sparse-ir-doc/)** (theory + usage across all languages)
+**Start here for Rust:** **[Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/)** — browser-readable tutorials with figures, runnable examples, and conventions.
 
 | Resource | Description |
 |----------|-------------|
+| **[Rust Tutorials](https://spm-lab.github.io/sparse-ir-rs/)** | Sparse sampling, IR/DLR transformations, MiniPole, and applied examples |
+| **[MiniPole](https://spm-lab.github.io/sparse-ir-rs/tutorials/minipole.html)** | A few complex poles from Matsubara data (ESPRIT); entry points and contour choice |
+| **[Current Rust API](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html)** | API documentation built from `main` |
+| **[Ecosystem Documentation](https://spm-lab.github.io/sparse-ir-doc/)** | Theory and usage across languages |
+| **[IR, DLR and MiniPole: history and comparison](https://spm-lab.github.io/sparse-ir-doc/src/history_comparison.html)** | How the three representations are related and when to use which |
 | **[Python/Julia Tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/)** | Interactive tutorials with Jupyter notebooks |
 | **[Rust API: sparse-ir (docs.rs)](https://docs.rs/sparse-ir)** | Core Rust crate API documentation |
 | **[Rust API: sparse-ir-capi (docs.rs)](https://docs.rs/sparse-ir-capi)** | C-API Rust crate API documentation |
 
+The Rust guide is written against the 0.12 release on crates.io, which docs.rs
+documents. The guide's "Current Rust API" link is built from `main` and may run
+ahead of the release.
+
+### Tutorial sources and local browsing
+
+- [Book contents](docs/book/src/SUMMARY.md): Markdown chapters and figures in `docs/book/`.
+- [Runnable Rust examples](docs/tutorial-code/src/bin/): the source of the included code and CSV data.
+- [Plotting scripts](docs/plotting/): render figures from those CSVs.
+
+With [mdBook 0.5.2](https://rust-lang.github.io/mdBook/) installed, browse locally:
+
+```bash
+mdbook serve docs/book --open
+```
+
+To reproduce the MiniPole figures from the repository root:
+
+```bash
+cargo run --manifest-path docs/tutorial-code/Cargo.toml --profile ci --locked --bin minipole
+uv run --project docs/plotting python docs/plotting/minipole_plot.py
+```
+
 ## Quick start (Rust)
 
-- Use the Rust API docs: **[docs.rs/sparse-ir](https://docs.rs/sparse-ir)**
-- Run the round-trip example (DLR/IR/sampling):
+- Add the crate from crates.io (requires **Rust 1.96 or newer**):
+
+  ```toml
+  [dependencies]
+  sparse-ir = "0.12.0"
+  ```
+
+  The [installation guide](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html) covers the optional `system-blas` feature and the Git dependency on `main`; the [`sparse-ir` README](sparse-ir/README.md) has fit/evaluate and DLR examples.
+- From a checkout, run the round-trip example (DLR/IR/sampling):
 
 ```bash
 cargo run --example roundtrip --release
@@ -35,7 +70,11 @@ Rust users typically depend on the crates below. Users of other languages typica
 
 ### Rust crates
 
-- **`sparse-ir`** — Core Rust implementation of IR basis, DLR, and sampling ([README](sparse-ir/README.md), [docs.rs](https://docs.rs/sparse-ir))
+- **`sparse-ir`** — Rust implementation of the IR basis, DLR, MiniPole and sampling ([README](sparse-ir/README.md), [docs.rs](https://docs.rs/sparse-ir)). It re-exports the crates it is made of; all of them are published on crates.io and can also be used on their own:
+  - [`sparse-ir-core`](sparse-ir-core/README.md) — statistics, errors, GEMM, fitters, the `Basis` trait and sparse sampling
+  - [`sparse-ir-dlr`](sparse-ir-dlr/README.md) — the discrete Lehmann representation (no IR basis needed)
+  - [`sparse-ir-minipole`](sparse-ir-minipole/README.md) — ESPRIT and minimal pole representations
+  - [`sparse-ir-basis`](sparse-ir-basis/README.md) — kernels, the singular value expansion and the IR basis
 - **`sparse-ir-capi`** — Rust crate providing a C-compatible API (shared library + C header) ([README](sparse-ir-capi/README.md), [docs.rs](https://docs.rs/sparse-ir-capi))
 
 ### Bindings (other languages)
@@ -62,7 +101,7 @@ Note: the name **sparse-ir** is used both for the Rust crate (`sparse-ir`) and t
 | Example | Description |
 |---------|-------------|
 | [`sparse-ir/examples/roundtrip.rs`](sparse-ir/examples/roundtrip.rs) | Complete DLR/IR/sampling cycle with round-trip tests |
-| [`sparse-ir/tests/readme_examples.rs`](sparse-ir/tests/readme_examples.rs) | Basic usage examples |
+| [`sparse-ir/README.md`](sparse-ir/README.md) | IR fit/evaluate and DLR quick starts, compiled as doctests |
 
 ### Fortran examples
 
@@ -91,8 +130,10 @@ This workspace is dual-licensed under the terms of the MIT license and the Apach
   - [MIT License](LICENSE)
   - [Apache License 2.0](LICENSE-APACHE)
 
-Some components incorporate third-party code under Apache-2.0, such as the `col_piv_qr` module in the `sparse-ir` crate, which is based on nalgebra.  
-See [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE` for details.
+Some components incorporate third-party code:
+
+- the `col_piv_qr` module in the `sparse-ir-basis` crate is based on nalgebra (Apache-2.0); see [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE`;
+- the ESPRIT and MiniPole code in the `sparse-ir-minipole` crate is a port of [MiniPole](https://github.com/Green-Phys/MiniPole) (MIT); see [`sparse-ir-minipole/LICENSE-THIRD-PARTY`](sparse-ir-minipole/LICENSE-THIRD-PARTY).
 
 ---
 
@@ -101,11 +142,14 @@ See [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE` for detail
 ### Project structure
 
 ```
-sparseir-rust/
-├── sparse-ir/           # Core Rust library (crates.io: sparse-ir)
-│   ├── src/             # Source code
+sparse-ir-rs/
+├── sparse-ir/           # Rust library facade (crates.io: sparse-ir): re-exports
 │   ├── examples/        # Rust examples
 │   └── tests/           # Integration tests
+├── sparse-ir-core/      # Statistics, errors, GEMM, fitters, Basis trait, sampling
+├── sparse-ir-dlr/       # Discrete Lehmann representation
+├── sparse-ir-minipole/  # ESPRIT and minimal pole representations
+├── sparse-ir-basis/     # Kernels, SVE, IR basis
 ├── sparse-ir-capi/      # C-compatible API (shared library)
 ├── python/              # Python thin wrapper (pylibsparseir)
 │   ├── pylibsparseir/   # ctypes bindings to C-API
@@ -117,7 +161,13 @@ sparseir-rust/
 ├── cxx_tests/           # C/C++ integration tests
 ├── capi_benchmark/      # C-API benchmarks
 ├── notebook/            # Technical notes (algorithms, design)
-└── docs/                # Development documentation
+├── agent-skills/        # Repo-local agent skills (Rust usage, releases)
+├── bump_version_downstream.md  # Release checklist for downstream wrappers
+└── docs/
+    ├── book/            # Browser-readable Rust guide (mdBook), including figures
+    ├── tutorial-code/   # Executable examples, CSV outputs and numerical checks
+    ├── plotting/        # CSV-to-figure scripts
+    └── dev/             # Internal plans and development records (not user documentation)
 ```
 
 ### Build
@@ -141,7 +191,7 @@ Faer is reasonably fast, but usually considerably slower than an optimized BLAS 
 To enable system BLAS (LP64) for the Rust `sparse-ir` crate at compile time, use:
 
 ```bash
-cargo build -p sparse-ir --features system-blas
+cargo build -p sparse-ir --features system-blas   # forwards to sparse-ir-core/system-blas
 ```
 
 With `system-blas`, the default GEMM backend becomes BLAS at compile time. Regardless of the feature, arbitrary BLAS function pointers (LP64/ILP64) can be injected at runtime via the C API or the internal GEMM dispatcher.
@@ -152,7 +202,7 @@ With `system-blas`, the default GEMM backend becomes BLAS at compile time. Regar
 
 ```bash
 cargo test --all-targets --release   # recommended for speed
-cargo test -p sparse-ir --doc --release   # doctests (not included in --all-targets)
+cargo test --workspace --exclude sparse-ir-capi --doc --release   # doctests (not included in --all-targets)
 ```
 
 #### C++ integration tests
@@ -215,7 +265,11 @@ The release process is done in **two stages** because Julia bindings depend on t
    version = "X.Y.Z"  # Update this
    
    [workspace.dependencies]
-   sparse-ir = { version = "X.Y.Z", path = "sparse-ir" }  # And this
+   sparse-ir = { version = "X.Y.Z", path = "sparse-ir" }
+   sparse-ir-core = { version = "X.Y.Z", path = "sparse-ir-core" }
+   sparse-ir-dlr = { version = "X.Y.Z", path = "sparse-ir-dlr" }
+   sparse-ir-minipole = { version = "X.Y.Z", path = "sparse-ir-minipole" }
+   sparse-ir-basis = { version = "X.Y.Z", path = "sparse-ir-basis" }
    ```
 
 2. Update the Python bindings version in `python/pyproject.toml`:
@@ -225,23 +279,26 @@ The release process is done in **two stages** because Julia bindings depend on t
    ```
 
 3. Update the install snippets in `sparse-ir/README.md` (`sparse-ir = "X.Y.Z"` and
-   `sparse-ir = { version = "X.Y.Z", features = ["system-blas"] }`). This README is packaged
-   with the crate and rendered on crates.io, so `check_version.py` fails until it matches.
+   `sparse-ir = { version = "X.Y.Z", features = ["system-blas"] }`) and the quick start of the
+   root `README.md`. The crate README is packaged with the crate and rendered on crates.io, so
+   `check_version.py` fails until they match.
 
 4. Verify version consistency and test publishing (dry run):
    ```bash
    python3 check_version.py
-   cargo publish -p sparse-ir --dry-run
+   cargo publish -p sparse-ir-core --dry-run
    ```
 
-   `sparse-ir-capi` depends on the just-bumped `sparse-ir` version, so its registry verification only
-   succeeds after that `sparse-ir` version is visible on crates.io. The manual release workflow
-   handles that ordering automatically.
+   The library crates depend on each other (`sparse-ir-core` <- `sparse-ir-dlr` <-
+   `sparse-ir-minipole`, `sparse-ir-basis` <- `sparse-ir` <- `sparse-ir-capi`), so the registry
+   verification of each one only succeeds after the version it depends on is visible on crates.io;
+   only `sparse-ir-core` can be dry-run first. The manual release workflow publishes them in that
+   order and waits for each one.
 
 5. Create a PR for the version bump:
    ```bash
    git checkout -b release/vX.Y.Z
-   git add Cargo.toml python/pyproject.toml sparse-ir/README.md
+   git add Cargo.toml python/pyproject.toml README.md sparse-ir/README.md
    git commit -m "chore: bump version to X.Y.Z"
    git push origin release/vX.Y.Z
    ```
@@ -261,7 +318,9 @@ The release process is done in **two stages** because Julia bindings depend on t
    gh run watch "$RUN_ID"
    ```
 
-   The workflow publishes `sparse-ir`, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `vX.Y.Z`.
+   The workflow publishes `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`,
+   `sparse-ir-basis`, `sparse-ir`, and `sparse-ir-capi` in dependency order,
+   waiting for registry visibility before proceeding. Only then does it push `vX.Y.Z`.
 
 8. The manual Rust release workflow updates the `libsparseir` Yggdrasil branch from the new release tag. After that workflow succeeds, dispatch the standalone PyPI workflow from the release tag. The upload job is defined directly in this workflow because PyPI Trusted Publishing does not support reusable workflow jobs:
    ```bash

@@ -7,7 +7,7 @@ description: Use when releasing sparse-ir-rs through the manual GitHub Actions w
 
 ## Overview
 
-This repository uses a manual GitHub Actions workflow for the Rust release gate. The workflow publishes `sparse-ir` first, waits until that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `vX.Y.Z`.
+This repository uses a manual GitHub Actions workflow for the Rust release gate. The workflow publishes the library crates `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`, `sparse-ir-basis` and `sparse-ir` in that order, waits until `sparse-ir` at that version is visible on crates.io, publishes `sparse-ir-capi`, and only then pushes `vX.Y.Z`.
 
 ## Preconditions
 

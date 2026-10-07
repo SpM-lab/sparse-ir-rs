@@ -7,13 +7,17 @@
 - [Installation](getting-started/installation.md)
 - [Conventions](getting-started/conventions.md)
 
-# Tutorials
+# Representations
 
 - [Sparse sampling](tutorials/sparse_sampling.md)
 - [Transformation from and to IR](tutorials/transformation.md)
 - [Discrete Lehmann representation](tutorials/dlr.md)
-- [Sparse modeling](tutorials/spm.md)
+- [MiniPole](tutorials/minipole.md)
+
+# Analytic continuation
+
 - [Analytic continuation](tutorials/analytic_continuation.md)
+- [Sparse modeling](tutorials/spm.md)
 
 # Applied examples
 

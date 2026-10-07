@@ -1,14 +1,18 @@
 # DMFT with an IPT solver
 
-*Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial,
+*Ported from the Python notebook
+[`DMFT_IPT_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/DMFT_IPT_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
 whose author is Niklas Witt. The programs that produced every number and
 figure on this page are `docs/tutorial-code/src/bin/dmft_ipt.rs` and
-`docs/tutorial-code/src/bin/dmft_ipt_scan.rs`.*
+`docs/tutorial-code/src/bin/dmft_ipt_scan.rs`; the loop itself is in
+`docs/tutorial-code/src/dmft.rs`, and the code below is included from there.*
 
 Every applied page so far computed something once. This one iterates: a
 self-consistency loop that goes through the basis twice per step, several
 thousand times over. That makes it the page where the basis has to be cheap,
-and the page where "has it converged?" turns out to be the hard question.
+and the page where a symmetry the exact solution has, but the arithmetic only
+nearly has, decides what the loop converges to.
 
 ## The model and the loop
 
@@ -42,9 +46,7 @@ G_\mathrm{loc}^{-1}(\mathrm{i}\nu) = \mathcal{G}^{-1}(\mathrm{i}\nu) - \Sigma(\m
 representations — exactly what the basis is for:
 
 ```rust,ignore
-let g_tau = self.mesh.wn_to_tau(&g_weiss, 1)?;
-let sigma_tau: Vec<Complex64> = g_tau.iter().map(|g| u * u * g * g * g).collect();
-let fresh = self.mesh.tau_to_wn(&sigma_tau, 1)?;
+{{#include ../../../tutorial-code/src/dmft.rs:ipt_step}}
 ```
 
 At \\(\beta = 20\\), \\(\omega_\mathrm{max} = 2D = 4\\) and
@@ -55,18 +57,34 @@ out to \\(\nu \sim 10^2\\), and the round trip is two small dense solves.
 Nothing in the loop grows with \\(\beta\\) except logarithmically, which is
 what makes a 5000-iteration run a matter of seconds.
 
-The non-interacting starting point comes from the same basis, since the
-semicircle has an exact overlap with \\(V_\ell\\):
+The non-interacting starting point comes from the same basis. The spectral
+representation \\(G^0(\mathrm{i}\nu) = \int\mathrm{d}\omega\,
+\rho(\omega)/(\mathrm{i}\nu - \omega)\\) becomes, in IR coefficients,
+\\(g_l = -s_l \rho_l\\) with \\(\rho_l = \int\mathrm{d}\omega\,
+v_l(\omega)\rho(\omega)\\). The overlap \\(\rho_l\\) is computed by
+Gauss–Legendre quadrature after the substitution
+\\(\omega = D\sin\theta\\), which removes the square-root singularity at
+the band edges, so the result is exact to machine precision:
 
 ```rust,ignore
-// G⁰(iν) = ∫dω ρ(ω)/(iν − ω), with ρ_l = ∫dω V_l(ω) ρ(ω) done analytically.
-let rho = shifted_semicircle_overlaps(self.basis(), 0.0, self.d, 1.0)?;
-let g0_l: Vec<Complex64> = /* −s_l ρ_l */;
-self.mesh.l_to_wn(&g0_l, 1)
+{{#include ../../../tutorial-code/src/dmft.rs:noninteracting}}
 ```
 
 The mixing is the notebook's: \\(\Sigma \leftarrow 0.25\,\Sigma_\mathrm{new}
 + 0.75\,\Sigma_\mathrm{old}\\).
+
+One step is not in the notebook. At half filling with a symmetric density of
+states the exact self-energy is particle-hole symmetric: \\(\Sigma(\mathrm{i}\nu)\\)
+is purely imaginary and odd in \\(\nu\\). The round trip through the basis
+preserves that only to rounding, so the loop projects each new self-energy
+back onto its symmetric part,
+\\(\Sigma(\mathrm{i}\nu) \to \mathrm{i}\,\tfrac12[\mathrm{Im}\,\Sigma(\mathrm{i}\nu) -
+\mathrm{Im}\,\Sigma(-\mathrm{i}\nu)]\\). The next section shows why that is
+not optional.
+
+```rust,ignore
+{{#include ../../../tutorial-code/src/dmft.rs:symmetrize}}
+```
 
 ## One solve at \\(U = 5\\)
 
@@ -79,38 +97,41 @@ Z = \left(1 - \frac{\partial\,\mathrm{Im}\,\Sigma}{\partial \nu}\right)^{-1}
   \approx 0.263,
 \\]
 
-a quasiparticle weight of a quarter: a correlated metal. Here is that
-solution:
+a quasiparticle weight of a quarter: a correlated metal. The derivative is a
+finite difference over the two lowest positive frequencies,
+\\(\partial\,\mathrm{Im}\,\Sigma/\partial\nu \approx
+[\mathrm{Im}\,\Sigma(\mathrm{i}\nu_3) - \mathrm{Im}\,\Sigma(\mathrm{i}\nu_1)]
+/(2\pi/\beta)\\) (reduced indices \\(n = 1, 3\\)), and a negative
+\\(Z\\) is reported as zero. Here is that solution:
 
 ![Im G and Im Σ against ν](dmft_ipt_solution.png)
 
-It looks entirely reasonable. It is also wrong. Leave the same loop running
-with no stopping rule at all and the residual does this:
+Left to run for 5000 iterations, the same loop settles on the same metal:
+the residual reaches \\(10^{-16}\\) by iteration 270 and stays there, and
+\\(Z = 0.26307\\) differs from the stopped run's \\(0.26310\\) in the fifth
+digit, about what a threshold of \\(10^{-5}\\) on the change promises.
 
-![The residual against the iteration](dmft_ipt_convergence.png)
+Now switch the projection off. Nothing else changes — same start, same
+mixing — and the run follows the symmetric one for 60 iterations, then
+leaves it:
 
-The change of \\(\Sigma\\) dips below \\(10^{-5}\\) at iteration 65 — that is
-where the criterion fires — then climbs back to order one around iteration
-110 and only afterwards settles, reaching \\(10^{-16}\\) by iteration 1200.
-The fixed point it settles on has \\(Z = 0\\): at \\(U = 5\\) and
-\\(T = 0.05\\) this model is a Mott insulator, not a metal.
+![The residual and the distance from particle-hole symmetry against the iteration](dmft_ipt_convergence.png)
 
-Nothing went wrong numerically. The trajectory passes close to the *unstable*
-fixed point that separates the two solutions, and near it the step size is
-tiny while the distance still to travel is not. A criterion that measures how
-much \\(\Sigma\\) moved cannot tell a plateau from an answer. The escape is
-also the one place in this calculation where rounding is visible: the
-reference implementation leaves at iteration 107 and this one at 109, because
-a \\(10^{-16}\\) difference grows by some 40% per iteration while the
-trajectory is being pushed away from the unstable point. The verification for
-this example therefore checks the 65-iteration numbers to \\(5\times10^{-6}\\)
-rather than to machine precision, and checks the long run by its shape — the
-rebound above 0.1, the final residual below \\(10^{-15}\\) — rather than
-iteration by iteration.
+The right panel is the reason. The distance of \\(\Sigma\\) from its
+symmetric part starts at the \\(10^{-15}\\) of rounding and grows by about
+40% per iteration, a straight line on the log scale, until it is of order one
+after 100 iterations. The symmetric metal is a fixed point of the loop, but
+an *unstable* one with respect to perturbations that break the symmetry, and
+rounding supplies such a perturbation at every step. The unprojected run then
+converges again (left panel, red) — to a state whose self-energy is far
+from particle-hole symmetric, which the exact solution of this half-filled
+model cannot be. Which broken state it reaches, and when it leaves, depends on
+the last bits of the arithmetic: two implementations, or two BLAS backends,
+generally land on different ones.
 
-The moral is not specific to IR: any self-consistency loop near a phase
-boundary can stop on a plateau. The cure used below is the blunt one, and it
-works because the basis makes iterations cheap.
+The moral is not specific to IR. A self-consistency loop converges to the
+fixed points that are *stable under its own iteration*, which need not be
+the physical ones; if the physical solution has a symmetry, impose it.
 
 ## Scanning \\(U\\): the Mott transition and its hysteresis
 
@@ -121,23 +142,22 @@ works because the basis makes iterations cheap.
   *metal* branch);
 - sweeping downwards from \\(U = 6.5\\) (the *insulator* branch).
 
-Every solve runs a fixed 5000 iterations with no stopping rule, for the
-reason above. Nothing on the grid takes anywhere near that long to settle —
-the slowest escape observed was between iterations 2000 and 4000, at the edge
-of the coexistence window — and with the criterion removed the three branches
-reproduce across implementations to \\(10^{-14}\\), where the criterion-based
-version disagreed at the first decimal.
+Every solve runs a fixed 5000 iterations with no stopping rule, so every
+point is a fixed point to machine precision rather than a snapshot on the
+way to one; the slowest, next to the edges of the coexistence window, are
+converged long before that.
 
 ![Z against U for the three sweeps](dmft_ipt_scan_renormalisation.png)
 
 \\(Z\\) falls smoothly from 1 and then drops to zero, but not at the same
-\\(U\\) going up as coming down. Below \\(U_{c1} = 3.2\\) only the metal
-exists; above \\(U_{c2}\\), which lies between 3.4 and 3.5, only the
-insulator does; in between both are stable and which one you get depends on
-where you started. That shaded window is the first-order Mott transition, and
-it is not an artifact of stopping early: solutions inside it sit at a
-residual of \\(5\times10^{-17}\\) and stay there for thousands of further
-iterations.
+\\(U\\) going up as coming down. The metal exists up to \\(U = 5.7\\) and
+is gone at 5.8, so \\(U_{c2}\\) lies between the two. Walking down, the
+insulator survives to \\(U = 5.5\\). In between both solutions are stable
+and which one you get depends on where you started: that shaded window is the
+first-order Mott transition. Its lower edge depends on how it is approached —
+started directly from the \\(U = 6.5\\) insulator instead of from its
+neighbour, the loop still finds an insulator at \\(U = 5.3\\) — which is the
+usual caveat about mapping a coexistence region with a simple iteration.
 
 Starting from \\(G^0\\) lands on the metal branch wherever the metal exists —
 the `from_g0` and `metal` columns agree to \\(10^{-15}\\) across the whole
@@ -148,35 +168,67 @@ The self-energies on either side make the distinction concrete:
 
 ![Im Σ against ν for five values of U](dmft_ipt_scan_self_energy.png)
 
-At \\(U = 3.0, 3.2, 3.4\\) — metallic — \\(\mathrm{Im}\,\Sigma\\) heads to
-zero with \\(\nu\\), a Fermi liquid. At \\(U = 3.5\\) and \\(U = 4.0\\) it
-diverges as \\(\nu \to 0\\), which is the pole at the Fermi level that opens
-the Mott gap.
+These are the solves started from \\(G^0\\), so they are on the metal branch
+wherever it exists. At \\(U = 5.0, 5.4, 5.7\\) \\(\mathrm{Im}\,\Sigma\\)
+turns back towards zero at the lowest frequencies, a Fermi liquid with a
+strongly reduced \\(Z\\). At \\(U = 5.8\\) and \\(U = 6.0\\) it diverges as
+\\(\nu \to 0\\), which is the pole at the Fermi level that opens the Mott
+gap.
 
-One curiosity worth naming, since it is visible in the raw output: the
-insulating fixed point comes as a particle-hole-conjugate pair, and which of
-the two a run lands on is decided by rounding. \\(\mathrm{Re}\,\Sigma\\)
-flips sign between the two; \\(\mathrm{Im}\,\Sigma\\), \\(G\\) and \\(Z\\) do
-not, so nothing physical depends on it.
+Without the projection, this scan finds a "transition" between \\(U = 3.4\\)
+and \\(3.5\\) instead: there the symmetry-breaking instability of the
+previous section sets in within 5000 iterations, and the loop leaves the
+metal for a broken-symmetry state long before the metal ceases to exist.
+
+## Beyond the imaginary axis
+
+Everything above lives on the imaginary axis. The contrast between the metal
+and the Mott insulator is most visible in the spectral function
+\\(A(\omega)\\) — a quasiparticle peak at \\(\omega = 0\\) against a gap
+between two Hubbard bands — and getting there from \\(G(\mathrm{i}\nu)\\) is
+analytic continuation. The IR coefficients \\(g_l\\) computed here are the
+natural input: see [analytic continuation](analytic_continuation.md) for
+regularised inversion of \\(g_l = -s_l\rho_l\\),
+[sparse modeling](spm.md) for the \\(\ell_1\\)-regularised version, and
+[MiniPole](minipole.md) for a pole representation of
+\\(G(\mathrm{i}\nu)\\) from which \\(A(\omega)\\) can be read off.
 
 ## Running it
 
-`dmft_ipt` takes about a second. `dmft_ipt_scan` is 198 self-consistent
-solves of 5000 iterations each, which is closer to half a minute, so it is
-gated out of the ordinary test run:
+From `docs/tutorial-code`:
 
 ```console
-$ SPARSEIR_TUTORIAL_RUN=1 SPARSEIR_TUTORIAL_SCANS=1 cargo test --release \
-      --test tutorial_binaries --test verification
+$ cargo run --profile ci --bin dmft_ipt
+$ cargo run --profile ci --bin dmft_ipt_scan
+$ uv run --project ../plotting python ../plotting/dmft_ipt_plot.py
 ```
 
-or `scripts/check.sh --run --scans --release`.
+`dmft_ipt` takes about a second. `dmft_ipt_scan` is 198 self-consistent
+solves of 5000 iterations each, which is closer to half a minute. The
+binaries write CSV tables under `docs/tutorial-code/data/`; the plotting
+script only reads them.
+
+The repository checks these numbers against a Python version of the
+notebook's loop with the same symmetry projection. The run without the
+projection is compared only by its shape, since where it ends up is decided
+by rounding.
 
 ## Key API pieces
 
+From `sparse-ir`:
+
 | What you want | What to call |
 | --- | --- |
+| the fermionic IR basis at \\(\beta\\), \\(\omega_\mathrm{max}\\), \\(\varepsilon\\) | `LogisticKernel::new`, `FiniteTempBasis::<_, Fermionic>::new` |
+| sampling in \\(\tau\\) and \\(\mathrm{i}\nu\\) | `TauSampling::new`, `MatsubaraSampling::new` (wrapped by `IrMesh`) |
+| \\(s_l\\) and \\(v_l(\omega)\\) for \\(g_l = -s_l\rho_l\\) | `basis.s()`, `basis.v()` (`get_knots`, `get_polyorder`) |
+| the reduced index of a sampling frequency | `MatsubaraFreq::n` |
+
+From the tutorial crate (`docs/tutorial-code/src`):
+
+| What you want | Tutorial helper |
+| --- | --- |
 | \\(\tau \to \mathrm{i}\nu\\) and back, once per iteration | `IrMesh::tau_to_wn`, `IrMesh::wn_to_tau` |
-| a semicircular \\(G^0\\) without quadrature | `shifted_semicircle_overlaps`, then `IrMesh::l_to_wn` |
+| \\(\rho_l\\) of a semicircle, by quadrature | `shifted_semicircle_overlaps`, then `IrMesh::l_to_wn` |
 | \\(\Sigma(\tau)\\) for plotting | `IrMesh::wn_to_l`, then `IrMesh::l_to_tau` |
-| the lowest Matsubara frequency | the index of \\(n = 1\\) in `IrMesh::wn` |
+| the lowest Matsubara frequency | the position of \\(n = 1\\) in `IrMesh::wn` |

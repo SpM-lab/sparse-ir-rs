@@ -17,7 +17,7 @@ SCAN = "dmft_ipt_scan"
 BETA = 20.0
 # The interaction strengths the scan wrote a self-energy for, as indices into
 # its 66-point grid.
-PROBES = (30, 32, 34, 35, 40)
+PROBES = (50, 54, 57, 58, 60)
 
 
 def main() -> None:
@@ -41,32 +41,53 @@ def main() -> None:
         ax.set_xlabel(r"$\nu$")
     save(fig, f"{EXAMPLE}_solution")
 
-    # And what the criterion actually measured on the way there — against the
-    # same loop left to run, which climbs back to order one right afterwards.
+    # The residual of the stopped run, the same loop left to run with the
+    # symmetry enforced, and left to run without it.
     long_run = read_table(EXAMPLE, "long_convergence")
+    free_run = read_table(EXAMPLE, "unconstrained_convergence")
     stop = int(summary["iterations"][0])
-    fig, ax = plt.subplots(figsize=(6.5, 4.5))
+    fig, axes = plt.subplots(1, 2, figsize=(11, 4.3), constrained_layout=True)
+    ax = axes[0]
+    ax.semilogy(
+        free_run["iteration"],
+        np.maximum(free_run["residual"], 1e-17),
+        color="C3",
+        label="symmetry not enforced",
+    )
     ax.semilogy(
         long_run["iteration"],
         np.maximum(long_run["residual"], 1e-17),
-        color="0.6",
-        label="left to run",
+        color="0.5",
+        label="symmetry enforced",
     )
     ax.semilogy(
-        convergence["iteration"], convergence["residual"], marker=".", label="as the notebook stops it"
+        convergence["iteration"], convergence["residual"], marker=".", ls="none", ms=4,
+        color="C0", label="stopped at the threshold",
     )
     ax.axhline(summary["sfc_tol"][0], ls="--", color="0.4")
     ax.annotate(
-        f"stops here, after {stop} iterations",
+        f"threshold, after {stop} iterations",
         xy=(stop, summary["sfc_tol"][0]),
-        xytext=(0.3, 0.62),
+        xytext=(0.35, 0.75),
         textcoords="axes fraction",
         arrowprops={"arrowstyle": "->", "color": "0.4"},
     )
-    ax.set_xlim(0, 1400)
+    ax.set_xlim(0, 1200)
     ax.set_xlabel("iteration")
     ax.set_ylabel(r"$\sum|\Delta\Sigma| / \sum|\Sigma|$")
-    ax.legend(frameon=False, loc="lower left")
+    ax.legend(frameon=False, loc="center right", fontsize=10)
+    ax = axes[1]
+    ax.semilogy(
+        free_run["iteration"],
+        np.maximum(free_run["asymmetry"], 1e-17),
+        color="C3",
+        label="symmetry not enforced",
+    )
+    ax.set_xlim(0, 300)
+    ax.set_xlabel("iteration")
+    ax.set_ylabel(r"$\max_\nu|\Sigma - \Sigma_\mathrm{sym}|$")
+    ax.set_title("distance from particle-hole symmetry", fontsize=12)
+    ax.legend(frameon=False, loc="lower right", fontsize=10)
     save(fig, f"{EXAMPLE}_convergence")
 
     # The scan: the hysteresis, and the coexistence window it encloses.

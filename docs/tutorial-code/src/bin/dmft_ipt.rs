@@ -1,6 +1,8 @@
 //! DMFT on the Bethe lattice, solved by iterated perturbation theory.
 //!
-//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial.
+//! Ported from the Python notebook `DMFT_IPT_py.ipynb` of sparse-ir-tutorial-v2
+//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/DMFT_IPT_py.html>), whose author is
+//! Niklas Witt.
 //!
 //! The impurity solver is one line — `Σ(τ) = U² 𝒢(τ)³` — because the
 //! self-energy is a *product* in imaginary time and the Dyson equation is a
@@ -10,21 +12,18 @@
 //! need thousands of frequencies.
 //!
 //! The convergence criterion is the notebook's: stop when the relative change
-//! of `Σ` from one iteration to the next falls below `1e-5`. That happens
-//! after 65 iterations and leaves `Z = 0.26`, a metal. The example then runs
-//! the same loop 5000 times without a criterion, and the relative change
-//! climbs back to order one some forty iterations later before settling on an
-//! insulator with `Z = 0`. Exactly when it climbs is set by rounding — the
-//! trajectory is passing an unstable fixed point, and how it leaves depends on
-//! the last bits of where it is. A threshold on the *change* says nothing
-//! about the distance
-//! still to go, which is the lesson worth taking out of any self-consistent
-//! loop.
-
+//! of `Σ` from one iteration to the next falls below `1e-5`, which leaves a
+//! metal with `Z = 0.263`. The example then runs the same loop 5000 times
+//! without a criterion, twice: once with particle-hole symmetry enforced,
+//! which settles on the same metal to machine precision, and once without,
+//! which shows why the symmetry has to be enforced — the symmetric solution is
+//! an unstable fixed point of the loop with respect to symmetry-breaking
+//! perturbations, and a `10⁻¹⁶` asymmetry left in by rounding grows until it
+//! takes over.
 use std::error::Error as StdError;
 
 use num_complex::Complex64;
-use sparse_ir_tutorial::dmft::{Dmft, MIX, Solution};
+use sparse_ir_tutorial::dmft::{Dmft, MIX, Solution, Symmetry};
 use sparse_ir_tutorial::{Table, output_path, provenance, write_table};
 
 const EXAMPLE: &str = "dmft_ipt";
@@ -38,15 +37,16 @@ const EPS: f64 = 1e-15;
 const MAXITER: usize = 300;
 const SFC_TOL: f64 = 1e-5;
 /// The same calculation carried on for a fixed number of iterations instead of
-/// stopped at a threshold, which is what shows the threshold up.
+/// stopped at a threshold, with and without the symmetry projection.
 const LONG_ITERATIONS: usize = 5000;
 
 fn main() -> Result<(), Box<dyn StdError>> {
     let dmft = Dmft::new(BETA, D, EPS)?;
     let g0 = dmft.noninteracting()?;
     let solution = dmft.solve(&g0, U, MAXITER, SFC_TOL)?;
-    // A tolerance of zero is never met, so this one runs the full count.
+    // A tolerance of zero is never met, so these run the full count.
     let long = dmft.solve(&g0, U, LONG_ITERATIONS, 0.0)?;
+    let unconstrained = dmft.solve_with(&g0, U, LONG_ITERATIONS, 0.0, Symmetry::Unconstrained)?;
 
     let mut table = Table::new(provenance(EXAMPLE));
     table.push("d", vec![D]);
@@ -71,6 +71,7 @@ fn main() -> Result<(), Box<dyn StdError>> {
     write_frequencies("self_energy", &n, "sigma", &solution.self_energy)?;
     write_residuals("convergence", &solution)?;
     write_residuals("long_convergence", &long)?;
+    write_residuals("unconstrained_convergence", &unconstrained)?;
 
     // The self-energy back in imaginary time, on the `[−β/2, β/2]` grid this
     // implementation reports. `Σ` is fermionic, so the Python reference has to
@@ -121,6 +122,7 @@ fn write_residuals(name: &str, solution: &Solution) -> Result<(), Box<dyn StdErr
             .collect::<Vec<_>>(),
     );
     table.push("residual", solution.residuals.clone());
+    table.push("asymmetry", solution.asymmetry.clone());
     write_table(&output_path(EXAMPLE, name)?, &table)?;
     Ok(())
 }

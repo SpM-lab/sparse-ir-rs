@@ -10,7 +10,6 @@
 //! - Fitting: fit_dd, fit_zz, fit_zd (sampling points → coefficients)
 //! - Memory: release, clone, is_assigned (via macro)
 
-use mdarray::Shape;
 use num_complex::Complex64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -19,7 +18,7 @@ use crate::gemm::{get_backend_handle, spir_gemm_backend};
 use crate::status::status_from;
 use crate::types::{BasisType, SamplingType, spir_basis, spir_sampling};
 use crate::utils::{
-    MemoryOrder, create_dview_from_ptr, create_dviewmut_from_ptr, read_tensor_nd, validate_dims,
+    MemoryOrder, create_view_from_ptr, create_view_mut_from_ptr, read_matrix, validate_dims,
     validate_transform_dims,
 };
 use crate::{
@@ -473,27 +472,15 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
         // SAFETY: `matrix` is non-null and `validate_dims` proved that `dims`
         // passes `checked_len::<f64>`; the caller guarantees that `matrix` holds
         // `num_points * basis_size` elements.
-        let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
-
-        // Convert DynRank to fixed 2D shape using from_fn (safe conversion)
-        let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
-        assert_eq!(
-            shape_dims.len(),
-            2,
-            "Expected 2D tensor, got {}D",
-            shape_dims.len()
-        );
-        let num_points_actual = shape_dims[0];
-        let basis_size_actual = shape_dims[1];
-        let matrix_tensor =
-            sparse_ir::DTensor::<f64, 2>::from_fn([num_points_actual, basis_size_actual], |idx| {
-                dyn_tensor[&[idx[0], idx[1]][..]]
-            });
+        let matrix_tensor = match unsafe { read_matrix(matrix, dims[0], dims[1], mem_order) } {
+            Ok(m) => m,
+            Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+        };
         // Create sampling based on statistics
         let sampling_type = if fermionic {
             let tau_sampling = match sparse_ir::sampling::TauSampling::<Fermionic>::from_matrix(
                 tau_points,
-                matrix_tensor,
+                &matrix_tensor,
             ) {
                 Ok(sampling) => sampling,
                 Err(e) => return (std::ptr::null_mut(), status_from(&e)),
@@ -502,7 +489,7 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
         } else {
             let tau_sampling = match sparse_ir::sampling::TauSampling::<Bosonic>::from_matrix(
                 tau_points,
-                matrix_tensor,
+                &matrix_tensor,
             ) {
                 Ok(sampling) => sampling,
                 Err(e) => return (std::ptr::null_mut(), status_from(&e)),
@@ -682,34 +669,10 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
         // SAFETY: `matrix` is non-null and `validate_dims` proved that `dims`
         // passes `checked_len::<Complex64>`; the caller guarantees that `matrix`
         // holds `num_points * basis_size` elements.
-        let dyn_tensor = unsafe { read_tensor_nd(matrix, &dims, mem_order) };
-        let shape_dims = dyn_tensor.shape().with_dims(|dims| dims.to_vec());
-        debug_println!(
-            "spir_matsu_sampling_new_with_matrix: dyn_tensor created, shape = {:?}",
-            shape_dims
-        );
-        std::io::stderr().flush().ok();
-
-        // Convert DynRank to fixed 2D shape using from_fn (safe conversion)
-        debug_println!("spir_matsu_sampling_new_with_matrix: converting to fixed 2D tensor...");
-        std::io::stderr().flush().ok();
-        assert_eq!(
-            shape_dims.len(),
-            2,
-            "Expected 2D tensor, got {}D",
-            shape_dims.len()
-        );
-        let num_points_actual = shape_dims[0];
-        let basis_size_actual = shape_dims[1];
-        debug_println!(
-            "spir_matsu_sampling_new_with_matrix: converting from shape {:?} to DTensor<Complex64, 2>",
-            shape_dims
-        );
-        std::io::stderr().flush().ok();
-        let matrix_tensor = sparse_ir::DTensor::<Complex64, 2>::from_fn(
-            [num_points_actual, basis_size_actual],
-            |idx| dyn_tensor[&[idx[0], idx[1]][..]],
-        );
+        let matrix_tensor = match unsafe { read_matrix(matrix, dims[0], dims[1], mem_order) } {
+            Ok(m) => m,
+            Err(e) => return (std::ptr::null_mut(), status_from(&e)),
+        };
         debug_println!(
             "spir_matsu_sampling_new_with_matrix: matrix_tensor created, shape = {:?}",
             matrix_tensor.shape()
@@ -738,7 +701,7 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 let matsu_sampling =
                     match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
-                        matrix_tensor.clone(),
+                        &matrix_tensor,
                     ) {
                         Ok(sampling) => sampling,
                         Err(e) => return (std::ptr::null_mut(), status_from(&e)),
@@ -761,7 +724,7 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 let matsu_sampling =
                     match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
                         matsu_freqs,
-                        matrix_tensor.clone(),
+                        &matrix_tensor,
                     ) {
                         Ok(sampling) => sampling,
                         Err(e) => return (std::ptr::null_mut(), status_from(&e)),
@@ -775,7 +738,7 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 let matsu_sampling =
                     match sparse_ir::matsubara_sampling::MatsubaraSamplingPositiveOnly::from_matrix(
                         matsu_freqs,
-                        matrix_tensor.clone(),
+                        &matrix_tensor,
                     ) {
                         Ok(sampling) => sampling,
                         Err(e) => return (std::ptr::null_mut(), status_from(&e)),
@@ -787,7 +750,7 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
                 let matsu_sampling =
                     match sparse_ir::matsubara_sampling::MatsubaraSampling::from_matrix(
                         matsu_freqs,
-                        matrix_tensor.clone(),
+                        &matrix_tensor,
                     ) {
                         Ok(sampling) => sampling,
                         Err(e) => return (std::ptr::null_mut(), status_from(&e)),
@@ -1162,8 +1125,14 @@ pub extern "C" fn spir_sampling_eval_dd(
         // SAFETY: `validate_transform_dims` proved that both shapes have
         // addressable sizes; the caller guarantees that `input` and `out` hold
         // that many elements.
-        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
+        let input_view = match unsafe { create_view_from_ptr(input, &dims.input) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &dims.output) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1251,8 +1220,14 @@ pub extern "C" fn spir_sampling_eval_dz(
         // SAFETY: `validate_transform_dims` proved that both shapes have
         // addressable sizes; the caller guarantees that `input` and `out` hold
         // that many elements.
-        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
+        let input_view = match unsafe { create_view_from_ptr(input, &dims.input) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &dims.output) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1339,8 +1314,14 @@ pub extern "C" fn spir_sampling_eval_zz(
         // SAFETY: `validate_transform_dims` proved that both shapes have
         // addressable sizes; the caller guarantees that `input` and `out` hold
         // that many elements.
-        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
+        let input_view = match unsafe { create_view_from_ptr(input, &dims.input) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &dims.output) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1458,8 +1439,14 @@ pub extern "C" fn spir_sampling_fit_dd(
         // SAFETY: `validate_transform_dims` proved that both shapes have
         // addressable sizes; the caller guarantees that `input` and `out` hold
         // that many elements.
-        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
+        let input_view = match unsafe { create_view_from_ptr(input, &dims.input) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &dims.output) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1548,8 +1535,14 @@ pub extern "C" fn spir_sampling_fit_zz(
         // SAFETY: `validate_transform_dims` proved that both shapes have
         // addressable sizes; the caller guarantees that `input` and `out` hold
         // that many elements.
-        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
+        let input_view = match unsafe { create_view_from_ptr(input, &dims.input) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &dims.output) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
@@ -1667,8 +1660,14 @@ pub extern "C" fn spir_sampling_fit_zd(
         // SAFETY: `validate_transform_dims` proved that both shapes have
         // addressable sizes; the caller guarantees that `input` and `out` hold
         // that many elements.
-        let input_view = unsafe { create_dview_from_ptr(input, &dims.input) };
-        let mut output_view = unsafe { create_dviewmut_from_ptr(out, &dims.output) };
+        let input_view = match unsafe { create_view_from_ptr(input, &dims.input) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
+        let mut output_view = match unsafe { create_view_mut_from_ptr(out, &dims.output) } {
+            Ok(v) => v,
+            Err(e) => return status_from(&e),
+        };
 
         // Get backend handle (NULL means use default)
         let backend_handle = unsafe { get_backend_handle(backend) };
