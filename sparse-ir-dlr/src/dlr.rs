@@ -557,6 +557,13 @@ where
     ///   [`Self::ir_basis_size`] entries along `dim`
     /// * [`Error::DecompositionFailed`] if the SVD of the fitting matrix fails
     ///   (its entries are finite, since the poles are)
+    ///
+    /// The mathematical transform does not depend on the axis placement or the
+    /// memory order of the arrays, but the floating-point result can: a different
+    /// axis placement selects a different contraction geometry, and the GEMM
+    /// backend decides how that geometry is blocked. Bitwise agreement across
+    /// axis placements is not guaranteed, and conditioning or cancellation can
+    /// amplify the difference (SpM-lab/sparse-ir-rs#326).
     pub fn from_ir_nd<T: FitScalar>(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -587,6 +594,13 @@ where
     /// * [`Error::ShapeMismatch`] of the input if `g_dlr` does not have
     ///   [`Basis::size`](crate::basis_trait::Basis::size) (the number of
     ///   poles) entries along `dim`
+    ///
+    /// The mathematical transform does not depend on the axis placement or the
+    /// memory order of the arrays, but the floating-point result can: a different
+    /// axis placement selects a different contraction geometry, and the GEMM
+    /// backend decides how that geometry is blocked. Bitwise agreement across
+    /// axis placements is not guaranteed, and conditioning or cancellation can
+    /// amplify the difference (SpM-lab/sparse-ir-rs#326).
     pub fn to_ir_nd<T: FitScalar>(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -726,6 +740,13 @@ impl IrDlrTransform {
 
     /// IR -> DLR along axis `dim` (least squares).
     ///
+    /// The mathematical transform does not depend on the axis placement or the
+    /// memory order of the arrays, but the floating-point result can: a different
+    /// axis placement selects a different contraction geometry, and the GEMM
+    /// backend decides how that geometry is blocked. Bitwise agreement across
+    /// axis placements is not guaranteed, and conditioning or cancellation can
+    /// amplify the difference (SpM-lab/sparse-ir-rs#326).
+    ///
     /// # Errors
     /// The errors of [`DiscreteLehmannRepresentation::from_ir_nd`].
     pub fn ir_to_dlr_nd<T: FitScalar>(
@@ -738,6 +759,13 @@ impl IrDlrTransform {
     }
 
     /// DLR -> IR along axis `dim`.
+    ///
+    /// The mathematical transform does not depend on the axis placement or the
+    /// memory order of the arrays, but the floating-point result can: a different
+    /// axis placement selects a different contraction geometry, and the GEMM
+    /// backend decides how that geometry is blocked. Bitwise agreement across
+    /// axis placements is not guaranteed, and conditioning or cancellation can
+    /// amplify the difference (SpM-lab/sparse-ir-rs#326).
     ///
     /// # Errors
     /// The errors of [`DiscreteLehmannRepresentation::to_ir_nd`].

@@ -809,6 +809,13 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed, and conditioning or cancellation can amplify
+ * the difference (SpM-lab/sparse-ir-rs#326).
+ *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
  */
@@ -846,6 +853,13 @@ StatusCode spir_ir2dlr_dd(const struct spir_basis *dlr,
  * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed, and conditioning or cancellation can amplify
+ * the difference (SpM-lab/sparse-ir-rs#326).
  *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
@@ -885,6 +899,13 @@ StatusCode spir_ir2dlr_zz(const struct spir_basis *dlr,
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed, and conditioning or cancellation can amplify
+ * the difference (SpM-lab/sparse-ir-rs#326).
+ *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
  */
@@ -922,6 +943,13 @@ StatusCode spir_dlr2ir_dd(const struct spir_basis *dlr,
  * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed, and conditioning or cancellation can amplify
+ * the difference (SpM-lab/sparse-ir-rs#326).
  *
  * # Safety
  * Caller must ensure pointers are valid and arrays have correct sizes
