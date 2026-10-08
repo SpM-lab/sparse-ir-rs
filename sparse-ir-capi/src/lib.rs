@@ -71,6 +71,3 @@ pub const SPIR_TWORK_AUTO: libc::c_int = -1;
 
 // SVD strategy constants (matching libsparseir)
 // Note: Currently not used in Rust implementation, but included for API compatibility
-pub const SPIR_SVDSTRAT_FAST: libc::c_int = 0;
-pub const SPIR_SVDSTRAT_ACCURATE: libc::c_int = 1;
-pub const SPIR_SVDSTRAT_AUTO: libc::c_int = -1;

@@ -4,7 +4,7 @@
 
 use super::types::safe_epsilon;
 use super::utils::{extend_to_full_domain, merge_results, mirror_segments_to_full_domain};
-use super::{SVDStrategy, SVEResult, TworkType, compute_sve, compute_sve_general};
+use super::{SVEResult, TworkType, compute_sve, compute_sve_general};
 use crate::error::Error;
 use crate::kernel::{
     AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints,
@@ -412,7 +412,7 @@ fn test_compute_sve_global_index_matches_parity() {
 /// Machine epsilon of the working precision that `compute_sve*` selects for
 /// `(epsilon, twork)`
 fn working_machine_epsilon(epsilon: f64, twork: TworkType) -> f64 {
-    match safe_epsilon(Some(epsilon), twork, SVDStrategy::Auto).1 {
+    match safe_epsilon(Some(epsilon), twork).1 {
         TworkType::Float64 => f64::EPSILON,
         TworkType::Float64X2 => CustomNumeric::to_f64(<crate::Df64 as CustomNumeric>::epsilon()),
         TworkType::Auto => unreachable!("safe_epsilon resolves TworkType::Auto"),

@@ -38,7 +38,7 @@ when choosing crates, imports, or numerical conventions.
 
 ```toml
 [dependencies]
-sparse-ir = "0.12.0"
+sparse-ir = "0.13.0"
 ```
 
 ### Optional: system BLAS
@@ -50,7 +50,7 @@ LP64 BLAS installed on your system (e.g. OpenBLAS, Intel MKL), enable the
 
 ```toml
 [dependencies]
-sparse-ir = { version = "0.12.0", features = ["system-blas"] }
+sparse-ir = { version = "0.13.0", features = ["system-blas"] }
 ```
 
 Both backends compute the same numbers; the feature only changes which

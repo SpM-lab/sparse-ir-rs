@@ -8,7 +8,7 @@ use crate::numeric::CustomNumeric;
 
 use super::result::SVEResult;
 use super::strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
-use super::types::{SVDStrategy, TworkType, safe_epsilon};
+use super::types::{TworkType, safe_epsilon};
 
 /// Default relative cutoff for singular value truncation: `2 * T::epsilon()`
 ///
@@ -106,8 +106,7 @@ where
     let _fpu_guard = FpuGuard::new_protect_computation();
 
     // Determine safe epsilon and working precision
-    let (safe_epsilon, twork_actual, _svd_strategy) =
-        safe_epsilon(epsilon, twork, SVDStrategy::Auto);
+    let (safe_epsilon, twork_actual) = safe_epsilon(epsilon, twork);
 
     // Dispatch based on working precision
     let result = match twork_actual {
@@ -202,8 +201,7 @@ where
     let _fpu_guard = FpuGuard::new_protect_computation();
 
     // Determine safe epsilon and working precision
-    let (safe_epsilon, twork_actual, _svd_strategy) =
-        safe_epsilon(epsilon, twork, SVDStrategy::Auto);
+    let (safe_epsilon, twork_actual) = safe_epsilon(epsilon, twork);
 
     // Dispatch based on working precision
     let result = match twork_actual {

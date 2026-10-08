@@ -54,7 +54,7 @@ uv run --project docs/plotting python docs/plotting/minipole_plot.py
 
   ```toml
   [dependencies]
-  sparse-ir = "0.12.0"
+  sparse-ir = "0.13.0"
   ```
 
   The [installation guide](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html) covers the optional `system-blas` feature and the Git dependency on `main`; the [`sparse-ir` README](sparse-ir/README.md) has fit/evaluate and DLR examples.
@@ -162,7 +162,7 @@ sparse-ir-rs/
 ├── capi_benchmark/      # C-API benchmarks
 ├── notebook/            # Technical notes (algorithms, design)
 ├── agent-skills/        # Repo-local agent skills (Rust usage, releases)
-├── bump_version_downstream.md  # Release checklist for downstream wrappers
+├── bump_version_downstream.md  # Redirect to the shared sparse-ir-release skill
 └── docs/
     ├── book/            # Browser-readable Rust guide (mdBook), including figures
     ├── tutorial-code/   # Executable examples, CSV outputs and numerical checks
@@ -179,7 +179,21 @@ cargo build            # build all crates in debug mode
 cargo build --release  # optimized build
 ```
 
-Builds are portable by default: they target the baseline CPU of each platform, so the published wheels and libraries run on any machine. For a build tuned to the local CPU, opt in through the environment (never in `.cargo/config.toml`, which also applies to release builds):
+#### CPU baseline: the fused multiply-add is enabled
+
+The builds ask for the fused multiply-add instruction. The double-double arithmetic uses `f64::mul_add`, and without the instruction that is a call to the software implementation in libm, which dominates the cost of the SVE: on an EPYC 7713P, `compute_sve(LogisticKernel(1e6), 1e-10)` takes **16 s instead of 50 s**.
+
+It does not change any result: the fused operation is correctly rounded whether it is an instruction or the libm routine, and the SVE output is bit-identical (same singular values to the last bit at Λ = 1e4 and 1e5).
+
+FMA is mandatory in the aarch64 base instruction set and present on every x86-64 CPU since Intel Haswell (2013) and AMD Piledriver (2012), so only x86-64 asks for it, in `.cargo/config.toml`.
+
+For a machine without it — pre-2013 x86-64, the Intel Pentium/Celeron parts of the Haswell..Skylake generation, Atom-class chips, QEMU's default `qemu64` CPU model, or x86-64 emulation — build with it disabled:
+
+```bash
+RUSTFLAGS="-C target-feature=-fma" cargo build --release
+```
+
+An explicitly set `RUSTFLAGS` replaces the flags in `.cargo/config.toml` rather than adding to them, so the same mechanism also tunes a build for the local CPU:
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release
@@ -280,8 +294,15 @@ The release process is done in **two stages** because Julia bindings depend on t
 
 3. Update the install snippets in `sparse-ir/README.md` (`sparse-ir = "X.Y.Z"` and
    `sparse-ir = { version = "X.Y.Z", features = ["system-blas"] }`) and the quick start of the
-   root `README.md`. The crate README is packaged with the crate and rendered on crates.io, so
-   `check_version.py` fails until they match.
+   root `README.md`, and the snippets in `docs/book/src/getting-started/installation.md`. The
+   crate README is packaged with the crate and rendered on crates.io, so `check_version.py` fails
+   until they all match. Also update the prose that names the release the docs are written
+   against ("the 0.N release") in `README.md`, `sparse-ir/README.md`, the four sub-crate READMEs
+   and `installation.md`; `check_version.py` does not check it.
+
+   Regenerate the lock files: `cargo update -w`, `(cd python && uv lock)`, and
+   `(cd docs/tutorial-code && cargo update -p sparse-ir)` (check that only the workspace crates
+   moved).
 
 4. Verify version consistency and test publishing (dry run):
    ```bash
@@ -298,7 +319,8 @@ The release process is done in **two stages** because Julia bindings depend on t
 5. Create a PR for the version bump:
    ```bash
    git checkout -b release/vX.Y.Z
-   git add Cargo.toml python/pyproject.toml README.md sparse-ir/README.md
+   git add Cargo.toml Cargo.lock python/pyproject.toml python/uv.lock README.md sparse-ir*/README.md \
+     docs/book/src/getting-started/installation.md docs/tutorial-code/Cargo.lock
    git commit -m "chore: bump version to X.Y.Z"
    git push origin release/vX.Y.Z
    ```
@@ -331,6 +353,17 @@ The release process is done in **two stages** because Julia bindings depend on t
    gh run watch "$PYPI_RUN_ID"
    curl -fsSL "https://pypi.org/pypi/pylibsparseir/X.Y.Z/json" >/dev/null
    ```
+
+   Dispatch the conda workflow from the release tag as well. Like `PublishPyPI.yml`, it does not start on its own, because the release workflow pushes the tag with `GITHUB_TOKEN`:
+   ```bash
+   gh workflow run publish_conda.yml --ref vX.Y.Z
+   CONDA_RUN_ID=$(gh run list --workflow publish_conda.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+   gh run watch "$CONDA_RUN_ID"
+   curl -fsS https://api.anaconda.org/package/spm-lab/pylibsparseir \
+     | jq -r --arg v X.Y.Z '[.files[] | select(.version == $v)] | length'   # > 0
+   ```
+
+   For the full cross-repository release (Yggdrasil, `SparseIR.jl`, `sparse-ir`), follow the shared [`sparse-ir-release`](https://github.com/SpM-lab/spm-agent-rules/blob/main/skills/sparse-ir-release/SKILL.md) skill.
 
    If the Python publish needs to be retried after the tag already exists, rerun the same workflow from the release tag:
    ```bash

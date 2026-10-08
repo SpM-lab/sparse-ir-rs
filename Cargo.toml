@@ -15,11 +15,11 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
-sparse-ir = { version = "0.12.0", path = "sparse-ir" }
-sparse-ir-core = { version = "0.12.0", path = "sparse-ir-core" }
-sparse-ir-dlr = { version = "0.12.0", path = "sparse-ir-dlr" }
-sparse-ir-minipole = { version = "0.12.0", path = "sparse-ir-minipole" }
-sparse-ir-basis = { version = "0.12.0", path = "sparse-ir-basis" }
+sparse-ir = { version = "0.13.0", path = "sparse-ir" }
+sparse-ir-core = { version = "0.13.0", path = "sparse-ir-core" }
+sparse-ir-dlr = { version = "0.13.0", path = "sparse-ir-dlr" }
+sparse-ir-minipole = { version = "0.13.0", path = "sparse-ir-minipole" }
+sparse-ir-basis = { version = "0.13.0", path = "sparse-ir-basis" }
 faer = "0.24"
 faer-traits = "0.24"
 tenferro-tensor = "0.7.1"
@@ -42,7 +42,7 @@ dashu-base = "0.4"
 cargo-husky = "1.5"
 
 [workspace.package]
-version = "0.12.0"
+version = "0.13.0"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"
