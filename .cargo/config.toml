@@ -1,9 +1,22 @@
 # Cargo configuration for builds inside this repository
 #
-# Do not set CPU-specific codegen flags such as `-C target-cpu=native` here.
-# This file applies to every build in the repository, including the published
-# Python wheels, conda packages and C libraries, which must run on any CPU of
-# their target (#288). To tune a local build for the machine it runs on, set
-# the flag in the environment instead:
+# The double-double arithmetic (xprec) uses `f64::mul_add`.  Without a hardware
+# fused multiply-add that is a call to the software implementation in libm, which
+# dominates the cost of the SVE: 7.7 ns per Df64 multiply-add against 1.43 ns
+# with the instruction, and 50 s against 16 s for `compute_sve` at Lambda = 1e6.
 #
-#     RUSTFLAGS="-C target-cpu=native" cargo build --release
+# FMA is therefore part of the baseline this repository builds for.  It is
+# mandatory in the aarch64 base instruction set and present on every x86-64 CPU
+# since Haswell (2013) and Piledriver (2012), so only x86-64 has to ask for it.
+#
+# To build for a machine without it - pre-2013 x86-64, the Pentium/Celeron parts
+# of the Haswell..Skylake generation, Atom-class chips, QEMU's default `qemu64`
+# model, or emulation - disable it explicitly:
+#
+#     RUSTFLAGS="-C target-feature=-fma" cargo build --release
+#
+# (An explicitly set RUSTFLAGS replaces the flags below rather than adding to
+# them, so this also works if you want to tune the build for your machine:
+# `RUSTFLAGS="-C target-cpu=native" cargo build --release`.)
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-feature=+fma"]

@@ -15,19 +15,6 @@ pub enum TworkType {
     Auto = -1, // SPIR_TWORK_AUTO
 }
 
-/// SVD computation strategy
-///
-/// Values match the C-API constants defined in sparseir.h
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SVDStrategy {
-    /// Fast computation
-    Fast = 0, // SPIR_SVDSTRAT_FAST
-    /// Accurate computation
-    Accurate = 1, // SPIR_SVDSTRAT_ACCURATE
-    /// Automatically choose strategy
-    Auto = -1, // SPIR_SVDSTRAT_AUTO
-}
-
 /// Determine safe epsilon and working precision
 ///
 /// This function determines the safe epsilon value based on the working precision,
@@ -38,21 +25,16 @@ pub enum SVDStrategy {
 /// * `epsilon` - Required accuracy (non-negative); `None` selects the best
 ///   accuracy of the working precision
 /// * `twork` - Working precision type (Auto for automatic selection)
-/// * `svd_strategy` - SVD computation strategy (Auto for automatic selection)
 ///
 /// # Returns
 ///
-/// Tuple of (safe_epsilon, actual_twork, actual_svd_strategy)
+/// Tuple of (safe_epsilon, actual_twork)
 ///
 /// # Panics
 ///
 /// Panics if epsilon is negative or NaN. [`compute_sve`](crate::sve::compute_sve)
 /// checks it first.
-pub(crate) fn safe_epsilon(
-    epsilon: Option<f64>,
-    twork: TworkType,
-    svd_strategy: SVDStrategy,
-) -> (f64, TworkType, SVDStrategy) {
+pub(crate) fn safe_epsilon(epsilon: Option<f64>, twork: TworkType) -> (f64, TworkType) {
     // Check for a negative or NaN epsilon (following the C++ implementation
     // for negative values; NaN used to select the automatic accuracy)
     if let Some(eps) = epsilon.filter(|eps| !(*eps >= 0.0)) {
@@ -89,17 +71,7 @@ pub(crate) fn safe_epsilon(
     };
     let safe_eps = epsilon.map_or(precision_floor, |eps| eps.max(precision_floor));
 
-    // Work out the SVD strategy to be used
-    let svd_strategy_actual = match svd_strategy {
-        SVDStrategy::Auto => match epsilon {
-            // TODO: Add warning output like C++
-            Some(eps) if eps < safe_eps => SVDStrategy::Accurate,
-            _ => SVDStrategy::Fast,
-        },
-        other => other,
-    };
-
-    (safe_eps, twork_actual, svd_strategy_actual)
+    (safe_eps, twork_actual)
 }
 
 #[cfg(test)]
@@ -109,7 +81,7 @@ mod tests {
     #[test]
     fn test_safe_epsilon_auto_float64() {
         // epsilon=1e-7 > floor=1e-8 → safe_eps should honour the user's request
-        let (safe_eps, twork, _) = safe_epsilon(Some(1e-7), TworkType::Auto, SVDStrategy::Auto);
+        let (safe_eps, twork) = safe_epsilon(Some(1e-7), TworkType::Auto);
         assert_eq!(twork, TworkType::Float64);
         assert_eq!(safe_eps, 1e-7);
     }
@@ -117,7 +89,7 @@ mod tests {
     #[test]
     fn test_safe_epsilon_auto_float64x2() {
         // epsilon=1e-10 > floor≈1.57e-16 → safe_eps should be the user's epsilon
-        let (safe_eps, twork, _) = safe_epsilon(Some(1e-10), TworkType::Auto, SVDStrategy::Auto);
+        let (safe_eps, twork) = safe_epsilon(Some(1e-10), TworkType::Auto);
         assert_eq!(twork, TworkType::Float64X2);
         assert_eq!(safe_eps, 1e-10);
     }
@@ -125,29 +97,15 @@ mod tests {
     #[test]
     fn test_safe_epsilon_explicit_precision() {
         // epsilon=1e-7 > floor≈1.57e-16 → safe_eps should honour the user's epsilon
-        let (safe_eps, twork, _) =
-            safe_epsilon(Some(1e-7), TworkType::Float64X2, SVDStrategy::Auto);
+        let (safe_eps, twork) = safe_epsilon(Some(1e-7), TworkType::Float64X2);
         assert_eq!(twork, TworkType::Float64X2);
         assert_eq!(safe_eps, 1e-7);
     }
 
     #[test]
-    fn test_svd_strategy_auto_accurate() {
-        // epsilon = 1e-20 < 1.57e-16 (safe_eps for Float64X2) → Accurate
-        let (_, _, strategy) = safe_epsilon(Some(1e-20), TworkType::Auto, SVDStrategy::Auto);
-        assert_eq!(strategy, SVDStrategy::Accurate);
-    }
-
-    #[test]
-    fn test_svd_strategy_auto_fast() {
-        let (_, _, strategy) = safe_epsilon(Some(1e-7), TworkType::Auto, SVDStrategy::Auto);
-        assert_eq!(strategy, SVDStrategy::Fast);
-    }
-
-    #[test]
     #[should_panic(expected = "eps_required must be non-negative")]
     fn test_negative_epsilon_panics() {
-        safe_epsilon(Some(-1.0), TworkType::Auto, SVDStrategy::Auto);
+        safe_epsilon(Some(-1.0), TworkType::Auto);
     }
 
     /// NaN is not an accuracy: it used to select the automatic accuracy.
@@ -156,6 +114,6 @@ mod tests {
     #[test]
     #[should_panic(expected = "eps_required must be non-negative, got NaN")]
     fn test_nan_epsilon_panics() {
-        safe_epsilon(Some(f64::NAN), TworkType::Auto, SVDStrategy::Auto);
+        safe_epsilon(Some(f64::NAN), TworkType::Auto);
     }
 }

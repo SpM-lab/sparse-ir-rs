@@ -35,11 +35,17 @@ jobs:
           sudo apt-get install -y libopenblas-dev pkg-config
 
       # The repository's cargo config also applies to the published wheels,
-      # conda packages and C libraries, so it must not select a CPU (#288).
-      - name: Check that the cargo config sets no CPU-specific flags
+      # conda packages and C libraries, so it may only ask for instructions
+      # that belong to the baseline we support - the fused multiply-add - and
+      # never for a CPU model.
+      - name: Check the cargo config CPU flags
         run: |
-          if grep -rnE '^[^#]*target-(cpu|feature)' .cargo/; then
-            echo "::error::.cargo/ must not set target-cpu or target-feature (#288)"
+          if grep -rnE '^[^#]*target-cpu' .cargo/; then
+            echo "::error::.cargo/ must not set target-cpu"
+            exit 1
+          fi
+          if grep -rnE '^[^#]*target-feature' .cargo/ | grep -v -- '+fma'; then
+            echo "::error::.cargo/ must only ask for target-feature=+fma"
             exit 1
           fi
 

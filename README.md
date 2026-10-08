@@ -54,7 +54,7 @@ uv run --project docs/plotting python docs/plotting/minipole_plot.py
 
   ```toml
   [dependencies]
-  sparse-ir = "0.12.0"
+  sparse-ir = "0.13.0"
   ```
 
   The [installation guide](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html) covers the optional `system-blas` feature and the Git dependency on `main`; the [`sparse-ir` README](sparse-ir/README.md) has fit/evaluate and DLR examples.
@@ -179,7 +179,21 @@ cargo build            # build all crates in debug mode
 cargo build --release  # optimized build
 ```
 
-Builds are portable by default: they target the baseline CPU of each platform, so the published wheels and libraries run on any machine. For a build tuned to the local CPU, opt in through the environment (never in `.cargo/config.toml`, which also applies to release builds):
+#### CPU baseline: the fused multiply-add is enabled
+
+The builds ask for the fused multiply-add instruction. The double-double arithmetic uses `f64::mul_add`, and without the instruction that is a call to the software implementation in libm, which dominates the cost of the SVE: on an EPYC 7713P, `compute_sve(LogisticKernel(1e6), 1e-10)` takes **16 s instead of 50 s**.
+
+It does not change any result: the fused operation is correctly rounded whether it is an instruction or the libm routine, and the SVE output is bit-identical (same singular values to the last bit at Λ = 1e4 and 1e5).
+
+FMA is mandatory in the aarch64 base instruction set and present on every x86-64 CPU since Intel Haswell (2013) and AMD Piledriver (2012), so only x86-64 asks for it, in `.cargo/config.toml`.
+
+For a machine without it — pre-2013 x86-64, the Intel Pentium/Celeron parts of the Haswell..Skylake generation, Atom-class chips, QEMU's default `qemu64` CPU model, or x86-64 emulation — build with it disabled:
+
+```bash
+RUSTFLAGS="-C target-feature=-fma" cargo build --release
+```
+
+An explicitly set `RUSTFLAGS` replaces the flags in `.cargo/config.toml` rather than adding to them, so the same mechanism also tunes a build for the local CPU:
 
 ```bash
 RUSTFLAGS="-C target-cpu=native" cargo build --release

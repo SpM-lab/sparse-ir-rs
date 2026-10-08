@@ -23,7 +23,7 @@ pub(crate) mod utils;
 pub use compute::{compute_sve, compute_sve_general};
 pub use result::SVEResult;
 pub use strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy, SamplingSVE};
-pub use types::{SVDStrategy, TworkType};
+pub use types::TworkType;
 
 #[cfg(test)]
 mod tests;

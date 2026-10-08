@@ -20,12 +20,6 @@
 
 #define SPIR_TWORK_AUTO -1
 
-#define SPIR_SVDSTRAT_FAST 0
-
-#define SPIR_SVDSTRAT_ACCURATE 1
-
-#define SPIR_SVDSTRAT_AUTO -1
-
 /**
  * Opaque basis type for C API (compatible with libsparseir)
  *
