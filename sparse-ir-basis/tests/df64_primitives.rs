@@ -229,3 +229,26 @@ fn dekker_equivalence() {
         "\nDekker dd_muladd vs xprec c + x*y over 200k random triples: worst abs {worst_abs:.3e}, worst rel {worst:.3e} (Df64 eps = 2.5e-32)"
     );
 }
+
+/// Bit-level checksum of the SVE result, to verify that a change to the QR path
+/// only changes the speed and not the numbers.
+#[test]
+#[ignore = "experiment: run with --ignored --nocapture"]
+fn sve_checksum() {
+    use sparse_ir_basis::{LogisticKernel, TworkType, compute_sve};
+    for lambda in [1e4_f64, 1e5] {
+        let sve = compute_sve(
+            LogisticKernel::new(lambda).unwrap(),
+            Some(1e-10),
+            None,
+            None,
+            TworkType::Auto,
+        )
+        .unwrap();
+        let mut h = 0xcbf29ce484222325u64;
+        for x in sve.s() {
+            h = (h ^ x.to_bits()).wrapping_mul(0x100000001b3);
+        }
+        println!("lambda={lambda} nsv={} hash={h:016x}", sve.s().len());
+    }
+}

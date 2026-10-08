@@ -307,7 +307,12 @@ where
     // Step 1: Apply QR decomposition to A using nalgebra with early termination
     // Convert config.rtol (T) to T::RealField for QR decomposition
     let qr_rtol = Some(config.rtol.clone().modulus());
-    let qr = ColPivQR::new_with_rtol(matrix.clone(), qr_rtol);
+    let qr = if crate::numeric::fma_available() {
+        // SAFETY: `fma_available` checked the target feature.
+        unsafe { ColPivQR::new_with_rtol_fma(matrix.clone(), qr_rtol) }
+    } else {
+        ColPivQR::new_with_rtol(matrix.clone(), qr_rtol)
+    };
     let q_matrix = qr.q();
     let r_matrix = qr.r();
     let permutation = qr.p();

@@ -31,9 +31,92 @@ use nalgebra::allocator::Allocator;
 use nalgebra::base::{Const, DefaultAllocator, Matrix, OMatrix, OVector, Unit};
 use nalgebra::dimension::{Dim, DimMin, DimMinimum};
 
+use nalgebra::base::storage::{RawStorage, StorageMut};
 use nalgebra::geometry::Reflection;
 use nalgebra::linalg::{PermutationSequence, householder};
 use std::mem::MaybeUninit;
+
+/// Index of the entry of `m` with the largest `norm1`, first one in
+/// column-major order on a tie.
+///
+/// This is nalgebra's `Matrix::icamax_full` (`src/base/min_max.rs`), copied so
+/// that it is inlined into the caller and therefore compiled with the caller's
+/// target features.
+#[inline(always)]
+fn icamax_full_inline<T: ComplexField, R: Dim, C: Dim, S: RawStorage<T, R, C>>(
+    m: &Matrix<T, R, C, S>,
+) -> (usize, usize) {
+    let mut the_max = unsafe { m.get_unchecked((0, 0)).clone().norm1() };
+    let mut the_ij = (0, 0);
+    for j in 0..m.ncols() {
+        for i in 0..m.nrows() {
+            let val = unsafe { m.get_unchecked((i, j)).clone().norm1() };
+            if val > the_max {
+                the_max = val;
+                the_ij = (i, j);
+            }
+        }
+    }
+    the_ij
+}
+
+/// The Householder step of nalgebra's `householder::clear_column_unchecked`,
+/// with `reflection_axis_mut` and `Reflection::reflect_with_sign` applied
+/// inline.
+///
+/// The bodies mirror nalgebra 0.33 (`src/linalg/householder.rs` and
+/// `src/geometry/reflection.rs`, Apache-2.0, see the file header) operation for
+/// operation, so the result is unchanged.  `#[inline(always)]` is what makes
+/// the arithmetic compile inside the entry point that calls it, and hence with
+/// that entry point's target features - without a fused multiply-add the
+/// double-double arithmetic of the scalar type calls the software `fma` in
+/// libm, which dominates the cost of the SVE.
+///
+/// # Safety
+/// `icol < matrix.ncols()` and `icol + shift < matrix.nrows()`.
+#[inline(always)]
+unsafe fn clear_column_inline<T: ComplexField, R: Dim, C: Dim>(
+    matrix: &mut OMatrix<T, R, C>,
+    icol: usize,
+    shift: usize,
+) -> T
+where
+    DefaultAllocator: Allocator<R, C> + Allocator<R>,
+{
+    let (mut left, mut right) = matrix.columns_range_pair_mut(icol, icol + 1..);
+    let mut axis = left.rows_range_mut(icol + shift..);
+
+    // nalgebra::linalg::householder::reflection_axis_mut
+    let reflection_sq_norm = axis.norm_squared();
+    let reflection_norm = reflection_sq_norm.clone().sqrt();
+    let (modulus, sign) = axis[0].clone().to_exp();
+    let signed_norm = sign.scale(reflection_norm.clone());
+    let factor = (reflection_sq_norm + modulus * reflection_norm) * nalgebra::convert(2.0);
+    axis[0] += signed_norm.clone();
+    let not_zero = !factor.is_zero();
+    if not_zero {
+        axis.unscale_mut(factor.sqrt());
+        let _ = axis.normalize_mut();
+    }
+    let reflection_norm = -signed_norm;
+
+    if not_zero {
+        // nalgebra::geometry::Reflection::reflect_with_sign with zero bias:
+        // column = sign * column + factor * axis
+        let sign = reflection_norm.clone().signum().conjugate();
+        let m_two = sign.clone().scale(nalgebra::convert(-2.0f64));
+        let mut tail = right.rows_range_mut(icol + shift..);
+        for i in 0..tail.ncols() {
+            let factor = axis.dotc(&tail.column(i)) * m_two.clone();
+            let mut col = tail.column_mut(i);
+            for (value, elem) in col.iter_mut().zip(axis.iter()) {
+                *value = sign.clone() * value.clone() + factor.clone() * elem.clone();
+            }
+        }
+    }
+
+    reflection_norm
+}
 
 /// The QR decomposition (with column pivoting) of a general matrix.
 #[derive(Clone, Debug)]
@@ -70,7 +153,44 @@ where
     /// # Returns
     /// * `ColPivQR` - QR decomposition result with column pivoting. If early termination occurred,
     ///                remaining diagonal elements are set to zero.
-    pub fn new_with_rtol(mut matrix: OMatrix<T, R, C>, rtol: Option<T::RealField>) -> Self
+    pub fn new_with_rtol(matrix: OMatrix<T, R, C>, rtol: Option<T::RealField>) -> Self
+    where
+        T: ComplexField,
+    {
+        // SAFETY: the body only uses `assume_init` on the diagonal it fills.
+        unsafe { Self::new_with_rtol_impl(matrix, rtol) }
+    }
+
+    /// [`Self::new_with_rtol`] compiled for a target that has the `fma`
+    /// instruction.
+    ///
+    /// Marking this entry point is what decides whether the arithmetic below it
+    /// is compiled with FMA: everything inlined into it - the trailing
+    /// Householder update, the pivot search and the arithmetic of the scalar
+    /// type - then uses the instruction, whereas without it `f64::mul_add`
+    /// calls the software implementation in libm, which is what dominates the
+    /// cost of the SVE.
+    ///
+    /// # Safety
+    /// The caller must have established that the target supports `fma`
+    /// (see [`crate::numeric::fma_available`]).
+    #[target_feature(enable = "fma")]
+    pub unsafe fn new_with_rtol_fma(matrix: OMatrix<T, R, C>, rtol: Option<T::RealField>) -> Self
+    where
+        T: ComplexField,
+    {
+        // SAFETY: as in `new_with_rtol`.
+        unsafe { Self::new_with_rtol_impl(matrix, rtol) }
+    }
+
+    /// The body shared by [`Self::new_with_rtol`] and
+    /// [`Self::new_with_rtol_fma`], `#[inline(always)]` so that it is compiled
+    /// inside whichever entry point calls it.
+    ///
+    /// # Safety
+    /// The body only uses `assume_init` on the diagonal that the loop fills.
+    #[inline(always)]
+    unsafe fn new_with_rtol_impl(mut matrix: OMatrix<T, R, C>, rtol: Option<T::RealField>) -> Self
     where
         T: ComplexField,
     {
@@ -90,12 +210,13 @@ where
         let mut first_diag_abs = None;
 
         for i in 0..min_nrows_ncols.value() {
-            let piv = matrix.view_range(i.., i..).icamax_full();
+            let piv = icamax_full_inline(&matrix.view_range(i.., i..));
             let col_piv = piv.1 + i;
             matrix.swap_columns(i, col_piv);
             p.append_permutation(i, col_piv);
 
-            let diag_value = householder::clear_column_unchecked(&mut matrix, i, 0, None);
+            // SAFETY: i < min(nrows, ncols), so i < nrows and i < ncols.
+            let diag_value = unsafe { clear_column_inline(&mut matrix, i, 0) };
             let diag_abs = diag_value.clone().modulus();
 
             // Store first diagonal element's absolute value for early termination check

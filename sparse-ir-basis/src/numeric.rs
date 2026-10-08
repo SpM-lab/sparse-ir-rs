@@ -287,3 +287,25 @@ mod tests {
         assert!((pi_back - pi_f64).abs() < f64::EPSILON);
     }
 }
+
+/// True if the target has a hardware fused multiply-add.
+///
+/// The double-double arithmetic uses `f64::mul_add`, which without this feature
+/// is a call to the software implementation in libm and dominates the cost of
+/// the SVE.  FMA is mandatory in the aarch64 base instruction set; on x86-64 it
+/// has to be detected.  `is_x86_feature_detected!` caches the result.
+#[inline]
+pub fn fma_available() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::arch::is_x86_feature_detected!("fma")
+    }
+    #[cfg(target_arch = "aarch64")]
+    {
+        true
+    }
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    {
+        false
+    }
+}
