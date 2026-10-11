@@ -66,3 +66,12 @@ opt-level = 3
 lto = true
 # Single codegen unit for better optimization
 codegen-units = 1
+
+# Dev and test builds do not read DWARF, and it multiplies what every target directory and the
+# shared build cache hold. A session that wants it can ask for it with
+# `CARGO_PROFILE_DEV_DEBUG=2`, or `line-tables-only` for backtraces alone.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
