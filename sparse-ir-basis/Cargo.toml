@@ -22,7 +22,7 @@ tenferro-tensor.workspace = true
 num-complex.workspace = true
 num-traits.workspace = true
 # Extended precision
-xprec = "0.2.2"
+xprec = "0.2.3"
 simba = "0.9"
 libm.workspace = true
 # Extended-precision TSVD / QR
