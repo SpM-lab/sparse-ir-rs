@@ -300,7 +300,8 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
         self.fitter.fit(None, values)
     }
 
-    /// Fit real basis coefficients (real part of the complex solution)
+    /// Fit real basis coefficients: the least-squares solution over real
+    /// coefficients (see [`Self::fit_nd_real`])
     pub fn fit_real(&self, values: &[C64]) -> Result<Vec<f64>> {
         self.fitter.fit_real(None, values)
     }
@@ -432,7 +433,9 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// Fit N-dimensional array of complex values to real basis coefficients
     ///
     /// This method fits complex Matsubara values to real IR coefficients.
-    /// Takes the real part of the least-squares solution.
+    /// The least-squares solution over real coefficients,
+    /// `[Re A; Im A]⁺ [Re y; Im y]`; for data that real coefficients
+    /// reproduce exactly, the real part of the complex solution.
     ///
     /// # Arguments
     /// * `backend` - Optional GEMM backend handle (None uses default)
