@@ -915,8 +915,11 @@ pub(crate) fn pair_sampling_points<S: StatisticsType + 'static>(
         .iter()
         .map(|&k| MatsubaraFreq::new(2 * k + zeta))
         .collect::<Result<_, _>>()?;
-    // û_l(-n) = conj(û_l(n)) as u_l(τ) is real: only n >= 0 is evaluated
-    let values: Vec<Vec<Complex64>> = freqs.iter().map(|f| uhat.evaluate_at(f)).collect();
+    // Only the first n_used functions enter the selection: evaluate just
+    // those. û_l(-n) = conj(û_l(n)) as u_l(τ) is real: only n >= 0 is
+    // evaluated.
+    let used = PiecewiseLegendreFTVector::from_vector(uhat.polyvec[..n_used].to_vec());
+    let values: Vec<Vec<Complex64>> = freqs.iter().map(|f| used.evaluate_at(f)).collect();
     // n = 0 (bosons only) is the first candidate; it gives one row, Re û(0)
     let first = usize::from(bosonic);
     let pairs = DMatrix::<f64>::from_fn(2 * (freqs.len() - first), n_used, |i, l| {
