@@ -847,3 +847,30 @@ fn test_evaluate_at_matches_each_function_bitwise() {
     check(LogisticKernel::new(100.0).unwrap());
     check(LogisticKernelWindowed::from_physical(10.0, -3.0, 10.0).unwrap());
 }
+
+/// Large batches are evaluated on the thread pool, frequency `i` by job
+/// `i % T`; the result is bitwise that of evaluating each frequency on the
+/// calling thread, over low and asymptotic frequencies
+#[test]
+fn test_evaluate_at_many_on_the_pool_matches_serial() {
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(100.0).unwrap(),
+        10.0,
+        Some(1e-10),
+        None,
+    )
+    .unwrap();
+    let uhat = basis.uhat_full();
+    let freqs: Vec<FermionicFreq> = (-300..300)
+        .map(|k| FermionicFreq::new(2 * k * k * k + 1).unwrap())
+        .collect();
+    assert!(freqs.len() * uhat.len() >= super::PARALLEL_EVAL_MIN_VALUES);
+    let four = rayon::ThreadPoolBuilder::new()
+        .num_threads(4)
+        .build()
+        .unwrap();
+    let pooled = four.install(|| uhat.evaluate_at_many(&freqs));
+    for (i, freq) in freqs.iter().enumerate() {
+        assert_eq!(pooled[i], uhat.evaluate_at(freq), "frequency {i}");
+    }
+}

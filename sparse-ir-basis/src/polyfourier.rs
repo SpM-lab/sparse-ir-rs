@@ -326,6 +326,10 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 }
 
+/// Batches with fewer (frequency, polynomial) values than this are evaluated
+/// on the calling thread by [`PiecewiseLegendreFTVector::evaluate_at_many`].
+const PARALLEL_EVAL_MIN_VALUES: usize = 1 << 12;
+
 /// Segment-wise factors of the inner Fourier transform at one frequency:
 /// `w[order, j] = T_nl[order, j] · phase[j]`, stored as separate real and
 /// imaginary parts, segment-major (index `j * polyorder + order`, matching the
@@ -509,8 +513,18 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     }
 
     /// Evaluate all polynomials at multiple Matsubara frequencies
+    ///
+    /// Large batches are evaluated on the rayon pool, one job per frequency
+    /// (so cheap asymptotic and costly frequencies balance out). Each value
+    /// is computed exactly as in the serial case (under the caller's FPU
+    /// state), so the result does not depend on the number of threads.
     pub fn evaluate_at_many(&self, omegas: &[MatsubaraFreq<S>]) -> Vec<Vec<Complex64>> {
-        omegas.iter().map(|omega| self.evaluate_at(omega)).collect()
+        if crate::parallel::n_threads() <= 1
+            || omegas.len() * self.polyvec.len() < PARALLEL_EVAL_MIN_VALUES
+        {
+            return omegas.iter().map(|omega| self.evaluate_at(omega)).collect();
+        }
+        crate::parallel::map_on_pool(omegas.len(), |i| self.evaluate_at(&omegas[i]))
     }
 }
 
@@ -919,7 +933,7 @@ pub(crate) fn pair_sampling_points<S: StatisticsType + 'static>(
     // those. û_l(-n) = conj(û_l(n)) as u_l(τ) is real: only n >= 0 is
     // evaluated.
     let used = PiecewiseLegendreFTVector::from_vector(uhat.polyvec[..n_used].to_vec());
-    let values: Vec<Vec<Complex64>> = freqs.iter().map(|f| used.evaluate_at(f)).collect();
+    let values: Vec<Vec<Complex64>> = used.evaluate_at_many(&freqs);
     // n = 0 (bosons only) is the first candidate; it gives one row, Re û(0)
     let first = usize::from(bosonic);
     let pairs = DMatrix::<f64>::from_fn(2 * (freqs.len() - first), n_used, |i, l| {

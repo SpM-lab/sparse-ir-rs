@@ -11,8 +11,9 @@ pub enum Statistics {
 ///
 /// # Safety
 /// Types implementing this trait must be zero-sized types (ZST) used only as
-/// compile-time markers. The `Default` bound ensures safe instantiation.
-pub trait StatisticsType: Copy + Default {
+/// compile-time markers. The `Default` bound ensures safe instantiation;
+/// `Send + Sync` lets values tagged with them be shared across threads.
+pub trait StatisticsType: Copy + Default + Send + Sync {
     const STATISTICS: Statistics;
 }
 
