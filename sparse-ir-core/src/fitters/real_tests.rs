@@ -111,3 +111,17 @@ fn unsupported_combination_is_reported() {
         Err(Error::NotSupported { .. })
     ));
 }
+
+/// A rank-deficient matrix (two equal columns) gives the minimum-norm
+/// least-squares solution, not inf/NaN; so does the zero matrix.
+#[test]
+fn fit_rank_deficient_matrix() {
+    let a = Mat::<f64>::from_fn([5, 2], |idx| (idx[0] + 1) as f64);
+    let fitter = RealMatrixFitter::new(a);
+    let values: Vec<f64> = (1..=5).map(|i| i as f64).collect();
+    let coeffs = fitter.fit(None, &values).unwrap();
+    assert!((coeffs[0] - 0.5).abs() < 1e-14 && (coeffs[1] - 0.5).abs() < 1e-14);
+
+    let zero = RealMatrixFitter::new(Mat::<f64>::from_elem([4, 3], 0.0));
+    assert_eq!(zero.fit(None, &[1.0, 2.0, 3.0, 4.0]).unwrap(), vec![0.0; 3]);
+}

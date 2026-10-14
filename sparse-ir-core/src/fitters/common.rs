@@ -514,8 +514,12 @@ pub(crate) fn complex_to_stacked(
 /// Factors of the pseudo-inverse `A^+ = V diag(1/s) U^H` of an `n x m`
 /// matrix, stored for axis contractions.
 ///
-/// Rank is `r = min(n, m)` without truncation: sampling matrices are well
-/// conditioned by construction.
+/// The rank `r` counts the singular values above `max(n, m)·ε·s_0`, as
+/// LAPACK's least squares do (or above `rtol·s_0` for
+/// [`compute_pinv_truncated`]): a rank-deficient matrix, such as one with a
+/// repeated sampling point, then gives the minimum-norm least-squares
+/// solution instead of inf/NaN. Sampling matrices of full numerical rank keep
+/// all `min(n, m)` singular values.
 #[doc(hidden)]
 pub struct PinvFactors<T> {
     /// `U^H`, contiguous `r x n`.
@@ -684,15 +688,11 @@ fn compute_pinv_impl<T: SvdScalar>(
     }
     let (ldu, ldvt) = (u_shape[0], vt_shape[0]);
     let singular_values: Vec<f64> = s[..rank].iter().map(|&v| T::real_part(v)).collect();
-    let rank = match rtol {
-        Some(rtol) => {
-            let s0 = T::real_part(s[0]);
-            (0..rank)
-                .take_while(|&l| T::real_part(s[l]) > rtol * s0)
-                .count()
-        }
-        None => rank,
-    };
+    let rtol = rtol.unwrap_or(n.max(m) as f64 * f64::EPSILON);
+    let s0 = T::real_part(s[0]);
+    let rank = (0..rank)
+        .take_while(|&l| T::real_part(s[l]) > rtol * s0)
+        .count();
 
     // U^H: uh[l + r*i] = conj(U[i, l])
     let mut uh = vec![T::zero(); rank * n];
