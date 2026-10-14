@@ -328,7 +328,11 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 
 /// Batches with fewer (frequency, polynomial) values than this are evaluated
 /// on the calling thread by [`PiecewiseLegendreFTVector::evaluate_at_many`].
-const PARALLEL_EVAL_MIN_VALUES: usize = 1 << 12;
+/// A value away from the asymptotic region costs about 1.5–3 µs, so even
+/// small batches outweigh handing them to the pool: on an M1 Pro, the
+/// sampling matrices of the default points (L ≳ 10) were never slower on the
+/// pool, down to this size.
+const PARALLEL_EVAL_MIN_VALUES: usize = 1 << 6;
 
 /// Segment-wise factors of the inner Fourier transform at one frequency:
 /// `w[order, j] = T_nl[order, j] · phase[j]`, stored as separate real and
