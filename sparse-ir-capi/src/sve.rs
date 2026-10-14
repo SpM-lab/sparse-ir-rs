@@ -595,9 +595,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = i * (ny as usize) + j;
-                            // Use unsafe new_full since K_high and K_low are already properly compensated
-                            matrix[[i, j]] =
-                                unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                            matrix[[i, j]] = Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
                         }
                     }
                 }
@@ -605,9 +603,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = j * (nx as usize) + i;
-                            // Use unsafe new_full since K_high and K_low are already properly compensated
-                            matrix[[i, j]] =
-                                unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                            matrix[[i, j]] = Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
                         }
                     }
                 }
@@ -894,7 +890,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                             for j in 0..(ny as usize) {
                                 let idx = i * (ny as usize) + j;
                                 matrix_dd[[i, j]] =
-                                    unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                                    Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
                             }
                         }
                     }
@@ -903,7 +899,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                             for j in 0..(ny as usize) {
                                 let idx = j * (nx as usize) + i;
                                 matrix_dd[[i, j]] =
-                                    unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                                    Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
                             }
                         }
                     }
