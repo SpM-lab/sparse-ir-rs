@@ -430,6 +430,12 @@ fn is_gauss_point_count(n: libc::c_int, n_segments: libc::c_int, n_gauss: libc::
     n_segments.checked_mul(n_gauss) == Some(n)
 }
 
+/// The double-double number `hi + lo`, normalized: a pair passed in through
+/// the C API need not satisfy `hi + lo == hi`.
+fn df64_from_parts(hi: f64, lo: f64) -> sparse_ir::Df64 {
+    sparse_ir::Df64::from(hi) + sparse_ir::Df64::from(lo)
+}
+
 /// Create a SVE result from a discretized kernel matrix
 ///
 /// This function performs singular value expansion (SVE) on a discretized kernel
@@ -595,7 +601,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = i * (ny as usize) + j;
-                            matrix[[i, j]] = Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
+                            matrix[[i, j]] = df64_from_parts(k_high_slice[idx], k_low_slice[idx]);
                         }
                     }
                 }
@@ -603,7 +609,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = j * (nx as usize) + i;
-                            matrix[[i, j]] = Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
+                            matrix[[i, j]] = df64_from_parts(k_high_slice[idx], k_low_slice[idx]);
                         }
                     }
                 }
@@ -890,7 +896,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                             for j in 0..(ny as usize) {
                                 let idx = i * (ny as usize) + j;
                                 matrix_dd[[i, j]] =
-                                    Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
+                                    df64_from_parts(k_high_slice[idx], k_low_slice[idx]);
                             }
                         }
                     }
@@ -899,7 +905,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
                             for j in 0..(ny as usize) {
                                 let idx = j * (nx as usize) + i;
                                 matrix_dd[[i, j]] =
-                                    Df64::new_full(k_high_slice[idx], k_low_slice[idx]);
+                                    df64_from_parts(k_high_slice[idx], k_low_slice[idx]);
                             }
                         }
                     }
@@ -2142,5 +2148,19 @@ mod tests {
             assert_eq!(status, SPIR_INVALID_ARGUMENT, "{segs_x:?}");
             assert!(sve.is_null());
         }
+    }
+
+    /// Normalized (hi, lo) pairs are kept as they are; others are normalized
+    /// without changing their value.
+    #[test]
+    fn test_df64_from_parts() {
+        let x = sparse_ir::Df64::from(1.0) / sparse_ir::Df64::from(3.0);
+        let y = df64_from_parts(x.hi(), x.lo());
+        assert_eq!((y.hi(), y.lo()), (x.hi(), x.lo()));
+
+        let z = df64_from_parts(1.0, 1.0);
+        assert_eq!((z.hi(), z.lo()), (2.0, 0.0));
+        let w = df64_from_parts(1.0, 1e-17 + 2f64.powi(-53));
+        assert_eq!(w.hi() + w.lo(), w.hi());
     }
 }
