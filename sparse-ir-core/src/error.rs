@@ -124,8 +124,8 @@ pub enum Error {
         /// The shape of the array
         actual: Vec<usize>,
     },
-    /// The operation is not defined for this input, e.g. default Matsubara
-    /// sampling points for basis functions without a definite parity (#183).
+    /// The operation is not defined for this input, e.g. the even/odd SVE of
+    /// a kernel that is not centrosymmetric.
     #[error("not supported: {what}")]
     NotSupported {
         /// What is not supported, and why

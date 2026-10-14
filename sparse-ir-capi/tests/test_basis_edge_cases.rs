@@ -223,14 +223,13 @@ fn default_matsus_statuses(basis: *const spir_basis) -> Vec<(&'static str, i32, 
     rows
 }
 
-/// The default Matsubara points are sign changes of the real or imaginary
-/// part of a basis function, chosen by its parity. A basis built on an SVE
-/// without parity (`spir_sve_result_from_matrix`) has none: every getter
-/// must report SPIR_NOT_SUPPORTED and write nothing. Before the fix the core
-/// panicked ("Cannot detect parity") and the getters returned
-/// SPIR_INTERNAL_ERROR (-7).
+/// The default Matsubara points are selected from the real and imaginary
+/// parts of the basis functions, which needs no parity: a basis built on an
+/// SVE without parity (`spir_sve_result_from_matrix`) has them too, and every
+/// getter succeeds and writes them. They were SPIR_NOT_SUPPORTED, and before
+/// that a core panic ("Cannot detect parity", SPIR_INTERNAL_ERROR).
 #[test]
-fn default_matsus_of_a_basis_without_parity_are_not_supported() {
+fn default_matsus_of_a_basis_without_parity_are_supported() {
     let mut status = SPIR_INTERNAL_ERROR;
     let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
     assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
@@ -242,13 +241,13 @@ fn default_matsus_of_a_basis_without_parity_are_not_supported() {
 
         for (getter, status, untouched) in default_matsus_statuses(basis) {
             assert_eq!(
-                status, SPIR_NOT_SUPPORTED,
+                status, SPIR_COMPUTATION_SUCCESS,
                 "{getter}, statistics {statistics}"
             );
-            assert!(untouched, "{getter} wrote its output");
+            assert!(!untouched, "{getter} wrote nothing");
         }
 
-        // The default tau points do not need the parity
+        // Neither do the default tau points
         let mut n_taus = 0;
         assert_eq!(
             spir_basis_get_n_default_taus(basis, &mut n_taus),

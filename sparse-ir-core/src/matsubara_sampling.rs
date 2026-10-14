@@ -140,8 +140,7 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     /// # Errors
     ///
     /// The errors of [`Basis::default_matsubara_sampling_points`](crate::basis_trait::Basis::default_matsubara_sampling_points)
-    /// (NotSupported for a DLR or for basis functions without a definite
-    /// parity, #183)
+    /// (NotSupported for a DLR)
     pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Result<Self>
     where
         S: 'static,
@@ -585,8 +584,7 @@ impl<S: StatisticsType> MatsubaraSamplingPositiveOnly<S> {
     /// # Errors
     ///
     /// The errors of [`Basis::default_matsubara_sampling_points`](crate::basis_trait::Basis::default_matsubara_sampling_points)
-    /// (NotSupported for a DLR or for basis functions without a definite
-    /// parity, #183)
+    /// (NotSupported for a DLR)
     pub fn new(basis: &impl crate::basis_trait::Basis<S>) -> Result<Self>
     where
         S: 'static,

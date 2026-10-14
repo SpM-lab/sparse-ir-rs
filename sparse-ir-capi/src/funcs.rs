@@ -822,12 +822,17 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// `sparse_ir::basis::default_matsubara_sampling_points_from_uhat`
 /// to compute default sampling points: the sign changes of the first discarded
 /// Matsubara basis function (its extrema when that function is not available);
-/// bosonic sets always include n = 0.
+/// bosonic sets always include n = 0. Functions without a definite parity, as
+/// those of a basis built on an SVE from `spir_sve_result_from_matrix` (not
+/// centrosymmetric), have no such sign changes; their points are selected as
+/// a set symmetric in ±n that keeps the noise amplification and the aliasing
+/// of the next functions small.
 ///
 /// # Arguments
 /// * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
 /// * `positive_only` - If true, return only non-negative frequencies
-/// * `fence` - If true, add fencing points to improve conditioning
+/// * `fence` - If true, add fencing points to improve conditioning (for
+///   functions without definite parity, about 10% more frequencies)
 /// * `basis_size` - Size of the basis the points are chosen for
 /// * `points_capacity` - Number of elements `points` can hold
 /// * `points` - Buffer for the Matsubara indices, or NULL to query the number
@@ -843,11 +848,8 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// - SPIR_INVALID_ARGUMENT if points_capacity is smaller than the number of
 ///   points; `points` is left untouched and `*n_points_total` is set to the
 ///   required number
-/// - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function, or if its
-///   functions have no definite parity, as those of a basis built on an SVE
-///   from `spir_sve_result_from_matrix` (not centrosymmetric): the default
-///   points are chosen by the parity of a basis function and are not defined
-///   then. Nothing is written.
+/// - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function. Nothing is
+///   written.
 ///
 /// # Note
 /// This function is only available for spir_funcs objects representing Matsubara-space basis functions

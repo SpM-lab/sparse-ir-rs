@@ -181,21 +181,19 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 
     /// Compute the inner Fourier transform (for small frequencies)
     fn compute_unl_inner(&self, poly: &PiecewiseLegendrePoly, wn: i64) -> Complex64 {
-        let wred = PI / 4.0 * wn as f64;
-        let phase_wi = Self::phase_stable(poly, wn);
-        let mut res = Complex64::new(0.0, 0.0);
+        Self::contract_inner(poly, &InnerFactors::new::<S>(poly, poly.polyorder, wn))
+    }
 
-        let order_max = poly.polyorder;
+    /// Inner transform from precomputed segment-wise factors
+    fn contract_inner(poly: &PiecewiseLegendrePoly, f: &InnerFactors) -> Complex64 {
         let segment_count = poly.knots.len() - 1;
-
-        for order in 0..order_max {
+        let mut res = Complex64::new(0.0, 0.0);
+        for order in 0..poly.polyorder {
             for j in 0..segment_count {
                 let data_oj = poly.data[[order, j]];
-                let tnl = Self::get_tnl(order as i32, wred * poly.delta_x[j]);
-                res += data_oj * tnl * phase_wi[j] / poly.norms[j];
+                res += data_oj * f.tnl[order * segment_count + j] * f.phase[j] / poly.norms[j];
             }
         }
-
         res / 2.0_f64.sqrt()
     }
 
@@ -317,6 +315,29 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 }
 
+/// Segment-wise factors of the inner Fourier transform at one frequency:
+/// `T_nl` for each (order, segment) and the phase of each segment. They depend
+/// only on the knots, so polynomials sharing knots can share them.
+struct InnerFactors {
+    tnl: Vec<Complex64>,
+    phase: Vec<Complex64>,
+}
+
+impl InnerFactors {
+    fn new<S: StatisticsType>(poly: &PiecewiseLegendrePoly, polyorder: usize, wn: i64) -> Self {
+        let wred = PI / 4.0 * wn as f64;
+        let tnl = (0..polyorder)
+            .flat_map(|order| {
+                poly.delta_x
+                    .iter()
+                    .map(move |&dx| PiecewiseLegendreFT::<S>::get_tnl(order as i32, wred * dx))
+            })
+            .collect();
+        let phase = PiecewiseLegendreFT::<S>::phase_stable(poly, wn);
+        Self { tnl, phase }
+    }
+}
+
 /// Vector of PiecewiseLegendreFT polynomials
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendreFTVector<S: StatisticsType> {
@@ -428,10 +449,39 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     }
 
     /// Evaluate all polynomials at a Matsubara frequency
+    ///
+    /// When all polynomials share their knots (as the functions of one basis
+    /// do), the segment-wise factors of the inner transform are computed once.
     pub fn evaluate_at(&self, omega: &MatsubaraFreq<S>) -> Vec<Complex64> {
+        let Some(first) = self.polyvec.first() else {
+            return Vec::new();
+        };
+        let shared_knots = self
+            .polyvec
+            .iter()
+            .all(|p| p.poly.knots == first.poly.knots && p.poly.delta_x == first.poly.delta_x);
+        if !shared_knots {
+            return self.polyvec.iter().map(|p| p.evaluate(omega)).collect();
+        }
+        let n = omega.get_n();
+        let polyorder = self
+            .polyvec
+            .iter()
+            .map(|p| p.poly.polyorder)
+            .max()
+            .unwrap_or(0);
+        let mut factors = None;
         self.polyvec
             .iter()
-            .map(|poly| poly.evaluate(omega))
+            .map(|p| {
+                if (n as f64).abs() < p.n_asymp {
+                    let f = factors
+                        .get_or_insert_with(|| InnerFactors::new::<S>(&first.poly, polyorder, n));
+                    PiecewiseLegendreFT::<S>::contract_inner(&p.poly, f)
+                } else {
+                    p.giw(n)
+                }
+            })
             .collect()
     }
 
@@ -465,7 +515,7 @@ impl<S: StatisticsType> Default for PiecewiseLegendreFTVector<S> {
 
 // ===== Matsubara sampling point selection =====
 
-/// Default grid for finding extrema/sign changes
+/// Grid of reduced Matsubara indices k (n = 2k + ζ) for sampling candidates
 /// Matches C++ DEFAULT_GRID: [0:2^6-1] followed by exponential spacing up to 2^25
 /// Generated from Julia: [range(0; length=2^6); trunc.(Int, exp2.(range(6, 25; length=32 * (25 - 6) + 1)))]
 const DEFAULT_GRID: &[i64] = &[
@@ -527,7 +577,8 @@ const DEFAULT_GRID: &[i64] = &[
 ///
 /// # Errors
 ///
-/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0, #183)
+/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0);
+/// such functions get their points from [`pair_sampling_points`] instead
 pub(crate) fn sign_changes<S: StatisticsType + 'static>(
     u_hat: &PiecewiseLegendreFT<S>,
     positive_only: bool,
@@ -554,7 +605,8 @@ pub(crate) fn sign_changes<S: StatisticsType + 'static>(
 ///
 /// # Errors
 ///
-/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0, #183)
+/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0);
+/// such functions get their points from [`pair_sampling_points`] instead
 pub(crate) fn find_extrema<S: StatisticsType + 'static>(
     u_hat: &PiecewiseLegendreFT<S>,
     positive_only: bool,
@@ -591,7 +643,7 @@ enum Part {
 /// # Errors
 ///
 /// [`Error::NotSupported`] if `symm` is not ±1: the singular functions of an
-/// SVE that is not centrosymmetric have no parity (#183).
+/// SVE that is not centrosymmetric have no parity.
 fn part_with_the_sign_changes<S: StatisticsType>(symm: i32) -> Result<Part, Error> {
     match (symm, S::STATISTICS) {
         (1, Statistics::Bosonic) | (-1, Statistics::Fermionic) => Ok(Part::Real),
@@ -766,6 +818,114 @@ fn symmetrize_matsubara_inplace(xs: &mut Vec<i64>) {
     xs.append(&mut negatives);
     xs.sort();
     xs.dedup();
+}
+
+/// Number of functions beyond those fitted that the Matsubara sampling-point
+/// selection keeps aliasing small for (see
+/// [`pair_sampling_points`]).
+const MATSUBARA_SELECTION_TAIL: usize = 2;
+
+/// Matsubara sampling frequencies for fitting the first `n_points` functions
+/// of `uhat`, selected as symmetric pairs; the default points of functions
+/// without a definite parity
+///
+/// The sign changes of `û_L` that choose the default points of functions with
+/// a parity (as in SparseIR.jl) need `û_L` to be purely
+/// real or purely imaginary. This selection needs no parity.
+///
+/// Candidates are the frequencies `n = 2k + ζ >= 0` for `k` on
+/// [`DEFAULT_GRID`], which is dense at low frequencies and logarithmic beyond.
+///
+/// The selected set is symmetric, `{±n_k}`. Since `û_l(-n) = conj(û_l(n))`
+/// for a real `u_l(τ)`, fitting at `±n_k` is equivalent to fitting the real
+/// and imaginary parts at `n_k`, so the selection is made on the real matrix
+/// whose rows are `Re û_l(n_k)` and `Im û_l(n_k)`: two rows per frequency
+/// `n_k > 0`, one for `n = 0` (bosons). This needs no parity of the
+/// functions, so it serves kernels without centrosymmetry as well. As many
+/// rows as fitted functions are selected, rounded up to the parity allowed by
+/// these row counts: an even
+/// number for fermions, an odd number including `n = 0` for bosons, as for
+/// the sign changes. The rows are chosen by the `pair_select` module, which minimizes the noise
+/// amplification and the aliasing of the next [`MATSUBARA_SELECTION_TAIL`]
+/// functions, when `uhat` has them (the bias + variance criterion of Box and
+/// Draper).
+///
+/// With `mitigate`, about 10% more frequencies are added (oversampling),
+/// which further improves the conditioning of the fit.
+///
+/// With `positive_only`, the frequencies `n_k >= 0` are returned (as used
+/// for fitting real-valued imaginary-time functions); otherwise `±n_k`.
+/// Returned sorted; empty if `n_points` is 0.
+///
+/// # Errors
+///
+/// [`Error::EmptyInput`] if `uhat` is empty
+pub(crate) fn pair_sampling_points<S: StatisticsType + 'static>(
+    uhat: &PiecewiseLegendreFTVector<S>,
+    n_points: usize,
+    positive_only: bool,
+    mitigate: bool,
+) -> Result<Vec<MatsubaraFreq<S>>, Error> {
+    use crate::pair_select::select_pairs;
+    use nalgebra::DMatrix;
+
+    if uhat.is_empty() {
+        return Err(Error::EmptyInput { name: "uhat" });
+    }
+    let n_funcs = (n_points + 1 + MATSUBARA_SELECTION_TAIL).min(uhat.len());
+    let n_points = n_points.min(n_funcs);
+    if n_points == 0 {
+        return Ok(Vec::new());
+    }
+    let bosonic = S::STATISTICS == Statistics::Bosonic;
+    // Number of rows (and fitted columns) of the square selection
+    let n_cols = if bosonic {
+        n_points + 1 - n_points % 2
+    } else {
+        n_points + n_points % 2
+    }
+    .min(n_funcs);
+    let n_used = (n_cols + MATSUBARA_SELECTION_TAIL).min(n_funcs);
+    let zeta = i64::from(!bosonic);
+    // The candidates 2k + ζ have the parity of the statistics.
+    let freqs: Vec<MatsubaraFreq<S>> = DEFAULT_GRID
+        .iter()
+        .map(|&k| MatsubaraFreq::new(2 * k + zeta))
+        .collect::<Result<_, _>>()?;
+    // û_l(-n) = conj(û_l(n)) as u_l(τ) is real: only n >= 0 is evaluated
+    let values: Vec<Vec<Complex64>> = freqs.iter().map(|f| uhat.evaluate_at(f)).collect();
+    // n = 0 (bosons only) is the first candidate; it gives one row, Re û(0)
+    let first = usize::from(bosonic);
+    let pairs = DMatrix::<f64>::from_fn(2 * (freqs.len() - first), n_used, |i, l| {
+        let v = values[first + i / 2][l];
+        if i % 2 == 0 { v.re } else { v.im }
+    });
+    let fixed = DMatrix::<f64>::from_fn(usize::from(bosonic && n_cols % 2 == 1), n_used, |_, l| {
+        values[0][l].re
+    });
+    // Oversampling adds 10% more frequencies, in ± pairs
+    let n_extra = if mitigate {
+        n_points.div_ceil(10).div_ceil(2)
+    } else {
+        0
+    };
+    let mut selected: Vec<MatsubaraFreq<S>> = select_pairs(&pairs, &fixed, n_cols, n_extra)
+        .into_iter()
+        .map(|p| freqs[first + p])
+        .collect();
+    if fixed.nrows() == 1 {
+        selected.push(freqs[0]);
+    }
+    if !positive_only {
+        let negative: Vec<MatsubaraFreq<S>> = selected
+            .iter()
+            .filter(|f| f.get_n() != 0)
+            .map(|&f| -f)
+            .collect();
+        selected.extend(negative);
+    }
+    selected.sort();
+    Ok(selected)
 }
 
 #[cfg(test)]

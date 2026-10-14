@@ -39,6 +39,7 @@ pub mod ir_dlr; // DLR built from an IR basis, and the IR <-> DLR transform
 pub mod kernel;
 pub mod kernelmatrix;
 pub mod numeric;
+pub(crate) mod pair_select; // Matsubara sampling-point selection by pairs of rows
 pub mod poly;
 pub mod polyfourier;
 pub mod special_functions;

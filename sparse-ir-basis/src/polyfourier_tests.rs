@@ -480,12 +480,15 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
 }
 
 /// Functions without a parity (symm = 0, as from `compute_sve_general`) have
-/// no default Matsubara sampling points (#183): every entry point returns
-/// NotSupported (they panicked). The C API reports SPIR_NOT_SUPPORTED.
+/// default Matsubara sampling points (they were NotSupported, #183): every
+/// entry point returns the same symmetric set, and the samplings built from
+/// it, through the Basis trait, recover the coefficients.
 #[test]
-fn test_default_matsubara_points_need_functions_of_definite_parity() {
-    use crate::error::Error;
+fn test_default_matsubara_points_of_functions_without_parity() {
+    use crate::basis_trait::Basis;
+    use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
     use crate::sve::{TworkType, compute_sve_general};
+    use num_complex::Complex64;
 
     let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
@@ -493,60 +496,46 @@ fn test_default_matsubara_points_need_functions_of_definite_parity() {
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();
-    let not_supported = |err: Error| {
-        assert!(
-            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
-            "{err:?}"
-        );
-    };
     for positive_only in [false, true] {
-        not_supported(
-            basis
-                .default_matsubara_sampling_points(positive_only)
-                .unwrap_err(),
+        let points = basis
+            .default_matsubara_sampling_points(positive_only)
+            .unwrap();
+        let ns: Vec<i64> = points.iter().map(|f| f.n()).collect();
+        assert!(!ns.is_empty() && ns.iter().all(|n| n % 2 != 0), "{ns:?}");
+        assert_eq!(
+            Basis::default_matsubara_sampling_points(&basis, positive_only).unwrap(),
+            points
         );
-        not_supported(
+        assert_eq!(
             basis
                 .default_matsubara_sampling_points_i64(positive_only)
-                .unwrap_err(),
+                .unwrap(),
+            ns
         );
-        not_supported(
+        assert_eq!(
             basis
-                .default_matsubara_sampling_points_i64_with_mitigate(positive_only, true, 8)
-                .unwrap_err(),
+                .default_matsubara_sampling_points_i64_with_mitigate(
+                    positive_only,
+                    false,
+                    basis.size()
+                )
+                .unwrap(),
+            ns
         );
     }
-    // The other default points do not depend on the parity.
-    assert!(!basis.default_tau_sampling_points().unwrap().is_empty());
-    assert!(!basis.default_omega_sampling_points().unwrap().is_empty());
-}
 
-/// The entry points that go through the Basis trait report the same
-/// NotSupported for a basis without parity (#183): the trait method itself
-/// and the two Matsubara samplings built from it.
-#[test]
-fn test_trait_paths_to_default_matsubara_points_need_definite_parity() {
-    use crate::basis_trait::Basis;
-    use crate::error::Error;
-    use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
-    use crate::sve::{TworkType, compute_sve_general};
-
-    let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
-            .unwrap();
-    let not_supported = |err: Error| {
-        assert!(
-            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
-            "{err:?}"
-        );
-    };
-    for positive_only in [false, true] {
-        not_supported(Basis::default_matsubara_sampling_points(&basis, positive_only).unwrap_err());
+    let coeffs: Vec<f64> = (0..basis.size()).map(|l| 1.0 / (l as f64 + 1.0)).collect();
+    let complex: Vec<Complex64> = coeffs.iter().map(|&c| Complex64::new(c, 0.0)).collect();
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
+    let fitted = sampling.fit(&sampling.evaluate(&complex).unwrap()).unwrap();
+    for (l, (a, b)) in fitted.iter().zip(&complex).enumerate() {
+        assert!((a - b).norm() < 1e-10, "l = {l}: {a} vs {b}");
     }
-    not_supported(MatsubaraSampling::new(&basis).err().unwrap());
-    not_supported(MatsubaraSamplingPositiveOnly::new(&basis).err().unwrap());
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
+    let fitted = sampling.fit(&sampling.evaluate(&coeffs).unwrap()).unwrap();
+    for (l, (a, b)) in fitted.iter().zip(&coeffs).enumerate() {
+        assert!((a - b).abs() < 1e-10, "l = {l}: {a} vs {b}");
+    }
 }
 
 /// `set` rejects an index past the end, including `index == len`, and then
@@ -649,9 +638,9 @@ fn test_evaluate_at_n_rejects_the_wrong_parity() {
     assert_eq!(ft.evaluate_at_ns(&[1, -1]).unwrap().len(), 2);
 }
 
-/// Functions without a definite parity (symm = 0) have no default Matsubara
-/// sampling points: the sign changes and extrema that choose them are
-/// NotSupported, with both statistics (#183).
+/// Functions without a definite parity (symm = 0) have no sign changes and
+/// extrema to choose Matsubara points by: these are NotSupported, with both
+/// statistics (#183); the default points then come from the pair selection.
 #[test]
 fn test_sign_changes_of_functions_without_parity_are_not_supported() {
     use crate::error::Error;
@@ -719,4 +708,82 @@ fn test_uhat_asymptotic_branch_logistic_windowed() {
     check_asymptotic_branch_matches_exact(&fermionic);
     let bosonic = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(1e-10), None).unwrap();
     check_asymptotic_branch_matches_exact(&bosonic);
+}
+
+/// The Matsubara candidates are evaluated for n >= 0 only, relying on
+/// û_l(-n) = conj(û_l(n)) for real u_l(τ); check it on a basis without
+/// parity (asymmetric window), at low and asymptotic frequencies.
+#[test]
+fn test_uhat_negative_frequency_is_conjugate() {
+    use crate::freq::MatsubaraFreq;
+    use crate::kernel::LogisticKernelWindowed;
+
+    let kernel = LogisticKernelWindowed::from_physical(100.0, -0.2, 1.0).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, 100.0, Some(1e-8), None).unwrap();
+    let uhat = basis.uhat_full();
+    for n in [1i64, 3, 51, 999, 100_001, 10_000_001] {
+        let pos = uhat.evaluate_at(&MatsubaraFreq::<Fermionic>::new(n).unwrap());
+        let neg = uhat.evaluate_at(&MatsubaraFreq::<Fermionic>::new(-n).unwrap());
+        for (p, q) in pos.iter().zip(&neg) {
+            assert_eq!(*p, q.conj(), "n = {n}");
+        }
+    }
+}
+
+/// Default Matsubara sampling points are symmetric (`±n_k`, the full set is
+/// the positive-only set and its negatives), with an even number of points
+/// for fermions and an odd number including n = 0 for bosons; the number of
+/// points is the basis size, or one more when the parity requires it, and
+/// the fitting matrix is well conditioned. mitigate adds points: symmetric
+/// ones (oversampling) without parity, fencing points with parity. Checked
+/// with parity (symmetric kernel: the sign changes of SparseIR.jl) and
+/// without (asymmetric window: the pair selection).
+#[test]
+fn test_default_matsubara_points_symmetric() {
+    use crate::freq::MatsubaraFreq;
+    use crate::kernel::{AbstractKernel, LogisticKernelWindowed};
+
+    fn check<K, S>(kernel: K)
+    where
+        K: KernelProperties + AbstractKernel + Clone + 'static,
+        S: StatisticsType + 'static,
+    {
+        let basis = FiniteTempBasis::<K, S>::new(kernel, 100.0, Some(1e-8), None).unwrap();
+        let l = basis.size();
+        let full = basis.default_matsubara_sampling_points(false).unwrap();
+        let pos = basis.default_matsubara_sampling_points(true).unwrap();
+        let mut expected: Vec<MatsubaraFreq<S>> = pos.clone();
+        expected.extend(pos.iter().filter(|f| f.n() != 0).map(|&f| -f));
+        expected.sort();
+        assert!(full == expected, "full set is not ±(positive-only set)");
+        assert!(pos.iter().all(|f| f.n() >= 0));
+        let bosonic = S::STATISTICS == Statistics::Bosonic;
+        assert_eq!(full.len() % 2, usize::from(bosonic));
+        assert_eq!(pos.first().unwrap().n() == 0, bosonic);
+        assert!(
+            full.len() == l || full.len() == l + 1,
+            "{} points for L = {l}",
+            full.len()
+        );
+        // Conditioning of the fit at these points
+        let values = basis.uhat().evaluate_at_many(&full);
+        let a = nalgebra::DMatrix::from_fn(full.len(), l, |i, j| values[i][j]);
+        let sv = a.singular_values();
+        assert!(sv[0] / sv[l - 1] < 100.0, "cond = {}", sv[0] / sv[l - 1]);
+        // mitigate adds points
+        let full_n: Vec<i64> = full.iter().map(|f| f.n()).collect();
+        let over = basis
+            .default_matsubara_sampling_points_i64_with_mitigate(false, true, l)
+            .unwrap();
+        assert!(over.len() > full_n.len());
+        assert!(full_n.iter().all(|n| over.contains(n)));
+        if basis.uhat()[0].poly.symm == 0 {
+            assert!(over.iter().all(|n| over.contains(&-n)));
+        }
+    }
+    check::<_, Fermionic>(LogisticKernel::new(100.0).unwrap());
+    check::<_, Bosonic>(LogisticKernel::new(100.0).unwrap());
+    let window = LogisticKernelWindowed::from_physical(100.0, -0.2, 1.0).unwrap();
+    check::<_, Fermionic>(window);
+    check::<_, Bosonic>(window);
 }

@@ -211,9 +211,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis functions have no definite parity
-    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
-    /// #183)
+    /// The errors of [`Self::default_matsubara_sampling_points`]
     pub fn default_matsubara_sampling_points_i64(
         &self,
         positive_only: bool,
@@ -232,9 +230,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis functions have no definite parity
-    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
-    /// #183)
+    /// The errors of [`Self::default_matsubara_sampling_points`]
     pub fn default_matsubara_sampling_points_i64_with_mitigate(
         &self,
         positive_only: bool,
@@ -244,18 +240,10 @@ where
     where
         S: 'static,
     {
-        if !self.kernel().is_centrosymmetric() {
-            return Err(Error::NotSupported {
-                what: "default Matsubara sampling points of a basis whose kernel is not \
-                       centrosymmetric: they rely on the parity of the basis functions"
-                    .to_string(),
-            });
-        }
-        let fence = mitigate;
         let freqs = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
             n_points,
-            fence,
+            mitigate,
             positive_only,
         )?;
         Ok(freqs.into_iter().map(|f| f.n()).collect())
@@ -526,7 +514,12 @@ where
     ///
     /// Returns sampling points as MatsubaraFreq objects: the sign changes of the
     /// first discarded Matsubara basis function (its extrema when that function
-    /// is not available); bosonic sets always include n = 0.
+    /// is not available), as in SparseIR.jl; bosonic sets always include n = 0.
+    /// Basis functions without a definite parity (an SVE that is not
+    /// centrosymmetric, e.g. of [`LogisticKernelWindowed`] or from
+    /// `compute_sve_general`) have no such sign changes; their points are
+    /// selected as a set symmetric in ±n instead (see
+    /// [`default_matsubara_sampling_points_from_uhat`]).
     ///
     /// # Arguments
     /// * `positive_only` - If true, returns only non-negative frequencies
@@ -536,9 +529,10 @@ where
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis functions have no definite parity
-    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
-    /// #183)
+    /// [`Error::EmptyInput`] if the basis has no Matsubara functions, which a
+    /// basis from [`Self::new`] or [`Self::from_sve_result`] always has
+    ///
+    /// [`LogisticKernelWindowed`]: crate::kernel::LogisticKernelWindowed
     pub fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
@@ -546,13 +540,6 @@ where
     where
         S: 'static,
     {
-        if !self.kernel().is_centrosymmetric() {
-            return Err(Error::NotSupported {
-                what: "default Matsubara sampling points of a basis whose kernel is not \
-                       centrosymmetric: they rely on the parity of the basis functions"
-                    .to_string(),
-            });
-        }
         let fence = false;
         let points = Self::default_matsubara_sampling_points_impl(
             &self.uhat_full,
@@ -659,20 +646,25 @@ where
     }
 
     /// Default Matsubara sampling points for a basis of size `l` from the
-    /// Matsubara basis functions `uhat_full`: the sign changes of
+    /// Matsubara basis functions `uhat_full`
+    ///
+    /// For functions with a definite parity, these are the sign changes of
     /// `uhat_full[l]` (after the parity adjustment of `l`), or the extrema of
-    /// the last function when `uhat_full` has no function `l`; bosonic sets
-    /// always include n = 0. `fence` adds points near the outer frequencies.
+    /// the last function when `uhat_full` has no function `l`, as in
+    /// SparseIR.jl; bosonic sets always include n = 0. `mitigate` adds points
+    /// near the outer frequencies (fencing). Functions without a parity
+    /// (symm = 0, as from an SVE that is not centrosymmetric) have no such
+    /// sign changes; their points are selected as symmetric pairs by
+    /// [`crate::polyfourier::pair_sampling_points`], where `mitigate` adds
+    /// about 10% more frequencies (oversampling).
     ///
     /// # Errors
     ///
     /// * [`Error::EmptyInput`] if `uhat_full` is empty
-    /// * [`Error::NotSupported`] if the functions have no definite parity
-    ///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
     pub(crate) fn default_matsubara_sampling_points_impl(
         uhat_full: &PiecewiseLegendreFTVector<S>,
         l: usize,
-        fence: bool,
+        mitigate: bool,
         positive_only: bool,
     ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
     where
@@ -685,6 +677,10 @@ where
         if uhat_full.is_empty() {
             return Err(Error::EmptyInput { name: "uhat_full" });
         }
+        if uhat_full.get_polys().iter().any(|u| u.poly.symm == 0) {
+            return crate::polyfourier::pair_sampling_points(uhat_full, l, positive_only, mitigate);
+        }
+        let fence = mitigate;
 
         let mut l_requested = l;
 
@@ -916,18 +912,21 @@ pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
 /// Default Matsubara sampling points for a basis of size `l`, from the
 /// Matsubara basis functions `uhat_full` alone
 ///
-/// The points are the sign changes of `uhat_full[l]` (after the parity
-/// adjustment of `l`), or the extrema of the last function when `uhat_full`
-/// has no function `l`; bosonic sets always include n = 0. `fence` adds
-/// points near the outer frequencies. This is what
+/// For functions with a definite parity, the points are the sign changes of
+/// `uhat_full[l]` (after the parity adjustment of `l`), or the extrema of the
+/// last function when `uhat_full` has no function `l`, as in SparseIR.jl;
+/// bosonic sets always include n = 0. `fence` adds points near the outer
+/// frequencies (fencing). Functions without a parity (symm = 0, as from an
+/// SVE that is not centrosymmetric) have no such sign changes; their points
+/// are a set symmetric in ±n, selected as pairs that minimize the noise
+/// amplification and aliasing of the fit, where `fence` adds about 10%
+/// more frequencies (oversampling). This is what
 /// [`FiniteTempBasis::default_matsubara_sampling_points`] computes, for a
 /// caller that holds the functions but not the basis.
 ///
 /// # Errors
 ///
-/// * [`Error::EmptyInput`] if `uhat_full` is empty
-/// * [`Error::NotSupported`] if the functions have no definite parity
-///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
+/// [`Error::EmptyInput`] if `uhat_full` is empty
 pub fn default_matsubara_sampling_points_from_uhat<S>(
     uhat_full: &PiecewiseLegendreFTVector<S>,
     l: usize,

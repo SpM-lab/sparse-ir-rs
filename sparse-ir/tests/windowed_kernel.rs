@@ -200,3 +200,41 @@ fn windowed_dlr_rejects_pole_outside_window() {
         "{err:?}"
     );
 }
+
+fn windowed_basis() -> FiniteTempBasis<LogisticKernelWindowed, Fermionic> {
+    FiniteTempBasis::new(windowed(20.0, -0.2, 1.0), 20.0, Some(1e-10), None).unwrap()
+}
+
+/// The default tau sampling points do not assume centrosymmetry.
+#[test]
+fn windowed_tau_round_trip() {
+    use sparse_ir::TauSampling;
+
+    let basis = windowed_basis();
+    let sampling = TauSampling::new(&basis).unwrap();
+    let g: Vec<f64> = (0..basis.size()).map(|i| 1.0 / (i as f64 + 1.0)).collect();
+    let g_rec = sampling.fit(&sampling.evaluate(&g).unwrap()).unwrap();
+    for (i, (a, b)) in g.iter().zip(&g_rec).enumerate() {
+        assert!((a - b).abs() < 1e-8, "tau mismatch at {i}: {a} vs {b}");
+    }
+}
+
+/// Neither do the default Matsubara sampling points.
+#[test]
+fn windowed_matsubara_round_trip() {
+    use num_complex::Complex;
+    use sparse_ir::MatsubaraSampling;
+
+    let basis = windowed_basis();
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
+    let g: Vec<Complex<f64>> = (0..basis.size())
+        .map(|i| Complex::new(1.0 / (i as f64 + 1.0), 0.2 * i as f64))
+        .collect();
+    let g_rec = sampling.fit(&sampling.evaluate(&g).unwrap()).unwrap();
+    for (i, (a, b)) in g.iter().zip(&g_rec).enumerate() {
+        assert!(
+            (a - b).norm() < 1e-8,
+            "matsubara mismatch at {i}: {a} vs {b}"
+        );
+    }
+}

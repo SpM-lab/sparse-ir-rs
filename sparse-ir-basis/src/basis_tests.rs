@@ -571,12 +571,15 @@ fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
     }
 }
 
-/// default_matsubara_sampling_points_impl, which the C API calls with a
-/// Matsubara-space spir_funcs, returns NotSupported for functions without a
-/// definite parity (#183) and EmptyInput for no functions (it panicked on
-/// `len() - 1`).
+/// default_matsubara_sampling_points_from_uhat, which the C API calls with a
+/// Matsubara-space spir_funcs, selects points for functions without a
+/// definite parity too (they were NotSupported, #183): a set symmetric in ±n
+/// of fermionic frequencies, `size()` of them rounded up to an even number,
+/// the non-negative half with `positive_only`, more with mitigate. No
+/// functions give EmptyInput (it panicked on `len() - 1`).
 #[test]
-fn test_default_matsubara_points_impl_errors() {
+fn test_default_matsubara_points_from_uhat() {
+    use crate::basis::default_matsubara_sampling_points_from_uhat;
     use crate::polyfourier::PiecewiseLegendreFTVector;
     use crate::sve::compute_sve_general;
 
@@ -585,23 +588,37 @@ fn test_default_matsubara_points_impl_errors() {
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();
-    for (fence, positive_only) in [(false, false), (true, true)] {
-        let err =
-            FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
-                basis.uhat_full(),
-                basis.size(),
-                fence,
-                positive_only,
-            )
-            .unwrap_err();
-        assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
-    }
+    assert!(
+        basis
+            .uhat_full()
+            .get_polys()
+            .iter()
+            .all(|u| u.poly.symm == 0)
+    );
+    let ns = |mitigate, positive_only| -> Vec<i64> {
+        default_matsubara_sampling_points_from_uhat(
+            basis.uhat_full(),
+            basis.size(),
+            mitigate,
+            positive_only,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|f| f.n())
+        .collect()
+    };
+    let full = ns(false, false);
+    assert_eq!(full.len(), basis.size() + basis.size() % 2, "{full:?}");
+    assert!(full.iter().all(|n| n % 2 != 0), "{full:?}");
+    assert!(full.windows(2).all(|w| w[0] < w[1]), "{full:?}");
+    assert!(full.iter().all(|n| full.contains(&-n)), "{full:?}");
+    let positive: Vec<i64> = full.iter().copied().filter(|&n| n > 0).collect();
+    assert_eq!(ns(false, true), positive);
+    assert!(ns(true, false).len() > full.len());
+
     let empty = PiecewiseLegendreFTVector::<Fermionic>::new();
     assert_eq!(
-        FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
-            &empty, 4, false, false
-        )
-        .unwrap_err(),
+        default_matsubara_sampling_points_from_uhat(&empty, 4, false, false).unwrap_err(),
         Error::EmptyInput { name: "uhat_full" }
     );
 }
