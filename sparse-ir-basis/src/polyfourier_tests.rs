@@ -787,3 +787,41 @@ fn test_default_matsubara_points_symmetric() {
     check::<_, Fermionic>(window);
     check::<_, Bosonic>(window);
 }
+
+/// The inner transform, contracted segment by segment from shared factors,
+/// agrees with the term-by-term sum of `data · T_nl · phase / norm` to
+/// rounding, for every function of a basis, at low and high frequencies
+#[test]
+fn test_inner_transform_matches_term_by_term_sum() {
+    let beta = 10.0;
+    let kernel = LogisticKernel::new(100.0).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    let uhat = basis.uhat_full();
+    for n in [1i64, -3, 51, 999, 100_001] {
+        let freq = FermionicFreq::new(n).unwrap();
+        let shared = uhat.evaluate_at(&freq);
+        let max = shared.iter().map(|v| v.norm()).fold(0.0, f64::max);
+        for (l, ft) in uhat.get_polys().iter().enumerate() {
+            if (n as f64).abs() >= ft.n_asymp {
+                continue;
+            }
+            let poly = &ft.poly;
+            let wred = std::f64::consts::PI / 4.0 * n as f64;
+            let phase = FermionicPiecewiseLegendreFT::phase_stable(poly, n);
+            let mut naive = Complex64::new(0.0, 0.0);
+            for order in 0..poly.polyorder {
+                for j in 0..poly.knots.len() - 1 {
+                    let tnl =
+                        FermionicPiecewiseLegendreFT::get_tnl(order as i32, wred * poly.delta_x[j]);
+                    naive += poly.data[[order, j]] * tnl * phase[j] / poly.norms[j];
+                }
+            }
+            naive /= 2.0_f64.sqrt();
+            assert!(
+                (shared[l] - naive).norm() <= 1e-13 * max,
+                "n = {n}, l = {l}: {} vs {naive}",
+                shared[l]
+            );
+        }
+    }
+}

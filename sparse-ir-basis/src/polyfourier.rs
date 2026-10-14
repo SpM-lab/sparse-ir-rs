@@ -185,14 +185,25 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 
     /// Inner transform from precomputed segment-wise factors
+    ///
+    /// Sums `data[order, j] · T_nl[order, j] · phase[j]` over the orders of each
+    /// segment j first (real × complex over the contiguous column j of the
+    /// column-major `data`), then divides each segment sum by `norms[j]` once.
     fn contract_inner(poly: &PiecewiseLegendrePoly, f: &InnerFactors) -> Complex64 {
-        let segment_count = poly.knots.len() - 1;
+        let polyorder = poly.polyorder;
+        debug_assert_eq!(f.nseg, poly.knots.len() - 1);
+        debug_assert!(polyorder <= f.polyorder);
         let mut res = Complex64::new(0.0, 0.0);
-        for order in 0..poly.polyorder {
-            for j in 0..segment_count {
-                let data_oj = poly.data[[order, j]];
-                res += data_oj * f.tnl[order * segment_count + j] * f.phase[j] / poly.norms[j];
+        for j in 0..f.nseg {
+            let col = &poly.data.col(j)[..polyorder];
+            let w_re = &f.w_re[j * f.polyorder..j * f.polyorder + polyorder];
+            let w_im = &f.w_im[j * f.polyorder..j * f.polyorder + polyorder];
+            let (mut acc_re, mut acc_im) = (0.0, 0.0);
+            for o in 0..polyorder {
+                acc_re += col[o] * w_re[o];
+                acc_im += col[o] * w_im[o];
             }
+            res += Complex64::new(acc_re, acc_im) / poly.norms[j];
         }
         res / 2.0_f64.sqrt()
     }
@@ -316,25 +327,37 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 }
 
 /// Segment-wise factors of the inner Fourier transform at one frequency:
-/// `T_nl` for each (order, segment) and the phase of each segment. They depend
-/// only on the knots, so polynomials sharing knots can share them.
+/// `w[order, j] = T_nl[order, j] · phase[j]`, stored as separate real and
+/// imaginary parts, segment-major (index `j * polyorder + order`, matching the
+/// column-major polynomial data). They depend only on the knots, so
+/// polynomials sharing knots can share them.
 struct InnerFactors {
-    tnl: Vec<Complex64>,
-    phase: Vec<Complex64>,
+    nseg: usize,
+    polyorder: usize,
+    w_re: Vec<f64>,
+    w_im: Vec<f64>,
 }
 
 impl InnerFactors {
     fn new<S: StatisticsType>(poly: &PiecewiseLegendrePoly, polyorder: usize, wn: i64) -> Self {
         let wred = PI / 4.0 * wn as f64;
-        let tnl = (0..polyorder)
-            .flat_map(|order| {
-                poly.delta_x
-                    .iter()
-                    .map(move |&dx| PiecewiseLegendreFT::<S>::get_tnl(order as i32, wred * dx))
-            })
-            .collect();
         let phase = PiecewiseLegendreFT::<S>::phase_stable(poly, wn);
-        Self { tnl, phase }
+        let nseg = phase.len();
+        let mut w_re = Vec::with_capacity(polyorder * nseg);
+        let mut w_im = Vec::with_capacity(polyorder * nseg);
+        for (&dx, &ph) in poly.delta_x.iter().zip(&phase) {
+            for order in 0..polyorder {
+                let w = PiecewiseLegendreFT::<S>::get_tnl(order as i32, wred * dx) * ph;
+                w_re.push(w.re);
+                w_im.push(w.im);
+            }
+        }
+        Self {
+            nseg,
+            polyorder,
+            w_re,
+            w_im,
+        }
     }
 }
 
