@@ -707,7 +707,7 @@ impl Part {
 /// sign changes (see [`part_with_the_sign_changes`])
 fn func_for_part<S: StatisticsType + 'static>(
     poly_ft: &PiecewiseLegendreFT<S>,
-) -> Result<Box<dyn Fn(i64) -> f64>, Error> {
+) -> Result<Box<dyn Fn(i64) -> f64 + Sync>, Error> {
     let part = part_with_the_sign_changes::<S>(poly_ft.poly.symm())?;
     let zeta = poly_ft.zeta();
     let poly_ft_clone = poly_ft.clone();
@@ -772,26 +772,22 @@ fn bisect_discr_extremum(f: &dyn Fn(i64) -> f64, a: i64, b: i64) -> i64 {
 /// Find all sign changes of a function on a grid, using bisection to locate
 /// the precise integer position within each grid interval.
 /// Matches Julia's `find_all` with `bisect`.
-fn find_all(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
-    if xgrid.is_empty() {
-        return Vec::new();
-    }
+///
+/// The grid values and the bisections run on the thread pool: each value is
+/// computed by the same operations whatever the threading, so the result
+/// does not depend on the number of threads.
+fn find_all(f: &(dyn Fn(i64) -> f64 + Sync), xgrid: &[i64]) -> Vec<i64> {
+    use crate::parallel::map_on_pool;
 
-    let mut results = Vec::new();
-    let mut prev_val = f(xgrid[0]);
-
-    for i in 1..xgrid.len() {
-        let val = f(xgrid[i]);
-        // Detect sign change (both values must be nonzero)
-        if prev_val.signum() != val.signum() && prev_val != 0.0 && val != 0.0 {
-            // Bisect to find precise integer location of the zero
-            let root = bisect(f, xgrid[i - 1], xgrid[i], prev_val);
-            results.push(root);
-        }
-        prev_val = val;
-    }
-
-    results
+    let fx = map_on_pool(xgrid.len(), |i| f(xgrid[i]));
+    // Intervals with a sign change (both values must be nonzero)
+    let brackets: Vec<usize> = (1..xgrid.len())
+        .filter(|&i| fx[i - 1].signum() != fx[i].signum() && fx[i - 1] != 0.0 && fx[i] != 0.0)
+        .collect();
+    map_on_pool(brackets.len(), |k| {
+        let i = brackets[k];
+        bisect(f, xgrid[i - 1], xgrid[i], fx[i - 1])
+    })
 }
 
 /// Find discrete extrema of a function on a grid, using bisection to locate
