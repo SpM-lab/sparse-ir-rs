@@ -703,3 +703,51 @@ fn test_default_sampling_points_rejects_scaled_functions() {
     );
     assert!(default_sampling_points(&basis.sve_result().u, "u", unit, 3).is_ok());
 }
+
+/// The default Matsubara points are found once per basis; the
+/// `positive_only` points are the `n >= 0` part of the full set, which must
+/// be exactly the points found for `positive_only` directly (with and
+/// without parity, both statistics), also when asked for repeatedly.
+#[test]
+fn test_default_matsubara_points_are_reused() {
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::traits::StatisticsType;
+
+    fn check<K, S>(kernel: K, beta: f64)
+    where
+        K: crate::kernel::KernelProperties + crate::kernel::AbstractKernel + Clone + 'static,
+        S: StatisticsType + 'static,
+    {
+        let basis = FiniteTempBasis::<K, S>::new(kernel, beta, Some(1e-10), None).unwrap();
+        let direct = |positive_only| {
+            FiniteTempBasis::<K, S>::default_matsubara_sampling_points_impl(
+                basis.uhat_full(),
+                basis.size(),
+                false,
+                positive_only,
+            )
+            .unwrap()
+            .iter()
+            .map(|f| f.n())
+            .collect::<Vec<_>>()
+        };
+        for _ in 0..2 {
+            for positive_only in [false, true] {
+                assert_eq!(
+                    basis
+                        .default_matsubara_sampling_points_i64(positive_only)
+                        .unwrap(),
+                    direct(positive_only),
+                    "{:?}, positive_only = {positive_only}",
+                    S::STATISTICS
+                );
+            }
+        }
+    }
+    check::<_, Fermionic>(LogisticKernel::new(1e3).unwrap(), 1e3);
+    check::<_, Bosonic>(LogisticKernel::new(1e3).unwrap(), 1e3);
+    check::<_, Bosonic>(RegularizedBoseKernel::new(1e3).unwrap(), 1e3);
+    let windowed = LogisticKernelWindowed::from_physical(1e2, -0.3, 1.0).unwrap();
+    check::<_, Fermionic>(windowed, 1e2);
+    check::<_, Bosonic>(windowed, 1e2);
+}

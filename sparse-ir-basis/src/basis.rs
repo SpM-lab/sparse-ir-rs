@@ -3,7 +3,7 @@
 //! This module provides the `FiniteTempBasis` type which represents the
 //! intermediate representation (IR) basis for a given temperature.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::error::{
     Error, require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
@@ -75,6 +75,10 @@ where
     /// Full uhat (before truncation to basis size)
     /// Arc for efficient sharing (large immutable data, used for Matsubara sampling)
     uhat_full: Arc<PiecewiseLegendreFTVector<S>>,
+
+    /// Default Matsubara sampling points (both signs), found on first use:
+    /// each sampling object and C-API query asks for them again
+    default_matsubara_points: OnceLock<Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>>,
 
     _phantom: std::marker::PhantomData<S>,
 }
@@ -417,6 +421,7 @@ where
             s,
             uhat: Arc::new(uhat),
             uhat_full: Arc::new(uhat_full),
+            default_matsubara_points: OnceLock::new(),
             _phantom: std::marker::PhantomData,
         })
     }
@@ -540,13 +545,24 @@ where
     where
         S: 'static,
     {
-        let fence = false;
-        let points = Self::default_matsubara_sampling_points_impl(
-            &self.uhat_full,
-            self.size(),
-            fence,
-            positive_only,
-        )?;
+        // The set is symmetric in ±n, so the points n >= 0 are those of
+        // `positive_only`.
+        let points = self
+            .default_matsubara_points
+            .get_or_init(|| {
+                Self::default_matsubara_sampling_points_impl(
+                    &self.uhat_full,
+                    self.size(),
+                    false,
+                    false,
+                )
+            })
+            .clone()?;
+        let points = if positive_only {
+            points.into_iter().filter(|f| f.n() >= 0).collect()
+        } else {
+            points
+        };
         let basis_size = self.size();
         // For positive_only=true, we need 2*n_sampling_points >= basis_size
         // For positive_only=false, we need n_sampling_points >= basis_size
