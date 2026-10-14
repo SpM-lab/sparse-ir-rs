@@ -858,14 +858,14 @@ where
             );
         }
 
-        // Evaluate each basis function at all Matsubara frequencies
+        // Evaluate all basis functions frequency by frequency, so that the
+        // segment-wise factors of the transform are shared among them.
         // Result: matrix[i, l] = uhat_l(iν[i])
-        Ok(Mat::<Complex<f64>>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // frequency index
-            let l = idx[1]; // basis function index
-            self.uhat[l].evaluate(&freqs[i])
-        })
-        .into_typed())
+        let rows = self.uhat.evaluate_at_many(freqs);
+        Ok(
+            Mat::<Complex<f64>>::from_fn([n_points, basis_size], |idx| rows[idx[0]][idx[1]])
+                .into_typed(),
+        )
     }
 
     fn evaluate_omega(&self, omega: &[f64]) -> Result<crate::Matrix<f64>, Error> {

@@ -825,3 +825,25 @@ fn test_inner_transform_matches_term_by_term_sum() {
         }
     }
 }
+
+/// Evaluating all functions at once (sharing the segment-wise factors) gives
+/// bitwise the values of evaluating each function on its own, with and
+/// without parity, on both branches of the transform
+#[test]
+fn test_evaluate_at_matches_each_function_bitwise() {
+    use crate::kernel::LogisticKernelWindowed;
+
+    fn check<K: KernelProperties + crate::kernel::AbstractKernel + Clone + 'static>(kernel: K) {
+        let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, 10.0, Some(1e-10), None).unwrap();
+        let uhat = basis.uhat_full();
+        for n in [1i64, -3, 51, 999, 100_001, 10_000_001] {
+            let freq = FermionicFreq::new(n).unwrap();
+            let shared = uhat.evaluate_at(&freq);
+            for (l, ft) in uhat.get_polys().iter().enumerate() {
+                assert_eq!(shared[l], ft.evaluate(&freq), "n = {n}, l = {l}");
+            }
+        }
+    }
+    check(LogisticKernel::new(100.0).unwrap());
+    check(LogisticKernelWindowed::from_physical(10.0, -3.0, 10.0).unwrap());
+}
