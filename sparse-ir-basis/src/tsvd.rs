@@ -423,6 +423,9 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
     tsvd(&matrix_df64, TSVDConfig::new(rtol_df64))
 }
 
+/// Thin SVD `(U, s, V)` as matrices of the element type
+pub(crate) type SvdMats<T> = (Mat<T>, Vec<T>, Mat<T>);
+
 /// Compute SVD for DTensor using nalgebra-based TSVD
 ///
 /// Supports both f64 and Df64 types. Uses the dense CPQR-based [`tsvd`], which
@@ -436,7 +439,7 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
 /// Panics if `T` is neither `f64` nor `Df64`
 pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
     matrix: &Mat<T>,
-) -> Result<(Mat<T>, Vec<T>, Mat<T>), Error> {
+) -> Result<SvdMats<T>, Error> {
     let (m, n) = *matrix.shape();
     in_element_type::<T>(
         0.0,
@@ -476,7 +479,7 @@ pub(crate) fn compute_svd_aca<T: CustomNumeric + 'static>(
     n: usize,
     entry: &(dyn Fn(usize, usize) -> T + Sync),
     rtol: f64,
-) -> Result<(Mat<T>, Vec<T>, Mat<T>), Error> {
+) -> Result<SvdMats<T>, Error> {
     in_element_type::<T>(
         rtol,
         |config| crate::aca::tsvd_aca(m, n, |i, j| f64::convert_from(entry(i, j)), config),
@@ -494,7 +497,7 @@ fn in_element_type<T: CustomNumeric + 'static>(
     rtol: f64,
     svd_f64: impl FnOnce(TSVDConfig<f64>) -> Result<SVDResult<f64>, Error>,
     svd_df64: impl FnOnce(TSVDConfig<Df64>) -> Result<SVDResult<Df64>, Error>,
-) -> Result<(Mat<T>, Vec<T>, Mat<T>), Error> {
+) -> Result<SvdMats<T>, Error> {
     use std::any::TypeId;
 
     if TypeId::of::<T>() == TypeId::of::<f64>() {
@@ -511,7 +514,7 @@ fn in_element_type<T: CustomNumeric + 'static>(
 /// Split an [`SVDResult`] into matrices `(U, s, V)`, converting each element
 fn svd_result_to_mats<R: CustomNumeric + 'static, T: CustomNumeric>(
     result: SVDResult<R>,
-) -> (Mat<T>, Vec<T>, Mat<T>) {
+) -> SvdMats<T> {
     let u = Mat::<T>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
         T::convert_from(result.u[(idx[0], idx[1])])
     });

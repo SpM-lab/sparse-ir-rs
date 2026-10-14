@@ -871,7 +871,8 @@ const MATSUBARA_SELECTION_TAIL: usize = 2;
 /// real or purely imaginary. This selection needs no parity.
 ///
 /// Candidates are the frequencies `n = 2k + ζ >= 0` for `k` on
-/// [`DEFAULT_GRID`], which is dense at low frequencies and logarithmic beyond.
+/// the grid of the sign-change search (as in SparseIR.jl), which is dense at
+/// low frequencies and logarithmic beyond.
 ///
 /// The selected set is symmetric, `{±n_k}`. Since `û_l(-n) = conj(û_l(n))`
 /// for a real `u_l(τ)`, fitting at `±n_k` is equivalent to fitting the real

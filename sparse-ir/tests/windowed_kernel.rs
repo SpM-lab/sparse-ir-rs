@@ -172,12 +172,12 @@ fn windowed_bosonic_dlr_matches_ir() {
     let s = basis.svals();
     for (p, &pole) in dlr.poles().iter().enumerate() {
         let v = basis.evaluate_omega(&[pole]).unwrap();
-        for t in 0..taus.len() {
+        for (t, tau) in taus.iter().enumerate() {
             let ir: f64 = (0..basis.size())
                 .map(|l| -s[l] * *v.get(&[0, l]).unwrap() * *u.get(&[t, l]).unwrap())
                 .sum();
             let err = (ir - *dlr_tau.get(&[t, p]).unwrap()).abs();
-            assert!(err < 1e-8, "pole {pole}, tau {}: error {err:e}", taus[t]);
+            assert!(err < 1e-8, "pole {pole}, tau {tau}: error {err:e}");
         }
     }
 }

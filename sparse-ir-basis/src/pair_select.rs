@@ -119,7 +119,7 @@ impl Residuals {
 fn pair_grams(x: &DMatrix<f64>) -> Vec<Matrix2<f64>> {
     let mut grams = vec![Matrix2::zeros(); x.nrows() / 2];
     for col in x.column_iter() {
-        for (g, v) in grams.iter_mut().zip(col.as_slice().chunks_exact(2)) {
+        for (g, v) in grams.iter_mut().zip(col.as_slice().as_chunks::<2>().0) {
             g[(0, 0)] += v[0] * v[0];
             g[(0, 1)] += v[0] * v[1];
             g[(1, 1)] += v[1] * v[1];

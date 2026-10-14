@@ -810,10 +810,10 @@ fn test_inner_transform_matches_term_by_term_sum() {
             let phase = FermionicPiecewiseLegendreFT::phase_stable(poly, n);
             let mut naive = Complex64::new(0.0, 0.0);
             for order in 0..poly.polyorder {
-                for j in 0..poly.knots.len() - 1 {
+                for (j, ph) in phase.iter().enumerate() {
                     let tnl =
                         FermionicPiecewiseLegendreFT::get_tnl(order as i32, wred * poly.delta_x[j]);
-                    naive += poly.data[[order, j]] * tnl * phase[j] / poly.norms[j];
+                    naive += poly.data[[order, j]] * tnl * ph / poly.norms[j];
                 }
             }
             naive /= 2.0_f64.sqrt();
