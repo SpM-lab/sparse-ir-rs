@@ -4,7 +4,7 @@
 //! 2 — so the quadrature that turns it into `ρ_l` lives here rather than in
 //! either of them.
 
-use sparse_ir::{CentrosymmKernel, FiniteTempBasis, KernelProperties, StatisticsType};
+use sparse_ir::{AbstractKernel, FiniteTempBasis, KernelProperties, StatisticsType};
 use std::f64::consts::PI;
 
 use crate::integrate_segments;
@@ -32,7 +32,7 @@ pub fn shifted_semicircle(omega: f64, center: f64, half_width: f64, weight: f64)
 /// not in closed form.
 pub fn semicircle_overlaps<K, S>(basis: &FiniteTempBasis<K, S>) -> Vec<f64>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType,
 {
     shifted_semicircle_overlaps(basis, 0.0, 1.0, 1.0)
@@ -62,7 +62,7 @@ pub fn shifted_semicircle_overlaps<K, S>(
     weight: f64,
 ) -> Vec<f64>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType,
 {
     assert!(
@@ -110,7 +110,7 @@ where
 /// `g_l = −s_l ρ_l` for the semicircular `ρ`.
 pub fn semicircle_coefficients<K, S>(basis: &FiniteTempBasis<K, S>) -> (Vec<f64>, Vec<f64>)
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType,
 {
     let rho_l = semicircle_overlaps(basis);

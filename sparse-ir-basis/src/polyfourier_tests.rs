@@ -4,7 +4,7 @@
 
 use crate::basis::FiniteTempBasis;
 use crate::freq::{BosonicFreq, FermionicFreq};
-use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel};
+use crate::kernel::{AbstractKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel};
 use crate::matrix::mat;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::polyfourier::{
@@ -311,7 +311,7 @@ const ASYMPTOTIC_VS_EXACT_RTOL: f64 = 1e-6;
 /// them to agree.
 fn check_asymptotic_branch_matches_exact<K, S>(basis: &FiniteTempBasis<K, S>)
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType,
 {
     // #265 hit exactly l = 1, 2 (mod 4): make sure every residue occurs twice.
@@ -387,7 +387,7 @@ where
 /// (-1)^n u_l(beta) + u_l(0) instead, an error of 2 |u_l(beta)|.
 fn check_uhat_high_frequency_tail<K, S>(basis: &FiniteTempBasis<K, S>)
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType,
 {
     let beta = basis.beta();

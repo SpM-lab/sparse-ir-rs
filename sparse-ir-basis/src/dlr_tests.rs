@@ -1569,6 +1569,10 @@ impl KernelProperties for OtherYpowerKernel {
         self.0.ymax()
     }
 
+    fn lambda(&self) -> f64 {
+        self.0.lambda()
+    }
+
     fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
         self.0.regularizer::<S>(beta, omega)
     }

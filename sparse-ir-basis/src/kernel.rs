@@ -50,7 +50,7 @@ where
     /// upper bound of the x domain.
     ///
     /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [-xmax, xmax].
+    /// [xmin, xmax].
     fn segments_x(&self) -> Vec<T>;
 
     /// Get the y-axis segments for discretization
@@ -60,7 +60,7 @@ where
     /// upper bound of the y domain.
     ///
     /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [-ymax, ymax].
+    /// [ymin, ymax].
     fn segments_y(&self) -> Vec<T>;
 
     /// Get the number of singular values hint
@@ -93,6 +93,19 @@ pub trait KernelProperties {
 
     /// Get the upper bound of the y domain
     fn ymax(&self) -> f64;
+
+    /// Lower bound of the x domain. Defaults to the symmetric case `-xmax`.
+    fn xmin(&self) -> f64 {
+        -self.xmax()
+    }
+
+    /// Lower bound of the y domain. Defaults to the symmetric case `-ymax`.
+    fn ymin(&self) -> f64 {
+        -self.ymax()
+    }
+
+    /// Get the cutoff parameter Λ (lambda)
+    fn lambda(&self) -> f64;
 
     /// A regularizer for a bosonic kernel for avoiding a divergence at omega = 0.
     ///
@@ -127,18 +140,19 @@ pub trait KernelProperties {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 }
 
-/// Trait for general kernels (both centrosymmetric and non-centrosymmetric)
+/// Trait for kernels K(x, y), centrosymmetric or not
 ///
-/// This trait provides the basic interface for computing kernel values.
-/// Centrosymmetric kernels should implement `CentrosymmKernel` instead,
-/// which provides additional optimizations.
+/// Centrosymmetry is a runtime property ([`AbstractKernel::is_centrosymmetric`]):
+/// for a centrosymmetric kernel the SVE is block-diagonalized into the even
+/// and odd reduced kernels ([`AbstractKernel::compute_reduced`]); other
+/// kernels are expanded over their full domain.
 pub trait AbstractKernel: Send + Sync {
     /// Compute the kernel value K(x, y) with high precision
     ///
     /// # Arguments
     ///
-    /// * `x` - The x coordinate (typically in [-xmax, xmax])
-    /// * `y` - The y coordinate (typically in [-ymax, ymax])
+    /// * `x` - The x coordinate (typically in [xmin, xmax])
+    /// * `y` - The y coordinate (typically in [ymin, ymax])
     ///
     /// # Returns
     ///
@@ -147,9 +161,10 @@ pub trait AbstractKernel: Send + Sync {
 
     /// Check if the kernel is centrosymmetric
     ///
-    /// Returns true if and only if K(x, y) == K(-x, -y) for all values of x and y.
-    /// This allows the kernel to be block-diagonalized, speeding up the
-    /// singular value expansion by a factor of 4.
+    /// Returns true if and only if the domain is symmetric and
+    /// K(x, y) == K(-x, -y) for all values of x and y. This allows the kernel
+    /// to be block-diagonalized, speeding up the singular value expansion by a
+    /// factor of 4.
     ///
     /// # Returns
     ///
@@ -157,26 +172,25 @@ pub trait AbstractKernel: Send + Sync {
     fn is_centrosymmetric(&self) -> bool {
         false
     }
-}
 
-/// Trait for centrosymmetric kernels
-///
-/// Centrosymmetric kernels satisfy K(x, y) = K(-x, -y) and can be decomposed
-/// into even and odd components for efficient computation.
-pub trait CentrosymmKernel: AbstractKernel {
-    /// Compute the reduced kernel value
+    /// Compute the reduced kernel value of a centrosymmetric kernel
     ///
     /// K_red(x, y) = K(x, y) + sign * K(x, -y)
-    /// where sign = 1 for even symmetry and sign = -1 for odd symmetry
+    /// where sign = 1 for even symmetry and sign = -1 for odd symmetry.
+    ///
+    /// Only meaningful when [`AbstractKernel::is_centrosymmetric`] is true.
+    /// Kernels may override it to avoid the cancellation in the odd part.
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
         y: T,
         symmetry: SymmetryType,
-    ) -> T;
-
-    /// Get the cutoff parameter Λ (lambda)
-    fn lambda(&self) -> f64;
+    ) -> T {
+        match symmetry {
+            SymmetryType::Even => self.compute(x, y) + self.compute(x, -y),
+            SymmetryType::Odd => self.compute(x, y) - self.compute(x, -y),
+        }
+    }
 }
 
 /// Logistic kernel for fermionic and bosonic analytical continuation
@@ -228,6 +242,10 @@ impl KernelProperties for LogisticKernel {
     }
     fn ymax(&self) -> f64 {
         1.0
+    }
+
+    fn lambda(&self) -> f64 {
+        self.lambda
     }
 
     fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
@@ -295,9 +313,7 @@ impl AbstractKernel for LogisticKernel {
     fn is_centrosymmetric(&self) -> bool {
         true
     }
-}
 
-impl CentrosymmKernel for LogisticKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
@@ -308,10 +324,6 @@ impl CentrosymmKernel for LogisticKernel {
             SymmetryType::Even => self.compute(x, y) + self.compute(x, -y),
             SymmetryType::Odd => compute_logistic_kernel_reduced_odd(self.lambda, x, y),
         }
-    }
-
-    fn lambda(&self) -> f64 {
-        self.lambda
     }
 }
 
@@ -611,6 +623,10 @@ impl KernelProperties for RegularizedBoseKernel {
         1.0
     }
 
+    fn lambda(&self) -> f64 {
+        self.lambda
+    }
+
     fn regularizer<S: StatisticsType + 'static>(&self, _beta: f64, omega: f64) -> f64 {
         match S::STATISTICS {
             Statistics::Fermionic => {
@@ -641,9 +657,7 @@ impl AbstractKernel for RegularizedBoseKernel {
     fn is_centrosymmetric(&self) -> bool {
         true
     }
-}
 
-impl CentrosymmKernel for RegularizedBoseKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
@@ -670,10 +684,6 @@ impl CentrosymmKernel for RegularizedBoseKernel {
                 }
             }
         }
-    }
-
-    fn lambda(&self) -> f64 {
-        self.lambda
     }
 }
 

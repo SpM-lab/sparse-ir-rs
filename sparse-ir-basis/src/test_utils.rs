@@ -200,7 +200,7 @@ pub fn generate_test_data_tau_and_matsubara<T, S, K>(
 where
     T: RandomGenerate + ConvertFromReal + Clone + std::ops::Mul<f64, Output = T>,
     S: crate::traits::StatisticsType,
-    K: crate::kernel::KernelProperties + crate::kernel::CentrosymmKernel + Clone + 'static,
+    K: crate::kernel::KernelProperties + crate::kernel::AbstractKernel + Clone + 'static,
 {
     use crate::giwn_single_pole;
 
@@ -279,7 +279,7 @@ where
         + std::ops::Sub<Output = T>
         + std::ops::Mul<Output = T>,
     S: crate::traits::StatisticsType,
-    K: crate::kernel::KernelProperties + crate::kernel::CentrosymmKernel + Clone + 'static,
+    K: crate::kernel::KernelProperties + crate::kernel::AbstractKernel + Clone + 'static,
 {
     use crate::{giwn_single_pole, gtau_single_pole};
 

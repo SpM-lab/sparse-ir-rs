@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::error::{
     Error, require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
 };
-use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel};
+use crate::kernel::{AbstractKernel, KernelProperties, LogisticKernel};
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector, default_sampling_points};
 use crate::polyfourier::PiecewiseLegendreFTVector;
 use crate::sve::{SVEResult, TworkType, compute_sve};
@@ -36,12 +36,12 @@ pub enum Statistics {
 ///
 /// # Type Parameters
 ///
-/// * `K` - Kernel type implementing `KernelProperties + CentrosymmKernel`
+/// * `K` - Kernel type implementing `KernelProperties + AbstractKernel`
 /// * `S` - Statistics type (`Fermionic` or `Bosonic`)
 #[derive(Clone)]
 pub struct FiniteTempBasis<K, S>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType,
 {
     /// The kernel used to construct this basis
@@ -126,7 +126,7 @@ fn unit_knots_and_widths(poly: &PiecewiseLegendrePoly) -> (Vec<f64>, Vec<f64>) {
 
 impl<K, S> FiniteTempBasis<K, S>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType,
 {
     // ========== Getters ==========
@@ -248,7 +248,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `kernel` - Kernel implementing `KernelProperties + CentrosymmKernel`
+    /// * `kernel` - Kernel implementing `KernelProperties + AbstractKernel`
     /// * `beta` - Inverse temperature (β > 0)
     /// * `epsilon` - Accuracy of the basis, in (0, 1). `None` selects the best
     ///   accuracy of the working precision (about 1.6e-16).
@@ -742,7 +742,7 @@ where
 
 impl<K, S> crate::basis_trait::Basis<S> for FiniteTempBasis<K, S>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: KernelProperties + AbstractKernel + Clone + 'static,
     S: StatisticsType + 'static,
 {
     fn beta(&self) -> f64 {

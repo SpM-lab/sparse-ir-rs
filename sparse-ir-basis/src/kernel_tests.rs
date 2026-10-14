@@ -81,7 +81,7 @@ impl KernelDbigCompute for RegularizedBoseKernel {
 /// Compares kernel implementation against high-precision DBig reference.
 ///
 /// # Type Parameters
-/// * `K` - Kernel type implementing CentrosymmKernel and KernelDbigCompute
+/// * `K` - Kernel type implementing AbstractKernel and KernelDbigCompute
 /// * `T` - Numeric type to test (f64, Df64, etc.)
 fn test_kernel_compute_precision_generic<K, T>(
     kernel: &K,
@@ -91,7 +91,7 @@ fn test_kernel_compute_precision_generic<K, T>(
     tolerance: f64,
     kernel_name: &str,
 ) where
-    K: CentrosymmKernel + KernelDbigCompute,
+    K: AbstractKernel + KernelDbigCompute,
     T: CustomNumeric,
 {
     // Convert inputs to type T
@@ -252,7 +252,7 @@ fn test_kernel_compute_reduced_precision_generic<K, T>(
     tolerance: f64,
     kernel_name: &str,
 ) where
-    K: CentrosymmKernel + KernelDbigCompute,
+    K: AbstractKernel + KernelDbigCompute,
     T: CustomNumeric,
 {
     // Convert inputs to type T
@@ -313,14 +313,14 @@ fn test_kernel_compute_reduced_precision_generic<K, T>(
 
 /// Generic test helper for different lambda values
 /// Tests both compute() and compute_reduced() for Even and Odd symmetries
-/// Works with any CentrosymmKernel that implements KernelDbigCompute
+/// Works with any AbstractKernel that implements KernelDbigCompute
 fn test_kernel_precision_different_lambdas<K, F, T>(
     kernel_constructor: F,
     kernel_name: &str,
     test_points: &[(T, T)],
     lambdas: &[f64],
 ) where
-    K: CentrosymmKernel + KernelDbigCompute + Clone,
+    K: AbstractKernel + KernelDbigCompute + Clone,
     F: Fn(f64) -> K,
     T: CustomNumeric + Copy,
 {

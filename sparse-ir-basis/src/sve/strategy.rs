@@ -2,7 +2,7 @@
 
 use crate::error::Error;
 use crate::gauss::{Rule, legendre_generic};
-use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
+use crate::kernel::{AbstractKernel, KernelProperties, SVEHints, SymmetryType};
 use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
@@ -148,7 +148,7 @@ where
 pub struct CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + 'static,
-    K: CentrosymmKernel + KernelProperties,
+    K: AbstractKernel + KernelProperties,
 {
     kernel: K,
     epsilon: f64,
@@ -171,16 +171,23 @@ where
 impl<T, K> CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: CentrosymmKernel + KernelProperties + Clone,
+    K: AbstractKernel + KernelProperties + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new CentrosymmSVE
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidParameter`] if the SVE hints of the kernel give
-    /// segments that are not finite and strictly increasing
+    /// * [`Error::NotSupported`] if the kernel is not centrosymmetric
+    ///   ([`AbstractKernel::is_centrosymmetric`]); use [`NonCentrosymmSVE`]
+    /// * [`Error::InvalidParameter`] if the SVE hints of the kernel give
+    ///   segments that are not finite and strictly increasing
     pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
+        if !kernel.is_centrosymmetric() {
+            return Err(Error::NotSupported {
+                what: "the even/odd SVE of a kernel that is not centrosymmetric".to_string(),
+            });
+        }
         let hints = kernel.sve_hints::<T>(epsilon);
 
         // Get segments for positive domain [0, xmax]
@@ -252,7 +259,7 @@ where
 impl<T, K> SVEStrategy<T> for CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: CentrosymmKernel + KernelProperties + Clone,
+    K: AbstractKernel + KernelProperties + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     fn matrices(&self) -> Vec<Mat<T>> {
@@ -290,7 +297,7 @@ where
     }
 }
 
-/// SVE hints of a kernel expressed on its full domain `[-xmax, xmax] × [-ymax, ymax]`
+/// SVE hints of a kernel expressed on its full domain `[xmin, xmax] × [ymin, ymax]`
 ///
 /// [`SVEHints`] reports the segments of a centrosymmetric kernel on the
 /// half-domain `[0, xmax] × [0, ymax]` only, which is what [`CentrosymmSVE`]
@@ -340,8 +347,8 @@ where
 /// Non-centrosymmetric SVE computation
 ///
 /// This strategy computes the kernel matrix directly over the full domain
-/// [-xmax, xmax] × [-ymax, ymax]. No symmetry exploitation is performed, so it
-/// works for any kernel.
+/// [xmin, xmax] × [ymin, ymax] given by the kernel's [`SVEHints`]. No symmetry
+/// exploitation is performed, so it works for any kernel.
 ///
 /// Centrosymmetric kernels are also expanded correctly: their [`SVEHints`]
 /// segments cover only the half-domain `[0, xmax]` and are mirrored onto the
@@ -396,7 +403,7 @@ where
             half_domain: kernel.is_centrosymmetric(),
         };
 
-        // Get segments for full domain [-xmax, xmax]
+        // Get segments for full domain [xmin, xmax], [ymin, ymax]
         let segments_x = hints.segments_x();
         let segments_y = hints.segments_y();
         let n_gauss = hints.ngauss();
