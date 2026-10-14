@@ -60,9 +60,9 @@ jobs:
         run: cargo test --workspace --exclude sparse-ir-capi --doc --release --locked
 
       # The `parallel` feature is off by default: test the threaded paths
-      # of the core and the basis crates with it as well.
+      # of the sve, core and basis crates with it as well.
       - name: Run library tests with the parallel feature
-        run: cargo test -p sparse-ir-core -p sparse-ir-basis --lib --release --locked --features sparse-ir-core/parallel,sparse-ir-basis/parallel
+        run: cargo test -p sparse-ir-sve -p sparse-ir-core -p sparse-ir-basis --lib --release --locked --features sparse-ir-sve/parallel,sparse-ir-core/parallel,sparse-ir-basis/parallel
 
       # spir_cpu_has_fma reads CPUID itself. In a build without FMA, std's
       # runtime detection asks the CPU too, and the test compares the two.

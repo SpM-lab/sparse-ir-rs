@@ -1,0 +1,30 @@
+[package]
+name = "sparse-ir-sve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Singular value expansion of integral kernels in extended precision, with an ACA-accelerated truncated SVD"
+readme = "README.md"
+keywords = ["sve", "svd", "integral-kernel", "numerics", "sparse-ir"]
+categories.workspace = true
+
+[package.metadata.docs.rs]
+targets = ["x86_64-unknown-linux-gnu"]
+
+[dependencies]
+num-traits.workspace = true
+thiserror.workspace = true
+# One-time FPU check
+once_cell.workspace = true
+# Thread pool for the parallel work of the library (see src/parallel.rs),
+# with the `parallel` feature
+rayon = { workspace = true, optional = true }
+
+[features]
+# Run the threaded work (the SVE) on the rayon thread pool; without it
+# everything runs on the calling thread. Off by default, as in the other
+# library crates; the sparse-ir crate turns it on.
+parallel = ["dep:rayon"]

@@ -1437,6 +1437,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "pkg-config",
+ "sparse-ir-sve",
  "tenferro-cpu",
  "tenferro-linalg",
  "tenferro-tensor",
@@ -1463,6 +1464,15 @@ dependencies = [
  "tenferro-cpu",
  "tenferro-linalg",
  "tenferro-tensor",
+]
+
+[[package]]
+name = "sparse-ir-sve"
+version = "0.15.0"
+dependencies = [
+ "num-traits",
+ "once_cell",
+ "thiserror 1.0.69",
 ]
 
 [[package]]

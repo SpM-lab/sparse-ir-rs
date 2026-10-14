@@ -47,7 +47,7 @@ features = ["user-hooks"]
 [features]
 default = []
 # Opt-in: the threaded work of the library (the SVE) runs on the current
-# rayon thread pool (see sparse-ir-core/src/parallel.rs). Off by default, so
+# rayon thread pool (see sparse-ir-sve/src/parallel.rs). Off by default, so
 # that the library does not use all cores of the machine unasked (#344); the
 # C API (sparse-ir-capi) never enables it.
 parallel = ["sparse-ir-core/parallel", "sparse-ir-basis/parallel"]

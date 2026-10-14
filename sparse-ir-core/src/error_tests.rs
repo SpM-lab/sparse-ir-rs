@@ -201,6 +201,77 @@ fn test_every_variant_lists_each_variant_once() {
     assert_eq!(numbers, (0..VARIANT_COUNT).collect::<Vec<_>>());
 }
 
+/// Each SVE error becomes the variant of the same name, with the same message
+#[test]
+fn test_sve_errors_convert_variant_by_variant() {
+    use sparse_ir_sve::Error as Sve;
+
+    let pairs = [
+        (
+            Sve::InvalidParameter {
+                name: "epsilon",
+                value: "2.0".to_string(),
+                reason: "must be in (0, 1)".to_string(),
+            },
+            Error::InvalidParameter {
+                name: "epsilon",
+                value: "2.0".to_string(),
+                reason: "must be in (0, 1)".to_string(),
+            },
+        ),
+        (
+            Sve::OutOfDomain {
+                name: "x",
+                value: 2.0,
+                domain: (-1.0, 1.0),
+            },
+            Error::OutOfDomain {
+                name: "x",
+                value: 2.0,
+                domain: (-1.0, 1.0),
+            },
+        ),
+        (
+            Sve::EmptyInput { name: "segments" },
+            Error::EmptyInput { name: "segments" },
+        ),
+        (
+            Sve::NonFiniteInput {
+                name: "matrix",
+                index: vec![1, 2],
+                value: f64::INFINITY,
+            },
+            Error::NonFiniteInput {
+                name: "matrix",
+                index: vec![1, 2],
+                value: f64::INFINITY,
+            },
+        ),
+        (
+            Sve::NotSupported {
+                what: "odd kernel".to_string(),
+            },
+            Error::NotSupported {
+                what: "odd kernel".to_string(),
+            },
+        ),
+        (
+            Sve::DecompositionFailed {
+                reason: "no convergence".to_string(),
+            },
+            Error::DecompositionFailed {
+                reason: "no convergence".to_string(),
+            },
+        ),
+    ];
+    for (sve, expected) in pairs {
+        let message = sve.to_string();
+        let converted = Error::from(sve);
+        assert_eq!(converted, expected);
+        assert_eq!(converted.to_string(), message);
+    }
+}
+
 /// A shape mismatch of the output has its own kind (the C API reports
 /// SPIR_OUTPUT_DIMENSION_MISMATCH), and the message names the array.
 #[test]

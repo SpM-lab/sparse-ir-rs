@@ -157,6 +157,45 @@ impl From<tenferro_tensor::Error> for Error {
     }
 }
 
+/// Each variant of the SVE error becomes the variant of the same name.
+impl From<sparse_ir_sve::Error> for Error {
+    fn from(e: sparse_ir_sve::Error) -> Self {
+        use sparse_ir_sve::Error as Sve;
+        match e {
+            Sve::InvalidParameter {
+                name,
+                value,
+                reason,
+            } => Error::InvalidParameter {
+                name,
+                value,
+                reason,
+            },
+            Sve::OutOfDomain {
+                name,
+                value,
+                domain,
+            } => Error::OutOfDomain {
+                name,
+                value,
+                domain,
+            },
+            Sve::EmptyInput { name } => Error::EmptyInput { name },
+            Sve::NonFiniteInput { name, index, value } => {
+                Error::NonFiniteInput { name, index, value }
+            }
+            Sve::NotSupported { what } => Error::NotSupported { what },
+            Sve::DecompositionFailed { reason } => Error::DecompositionFailed { reason },
+            // sparse-ir-sve is released together with this crate, which maps
+            // every variant it has; one added there without a counterpart
+            // here is a failure the caller cannot act on.
+            other => Error::DecompositionFailed {
+                reason: other.to_string(),
+            },
+        }
+    }
+}
+
 /// Category of an [`Error`]
 ///
 /// Each category corresponds to one failure status code of the C API, shown
@@ -234,70 +273,33 @@ fn invalid_matsubara_index_message(n: &i64, statistics: &Statistics) -> String {
 /// `Ok` if `value` is positive and finite
 #[doc(hidden)]
 pub fn require_positive_finite(name: &'static str, value: f64) -> Result<(), Error> {
-    if value > 0.0 && value.is_finite() {
-        Ok(())
-    } else {
-        Err(Error::InvalidParameter {
-            name,
-            value: format!("{value:?}"),
-            reason: "must be positive and finite".to_string(),
-        })
-    }
+    Ok(sparse_ir_sve::error::require_positive_finite(name, value)?)
 }
 
 /// `Ok` if `value` is finite
 #[doc(hidden)]
 pub fn require_finite(name: &'static str, value: f64) -> Result<(), Error> {
-    if value.is_finite() {
-        Ok(())
-    } else {
-        Err(Error::InvalidParameter {
-            name,
-            value: format!("{value:?}"),
-            reason: "must be finite".to_string(),
-        })
-    }
+    Ok(sparse_ir_sve::error::require_finite(name, value)?)
 }
 
 /// `Ok` for an accuracy that selects the SVE: `None` (automatic) or a value
 /// in (0, 1)
 #[doc(hidden)]
 pub fn require_accuracy(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
-    match epsilon {
-        Some(eps) if !(eps > 0.0 && eps < 1.0) => Err(Error::InvalidParameter {
-            name,
-            value: format!("{eps:?}"),
-            reason: "must be in (0, 1)".to_string(),
-        }),
-        _ => Ok(()),
-    }
+    Ok(sparse_ir_sve::error::require_accuracy(name, epsilon)?)
 }
 
 /// `Ok` for a relative truncation threshold: `None` or a value in [0, 1),
 /// where 0 keeps every singular value
 #[doc(hidden)]
 pub fn require_threshold(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
-    match epsilon {
-        Some(eps) if !(eps >= 0.0 && eps < 1.0) => Err(Error::InvalidParameter {
-            name,
-            value: format!("{eps:?}"),
-            reason: "must be in [0, 1)".to_string(),
-        }),
-        _ => Ok(()),
-    }
+    Ok(sparse_ir_sve::error::require_threshold(name, epsilon)?)
 }
 
 /// `Ok` unless `size` is `Some(0)`
 #[doc(hidden)]
 pub fn require_nonzero_size(name: &'static str, size: Option<usize>) -> Result<(), Error> {
-    match size {
-        Some(0) => Err(Error::InvalidParameter {
-            name,
-            value: "0".to_string(),
-            reason: "must be positive".to_string(),
-        }),
-        _ => Ok(()),
-    }
+    Ok(sparse_ir_sve::error::require_nonzero_size(name, size)?)
 }
 
 /// Result type of the fallible public functions of this crate

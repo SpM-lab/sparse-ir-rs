@@ -41,5 +41,5 @@ sparse-ir = { path = "../sparse-ir" }
 
 [features]
 # Run the threaded work (the SVE) on the rayon thread pool; see
-# sparse-ir-core/src/parallel.rs
+# sparse-ir-sve/src/parallel.rs
 parallel = ["sparse-ir-core/parallel"]

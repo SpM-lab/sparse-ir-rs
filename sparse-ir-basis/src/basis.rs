@@ -709,7 +709,7 @@ where
     }
 
     fn evaluate_tau(&self, tau: &[f64]) -> Result<crate::Matrix<f64>, Error> {
-        use crate::matrix::Mat;
+        use crate::matrix::{Mat, MatTyped};
         use crate::taufuncs::normalize_tau;
 
         let basis_size = self.size();
@@ -739,7 +739,7 @@ where
         &self,
         freqs: &[crate::freq::MatsubaraFreq<S>],
     ) -> Result<crate::Matrix<num_complex::Complex<f64>>, Error> {
-        use crate::matrix::Mat;
+        use crate::matrix::{Mat, MatTyped};
         use num_complex::Complex;
 
         let n_points = freqs.len();
@@ -763,7 +763,7 @@ where
     }
 
     fn evaluate_omega(&self, omega: &[f64]) -> Result<crate::Matrix<f64>, Error> {
-        use crate::matrix::Mat;
+        use crate::matrix::{Mat, MatTyped};
 
         let basis_size = self.size();
         // The v polynomials are on [ωmin, ωmax] exactly (from_sve_result

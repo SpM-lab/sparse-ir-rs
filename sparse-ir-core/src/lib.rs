@@ -27,13 +27,13 @@ pub mod basis_trait; // Common trait for basis representations
 mod debug; // SPARSEIR_DEBUG switch for debug diagnostics
 pub mod error; // Error type of the public API
 pub mod fitters; // Least-squares fitters (real/complex matrices)
-pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
+pub use sparse_ir_sve::fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod freq;
 pub mod gemm; // Matrix multiplication utilities (Faer backend)
 pub mod matrix; // Column-major dense containers for internal numerics
 pub mod matsubara_sampling; // Sparse sampling in Matsubara frequencies
 #[doc(hidden)]
-pub mod parallel; // Parallel execution on the rayon pool (internal)
+pub use sparse_ir_sve::parallel; // Parallel execution on the rayon pool (internal)
 pub mod sampling; // Sparse sampling in imaginary time
 pub mod taufuncs; // Imaginary time τ normalization utilities
 pub mod traits;

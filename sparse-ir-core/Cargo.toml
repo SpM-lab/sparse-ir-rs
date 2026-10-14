@@ -16,6 +16,7 @@ targets = ["x86_64-unknown-linux-gnu"]
 no-default-features = true
 
 [dependencies]
+sparse-ir-sve.workspace = true
 faer.workspace = true
 faer-traits.workspace = true
 tenferro-tensor.workspace = true
@@ -28,9 +29,6 @@ thiserror.workspace = true
 blas-sys = { workspace = true, optional = true }
 # Lazy static initialization for GEMM dispatcher
 once_cell.workspace = true
-# Thread pool for the parallel work of the library (see src/parallel.rs),
-# with the `parallel` feature
-rayon = { workspace = true, optional = true }
 # C FFI types (for BLAS function pointers)
 libc.workspace = true
 
@@ -47,7 +45,8 @@ pkg-config = "0.3"
 default = []
 # Use system BLAS (LP64) for GEMM backend by default
 system-blas = ["blas-sys"]
-# Run the threaded work of the library (the SVE) on the rayon thread pool;
-# without it everything runs on the calling thread. Off by default (opt-in,
-# e.g. through the `parallel` feature of sparse-ir).
-parallel = ["dep:rayon"]
+# Run the threaded work of the library (the SVE) on the rayon thread pool
+# (see sparse-ir-sve/src/parallel.rs); without it everything runs on the
+# calling thread. Off by default (opt-in, e.g. through the `parallel` feature
+# of sparse-ir).
+parallel = ["sparse-ir-sve/parallel"]
