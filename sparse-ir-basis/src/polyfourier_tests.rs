@@ -638,37 +638,45 @@ fn test_evaluate_at_n_rejects_the_wrong_parity() {
     assert_eq!(ft.evaluate_at_ns(&[1, -1]).unwrap().len(), 2);
 }
 
-/// Functions without a definite parity (symm = 0) have no sign changes and
-/// extrema to choose Matsubara points by: these are NotSupported, with both
-/// statistics (#183); the default points then come from the pair selection.
+/// `sign_changes_of_parts` searches the parts of `û` that do not vanish: the
+/// one part of a function with a parity, also when its symm is 0 (from
+/// `compute_sve_general` of a symmetric kernel, where the other part is
+/// rounding noise), and both parts of a function without a parity
+/// (asymmetric window), each changing sign; with either statistics.
 #[test]
-fn test_sign_changes_of_functions_without_parity_are_not_supported() {
-    use crate::error::Error;
-    use crate::freq::MatsubaraFreq;
-    use crate::polyfourier::{find_extrema, sign_changes};
+fn test_sign_changes_of_parts_skip_the_vanishing_part() {
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::polyfourier::sign_changes_of_parts;
+    use crate::sve::{TworkType, compute_sve_general};
 
-    let poly = PiecewiseLegendrePoly::new(mat![[1.0], [0.5]], vec![-1.0, 1.0], 0, None, 0).unwrap();
-    let not_supported = |r: Result<Vec<i64>, Error>| {
-        let err = r.unwrap_err();
-        assert!(
-            matches!(&err, Error::NotSupported { what } if what.contains("got symm = 0")),
-            "{err:?}"
-        );
-    };
-    let ns =
-        |v: Vec<MatsubaraFreq<Fermionic>>| -> Vec<i64> { v.into_iter().map(|f| f.n()).collect() };
-    let ft = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None).unwrap();
-    for positive_only in [false, true] {
-        not_supported(sign_changes(&ft, positive_only).map(ns));
-        not_supported(find_extrema(&ft, positive_only).map(ns));
+    fn n_parts<K, S>(basis: &FiniteTempBasis<K, S>) -> usize
+    where
+        K: KernelProperties + AbstractKernel + Clone + 'static,
+        S: StatisticsType + 'static,
+    {
+        let u = &basis.uhat_full()[basis.size() + 1];
+        let (sign_changes, n) = sign_changes_of_parts(u, false);
+        let (extrema, n_extrema) = sign_changes_of_parts(u, true);
+        assert_eq!(n, n_extrema);
+        assert!(sign_changes.len() >= basis.size() / 2, "{sign_changes:?}");
+        assert!(extrema.len() >= basis.size() / 2, "{extrema:?}");
+        n
     }
-    let nb =
-        |v: Vec<MatsubaraFreq<Bosonic>>| -> Vec<i64> { v.into_iter().map(|f| f.n()).collect() };
-    let ft = BosonicPiecewiseLegendreFT::new(poly, Bosonic, None).unwrap();
-    for positive_only in [false, true] {
-        not_supported(sign_changes(&ft, positive_only).map(nb));
-        not_supported(find_extrema(&ft, positive_only).map(nb));
+    fn check<S: StatisticsType + 'static>() {
+        let kernel = LogisticKernel::new(10.0).unwrap();
+        let basis = FiniteTempBasis::<_, S>::new(kernel, 1.0, Some(1e-6), None).unwrap();
+        assert_eq!(n_parts(&basis), 1);
+        let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+        assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
+        let basis =
+            FiniteTempBasis::<_, S>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None).unwrap();
+        assert_eq!(n_parts(&basis), 1);
+        let window = LogisticKernelWindowed::from_physical(10.0, -0.2, 1.0).unwrap();
+        let basis = FiniteTempBasis::<_, S>::new(window, 10.0, Some(1e-6), None).unwrap();
+        assert_eq!(n_parts(&basis), 2);
     }
+    check::<Fermionic>();
+    check::<Bosonic>();
 }
 
 /// A function without definite parity (`symm == 0`, mixing even P0/P2 and odd
@@ -737,7 +745,8 @@ fn test_uhat_negative_frequency_is_conjugate() {
 /// the fitting matrix is well conditioned. mitigate adds points: symmetric
 /// ones (oversampling) without parity, fencing points with parity. Checked
 /// with parity (symmetric kernel: the sign changes of SparseIR.jl) and
-/// without (asymmetric window: the pair selection).
+/// without (asymmetric window: the selection among the sign changes of both
+/// parts).
 #[test]
 fn test_default_matsubara_points_symmetric() {
     use crate::freq::MatsubaraFreq;
@@ -875,5 +884,31 @@ fn test_evaluate_at_many_on_the_pool_matches_serial() {
     let pooled = four.install(|| uhat.evaluate_at_many(&freqs));
     for (i, freq) in freqs.iter().enumerate() {
         assert_eq!(pooled[i], uhat.evaluate_at(freq), "frequency {i}");
+    }
+}
+
+/// Oversampling the default Matsubara points without a parity may pick the
+/// geometric midpoints of consecutive sign changes, besides the sign changes:
+/// with mitigate, some selected frequencies are not sign changes of û_L.
+#[test]
+fn test_oversampling_picks_midpoints_of_sign_changes() {
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::polyfourier::{select_sign_changes, sign_changes_of_parts};
+
+    let window = LogisticKernelWindowed::from_physical(100.0, -0.3, 1.0).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(window, 100.0, Some(1e-8), None).unwrap();
+    let n_cols = basis.size() + basis.size() % 2;
+    let (ks, n_parts) = sign_changes_of_parts(&basis.uhat_full()[n_cols], false);
+    assert_eq!(n_parts, 2);
+    let square = select_sign_changes(basis.uhat_full(), &ks, n_cols, 0);
+    assert!(square.iter().all(|k| ks.contains(k)), "{square:?}");
+    let over = select_sign_changes(basis.uhat_full(), &ks, n_cols, 3);
+    assert_eq!(over.len(), square.len() + 3);
+    let midpoints: Vec<i64> = over.iter().copied().filter(|k| !ks.contains(k)).collect();
+    assert!(!midpoints.is_empty(), "{over:?} from {ks:?}");
+    for m in midpoints {
+        let i = ks.partition_point(|&k| k < m);
+        let mid = (ks[i - 1] as f64 * ks[i] as f64).sqrt().round() as i64;
+        assert_eq!(m, mid, "{m} between {} and {}", ks[i - 1], ks[i]);
     }
 }

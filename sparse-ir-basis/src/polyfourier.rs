@@ -601,114 +601,60 @@ const DEFAULT_GRID: &[i64] = &[
     30110221, 30769549, 31443315, 32131834, 32835429, 33554432,
 ];
 
-/// Find sign changes of a Matsubara basis function
+/// A part (real or imaginary) of `û` whose values on the default grid are all
+/// below this fraction of `max |û|` there vanishes: it is the part that a
+/// function with a parity does not have, zero up to rounding (at most about
+/// 1e-16 of `max |û|` for the bases of this crate). The part of a function
+/// without a parity is far larger (at least 1e-2, even for a nearly symmetric
+/// window).
+const VANISHING_PART: f64 = 1e-8;
+
+/// Reduced Matsubara indices `k >= 0` (`n = 2k + ζ`) at which the parts of
+/// `u_hat` that do not vanish change sign, or, with `extrema`, have their
+/// discrete extrema, on the default grid; and the number of these parts.
+/// Returned sorted.
 ///
-/// Returns Matsubara frequencies where the function changes sign.
-///
-/// # Errors
-///
-/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0);
-/// such functions get their points from [`pair_sampling_points`] instead
-pub(crate) fn sign_changes<S: StatisticsType + 'static>(
+/// A function with a definite parity is purely real or purely imaginary: the
+/// other part vanishes, and these are the sign changes (or extrema) that
+/// choose the default points in SparseIR.jl. A function without a parity
+/// (symm = 0, as from an SVE that is not centrosymmetric) has both parts, and
+/// the indices of both are returned.
+pub(crate) fn sign_changes_of_parts<S: StatisticsType + 'static>(
     u_hat: &PiecewiseLegendreFT<S>,
-    positive_only: bool,
-) -> Result<Vec<MatsubaraFreq<S>>, Error> {
-    let f = func_for_part(u_hat)?;
-    let x0 = find_all(&f, DEFAULT_GRID);
+    extrema: bool,
+) -> (Vec<i64>, usize) {
+    use crate::parallel::map_on_pool;
 
-    // Convert to Matsubara indices: n = 2*x + zeta
-    let mut indices: Vec<i64> = x0.iter().map(|&x| 2 * x + u_hat.zeta()).collect();
-
-    if !positive_only {
-        symmetrize_matsubara_inplace(&mut indices);
-    }
-
-    Ok(indices
-        .iter()
-        .filter_map(|&n| MatsubaraFreq::<S>::new(n).ok())
-        .collect())
-}
-
-/// Find extrema of a Matsubara basis function
-///
-/// Returns Matsubara frequencies where the function has local extrema.
-///
-/// # Errors
-///
-/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0);
-/// such functions get their points from [`pair_sampling_points`] instead
-pub(crate) fn find_extrema<S: StatisticsType + 'static>(
-    u_hat: &PiecewiseLegendreFT<S>,
-    positive_only: bool,
-) -> Result<Vec<MatsubaraFreq<S>>, Error> {
-    let f = func_for_part(u_hat)?;
-    let x0 = discrete_extrema(&f, DEFAULT_GRID);
-
-    // Convert to Matsubara indices: n = 2*x + zeta
-    let mut indices: Vec<i64> = x0.iter().map(|&x| 2 * x + u_hat.zeta()).collect();
-
-    if !positive_only {
-        symmetrize_matsubara_inplace(&mut indices);
-    }
-
-    Ok(indices
-        .iter()
-        .filter_map(|&n| MatsubaraFreq::<S>::new(n).ok())
-        .collect())
-}
-
-/// The part of a Matsubara basis function whose sign changes choose the
-/// default sampling points
-#[derive(Clone, Copy)]
-enum Part {
-    Real,
-    Imaginary,
-}
-
-/// The part of `û(iν)` that carries its sign changes, from the parity `symm`
-/// of `u` and the statistics: for an even `u` (symm = 1) the fermionic `û`
-/// is imaginary and the bosonic `û` real, for an odd `u` (symm = -1) the
-/// other way round
-///
-/// # Errors
-///
-/// [`Error::NotSupported`] if `symm` is not ±1: the singular functions of an
-/// SVE that is not centrosymmetric have no parity.
-fn part_with_the_sign_changes<S: StatisticsType>(symm: i32) -> Result<Part, Error> {
-    match (symm, S::STATISTICS) {
-        (1, Statistics::Bosonic) | (-1, Statistics::Fermionic) => Ok(Part::Real),
-        (1, Statistics::Fermionic) | (-1, Statistics::Bosonic) => Ok(Part::Imaginary),
-        _ => Err(Error::NotSupported {
-            what: format!(
-                "default Matsubara sampling points, which need basis functions of definite \
-                 parity (symm = ±1, from a centrosymmetric SVE); got symm = {symm}"
-            ),
-        }),
-    }
-}
-
-impl Part {
-    fn of(self, value: Complex64) -> f64 {
-        match self {
-            Part::Real => value.re,
-            Part::Imaginary => value.im,
+    let zeta = u_hat.zeta();
+    let value = |k: i64| {
+        let freq =
+            MatsubaraFreq::<S>::new(2 * k + zeta).expect("2k + ζ has the parity of the statistics");
+        u_hat.evaluate(&freq)
+    };
+    let grid = DEFAULT_GRID;
+    let values: Vec<Complex64> = map_on_pool(grid.len(), grid.len() * MATSUBARA_LONE_VALUE, |i| {
+        value(grid[i])
+    });
+    let scale = values.iter().map(|v| v.norm()).fold(0.0, f64::max);
+    let parts: [fn(Complex64) -> f64; 2] = [|v| v.re, |v| v.im];
+    let mut ks = Vec::new();
+    let mut n_parts = 0;
+    for part in parts {
+        let fx: Vec<f64> = values.iter().map(|&v| part(v)).collect();
+        if fx.iter().all(|x| x.abs() <= VANISHING_PART * scale) {
+            continue;
         }
+        n_parts += 1;
+        let f = |k: i64| part(value(k));
+        ks.extend(if extrema {
+            discrete_extrema(&f, grid, &fx)
+        } else {
+            find_all(&f, grid, &fx)
+        });
     }
-}
-
-/// Create a function that extracts the part of `poly_ft` that carries its
-/// sign changes (see [`part_with_the_sign_changes`])
-fn func_for_part<S: StatisticsType + 'static>(
-    poly_ft: &PiecewiseLegendreFT<S>,
-) -> Result<Box<dyn Fn(i64) -> f64 + Sync>, Error> {
-    let part = part_with_the_sign_changes::<S>(poly_ft.poly.symm())?;
-    let zeta = poly_ft.zeta();
-    let poly_ft_clone = poly_ft.clone();
-
-    Ok(Box::new(move |n: i64| {
-        let omega = MatsubaraFreq::<S>::new(2 * n + zeta).unwrap();
-        part.of(poly_ft_clone.evaluate(&omega))
-    }))
+    ks.sort_unstable();
+    ks.dedup();
+    (ks, n_parts)
 }
 
 /// Integer bisection: find the zero crossing of f in [a, b] where f(a) and f(b)
@@ -762,19 +708,16 @@ fn bisect_discr_extremum(f: &dyn Fn(i64) -> f64, a: i64, b: i64) -> i64 {
     best
 }
 
-/// Find all sign changes of a function on a grid, using bisection to locate
-/// the precise integer position within each grid interval.
-/// Matches Julia's `find_all` with `bisect`.
+/// Find all sign changes of a function, with values `fx` on a grid, using
+/// bisection to locate the precise integer position within each grid
+/// interval. Matches Julia's `find_all` with `bisect`.
 ///
-/// The grid values and the bisections run on the thread pool: each value is
-/// computed by the same operations whatever the threading, so the result
-/// does not depend on the number of threads.
-fn find_all(f: &(dyn Fn(i64) -> f64 + Sync), xgrid: &[i64]) -> Vec<i64> {
+/// The bisections run on the thread pool: each value is computed by the same
+/// operations whatever the threading, so the result does not depend on the
+/// number of threads.
+fn find_all(f: &(dyn Fn(i64) -> f64 + Sync), xgrid: &[i64], fx: &[f64]) -> Vec<i64> {
     use crate::parallel::map_on_pool;
 
-    let fx = map_on_pool(xgrid.len(), xgrid.len() * MATSUBARA_LONE_VALUE, |i| {
-        f(xgrid[i])
-    });
     // Intervals with a sign change (both values must be nonzero)
     let brackets: Vec<usize> = (1..xgrid.len())
         .filter(|&i| fx[i - 1].signum() != fx[i].signum() && fx[i - 1] != 0.0 && fx[i] != 0.0)
@@ -799,15 +742,15 @@ fn find_all(f: &(dyn Fn(i64) -> f64 + Sync), xgrid: &[i64]) -> Vec<i64> {
     )
 }
 
-/// Find discrete extrema of a function on a grid, using bisection to locate
-/// the precise integer position within each grid interval.
-/// Also checks boundary extrema. Matches Julia v1 / Python 1.x `discrete_extrema`.
-fn discrete_extrema(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
+/// Find discrete extrema of a function, with values `fx` on a grid, using
+/// bisection to locate the precise integer position within each grid
+/// interval. Also checks boundary extrema. Matches Julia v1 / Python 1.x
+/// `discrete_extrema`.
+fn discrete_extrema(f: &dyn Fn(i64) -> f64, xgrid: &[i64], fx: &[f64]) -> Vec<i64> {
     if xgrid.len() < 3 {
         return Vec::new();
     }
 
-    let fx: Vec<f64> = xgrid.iter().map(|&x| f(x)).collect();
     let absfx: Vec<f64> = fx.iter().map(|v| v.abs()).collect();
 
     // Forward differences: gx[i] = fx[i+1] - fx[i]
@@ -844,134 +787,132 @@ fn discrete_extrema(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
     results
 }
 
-/// Symmetrize Matsubara indices by adding negative frequencies
-fn symmetrize_matsubara_inplace(xs: &mut Vec<i64>) {
-    if xs.is_empty() {
-        return;
-    }
-
-    // Remove zero if present
-    xs.retain(|&x| x != 0);
-
-    // Add negative frequencies
-    let positives: Vec<i64> = xs.iter().filter(|&&x| x > 0).copied().collect();
-    let mut negatives: Vec<i64> = positives.iter().map(|&x| -x).collect();
-
-    xs.append(&mut negatives);
-    xs.sort();
-    xs.dedup();
-}
-
 /// Number of functions beyond those fitted that the Matsubara sampling-point
-/// selection keeps aliasing small for (see
-/// [`pair_sampling_points`]).
+/// selection keeps aliasing small for (see [`select_sign_changes`]).
 const MATSUBARA_SELECTION_TAIL: usize = 2;
 
-/// Matsubara sampling frequencies for fitting the first `n_points` functions
-/// of `uhat`, selected as symmetric pairs; the default points of functions
-/// without a definite parity
+/// Sign changes selected with a larger condition number than this (of the
+/// fitted functions at the selected frequencies) do not determine the
+/// functions well, and [`select_sign_changes`] selects among the whole grid
+/// instead. Over windows from (-0.9, 1) to (-0.2, 1), Λ from 10 to 1e5 and ε
+/// from 1e-6 to 1e-15, the selections that do were below 1e3, as were those
+/// among the whole grid; those that do not (2% of them, at small Λ) miss the
+/// high frequencies, where neither part of `û_L` may change sign, and were
+/// beyond 1e6.
+const MATSUBARA_SELECTION_MAX_COND: f64 = 1e4;
+
+/// The reduced indices `k` (`n = 2k + ζ`), among the candidates `ks`, of
+/// the Matsubara sampling frequencies for fitting the first `n_cols`
+/// functions of `uhat`, plus `n_extra` more (oversampling); the default
+/// points of functions without a parity
 ///
-/// The sign changes of `û_L` that choose the default points of functions with
-/// a parity (as in SparseIR.jl) need `û_L` to be purely
-/// real or purely imaginary. This selection needs no parity.
+/// Without a parity, both parts of `û_L` change sign (see
+/// [`sign_changes_of_parts`]), giving about twice as many candidates `ks` as
+/// points. The points are selected as a set symmetric in ±n: since
+/// `û_l(-n) = conj(û_l(n))` for a real `u_l(τ)`, fitting at `±n` is
+/// equivalent to fitting the real and imaginary parts at `n`, so the
+/// selection is made on the real matrix whose rows are `Re û_l(n)` and
+/// `Im û_l(n)`: two rows per candidate `n > 0`, and one for `n = 0`, which
+/// bosons always include (it is not returned). The rows are chosen by
+/// [`crate::pair_select`], which minimizes the noise amplification and the
+/// aliasing of the next [`MATSUBARA_SELECTION_TAIL`] functions, when `uhat`
+/// has them (the bias + variance criterion of Box and Draper).
 ///
-/// Candidates are the frequencies `n = 2k + ζ >= 0` for `k` on
-/// the grid of the sign-change search (as in SparseIR.jl), which is dense at
-/// low frequencies and logarithmic beyond.
+/// The oversampling may also pick the geometric midpoints of consecutive
+/// candidates: they fill the gaps between the sign changes, which on their
+/// own oversample poorly. If the candidates do not determine the functions
+/// well (as the extrema that stand in for the sign changes when `uhat` has
+/// no `û_L`, or the sign changes of some small bases, which miss the high
+/// frequencies, may not), the points are selected among the whole default
+/// grid instead.
 ///
-/// The selected set is symmetric, `{±n_k}`. Since `û_l(-n) = conj(û_l(n))`
-/// for a real `u_l(τ)`, fitting at `±n_k` is equivalent to fitting the real
-/// and imaginary parts at `n_k`, so the selection is made on the real matrix
-/// whose rows are `Re û_l(n_k)` and `Im û_l(n_k)`: two rows per frequency
-/// `n_k > 0`, one for `n = 0` (bosons). This needs no parity of the
-/// functions, so it serves kernels without centrosymmetry as well. As many
-/// rows as fitted functions are selected, rounded up to the parity allowed by
-/// these row counts: an even
-/// number for fermions, an odd number including `n = 0` for bosons, as for
-/// the sign changes. The rows are chosen by the `pair_select` module, which minimizes the noise
-/// amplification and the aliasing of the next [`MATSUBARA_SELECTION_TAIL`]
-/// functions, when `uhat` has them (the bias + variance criterion of Box and
-/// Draper).
-///
-/// With `mitigate`, about 10% more frequencies are added (oversampling),
-/// which further improves the conditioning of the fit.
-///
-/// With `positive_only`, the frequencies `n_k >= 0` are returned (as used
-/// for fitting real-valued imaginary-time functions); otherwise `±n_k`.
-/// Returned sorted; empty if `n_points` is 0.
-///
-/// # Errors
-///
-/// [`Error::EmptyInput`] if `uhat` is empty
-pub(crate) fn pair_sampling_points<S: StatisticsType + 'static>(
+/// Returned sorted; fewer if even the whole grid does not determine the
+/// `n_cols` functions.
+pub(crate) fn select_sign_changes<S: StatisticsType + 'static>(
     uhat: &PiecewiseLegendreFTVector<S>,
-    n_points: usize,
-    positive_only: bool,
-    mitigate: bool,
-) -> Result<Vec<MatsubaraFreq<S>>, Error> {
+    ks: &[i64],
+    n_cols: usize,
+    n_extra: usize,
+) -> Vec<i64> {
+    let bosonic = S::STATISTICS == Statistics::Bosonic;
+    // n = 0 (k = 0 for bosons) is not a candidate but a fixed point
+    let mut candidates: Vec<i64> = ks.iter().copied().filter(|&k| k > 0 || !bosonic).collect();
+    let n_sign_changes = candidates.len();
+    if n_extra > 0 {
+        let midpoints: Vec<i64> = candidates
+            .windows(2)
+            .map(|w| (w[0] as f64 * w[1] as f64).sqrt().round() as i64)
+            .filter(|m| candidates.binary_search(m).is_err())
+            .collect();
+        candidates.extend(midpoints);
+    }
+    let (selected, well_determined) =
+        select_pairs_among(uhat, &candidates, n_sign_changes, n_cols, n_extra);
+    if well_determined {
+        return selected;
+    }
+    let grid: Vec<i64> = DEFAULT_GRID
+        .iter()
+        .copied()
+        .filter(|&k| k > 0 || !bosonic)
+        .collect();
+    select_pairs_among(uhat, &grid, grid.len(), n_cols, n_extra).0
+}
+
+/// The candidates `ks` selected by [`select_sign_changes`], with candidates
+/// `n_square..` only for the oversampling, sorted; and whether they determine
+/// the fitted functions, with a condition number up to
+/// [`MATSUBARA_SELECTION_MAX_COND`]
+fn select_pairs_among<S: StatisticsType + 'static>(
+    uhat: &PiecewiseLegendreFTVector<S>,
+    ks: &[i64],
+    n_square: usize,
+    n_cols: usize,
+    n_extra: usize,
+) -> (Vec<i64>, bool) {
     use crate::pair_select::select_pairs;
     use nalgebra::DMatrix;
 
-    if uhat.is_empty() {
-        return Err(Error::EmptyInput { name: "uhat" });
-    }
-    let n_funcs = (n_points + 1 + MATSUBARA_SELECTION_TAIL).min(uhat.len());
-    let n_points = n_points.min(n_funcs);
-    if n_points == 0 {
-        return Ok(Vec::new());
-    }
     let bosonic = S::STATISTICS == Statistics::Bosonic;
-    // Number of rows (and fitted columns) of the square selection
-    let n_cols = if bosonic {
-        n_points + 1 - n_points % 2
-    } else {
-        n_points + n_points % 2
-    }
-    .min(n_funcs);
-    let n_used = (n_cols + MATSUBARA_SELECTION_TAIL).min(n_funcs);
+    let n_used = (n_cols + MATSUBARA_SELECTION_TAIL).min(uhat.len());
     let zeta = i64::from(!bosonic);
-    // The candidates 2k + ζ have the parity of the statistics.
-    let freqs: Vec<MatsubaraFreq<S>> = DEFAULT_GRID
-        .iter()
-        .map(|&k| MatsubaraFreq::new(2 * k + zeta))
-        .collect::<Result<_, _>>()?;
+    // n = 0 (bosons only) comes first, as a fixed row
+    let first = usize::from(bosonic);
+    let freqs: Vec<MatsubaraFreq<S>> = (0..first as i64)
+        .chain(ks.iter().copied())
+        .map(|k| MatsubaraFreq::new(2 * k + zeta).expect("2k + ζ has the parity of the statistics"))
+        .collect();
     // Only the first n_used functions enter the selection: evaluate just
-    // those. û_l(-n) = conj(û_l(n)) as u_l(τ) is real: only n >= 0 is
-    // evaluated.
+    // those.
     let used = PiecewiseLegendreFTVector::from_vector(uhat.polyvec[..n_used].to_vec());
     let values: Vec<Vec<Complex64>> = used.evaluate_at_many(&freqs);
-    // n = 0 (bosons only) is the first candidate; it gives one row, Re û(0)
-    let first = usize::from(bosonic);
-    let pairs = DMatrix::<f64>::from_fn(2 * (freqs.len() - first), n_used, |i, l| {
+    let pairs = DMatrix::<f64>::from_fn(2 * ks.len(), n_used, |i, l| {
         let v = values[first + i / 2][l];
         if i % 2 == 0 { v.re } else { v.im }
     });
-    let fixed = DMatrix::<f64>::from_fn(usize::from(bosonic && n_cols % 2 == 1), n_used, |_, l| {
-        values[0][l].re
+    let fixed = DMatrix::<f64>::from_fn(first, n_used, |_, l| values[0][l].re);
+    let selected = select_pairs(&pairs, n_square, &fixed, n_cols, n_extra);
+    // The fitted functions at the selected frequencies, with zero rows for
+    // those missing to fit them: then the condition number is infinite.
+    let n_fitted = n_cols.min(n_used);
+    let n_rows = first + 2 * selected.len();
+    let rows = DMatrix::<f64>::from_fn(n_rows.max(n_fitted), n_fitted, |i, l| {
+        if i < first {
+            fixed[(i, l)]
+        } else if i < n_rows {
+            pairs[(2 * selected[(i - first) / 2] + (i - first) % 2, l)]
+        } else {
+            0.0
+        }
     });
-    // Oversampling adds 10% more frequencies, in ± pairs
-    let n_extra = if mitigate {
-        n_points.div_ceil(10).div_ceil(2)
-    } else {
-        0
+    // No fitted functions (n_cols = 0) are determined by no frequencies
+    let well_determined = n_fitted == 0 || {
+        let sv = rows.singular_values();
+        sv.min() > 0.0 && sv.max() <= MATSUBARA_SELECTION_MAX_COND * sv.min()
     };
-    let mut selected: Vec<MatsubaraFreq<S>> = select_pairs(&pairs, &fixed, n_cols, n_extra)
-        .into_iter()
-        .map(|p| freqs[first + p])
-        .collect();
-    if fixed.nrows() == 1 {
-        selected.push(freqs[0]);
-    }
-    if !positive_only {
-        let negative: Vec<MatsubaraFreq<S>> = selected
-            .iter()
-            .filter(|f| f.get_n() != 0)
-            .map(|&f| -f)
-            .collect();
-        selected.extend(negative);
-    }
-    selected.sort();
-    Ok(selected)
+    let mut selected: Vec<i64> = selected.into_iter().map(|p| ks[p]).collect();
+    selected.sort_unstable();
+    (selected, well_determined)
 }
 
 #[cfg(test)]

@@ -824,9 +824,10 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// Matsubara basis function (its extrema when that function is not available);
 /// bosonic sets always include n = 0. Functions without a definite parity, as
 /// those of a basis built on an SVE from `spir_sve_result_from_matrix` (not
-/// centrosymmetric), have no such sign changes; their points are selected as
-/// a set symmetric in ±n that keeps the noise amplification and the aliasing
-/// of the next functions small.
+/// centrosymmetric), change sign in both their real and imaginary parts;
+/// the points are selected among these sign changes as a set symmetric in ±n
+/// that keeps the noise amplification and the aliasing of the next functions
+/// small.
 ///
 /// # Arguments
 /// * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
