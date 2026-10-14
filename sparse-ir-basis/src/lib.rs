@@ -34,6 +34,7 @@ use sparse_ir_dlr::{
 pub(crate) mod aca; // ACA-accelerated truncated SVD for the SVE kernel blocks
 pub mod basis;
 pub(crate) mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
+pub(crate) mod cost; // Work estimates for the threading decisions
 pub(crate) mod ddgemm; // Double-double matrix products
 pub mod gauss;
 pub(crate) mod interpolation1d;

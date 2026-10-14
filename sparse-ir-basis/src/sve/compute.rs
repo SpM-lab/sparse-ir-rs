@@ -292,8 +292,14 @@ where
     let svd_rtol = CustomNumeric::min(rtol_t, default_cutoff).to_f64();
 
     // 3. Compute the SVD of each block by adaptive cross approximation, the
-    // blocks concurrently (they are independent)
-    let svds = crate::parallel::map_on_pool(blocks.len(), |b| {
+    // blocks concurrently (they are independent). The work is counted as
+    // forming the blocks in full (ACA reads fewer entries but does more per
+    // entry read).
+    let work = blocks
+        .iter()
+        .map(|block| block.nrows() * block.ncols() * crate::cost::KERNEL_ENTRY)
+        .sum();
+    let svds = crate::parallel::map_on_pool(blocks.len(), work, |b| {
         let block = &blocks[b];
         crate::tsvd::compute_svd_aca(
             block.nrows(),

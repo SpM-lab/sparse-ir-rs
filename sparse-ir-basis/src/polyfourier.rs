@@ -6,6 +6,7 @@
 use num_complex::Complex64;
 use std::f64::consts::PI;
 
+use crate::cost::{MATSUBARA_LONE_VALUE, MATSUBARA_VALUE};
 use crate::error::Error;
 use crate::freq::MatsubaraFreq;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
@@ -326,14 +327,6 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 }
 
-/// Batches with fewer (frequency, polynomial) values than this are evaluated
-/// on the calling thread by [`PiecewiseLegendreFTVector::evaluate_at_many`].
-/// A value away from the asymptotic region costs about 1.5–3 µs, so even
-/// small batches outweigh handing them to the pool: on an M1 Pro, the
-/// sampling matrices of the default points (L ≳ 10) were never slower on the
-/// pool, down to this size.
-const PARALLEL_EVAL_MIN_VALUES: usize = 1 << 6;
-
 /// Segment-wise factors of the inner Fourier transform at one frequency:
 /// `w[order, j] = T_nl[order, j] · phase[j]`, stored as separate real and
 /// imaginary parts, segment-major (index `j * polyorder + order`, matching the
@@ -523,12 +516,8 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     /// is computed exactly as in the serial case (under the caller's FPU
     /// state), so the result does not depend on the number of threads.
     pub fn evaluate_at_many(&self, omegas: &[MatsubaraFreq<S>]) -> Vec<Vec<Complex64>> {
-        if crate::parallel::n_threads() <= 1
-            || omegas.len() * self.polyvec.len() < PARALLEL_EVAL_MIN_VALUES
-        {
-            return omegas.iter().map(|omega| self.evaluate_at(omega)).collect();
-        }
-        crate::parallel::map_on_pool(omegas.len(), |i| self.evaluate_at(&omegas[i]))
+        let work = omegas.len() * self.polyvec.len() * MATSUBARA_VALUE;
+        crate::parallel::map_on_pool(omegas.len(), work, |i| self.evaluate_at(&omegas[i]))
     }
 }
 
@@ -783,15 +772,31 @@ fn bisect_discr_extremum(f: &dyn Fn(i64) -> f64, a: i64, b: i64) -> i64 {
 fn find_all(f: &(dyn Fn(i64) -> f64 + Sync), xgrid: &[i64]) -> Vec<i64> {
     use crate::parallel::map_on_pool;
 
-    let fx = map_on_pool(xgrid.len(), |i| f(xgrid[i]));
+    let fx = map_on_pool(xgrid.len(), xgrid.len() * MATSUBARA_LONE_VALUE, |i| {
+        f(xgrid[i])
+    });
     // Intervals with a sign change (both values must be nonzero)
     let brackets: Vec<usize> = (1..xgrid.len())
         .filter(|&i| fx[i - 1].signum() != fx[i].signum() && fx[i - 1] != 0.0 && fx[i] != 0.0)
         .collect();
-    map_on_pool(brackets.len(), |k| {
-        let i = brackets[k];
-        bisect(f, xgrid[i - 1], xgrid[i], fx[i - 1])
-    })
+    // A bisection over a gap of g evaluates f ⌈log₂ g⌉ times
+    let evaluations: u32 = brackets
+        .iter()
+        .map(|&i| {
+            (xgrid[i] - xgrid[i - 1])
+                .unsigned_abs()
+                .next_power_of_two()
+                .trailing_zeros()
+        })
+        .sum();
+    map_on_pool(
+        brackets.len(),
+        evaluations as usize * MATSUBARA_LONE_VALUE,
+        |k| {
+            let i = brackets[k];
+            bisect(f, xgrid[i - 1], xgrid[i], fx[i - 1])
+        },
+    )
 }
 
 /// Find discrete extrema of a function on a grid, using bisection to locate

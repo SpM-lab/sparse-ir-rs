@@ -12,9 +12,9 @@
 //! value is computed by the same operations whatever the threading, so the
 //! results do not depend on the number of threads.
 //!
-//! Each parallel region runs serially below a size threshold, set where it
-//! is decided: [`PARALLEL_MIN_WORK`] (in `f64` operations) here, and next to
-//! the code for the Matsubara evaluations.
+//! Each parallel region states its estimated work in `f64` operations and
+//! runs on the calling thread below the one threshold [`PARALLEL_MIN_WORK`]
+//! (or with a single thread).
 //!
 //! Internal to the sparse-ir crates; not part of the public API.
 
@@ -29,6 +29,11 @@ pub fn n_threads() -> usize {
 /// `f64` (ε ≥ 10⁻⁸) and, counting a double-double operation as 16 `f64`
 /// ones, in double-double.
 pub const PARALLEL_MIN_WORK: usize = 1 << 19;
+
+/// Whether a region of `work` `f64` operations goes to the pool
+fn on_pool(work: usize) -> bool {
+    n_threads() > 1 && work >= PARALLEL_MIN_WORK
+}
 
 /// [`for_each_chunk`] splits its work into this many chunks per thread, so
 /// that idle threads take over the chunks of slower ones (on a CPU with
@@ -55,12 +60,13 @@ pub fn run_on_pool<'a, F: FnOnce() + Send + 'a>(jobs: impl IntoIterator<Item = F
 /// operations) is large. Each element must depend only on its own
 /// index, so the result does not depend on the chunking.
 pub fn for_each_chunk<T: Send>(out: &mut [T], work: usize, f: impl Fn(usize, &mut [T]) + Sync) {
-    let n_threads = n_threads().min(out.len());
-    if n_threads <= 1 || work < PARALLEL_MIN_WORK {
+    if out.len() <= 1 || !on_pool(work) {
         f(0, out);
         return;
     }
-    let chunk_len = out.len().div_ceil(n_threads * CHUNKS_PER_THREAD);
+    let chunk_len = out
+        .len()
+        .div_ceil(n_threads().min(out.len()) * CHUNKS_PER_THREAD);
     let f = &f;
     run_on_pool(
         out.chunks_mut(chunk_len)
@@ -69,8 +75,16 @@ pub fn for_each_chunk<T: Send>(out: &mut [T], work: usize, f: impl Fn(usize, &mu
     );
 }
 
-/// `[f(0), ..., f(n - 1)]`, computed on the pool.
-pub fn map_on_pool<R: Send>(n: usize, f: impl Fn(usize) -> R + Sync) -> Vec<R> {
+/// `[f(0), ..., f(n - 1)]`, one pool job per item when `work` (in `f64`
+/// operations, for all items) is large
+///
+/// A single large item goes to the pool too: the parallel regions inside it
+/// then start from a pool thread, which is cheaper than from outside the
+/// pool (on an M1 Pro, 3 % of a double-double SVE of a single block).
+pub fn map_on_pool<R: Send>(n: usize, work: usize, f: impl Fn(usize) -> R + Sync) -> Vec<R> {
+    if !on_pool(work) {
+        return (0..n).map(f).collect();
+    }
     let mut slots: Vec<Option<R>> = (0..n).map(|_| None).collect();
     let f = &f;
     run_on_pool(
@@ -109,10 +123,22 @@ mod tests {
     #[test]
     fn map_on_pool_keeps_the_order() {
         assert_eq!(
-            map_on_pool(100, |i| i * i),
+            map_on_pool(100, usize::MAX, |i| i * i),
             (0..100).map(|i| i * i).collect::<Vec<_>>()
         );
-        assert!(map_on_pool(0, |i| i).is_empty());
+        assert!(map_on_pool(0, usize::MAX, |i| i).is_empty());
+        assert_eq!(map_on_pool(3, 0, |i| i), vec![0, 1, 2]);
+    }
+
+    /// A single large item runs on a pool thread, a small one on the caller's
+    /// (a test thread, outside the pool).
+    #[test]
+    fn map_on_pool_sends_a_single_large_item_to_the_pool() {
+        let thread_index = |work| map_on_pool(1, work, |_| rayon::current_thread_index())[0];
+        assert_eq!(thread_index(0), None);
+        if n_threads() > 1 {
+            assert!(thread_index(usize::MAX).is_some());
+        }
     }
 
     /// Inside `ThreadPool::install`, the library uses that pool's threads.
@@ -124,7 +150,7 @@ mod tests {
             .unwrap();
         pool.install(|| {
             assert_eq!(n_threads(), 1);
-            let ids = map_on_pool(8, |_| std::thread::current().id());
+            let ids = map_on_pool(8, usize::MAX, |_| std::thread::current().id());
             assert!(ids.iter().all(|id| *id == ids[0]));
         });
     }

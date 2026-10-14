@@ -9,6 +9,7 @@
 use nalgebra::{ComplexField, DMatrix, RealField};
 use num_traits::{One, ToPrimitive, Zero};
 
+use crate::cost::KERNEL_ENTRY;
 use crate::error::Error;
 use crate::numeric::CustomNumeric;
 use crate::parallel::for_each_chunk;
@@ -27,14 +28,10 @@ use crate::tsvd::{
 /// letting a single marginal ACA stop-step drop a real singular value.
 const OVERSAMPLE: usize = 3;
 
-/// Work charged per matrix entry evaluated by ACA, in scalar operations: an
-/// SVE kernel entry costs a few exponentials.
-const ENTRY_COST: usize = 64;
-
 /// What the threading decisions and the matrix products of the ACA need to
 /// know of its element type
 pub(crate) trait AcaScalar: ComplexField + ToPrimitive + Copy {
-    /// Cost of one operation, in `f64` operations
+    /// Cost of one operation, in `f64` operations (see [`crate::cost`])
     const OP_COST: usize = 1;
 
     /// `a * b`
@@ -47,10 +44,9 @@ impl AcaScalar for f64 {}
 
 impl AcaScalar for num_complex::Complex<f64> {}
 
-/// A double-double operation costs about 16 `f64` operations; products go to
-/// [`crate::ddgemm::matmul_df64`].
+/// Double-double products go to [`crate::ddgemm::matmul_df64`].
 impl AcaScalar for crate::Df64 {
-    const OP_COST: usize = 16;
+    const OP_COST: usize = crate::cost::DF64_OP;
 
     fn matmul(a: &DMatrix<Self>, b: &DMatrix<Self>) -> DMatrix<Self> {
         crate::ddgemm::matmul_df64(a, b)
@@ -98,7 +94,7 @@ where
     T: AcaScalar + Send + Sync,
     F: Fn(usize, usize) -> T + Sync,
 {
-    for_each_chunk(out, work_of::<T>(out.len() * ENTRY_COST), |k0, chunk| {
+    for_each_chunk(out, work_of::<T>(out.len() * KERNEL_ENTRY), |k0, chunk| {
         for (dk, x) in chunk.iter_mut().enumerate() {
             let (i, j) = index(k0 + dk);
             *x = entry(i, j);
@@ -917,7 +913,7 @@ mod tests {
 
         // The fallback forms the matrix from the entries (on the thread pool
         // at this size) and must hand the CPQR exactly `a`.
-        assert!(work_of::<f64>(m * n * ENTRY_COST) >= crate::parallel::PARALLEL_MIN_WORK);
+        assert!(work_of::<f64>(m * n * KERNEL_ENTRY) >= crate::parallel::PARALLEL_MIN_WORK);
         assert_eq!(cpqr.rank, aca.rank, "fallback must reproduce CPQR's rank");
         assert_eq!(cpqr.s, aca.s);
         assert_eq!(cpqr.u, aca.u);

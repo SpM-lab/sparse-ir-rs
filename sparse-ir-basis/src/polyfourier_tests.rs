@@ -864,7 +864,10 @@ fn test_evaluate_at_many_on_the_pool_matches_serial() {
     let freqs: Vec<FermionicFreq> = (-300..300)
         .map(|k| FermionicFreq::new(2 * k * k * k + 1).unwrap())
         .collect();
-    assert!(freqs.len() * uhat.len() >= super::PARALLEL_EVAL_MIN_VALUES);
+    assert!(
+        freqs.len() * uhat.len() * crate::cost::MATSUBARA_VALUE
+            >= crate::parallel::PARALLEL_MIN_WORK
+    );
     let four = rayon::ThreadPoolBuilder::new()
         .num_threads(4)
         .build()

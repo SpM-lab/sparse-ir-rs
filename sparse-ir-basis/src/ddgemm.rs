@@ -18,10 +18,6 @@ use nalgebra::DMatrix;
 /// the block of `a` rows stay in cache.
 const ROW_BLOCK: usize = 256;
 
-/// A product term costs about this many `f64` operations (for the threading
-/// decision of [`crate::parallel::for_each_chunk`]).
-const TERM_COST: usize = 12;
-
 /// `a · b` in double-double precision, computed on the thread pool for large
 /// products.
 ///
@@ -38,11 +34,15 @@ pub(crate) fn matmul_df64(a: &DMatrix<Df64>, b: &DMatrix<Df64>) -> DMatrix<Df64>
     }
     let (a_hi, a_lo): (Vec<f64>, Vec<f64>) = a.iter().map(|x| (x.hi(), x.lo())).unzip();
     let mut cols: Vec<&mut [Df64]> = out.chunks_mut(m).collect();
-    crate::parallel::for_each_chunk(&mut cols, TERM_COST * m * k * n, |j0, chunk| {
-        for (dj, col) in chunk.iter_mut().enumerate() {
-            column(&a_hi, &a_lo, m, b.column(j0 + dj).as_slice(), col);
-        }
-    });
+    crate::parallel::for_each_chunk(
+        &mut cols,
+        crate::cost::DF64_PRODUCT_TERM * m * k * n,
+        |j0, chunk| {
+            for (dj, col) in chunk.iter_mut().enumerate() {
+                column(&a_hi, &a_lo, m, b.column(j0 + dj).as_slice(), col);
+            }
+        },
+    );
     DMatrix::from_vec(m, n, out)
 }
 
