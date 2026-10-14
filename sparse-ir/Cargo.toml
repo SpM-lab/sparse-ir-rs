@@ -48,5 +48,5 @@ features = ["user-hooks"]
 default = []
 # Shared library features
 shared-lib = []
-# Use system BLAS (LP64) for GEMM backend by default
+# Use system BLAS (LP64) for the GEMM backend instead of Faer
 system-blas = ["sparse-ir-core/system-blas"]

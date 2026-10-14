@@ -29,7 +29,6 @@ libm.workspace = true
 nalgebra = "0.33"
 
 [dev-dependencies]
-approx.workspace = true
 # High-precision arithmetic (for precision tests)
 dashu-float.workspace = true
 dashu-base.workspace = true

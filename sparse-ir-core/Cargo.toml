@@ -32,8 +32,6 @@ once_cell.workspace = true
 libc.workspace = true
 
 [dev-dependencies]
-# System BLAS for tests only (not used in library code)
-blas-sys.workspace = true
 # The doc examples use the whole library
 sparse-ir = { path = "../sparse-ir" }
 
@@ -42,5 +40,5 @@ pkg-config = "0.3"
 
 [features]
 default = []
-# Use system BLAS (LP64) for GEMM backend by default
+# Use system BLAS (LP64) for the GEMM backend instead of Faer
 system-blas = ["blas-sys"]

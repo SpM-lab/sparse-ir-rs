@@ -29,10 +29,10 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # build.rs will automatically generate sparseir.h via cbindgen
 
 [dependencies]
-# Main SparseIR library (version from workspace.dependencies, overridden locally via [patch.crates-io])
+# Main SparseIR library (version and local path from workspace.dependencies)
 sparse-ir.workspace = true
 
-# Error code type
+# C integer types (c_int etc.)
 libc.workspace = true
 
 # Complex numbers
@@ -61,11 +61,7 @@ generation = false
 name = "sparse-ir-capi"
 description = "C API for sparse-ir"
 
-[profile.release]
-# Keep symbols for C API (overrides workspace default)
-strip = false
-
 [dev-dependencies]
 rstest = "0.22"
-# System BLAS for integration tests (uses blas-sys which links to system BLAS)
+# System BLAS for the system-blas unit tests in src/gemm.rs
 blas-sys.workspace = true
