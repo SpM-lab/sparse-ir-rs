@@ -85,14 +85,13 @@ where
 /// causes excessive iterations in SVD.
 #[inline]
 fn get_epsilon_for_svd<T: RealField + Copy>() -> T {
-    use std::any::TypeId;
+    use std::any::Any;
 
-    if TypeId::of::<T>() == TypeId::of::<f64>() {
-        // f64::EPSILON ≈ 2.22e-16
-        unsafe { std::ptr::read(&f64::EPSILON as *const f64 as *const T) }
-    } else if TypeId::of::<T>() == TypeId::of::<crate::Df64>() {
-        // Df64::EPSILON ≈ 2.465e-32
-        unsafe { std::ptr::read(&crate::Df64::EPSILON as *const crate::Df64 as *const T) }
+    // f64::EPSILON ≈ 2.22e-16, Df64::EPSILON ≈ 2.465e-32
+    if let Some(&eps) = (&f64::EPSILON as &dyn Any).downcast_ref::<T>() {
+        eps
+    } else if let Some(&eps) = (&crate::Df64::EPSILON as &dyn Any).downcast_ref::<T>() {
+        eps
     } else {
         // Fallback: use a reasonable default
         T::from_f64(1e-15).unwrap_or(T::one() * T::from_f64(1e-15).unwrap_or(T::one()))
@@ -447,11 +446,9 @@ pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
         Ok((u, s, v))
     } else if TypeId::of::<T>() == TypeId::of::<Df64>() {
         // Convert to DMatrix<Df64> without going through f64 to preserve precision
-        // TypeId check ensures T == Df64 at runtime, so we can safely cast
         let matrix_df64: DMatrix<Df64> =
             DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
-                // Safe: TypeId check guarantees T == Df64
-                unsafe { std::mem::transmute_copy(&matrix[[i, j]]) }
+                Df64::convert_from(matrix[[i, j]])
             });
 
         // Use TSVD with appropriate tolerance for Df64
