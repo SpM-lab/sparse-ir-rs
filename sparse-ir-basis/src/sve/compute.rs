@@ -10,15 +10,38 @@ use super::result::SVEResult;
 use super::strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use super::types::{TworkType, safe_epsilon};
 
-/// Default relative cutoff for singular value truncation: `2 * T::epsilon()`
+/// Default cutoff relative to the required accuracy ε
 ///
-/// This is `2^-51` (about 4.44e-16) for `f64` and `2^-104` (about 4.93e-32)
-/// for `Df64`. Both SVE paths use it when `cutoff` is `None`.
-/// Convention-matched with libsparseir, whose `pre_postprocess` in
-/// `backend/cxx/include/sparseir/impl/sve_impl.ipp` (commit 4bc58ea) uses
-/// `T(2) * std::numeric_limits<T>::epsilon()` when the cutoff is NaN.
-fn default_cutoff<T: CustomNumeric>() -> T {
-    T::from_f64_unchecked(2.0) * T::epsilon()
+/// Singular values far below ε are never used by a basis built for ε (it
+/// keeps those ≥ ε·s₀, plus one more for its accuracy estimate), but
+/// resolving them dominated the SVE cost: down to 2·ε_work, the even/odd
+/// SVDs had about twice the rank needed.
+///
+/// The cutoff is also the stopping tolerance of the ACA in the block SVDs,
+/// whose stopping test can underestimate the residual: with 10⁻⁶·ε, the
+/// singular values a basis uses deviated from the full spectrum by up to
+/// 2·10⁻⁴ relative (logistic, Λ = 10⁶, ε = 10⁻¹²). At 10⁻¹⁰·ε they agree to
+/// ≲ 4·10⁻¹¹ relative for Λ ≤ 10⁶, ε = 10⁻¹⁰…10⁻¹⁵. For ε ≤ 4.4·10⁻⁶
+/// (computed in f64), 10⁻¹⁰·ε lies below 2·ε_work, so the full spectrum is
+/// resolved.
+pub const DEFAULT_CUTOFF_FACTOR: f64 = 1e-10;
+
+/// Default relative cutoff for singular value truncation:
+/// `max(2 * T::epsilon(), DEFAULT_CUTOFF_FACTOR * epsilon)`
+///
+/// `2 * T::epsilon()` is `2^-51` (about 4.44e-16) for `f64` and `2^-104`
+/// (about 4.93e-32) for `Df64`. Both SVE paths use the default when `cutoff`
+/// is `None`. For `epsilon` ≤ 4.4e-6 computed in `f64` the default is
+/// `2 * T::epsilon()`, convention-matched with libsparseir, whose
+/// `pre_postprocess` in `backend/cxx/include/sparseir/impl/sve_impl.ipp`
+/// (commit 4bc58ea) uses `T(2) * std::numeric_limits<T>::epsilon()` when the
+/// cutoff is NaN; for larger `epsilon`, and in `Df64`, it is
+/// `DEFAULT_CUTOFF_FACTOR * epsilon`, larger than libsparseir's.
+fn default_cutoff<T: CustomNumeric>(epsilon: f64) -> T {
+    CustomNumeric::max(
+        T::from_f64_unchecked(2.0) * T::epsilon(),
+        T::from_f64_unchecked(DEFAULT_CUTOFF_FACTOR * epsilon),
+    )
 }
 
 /// Release unused memory back to the OS.
@@ -67,11 +90,14 @@ fn release_unused_memory() {
 ///   accuracy of the working precision (about 1.6e-16 in Float64X2).
 /// * `cutoff` - Relative tolerance for singular value truncation: singular
 ///   values smaller than `cutoff` times the largest singular value are
-///   discarded. `None` selects `2 * machine epsilon` of the working precision,
-///   about 4.44e-16 for Float64 and 4.93e-32 for Float64X2 (the libsparseir
-///   default). The SVD of each block already discards singular values below
-///   `2 * machine epsilon` times that block's largest singular value, so a
-///   smaller `cutoff` has little effect. Must be in [0, 1].
+///   discarded. `None` selects `max(2 * machine epsilon, f * epsilon)` with
+///   `f` = [`DEFAULT_CUTOFF_FACTOR`] and the machine epsilon of the working
+///   precision: `2 * machine epsilon` (4.44e-16, the libsparseir default) for
+///   Float64 with `epsilon` ≤ 4.4e-6, otherwise `1e-10 * epsilon`; pass
+///   `2 * machine epsilon` for the full numerically resolvable spectrum. The SVD of each block resolves
+///   down to the smaller of `cutoff` and its default (never below
+///   `2 * machine epsilon`), so a larger `cutoff` only truncates the result.
+///   Must be in [0, 1].
 /// * `max_num_svals` - Maximum number of singular values to keep
 /// * `twork` - Working precision type (Auto for automatic selection)
 ///
@@ -128,13 +154,8 @@ where
 /// * `kernel` - The kernel to expand (can be centrosymmetric or non-centrosymmetric)
 /// * `epsilon` - Required accuracy, in (0, 1). `None` selects the best
 ///   accuracy of the working precision (about 1.6e-16 in Float64X2).
-/// * `cutoff` - Relative tolerance for singular value truncation: singular
-///   values smaller than `cutoff` times the largest singular value are
-///   discarded. `None` selects `2 * machine epsilon` of the working precision,
-///   about 4.44e-16 for Float64 and 4.93e-32 for Float64X2, as in
-///   [`compute_sve`]. The SVD of the full-domain matrix already discards
-///   singular values below `2 * machine epsilon` times the largest one, so a
-///   smaller `cutoff` has no effect. Must be in [0, 1].
+/// * `cutoff` - Relative tolerance for singular value truncation, as in
+///   [`compute_sve`]. Must be in [0, 1].
 /// * `max_num_svals` - Maximum number of singular values to keep
 /// * `twork` - Working precision type (Auto for automatic selection)
 ///
@@ -260,6 +281,16 @@ where
     // touches their pivot rows and columns
     let blocks = sve.blocks();
 
+    // Singular values below the cutoff are discarded in step 4, so the block
+    // SVDs need not resolve them. The cutoff never goes below 2·ε of the
+    // working type (f64 or Df64).
+    let default_cutoff = default_cutoff::<T>(epsilon);
+    let rtol_t = cutoff.unwrap_or(default_cutoff);
+    // The block SVDs resolve down to the cutoff, but never stop above the
+    // default one: their singular values close to the tolerance are not
+    // accurate (see `tsvd_aca`). A larger cutoff only truncates the result.
+    let svd_rtol = CustomNumeric::min(rtol_t, default_cutoff).to_f64();
+
     // 3. Compute the SVD of each block by adaptive cross approximation
     let mut u_list = Vec::new();
     let mut s_list = Vec::new();
@@ -270,15 +301,14 @@ where
             block.nrows(),
             block.ncols(),
             &|i, j| block.entry(i, j),
-            0.0,
+            svd_rtol,
         )?;
         u_list.push(u);
         s_list.push(s);
         v_list.push(v);
     }
 
-    // 4. Truncate based on cutoff (default: 2 * T::epsilon(), see default_cutoff)
-    let rtol_t = cutoff.unwrap_or_else(default_cutoff::<T>);
+    // 4. Truncate based on cutoff (see default_cutoff)
     let (u_trunc, s_trunc, v_trunc) = truncate(u_list, s_list, v_list, rtol_t, max_num_svals);
 
     // 5. Post-process to create SVEResult
@@ -386,16 +416,24 @@ pub(crate) fn truncate<T: CustomNumeric>(
 mod tests {
     use super::*;
 
-    /// The default cutoff is exactly `2 * machine epsilon` of each working
-    /// precision (issue #249); `Df64` epsilon is `f64::EPSILON^2 / 2 = 2^-105`.
+    /// The default cutoff is `2 * machine epsilon` of each working precision
+    /// (issue #249) when `DEFAULT_CUTOFF_FACTOR * epsilon` is smaller, as for
+    /// f64 with epsilon <= 4.4e-6; `Df64` epsilon is
+    /// `f64::EPSILON^2 / 2 = 2^-105`. Otherwise it is
+    /// `DEFAULT_CUTOFF_FACTOR * epsilon`.
     #[test]
-    fn test_default_cutoff_is_two_machine_epsilon() {
-        assert_eq!(default_cutoff::<f64>(), 2.0 * f64::EPSILON);
-        assert_eq!(default_cutoff::<f64>(), 2f64.powi(-51));
+    fn test_default_cutoff() {
+        for epsilon in [1e-8, 1e-6, 4.4e-6] {
+            assert_eq!(default_cutoff::<f64>(epsilon), 2.0 * f64::EPSILON);
+            assert_eq!(default_cutoff::<f64>(epsilon), 2f64.powi(-51));
+        }
+        assert_eq!(default_cutoff::<f64>(1e-4 / DEFAULT_CUTOFF_FACTOR), 1e-4);
 
-        let df64 = default_cutoff::<crate::Df64>();
+        let df64 = default_cutoff::<crate::Df64>(1e-30);
         assert_eq!(df64, crate::Df64::from(2f64.powi(-104)));
         assert_eq!((df64.hi(), df64.lo()), (2f64.powi(-104), 0.0));
+        let df64 = default_cutoff::<crate::Df64>(1e-10);
+        assert_eq!(df64, crate::Df64::from(DEFAULT_CUTOFF_FACTOR * 1e-10));
     }
 
     #[test]
