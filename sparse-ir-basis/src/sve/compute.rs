@@ -256,16 +256,22 @@ where
         Box::new(NonCentrosymmSVE::new(kernel, epsilon)?)
     };
 
-    // 2. Compute matrices
-    let matrices = sve.matrices();
+    // 2. Discretized kernel blocks, evaluated lazily: the SVD below only
+    // touches their pivot rows and columns
+    let blocks = sve.blocks();
 
-    // 3. Compute SVD for each matrix
+    // 3. Compute the SVD of each block by adaptive cross approximation
     let mut u_list = Vec::new();
     let mut s_list = Vec::new();
     let mut v_list = Vec::new();
 
-    for matrix in matrices.iter() {
-        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
+    for block in &blocks {
+        let (u, s, v) = crate::tsvd::compute_svd_aca(
+            block.nrows(),
+            block.ncols(),
+            &|i, j| block.entry(i, j),
+            0.0,
+        )?;
         u_list.push(u);
         s_list.push(s);
         v_list.push(v);

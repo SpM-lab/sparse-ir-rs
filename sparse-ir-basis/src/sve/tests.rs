@@ -648,6 +648,87 @@ impl KernelProperties for TiltedLogisticKernel {
     }
 }
 
+/// A logistic kernel cut to zero for x ≤ 0: non-centrosymmetric, with zero
+/// rows in its discretization (the first of which is ACA's first pivot)
+#[derive(Debug, Clone, Copy)]
+struct HalfLogisticKernel(LogisticKernel);
+
+impl AbstractKernel for HalfLogisticKernel {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        if x > T::from_f64_unchecked(0.0) {
+            self.0.compute(x, y)
+        } else {
+            T::from_f64_unchecked(0.0)
+        }
+    }
+}
+
+impl KernelProperties for HalfLogisticKernel {
+    type SVEHintsType<T>
+        = TiltedLogisticSVEHints<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.0.conv_radius()
+    }
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        1.0
+    }
+
+    fn lambda(&self) -> f64 {
+        self.0.lambda()
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, _: f64, _: f64) -> f64 {
+        1.0
+    }
+
+    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        TiltedLogisticSVEHints(self.0.sve_hints::<T>(epsilon))
+    }
+}
+
+/// The SVE of a kernel with zero rows (ACA moves on to other pivot rows)
+/// reproduces the kernel
+#[test]
+fn test_sve_of_kernel_with_zero_rows() {
+    let kernel = HalfLogisticKernel(LogisticKernel::new(10.0).unwrap());
+    for (eps, twork) in [(1e-6, TworkType::Float64), (1e-10, TworkType::Float64X2)] {
+        let sve = compute_sve(kernel, Some(eps), None, None, twork).unwrap();
+        assert!(
+            sve.s.len() > 5,
+            "{twork:?}: {} singular values",
+            sve.s.len()
+        );
+        let mut err: f64 = 0.0;
+        for i in 0..=40 {
+            let x = -1.0 + 0.05 * i as f64;
+            for j in 0..=40 {
+                let y = -1.0 + 0.05 * j as f64;
+                let approx: f64 = (0..sve.s.len())
+                    .map(|l| sve.u[l].evaluate(x) * sve.s[l] * sve.v[l].evaluate(y))
+                    .sum();
+                let exact: f64 = kernel.compute(x, y);
+                err = err.max((approx - exact).abs());
+            }
+        }
+        assert!(err < 100.0 * eps, "{twork:?}: reconstruction error {err:e}");
+    }
+}
+
 /// `compute_sve_general` on a non-centrosymmetric kernel uses its full-domain
 /// hint segments as given, reconstructs the kernel, and fixes the SVD sign
 /// gauge by `u_l(xmax) >= 0` like `compute_sve`

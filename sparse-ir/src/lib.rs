@@ -34,7 +34,7 @@ pub use sparse_ir_basis::{
     AbstractKernel, BosonicBasis, BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector,
     CentrosymmSVE, CustomNumeric, Df64, DiscretizedKernel, DlrFromIr, FermionicBasis,
     FermionicPiecewiseLegendreFT, FermionicPiecewiseLegendreFTVector, FiniteTempBasis, IrBasis,
-    KernelProperties, LogisticKernel, LogisticKernelWindowed, LogisticSVEHints,
+    KernelBlock, KernelProperties, LogisticKernel, LogisticKernelWindowed, LogisticSVEHints,
     LogisticWindowedSVEHints, PiecewiseLegendreFT, PiecewiseLegendreFTVector,
     PiecewiseLegendrePoly, PiecewiseLegendrePolyVector, PowerModel, RegularizedBoseKernel,
     RegularizedBoseSVEHints, Rule, SVDResult, SVEHints, SVEResult, SVEStrategy, SamplingSVE,
