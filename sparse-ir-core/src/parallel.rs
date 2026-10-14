@@ -30,6 +30,13 @@ pub fn n_threads() -> usize {
 /// ones, in double-double.
 pub const PARALLEL_MIN_WORK: usize = 1 << 19;
 
+/// [`for_each_chunk`] splits its work into this many chunks per thread, so
+/// that idle threads take over the chunks of slower ones (on a CPU with
+/// performance and efficiency cores, the latter would otherwise hold up the
+/// whole region). On an M1 Pro, this made the double-double `compute_sve`
+/// 10–15 % faster on 8 threads than one chunk per thread.
+const CHUNKS_PER_THREAD: usize = 4;
+
 /// Run `jobs` on the rayon pool and wait for all of them. Pool threads do not
 /// have the caller's FPU state, so every job runs under it.
 pub fn run_on_pool<'a, F: FnOnce() + Send + 'a>(jobs: impl IntoIterator<Item = F>) {
@@ -53,7 +60,7 @@ pub fn for_each_chunk<T: Send>(out: &mut [T], work: usize, f: impl Fn(usize, &mu
         f(0, out);
         return;
     }
-    let chunk_len = out.len().div_ceil(n_threads);
+    let chunk_len = out.len().div_ceil(n_threads * CHUNKS_PER_THREAD);
     let f = &f;
     run_on_pool(
         out.chunks_mut(chunk_len)
