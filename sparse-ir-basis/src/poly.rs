@@ -28,10 +28,7 @@ pub struct PiecewiseLegendrePoly {
     ///
     /// SVE results set it to the position of the function in the result, and
     /// `PiecewiseLegendrePolyVector::from_3d_data` to the position in the
-    /// vector. `PiecewiseLegendreFT` takes the parity `(-1)^l` of the function
-    /// from it for the asymptotic expansion used at |n| >= n_asymp. For the
-    /// centrosymmetric kernels of this crate the even and odd singular
-    /// functions interlace, so that parity equals `symm`.
+    /// vector.
     pub(crate) l: i32,
     /// Segment midpoints
     pub(crate) xm: Vec<f64>,

@@ -145,33 +145,38 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 
     /// Create power model for asymptotic behavior
     fn power_model(poly: &PiecewiseLegendrePoly) -> PowerModel {
-        // Evaluate at the right end of the domain: `new` accepts an xmax
-        // within 1e-12 of 1, where derivs(1.0) would be outside the domain.
-        let deriv_x1 = poly.derivs(poly.xmax);
-        let moments = Self::power_moments(&deriv_x1, poly.l);
-        PowerModel::new(moments)
+        // Evaluate at the ends of the domain: `new` accepts an xmin/xmax
+        // within 1e-12 of -1/1, where derivs(-1.0)/derivs(1.0) would be
+        // outside the domain.
+        PowerModel::new(Self::power_moments(
+            &poly.derivs(poly.xmax),
+            &poly.derivs(poly.xmin),
+        ))
     }
 
-    /// Compute power moments for asymptotic expansion
+    /// Asymptotic power moments from the boundary derivatives at both ends
     ///
-    /// Integration by parts gives moments that combine the derivatives of the
-    /// function at x = 1 and at x = -1. Only those at x = 1 (`deriv_x1`) are
-    /// used; the ones at x = -1 follow from the parity `(-1)^l`. `l` must
-    /// therefore be the index of the singular function in its SVE result (see
-    /// `PiecewiseLegendrePoly::l`), not its index within an even or odd block.
-    fn power_moments(deriv_x1: &[f64], l: i32) -> Vec<f64> {
+    /// `M_m = -( statsign · (-1)^(m+1) · u^(m)(+1) + (-1)^m · u^(m)(-1) ) / sqrt(2)`,
+    /// where `deriv_p[m]` / `deriv_m[m]` is the order-m derivative at x = +1 / -1.
+    /// No parity is assumed, so this holds for functions without definite
+    /// parity (`symm == 0`, e.g. from `compute_sve_general`); for a function
+    /// of parity `(-1)^l` it reduces to the one-sided form with
+    /// `u^(m)(-1) = (-1)^(l+m) u^(m)(+1)`.
+    fn power_moments(deriv_p: &[f64], deriv_m: &[f64]) -> Vec<f64> {
         let statsign = match S::STATISTICS {
             Statistics::Fermionic => -1.0,
             Statistics::Bosonic => 1.0,
         };
-
-        let mut moments = deriv_x1.to_vec();
-        for (m, moment) in moments.iter_mut().enumerate() {
-            let m_f64 = (m + 1) as f64; // Julia uses 1-based indexing
-            *moment *=
-                -(statsign * (-1.0_f64).powi(m_f64 as i32) + (-1.0_f64).powi(l)) / 2.0_f64.sqrt();
-        }
-        moments
+        deriv_p
+            .iter()
+            .zip(deriv_m)
+            .enumerate()
+            .map(|(m, (&dp, &dm))| {
+                let sign_p = (-1.0_f64).powi((m + 1) as i32);
+                let sign_m = (-1.0_f64).powi(m as i32);
+                -(statsign * sign_p * dp + sign_m * dm) / 2.0_f64.sqrt()
+            })
+            .collect()
     }
 
     /// Compute the inner Fourier transform (for small frequencies)

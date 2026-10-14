@@ -681,3 +681,26 @@ fn test_sign_changes_of_functions_without_parity_are_not_supported() {
         not_supported(find_extrema(&ft, positive_only).map(nb));
     }
 }
+
+/// A function without definite parity (`symm == 0`, mixing even P0/P2 and odd
+/// P1 content) must get correct Matsubara values from the asymptotic model at
+/// large |n|: the model agrees with the exact inner transform. (A one-sided
+/// moment formula that takes the parity from `(-1)^l` is ~100% wrong here.)
+#[test]
+fn test_parityless_asymptotic_model_matches_inner_transform() {
+    let poly =
+        PiecewiseLegendrePoly::new(mat![[0.5], [0.4], [0.3]], vec![-1.0, 1.0], 1, None, 0).unwrap();
+    // n_asymp = inf: always the inner transform; n_asymp = 3: the model at |n| >= 3
+    let exact = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None).unwrap();
+    let asymp = FermionicPiecewiseLegendreFT::new(poly, Fermionic, Some(3.0)).unwrap();
+
+    for n in [5_i64, 11, 21, 51, 101, 501] {
+        let e = exact.evaluate_at_n(n).unwrap();
+        let a = asymp.evaluate_at_n(n).unwrap();
+        let rel = (a - e).norm() / e.norm();
+        assert!(
+            rel < 1e-9,
+            "n={n}: asymptotic {a} vs exact {e} (rel_err={rel:.2e})"
+        );
+    }
+}
