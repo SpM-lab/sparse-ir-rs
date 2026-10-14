@@ -720,7 +720,7 @@ fn test_default_matsubara_points_are_reused() {
     {
         let basis = FiniteTempBasis::<K, S>::new(kernel, beta, Some(1e-10), None).unwrap();
         let direct = |positive_only| {
-            FiniteTempBasis::<K, S>::default_matsubara_sampling_points_impl(
+            crate::basis::default_matsubara_sampling_points_from_uhat(
                 basis.uhat_full(),
                 basis.size(),
                 false,

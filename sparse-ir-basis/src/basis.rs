@@ -244,7 +244,7 @@ where
     where
         S: 'static,
     {
-        let freqs = Self::default_matsubara_sampling_points_impl(
+        let freqs = default_matsubara_sampling_points_from_uhat(
             &self.uhat_full,
             n_points,
             mitigate,
@@ -550,7 +550,7 @@ where
         let points = self
             .default_matsubara_points
             .get_or_init(|| {
-                Self::default_matsubara_sampling_points_impl(
+                default_matsubara_sampling_points_from_uhat(
                     &self.uhat_full,
                     self.size(),
                     false,
@@ -586,166 +586,6 @@ where
         Ok(points)
     }
 
-    /// Fence Matsubara sampling points to improve conditioning
-    ///
-    /// This function adds additional sampling points near the outer frequencies
-    /// to improve the conditioning of the sampling matrix. This is particularly
-    /// important for Matsubara sampling where we cannot freely choose sampling points.
-    ///
-    /// Implementation matches C++ version in `basis.hpp` (lines 407-452).
-    fn fence_matsubara_sampling(
-        omega_n: &mut Vec<crate::freq::MatsubaraFreq<S>>,
-        positive_only: bool,
-    ) where
-        S: StatisticsType + 'static,
-    {
-        use crate::freq::{BosonicFreq, MatsubaraFreq};
-
-        if omega_n.is_empty() {
-            return;
-        }
-
-        // Collect outer frequencies
-        let mut outer_frequencies = Vec::new();
-        if positive_only {
-            outer_frequencies.push(omega_n[omega_n.len() - 1]);
-        } else {
-            outer_frequencies.push(omega_n[0]);
-            outer_frequencies.push(omega_n[omega_n.len() - 1]);
-        }
-
-        for wn_outer in outer_frequencies {
-            let outer_val = wn_outer.n();
-            // In SparseIR.jl-v1, ωn_diff is always created as BosonicFreq
-            // This ensures diff_val is always even (valid for Bosonic)
-            let mut diff_val = 2 * (0.025 * outer_val as f64).round() as i64;
-
-            // Handle edge case: if diff_val is 0, set it to 2 (minimum even value for Bosonic)
-            if diff_val == 0 {
-                diff_val = 2;
-            }
-
-            // Get the n value from BosonicFreq (same as diff_val since it's even)
-            let wn_diff = BosonicFreq::new(diff_val).unwrap().n();
-
-            // Sign function: returns +1 if n > 0, -1 if n < 0, 0 if n == 0
-            // Matches C++ implementation: (a.get_n() > 0) - (a.get_n() < 0)
-            let sign_val = if outer_val > 0 {
-                1
-            } else if outer_val < 0 {
-                -1
-            } else {
-                0
-            };
-
-            // Check original size before adding (C++ checks wn.size() before each push)
-            let original_size = omega_n.len();
-            if original_size >= 20 {
-                // For Fermionic: wn_outer.n is odd, wn_diff is even, so wn_outer.n ± wn_diff is odd (valid)
-                // For Bosonic: wn_outer.n is even, wn_diff is even, so wn_outer.n ± wn_diff is even (valid)
-                let new_n = outer_val - sign_val * wn_diff;
-                if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
-                    omega_n.push(new_freq);
-                }
-            }
-            if original_size >= 42 {
-                let new_n = outer_val + sign_val * wn_diff;
-                if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
-                    omega_n.push(new_freq);
-                }
-            }
-        }
-
-        // Sort and remove duplicates using BTreeSet
-        let omega_n_set: std::collections::BTreeSet<MatsubaraFreq<S>> = omega_n.drain(..).collect();
-        *omega_n = omega_n_set.into_iter().collect();
-    }
-
-    /// Default Matsubara sampling points for a basis of size `l` from the
-    /// Matsubara basis functions `uhat_full`
-    ///
-    /// For functions with a definite parity, these are the sign changes of
-    /// `uhat_full[l]` (after the parity adjustment of `l`), or the extrema of
-    /// the last function when `uhat_full` has no function `l`, as in
-    /// SparseIR.jl; bosonic sets always include n = 0. `mitigate` adds points
-    /// near the outer frequencies (fencing). Functions without a parity
-    /// (symm = 0, as from an SVE that is not centrosymmetric) have no such
-    /// sign changes; their points are selected as symmetric pairs by
-    /// [`crate::polyfourier::pair_sampling_points`], where `mitigate` adds
-    /// about 10% more frequencies (oversampling).
-    ///
-    /// # Errors
-    ///
-    /// * [`Error::EmptyInput`] if `uhat_full` is empty
-    pub(crate) fn default_matsubara_sampling_points_impl(
-        uhat_full: &PiecewiseLegendreFTVector<S>,
-        l: usize,
-        mitigate: bool,
-        positive_only: bool,
-    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
-    where
-        S: StatisticsType + 'static,
-    {
-        use crate::freq::MatsubaraFreq;
-        use crate::polyfourier::{find_extrema, sign_changes};
-        use std::collections::BTreeSet;
-
-        if uhat_full.is_empty() {
-            return Err(Error::EmptyInput { name: "uhat_full" });
-        }
-        if uhat_full.get_polys().iter().any(|u| u.poly.symm == 0) {
-            return crate::polyfourier::pair_sampling_points(uhat_full, l, positive_only, mitigate);
-        }
-        let fence = mitigate;
-
-        let mut l_requested = l;
-
-        // Adjust l_requested based on statistics (same as C++)
-        if S::STATISTICS == crate::traits::Statistics::Fermionic && l_requested % 2 != 0 {
-            l_requested += 1;
-        } else if S::STATISTICS == crate::traits::Statistics::Bosonic && l_requested % 2 == 0 {
-            l_requested += 1;
-        }
-
-        // Choose sign_changes or find_extrema based on l_requested
-        let mut omega_n = if l_requested < uhat_full.len() {
-            sign_changes(&uhat_full[l_requested], positive_only)?
-        } else {
-            find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)?
-        };
-
-        // For bosons, include zero frequency explicitly to prevent conditioning issues
-        if S::STATISTICS == crate::traits::Statistics::Bosonic {
-            omega_n.push(MatsubaraFreq::<S>::new(0).unwrap());
-        }
-
-        // Sort and remove duplicates using BTreeSet
-        let omega_n_set: BTreeSet<MatsubaraFreq<S>> = omega_n.into_iter().collect();
-        let mut omega_n: Vec<MatsubaraFreq<S>> = omega_n_set.into_iter().collect();
-
-        // Check expected size
-        let expected_size = if positive_only {
-            l_requested.div_ceil(2)
-        } else {
-            l_requested
-        };
-
-        if omega_n.len() != expected_size {
-            debug_warn!(
-                "Requested {} sampling frequencies for basis size L = {}, but got {}.",
-                expected_size,
-                l,
-                omega_n.len()
-            );
-        }
-
-        // Apply fencing if requested (same as C++ implementation)
-        if fence {
-            Self::fence_matsubara_sampling(&mut omega_n, positive_only);
-        }
-
-        Ok(omega_n)
-    }
     /// Get default omega (real frequency) sampling points
     ///
     /// Returns sampling points on the real-frequency axis ω ∈ [ωmin, ωmax].
@@ -931,11 +771,11 @@ pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
 /// For functions with a definite parity, the points are the sign changes of
 /// `uhat_full[l]` (after the parity adjustment of `l`), or the extrema of the
 /// last function when `uhat_full` has no function `l`, as in SparseIR.jl;
-/// bosonic sets always include n = 0. `fence` adds points near the outer
+/// bosonic sets always include n = 0. `mitigate` adds points near the outer
 /// frequencies (fencing). Functions without a parity (symm = 0, as from an
 /// SVE that is not centrosymmetric) have no such sign changes; their points
 /// are a set symmetric in ±n, selected as pairs that minimize the noise
-/// amplification and aliasing of the fit, where `fence` adds about 10%
+/// amplification and aliasing of the fit, where `mitigate` adds about 10%
 /// more frequencies (oversampling). This is what
 /// [`FiniteTempBasis::default_matsubara_sampling_points`] computes, for a
 /// caller that holds the functions but not the basis.
@@ -946,18 +786,143 @@ pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
 pub fn default_matsubara_sampling_points_from_uhat<S>(
     uhat_full: &PiecewiseLegendreFTVector<S>,
     l: usize,
-    fence: bool,
+    mitigate: bool,
     positive_only: bool,
 ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
 where
     S: StatisticsType + 'static,
 {
-    FiniteTempBasis::<LogisticKernel, S>::default_matsubara_sampling_points_impl(
-        uhat_full,
-        l,
-        fence,
-        positive_only,
-    )
+    use crate::freq::MatsubaraFreq;
+    use crate::polyfourier::{find_extrema, sign_changes};
+    use std::collections::BTreeSet;
+
+    if uhat_full.is_empty() {
+        return Err(Error::EmptyInput { name: "uhat_full" });
+    }
+    if uhat_full.get_polys().iter().any(|u| u.poly.symm == 0) {
+        return crate::polyfourier::pair_sampling_points(uhat_full, l, positive_only, mitigate);
+    }
+
+    let mut l_requested = l;
+
+    // Adjust l_requested based on statistics (same as C++)
+    if S::STATISTICS == crate::traits::Statistics::Fermionic && l_requested % 2 != 0 {
+        l_requested += 1;
+    } else if S::STATISTICS == crate::traits::Statistics::Bosonic && l_requested % 2 == 0 {
+        l_requested += 1;
+    }
+
+    // Choose sign_changes or find_extrema based on l_requested
+    let mut omega_n = if l_requested < uhat_full.len() {
+        sign_changes(&uhat_full[l_requested], positive_only)?
+    } else {
+        find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)?
+    };
+
+    // For bosons, include zero frequency explicitly to prevent conditioning issues
+    if S::STATISTICS == crate::traits::Statistics::Bosonic {
+        omega_n.push(MatsubaraFreq::<S>::new(0).unwrap());
+    }
+
+    // Sort and remove duplicates using BTreeSet
+    let omega_n_set: BTreeSet<MatsubaraFreq<S>> = omega_n.into_iter().collect();
+    let mut omega_n: Vec<MatsubaraFreq<S>> = omega_n_set.into_iter().collect();
+
+    // Check expected size
+    let expected_size = if positive_only {
+        l_requested.div_ceil(2)
+    } else {
+        l_requested
+    };
+
+    if omega_n.len() != expected_size {
+        debug_warn!(
+            "Requested {} sampling frequencies for basis size L = {}, but got {}.",
+            expected_size,
+            l,
+            omega_n.len()
+        );
+    }
+
+    // Apply fencing if requested (same as C++ implementation)
+    if mitigate {
+        fence_matsubara_sampling(&mut omega_n, positive_only);
+    }
+
+    Ok(omega_n)
+}
+
+/// Fence Matsubara sampling points to improve conditioning
+///
+/// This function adds additional sampling points near the outer frequencies
+/// to improve the conditioning of the sampling matrix. This is particularly
+/// important for Matsubara sampling where we cannot freely choose sampling points.
+///
+/// Implementation matches C++ version in `basis.hpp` (lines 407-452).
+fn fence_matsubara_sampling<S: StatisticsType + 'static>(
+    omega_n: &mut Vec<crate::freq::MatsubaraFreq<S>>,
+    positive_only: bool,
+) {
+    use crate::freq::{BosonicFreq, MatsubaraFreq};
+
+    if omega_n.is_empty() {
+        return;
+    }
+
+    // Collect outer frequencies
+    let mut outer_frequencies = Vec::new();
+    if positive_only {
+        outer_frequencies.push(omega_n[omega_n.len() - 1]);
+    } else {
+        outer_frequencies.push(omega_n[0]);
+        outer_frequencies.push(omega_n[omega_n.len() - 1]);
+    }
+
+    for wn_outer in outer_frequencies {
+        let outer_val = wn_outer.n();
+        // In SparseIR.jl-v1, ωn_diff is always created as BosonicFreq
+        // This ensures diff_val is always even (valid for Bosonic)
+        let mut diff_val = 2 * (0.025 * outer_val as f64).round() as i64;
+
+        // Handle edge case: if diff_val is 0, set it to 2 (minimum even value for Bosonic)
+        if diff_val == 0 {
+            diff_val = 2;
+        }
+
+        // Get the n value from BosonicFreq (same as diff_val since it's even)
+        let wn_diff = BosonicFreq::new(diff_val).unwrap().n();
+
+        // Sign function: returns +1 if n > 0, -1 if n < 0, 0 if n == 0
+        // Matches C++ implementation: (a.get_n() > 0) - (a.get_n() < 0)
+        let sign_val = if outer_val > 0 {
+            1
+        } else if outer_val < 0 {
+            -1
+        } else {
+            0
+        };
+
+        // Check original size before adding (C++ checks wn.size() before each push)
+        let original_size = omega_n.len();
+        if original_size >= 20 {
+            // For Fermionic: wn_outer.n is odd, wn_diff is even, so wn_outer.n ± wn_diff is odd (valid)
+            // For Bosonic: wn_outer.n is even, wn_diff is even, so wn_outer.n ± wn_diff is even (valid)
+            let new_n = outer_val - sign_val * wn_diff;
+            if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
+                omega_n.push(new_freq);
+            }
+        }
+        if original_size >= 42 {
+            let new_n = outer_val + sign_val * wn_diff;
+            if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
+                omega_n.push(new_freq);
+            }
+        }
+    }
+
+    // Sort and remove duplicates using BTreeSet
+    let omega_n_set: std::collections::BTreeSet<MatsubaraFreq<S>> = omega_n.drain(..).collect();
+    *omega_n = omega_n_set.into_iter().collect();
 }
 
 #[cfg(test)]

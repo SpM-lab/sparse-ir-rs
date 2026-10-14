@@ -41,7 +41,7 @@ fn create_poly_with_segments() -> PiecewiseLegendrePoly {
 fn test_extend_even_symmetry() {
     let poly_positive = create_simple_poly_on_positive_domain();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even).unwrap();
 
     // Test: f(-x) = f(x) for Even symmetry
     let poly = &polys_full[0];
@@ -63,7 +63,7 @@ fn test_extend_even_symmetry() {
 fn test_extend_odd_symmetry() {
     let poly_positive = create_simple_poly_on_positive_domain();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Odd, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Odd).unwrap();
 
     // Test: f(-x) = -f(x) for Odd symmetry
     let poly = &polys_full[0];
@@ -90,7 +90,7 @@ fn test_positive_domain_preserved() {
         .map(|i| poly_positive.evaluate(i as f64 * 0.1))
         .collect();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even).unwrap();
 
     // Check that positive domain values are preserved (with 1/sqrt(2) normalization)
     // The extended polynomial applies 1/sqrt(2) normalization to both parts
@@ -115,7 +115,7 @@ fn test_positive_domain_preserved() {
 fn test_segment_structure() {
     let poly = create_poly_with_segments();
 
-    let polys_full = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly], SymmetryType::Even).unwrap();
 
     // Extended from [0, 0.5, 1.0] to [-1.0, -0.5, 0.0, 0.5, 1.0]
     let expected_knots = [-1.0, -0.5, 0.0, 0.5, 1.0];
@@ -137,7 +137,7 @@ fn test_multiple_polynomials() {
     let poly1 = create_simple_poly_on_positive_domain();
     let poly2 = create_poly_with_segments();
 
-    let polys_full = extend_to_full_domain(vec![poly1, poly2], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly1, poly2], SymmetryType::Even).unwrap();
 
     // Should have extended both polynomials
     assert_eq!(polys_full.len(), 2);
@@ -332,13 +332,11 @@ fn test_merge_results_assigns_global_index() {
     let even = extend_to_full_domain(
         vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
         SymmetryType::Even,
-        1.0,
     )
     .unwrap();
     let odd = extend_to_full_domain(
         vec![half_domain_poly(3.0, 0), half_domain_poly(4.0, 1)],
         SymmetryType::Odd,
-        1.0,
     )
     .unwrap();
     // Interlacing singular values, as for a totally positive kernel.
@@ -1126,11 +1124,9 @@ fn test_merge_results_with_an_empty_block() {
     let even = extend_to_full_domain(
         vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
         SymmetryType::Even,
-        1.0,
     )
     .unwrap();
-    let odd =
-        extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd, 1.0).unwrap();
+    let odd = extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd).unwrap();
     let empty = || PiecewiseLegendrePolyVector::from_polys_unchecked(vec![]);
     let block = |polys: &Vec<PiecewiseLegendrePoly>, s: Vec<f64>| {
         (
@@ -1333,7 +1329,7 @@ fn test_extend_to_full_domain_requires_the_half_domain() {
     for start in [-0.5, 0.25] {
         let data = Mat::<f64>::from_elem([1, 1], 1.0);
         let poly = PiecewiseLegendrePoly::new(data, vec![start, 1.0], 0, None, 0).unwrap();
-        let err = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0).unwrap_err();
+        let err = extend_to_full_domain(vec![poly], SymmetryType::Even).unwrap_err();
         assert!(
             matches!(err, Error::InvalidParameter { name: "polys", .. }),
             "{err:?}"

@@ -74,7 +74,6 @@ pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Ve
 ///
 /// * `polys` - Polynomials defined on [0, xmax]
 /// * `symmetry` - Even or Odd symmetry type
-/// * `_xmax` - Maximum value of the domain (currently unused)
 ///
 /// # Returns
 ///
@@ -97,7 +96,6 @@ pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Ve
 pub(crate) fn extend_to_full_domain(
     polys: Vec<PiecewiseLegendrePoly>,
     symmetry: SymmetryType,
-    _xmax: f64,
 ) -> Result<Vec<PiecewiseLegendrePoly>, Error> {
     let sign = symmetry.sign() as f64;
     let symm = symmetry.sign(); // Preserve symmetry: +1 for even, -1 for odd

@@ -318,8 +318,8 @@ where
         let (u, s, v) = result;
 
         // Extend u and v from [0, xmax] to [-xmax, xmax]
-        let u_full = extend_to_full_domain(u, symmetry, self.kernel.xmax())?;
-        let v_full = extend_to_full_domain(v, symmetry, self.kernel.ymax())?;
+        let u_full = extend_to_full_domain(u, symmetry)?;
+        let v_full = extend_to_full_domain(v, symmetry)?;
 
         Ok((u_full, s, v_full))
     }
