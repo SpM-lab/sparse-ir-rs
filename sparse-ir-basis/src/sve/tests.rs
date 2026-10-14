@@ -1409,3 +1409,44 @@ fn test_default_cutoff_follows_epsilon() {
         }
     }
 }
+
+/// The SVE runs on the current rayon pool (its blocks, the ACA steps and the
+/// double-double products), but each value is computed by the same
+/// operations whatever the threading: the result on four threads is bitwise
+/// that on one, in f64 and Df64, with and without centrosymmetry.
+#[test]
+fn test_sve_does_not_depend_on_the_number_of_threads() {
+    let pool = |n| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build()
+            .unwrap()
+    };
+    let (one, four) = (pool(1), pool(4));
+    let run = |eps: f64, twork: TworkType, general: bool| {
+        let kernel = LogisticKernel::new(1e3).unwrap();
+        let sve = || {
+            if general {
+                compute_sve_general(kernel, Some(eps), None, None, twork).unwrap()
+            } else {
+                compute_sve(kernel, Some(eps), None, None, twork).unwrap()
+            }
+        };
+        (one.install(sve), four.install(sve))
+    };
+    for (eps, twork, general) in [
+        (1e-6, TworkType::Float64, false),
+        (1e-10, TworkType::Float64X2, false),
+        (1e-6, TworkType::Float64, true),
+    ] {
+        let (a, b) = run(eps, twork, general);
+        assert_eq!(a.s, b.s, "{twork:?}, general = {general}");
+        for (p, q) in a.u.get_polys().iter().zip(b.u.get_polys()) {
+            assert_eq!(
+                p.data.as_slice(),
+                q.data.as_slice(),
+                "{twork:?}, general = {general}"
+            );
+        }
+    }
+}

@@ -62,19 +62,30 @@ fn check_finite<T>(matrix: &DMatrix<T>) -> Result<(), Error>
 where
     T: ComplexField + ToPrimitive + Copy,
 {
-    for col in 0..matrix.ncols() {
-        for row in 0..matrix.nrows() {
-            let value = matrix[(row, col)];
-            if !value.is_finite() {
-                return Err(Error::NonFiniteInput {
-                    name: "matrix",
-                    index: vec![row, col],
-                    value: ToPrimitive::to_f64(&value).unwrap_or(f64::NAN),
-                });
-            }
+    let nrows = matrix.nrows();
+    check_finite_entries(matrix.as_slice(), |k| (k % nrows, k / nrows))
+}
+
+/// [`Error::NonFiniteInput`] (named `matrix`) for the first NaN or infinite
+/// value of `values`, the matrix entries at `index(k)`
+pub(crate) fn check_finite_entries<T>(
+    values: &[T],
+    index: impl Fn(usize) -> (usize, usize),
+) -> Result<(), Error>
+where
+    T: ComplexField + ToPrimitive + Copy,
+{
+    match values.iter().position(|x| !x.is_finite()) {
+        None => Ok(()),
+        Some(k) => {
+            let (row, col) = index(k);
+            Err(Error::NonFiniteInput {
+                name: "matrix",
+                index: vec![row, col],
+                value: ToPrimitive::to_f64(&values[k]).unwrap_or(f64::NAN),
+            })
         }
     }
-    Ok(())
 }
 
 /// Get appropriate epsilon value for SVD convergence based on type
@@ -302,17 +313,12 @@ where
     // A finite matrix can still overflow in the QR (a column norm above
     // f64::MAX). The input is valid, so a non-finite entry of R is a failure
     // of the decomposition, not a non-finite input.
-    match check_finite(&r_matrix) {
-        Ok(()) => {}
-        Err(Error::NonFiniteInput { index, value, .. }) => {
-            return Err(Error::DecompositionFailed {
-                reason: format!(
-                    "the R factor of the QR decomposition has the non-finite entry {value} at index {index:?}"
-                ),
-            });
-        }
-        // check_finite reports only NonFiniteInput; pass anything else on.
-        Err(other) => return Err(other),
+    if let Err(Error::NonFiniteInput { index, value, .. }) = check_finite(&r_matrix) {
+        return Err(Error::DecompositionFailed {
+            reason: format!(
+                "the R factor of the QR decomposition has the non-finite entry {value} at index {index:?}"
+            ),
+        });
     }
 
     // Step 2: Apply QR-based rank estimation first

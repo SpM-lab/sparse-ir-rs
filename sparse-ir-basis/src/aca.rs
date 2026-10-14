@@ -11,7 +11,10 @@ use num_traits::{One, ToPrimitive, Zero};
 
 use crate::error::Error;
 use crate::numeric::CustomNumeric;
-use crate::tsvd::{SVDResult, TSVDConfig, check_tsvd_input, try_svd_decompose, tsvd};
+use crate::parallel::for_each_chunk;
+use crate::tsvd::{
+    SVDResult, TSVDConfig, check_finite_entries, check_tsvd_input, try_svd_decompose, tsvd,
+};
 
 /// Oversampling window: the total number of pivots collected from
 /// the norm-based stopping trigger onward, *inclusive of the trigger iteration*.
@@ -24,8 +27,16 @@ use crate::tsvd::{SVDResult, TSVDConfig, check_tsvd_input, try_svd_decompose, ts
 /// letting a single marginal ACA stop-step drop a real singular value.
 const OVERSAMPLE: usize = 3;
 
-/// What the matrix products of the ACA need to know of its element type
-pub(crate) trait AcaScalar: ComplexField + Copy {
+/// Work charged per matrix entry evaluated by ACA, in scalar operations: an
+/// SVE kernel entry costs a few exponentials.
+const ENTRY_COST: usize = 64;
+
+/// What the threading decisions and the matrix products of the ACA need to
+/// know of its element type
+pub(crate) trait AcaScalar: ComplexField + ToPrimitive + Copy {
+    /// Cost of one operation, in `f64` operations
+    const OP_COST: usize = 1;
+
     /// `a * b`
     fn matmul(a: &DMatrix<Self>, b: &DMatrix<Self>) -> DMatrix<Self> {
         a * b
@@ -36,11 +47,20 @@ impl AcaScalar for f64 {}
 
 impl AcaScalar for num_complex::Complex<f64> {}
 
-/// Double-double products go to [`crate::ddgemm::matmul_df64`].
+/// A double-double operation costs about 16 `f64` operations; products go to
+/// [`crate::ddgemm::matmul_df64`].
 impl AcaScalar for crate::Df64 {
+    const OP_COST: usize = 16;
+
     fn matmul(a: &DMatrix<Self>, b: &DMatrix<Self>) -> DMatrix<Self> {
         crate::ddgemm::matmul_df64(a, b)
     }
+}
+
+/// The work of `ops` operations on `T`, in `f64` operations, for the threading
+/// decision of [`for_each_chunk`]
+fn work_of<T: AcaScalar>(ops: usize) -> usize {
+    ops * T::OP_COST
 }
 
 /// How ACA estimates `‖A_k‖_F` of its approximation `A_k = Σ_t u_t v_tᴴ`
@@ -67,23 +87,58 @@ struct AcaFactors<T: ComplexField> {
     trigger: Option<T::RealField>,
 }
 
-/// The entry `(i, j)` of the matrix, or [`Error::NonFiniteInput`] (named
-/// `matrix`, as by [`tsvd`]) if it is NaN or infinite
-fn finite_entry<T, F>(entry: &F, i: usize, j: usize) -> Result<T, Error>
+/// `out[k] = entry(index(k))` for each `k`, on the thread pool when large;
+/// [`Error::NonFiniteInput`] for the first entry that is NaN or infinite
+fn fill_entries<T, F>(
+    out: &mut [T],
+    entry: &F,
+    index: impl Fn(usize) -> (usize, usize) + Sync,
+) -> Result<(), Error>
 where
-    T: ComplexField + Copy,
-    F: Fn(usize, usize) -> T,
+    T: AcaScalar + Send + Sync,
+    F: Fn(usize, usize) -> T + Sync,
 {
-    let x = entry(i, j);
-    if x.is_finite() {
-        Ok(x)
-    } else {
-        Err(Error::NonFiniteInput {
-            name: "matrix",
-            index: vec![i, j],
-            value: simba::scalar::SupersetOf::<f64>::to_subset(&x.modulus()).unwrap_or(f64::NAN),
-        })
-    }
+    for_each_chunk(out, work_of::<T>(out.len() * ENTRY_COST), |k0, chunk| {
+        for (dk, x) in chunk.iter_mut().enumerate() {
+            let (i, j) = index(k0 + dk);
+            *x = entry(i, j);
+        }
+    });
+    check_finite_entries(out, index)
+}
+
+/// One row or column of the residual `A - Σ_s x_s y_sᵀ`, of length `len`:
+/// `out[k] = entry(index(k)) - Σ_s mul(x_s[fixed], y_s[k])`, where `fixed` is
+/// the row or column index that `index` holds fixed and `mul` the product
+/// `u_s[i] v_s[j]` in its operand order (a double-double product is not
+/// bitwise commutative)
+///
+/// # Errors
+/// The errors of [`fill_entries`]
+fn residual<T, F>(
+    len: usize,
+    entry: &F,
+    index: impl Fn(usize) -> (usize, usize) + Sync,
+    x: &[Vec<T>],
+    fixed: usize,
+    y: &[Vec<T>],
+    mul: impl Fn(T, T) -> T + Sync,
+) -> Result<Vec<T>, Error>
+where
+    T: AcaScalar + Send + Sync,
+    F: Fn(usize, usize) -> T + Sync,
+{
+    let mut out = vec![T::zero(); len];
+    fill_entries(&mut out, entry, index)?;
+    for_each_chunk(&mut out, work_of::<T>(len * y.len()), |k0, out| {
+        for (x_s, y_s) in x.iter().zip(y) {
+            let coeff = x_s[fixed];
+            for (o, &y) in out.iter_mut().zip(&y_s[k0..]) {
+                *o -= mul(coeff, y);
+            }
+        }
+    });
+    Ok(out)
 }
 
 /// Partial-pivot ACA with the given norm estimate for its stopping test, or
@@ -101,7 +156,7 @@ fn aca<T, F>(
     norm: AcaNorm,
 ) -> Result<Option<AcaFactors<T>>, Error>
 where
-    T: ComplexField + Copy + Send + Sync,
+    T: AcaScalar + Send + Sync,
     F: Fn(usize, usize) -> T + Sync,
 {
     // Running factors, stored column-wise as Vec<column>.
@@ -124,15 +179,15 @@ where
         used_rows[i_star] = true;
 
         // Row residual a[j] = A[i*, j] - Σ_s u_s[i*] * v_s[j]
-        let mut a: Vec<T> = (0..n)
-            .map(|j| finite_entry(&entry, i_star, j))
-            .collect::<Result<_, _>>()?;
-        for (u, v) in u_cols.iter().zip(&v_cols) {
-            let coeff = u[i_star];
-            for (x, &v) in a.iter_mut().zip(v) {
-                *x -= coeff * v;
-            }
-        }
+        let a = residual(
+            n,
+            &entry,
+            |j| (i_star, j),
+            &u_cols,
+            i_star,
+            &v_cols,
+            |u, v| u * v,
+        )?;
 
         // Column pivot j* = argmax_j |a[j]|.
         let mut j_star = 0usize;
@@ -147,15 +202,15 @@ where
         let delta = a[j_star];
 
         // Column residual b[i] = A[i, j*] - Σ_s u_s[i] * v_s[j*]
-        let mut b: Vec<T> = (0..m)
-            .map(|i| finite_entry(&entry, i, j_star))
-            .collect::<Result<_, _>>()?;
-        for (u, v) in u_cols.iter().zip(&v_cols) {
-            let coeff = v[j_star];
-            for (x, &u) in b.iter_mut().zip(u) {
-                *x -= u * coeff;
-            }
-        }
+        let b = residual(
+            m,
+            &entry,
+            |i| (i, j_star),
+            &v_cols,
+            j_star,
+            &u_cols,
+            |v, u| u * v,
+        )?;
 
         // A row whose residual vanishes adds nothing: move on to another row
         // (a zero row says nothing about the others), and conclude only when
@@ -186,12 +241,23 @@ where
             .fold(T::RealField::zero(), |acc, &x| acc + x.modulus_squared());
         let self_term = u_t_nrm2 * v_t_nrm2;
 
-        // Σ_{s<t} Re (u_sᴴu_t)(v_sᴴv_t), for the exact norm only
-        let mut cross = T::RealField::zero();
-        if norm == AcaNorm::Exact {
-            for (u_s, v_s) in u_cols.iter().zip(&v_cols) {
-                cross += (dot_conj(u_s, &u_t) * dot_conj(v_s, &v_t)).real();
+        // (u_sᴴu_t)(v_sᴴv_t) for each s < t, in parallel over s, for the
+        // exact norm only
+        let n_cross = if norm == AcaNorm::Exact {
+            u_cols.len()
+        } else {
+            0
+        };
+        let mut prods: Vec<T> = vec![T::zero(); n_cross];
+        for_each_chunk(&mut prods, work_of::<T>((m + n) * n_cross), |s0, prods| {
+            for (ds, prod) in prods.iter_mut().enumerate() {
+                let s = s0 + ds;
+                *prod = dot_conj(&u_cols[s], &u_t) * dot_conj(&v_cols[s], &v_t);
             }
+        });
+        let mut cross = T::RealField::zero();
+        for prod in prods {
+            cross += prod.real();
         }
         approx_norm_sq += self_term.clone() + (T::RealField::one() + T::RealField::one()) * cross;
 
@@ -310,7 +376,12 @@ where
     match svd {
         Some(svd) => Ok(svd),
         // Fallback: CPQR path on the full matrix if ACA did not converge.
-        None => tsvd(&DMatrix::from_fn(m, n, |i, j| entry(i, j)), config),
+        None => {
+            // Column-major: element k is (k % m, k / m)
+            let mut data = vec![T::zero(); m * n];
+            fill_entries(&mut data, &entry, |k| (k % m, k / m))?;
+            tsvd(&DMatrix::from_vec(m, n, data), config)
+        }
     }
 }
 
@@ -460,7 +531,7 @@ mod tests {
     /// ACA with the exact norm estimate on the formed matrix `a`.
     fn aca_low_rank<T>(a: &DMatrix<T>, rtol: T::RealField) -> Option<(DMatrix<T>, DMatrix<T>)>
     where
-        T: ComplexField + Copy + Send + Sync,
+        T: AcaScalar + Send + Sync,
     {
         aca(a.nrows(), a.ncols(), |i, j| a[(i, j)], rtol, AcaNorm::Exact)
             .unwrap()
@@ -844,6 +915,9 @@ mod tests {
         let cpqr = tsvd(&a, TSVDConfig::new(rtol)).unwrap();
         let aca = tsvd_aca_dense(&a, TSVDConfig::new(rtol)).unwrap();
 
+        // The fallback forms the matrix from the entries (on the thread pool
+        // at this size) and must hand the CPQR exactly `a`.
+        assert!(work_of::<f64>(m * n * ENTRY_COST) >= crate::parallel::PARALLEL_MIN_WORK);
         assert_eq!(cpqr.rank, aca.rank, "fallback must reproduce CPQR's rank");
         assert_eq!(cpqr.s, aca.s);
         assert_eq!(cpqr.u, aca.u);
@@ -916,5 +990,11 @@ mod tests {
         for l in 0..3 {
             assert!((aca.s[l] - cpqr.s[l]).abs() < 1e-12 * cpqr.s[0]);
         }
+    }
+
+    #[test]
+    fn work_counts_double_double_operations_as_f64_ones() {
+        assert_eq!(work_of::<f64>(10), 10);
+        assert_eq!(work_of::<Df64>(10), 160);
     }
 }

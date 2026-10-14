@@ -18,7 +18,16 @@ use nalgebra::DMatrix;
 /// the block of `a` rows stay in cache.
 const ROW_BLOCK: usize = 256;
 
-/// `a · b` in double-double precision.
+/// A product term costs about this many `f64` operations (for the threading
+/// decision of [`crate::parallel::for_each_chunk`]).
+const TERM_COST: usize = 12;
+
+/// `a · b` in double-double precision, computed on the thread pool for large
+/// products.
+///
+/// Each output entry is accumulated over the inner index in order by the same
+/// operations whatever the threading, so the result does not depend on the
+/// number of threads.
 pub(crate) fn matmul_df64(a: &DMatrix<Df64>, b: &DMatrix<Df64>) -> DMatrix<Df64> {
     let (m, k) = a.shape();
     assert_eq!(k, b.nrows(), "matmul_df64: inner dimensions differ");
@@ -28,9 +37,12 @@ pub(crate) fn matmul_df64(a: &DMatrix<Df64>, b: &DMatrix<Df64>) -> DMatrix<Df64>
         return DMatrix::from_vec(m, n, out);
     }
     let (a_hi, a_lo): (Vec<f64>, Vec<f64>) = a.iter().map(|x| (x.hi(), x.lo())).unzip();
-    for (j, col) in out.chunks_mut(m).enumerate() {
-        column(&a_hi, &a_lo, m, b.column(j).as_slice(), col);
-    }
+    let mut cols: Vec<&mut [Df64]> = out.chunks_mut(m).collect();
+    crate::parallel::for_each_chunk(&mut cols, TERM_COST * m * k * n, |j0, chunk| {
+        for (dj, col) in chunk.iter_mut().enumerate() {
+            column(&a_hi, &a_lo, m, b.column(j0 + dj).as_slice(), col);
+        }
+    });
     DMatrix::from_vec(m, n, out)
 }
 
@@ -125,5 +137,20 @@ mod tests {
             matmul_df64(&ratio_matrix(0, 2, 0.0), &ratio_matrix(2, 3, 0.0)).shape(),
             (0, 3)
         );
+    }
+
+    /// Large products are split over the columns on the thread pool; each
+    /// column must equal the product of `a` with that column alone (computed
+    /// on the calling thread).
+    #[test]
+    fn pooled_product_matches_column_by_column() {
+        let (m, k, n) = (300, 97, 70);
+        let a = ratio_matrix(m, k, 0.25);
+        let b = ratio_matrix(k, n, -0.5);
+        let c = matmul_df64(&a, &b);
+        for j in 0..n {
+            let c_j = matmul_df64(&a, &b.columns(j, 1).into_owned());
+            assert_eq!(c.column(j), c_j.column(0), "column {j}");
+        }
     }
 }

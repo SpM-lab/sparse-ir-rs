@@ -32,6 +32,8 @@ pub mod freq;
 pub mod gemm; // Matrix multiplication utilities (Faer backend)
 pub mod matrix; // Column-major dense containers for internal numerics
 pub mod matsubara_sampling; // Sparse sampling in Matsubara frequencies
+#[doc(hidden)]
+pub mod parallel; // Parallel execution on the rayon pool (internal)
 pub mod sampling; // Sparse sampling in imaginary time
 pub mod taufuncs; // Imaginary time τ normalization utilities
 pub mod traits;

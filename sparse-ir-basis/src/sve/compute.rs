@@ -291,18 +291,23 @@ where
     // accurate (see `tsvd_aca`). A larger cutoff only truncates the result.
     let svd_rtol = CustomNumeric::min(rtol_t, default_cutoff).to_f64();
 
-    // 3. Compute the SVD of each block by adaptive cross approximation
-    let mut u_list = Vec::new();
-    let mut s_list = Vec::new();
-    let mut v_list = Vec::new();
-
-    for block in &blocks {
-        let (u, s, v) = crate::tsvd::compute_svd_aca(
+    // 3. Compute the SVD of each block by adaptive cross approximation, the
+    // blocks concurrently (they are independent)
+    let svds = crate::parallel::map_on_pool(blocks.len(), |b| {
+        let block = &blocks[b];
+        crate::tsvd::compute_svd_aca(
             block.nrows(),
             block.ncols(),
             &|i, j| block.entry(i, j),
             svd_rtol,
-        )?;
+        )
+    });
+
+    let mut u_list = Vec::new();
+    let mut s_list = Vec::new();
+    let mut v_list = Vec::new();
+    for svd in svds {
+        let (u, s, v) = svd?;
         u_list.push(u);
         s_list.push(s);
         v_list.push(v);

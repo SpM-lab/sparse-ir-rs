@@ -29,6 +29,8 @@ libm.workspace = true
 nalgebra = "0.33"
 
 [dev-dependencies]
+# Thread pools of a given size, for the thread-count independence tests
+rayon.workspace = true
 # High-precision arithmetic (for precision tests)
 dashu-float.workspace = true
 dashu-base.workspace = true
