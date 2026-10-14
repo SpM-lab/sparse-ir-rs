@@ -327,6 +327,147 @@ impl AbstractKernel for LogisticKernel {
     }
 }
 
+/// Logistic kernel restricted to an asymmetric frequency window
+///
+/// The kernel formula is that of [`LogisticKernel`]; the non-centrosymmetry
+/// comes solely from restricting the y (= ω/wmax) domain to `[ymin, ymax]`
+/// with `ymin < 0 < ymax` and `max(|ymin|, ymax) == 1`, so that
+/// Λ = β·wmax with wmax = max(|ωmin|, ωmax). Its SVE goes through the
+/// full-domain strategy, and its singular functions have no definite parity.
+#[derive(Debug, Clone, Copy)]
+pub struct LogisticKernelWindowed {
+    /// The kernel on the symmetric domain, whose formula this one shares
+    logistic: LogisticKernel,
+    ymin: f64,
+    ymax: f64,
+}
+
+impl LogisticKernelWindowed {
+    /// Create the kernel for inverse temperature `beta` and the frequency
+    /// window `[omega_min, omega_max]`, which must contain 0
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+    /// `omega_min` and `omega_max` are not finite with
+    /// `omega_min < 0 < omega_max`
+    pub fn from_physical(beta: f64, omega_min: f64, omega_max: f64) -> Result<Self, Error> {
+        require_positive_finite("beta", beta)?;
+        require_positive_finite("omega_max", omega_max)?;
+        if !(omega_min.is_finite() && omega_min < 0.0) {
+            return Err(Error::InvalidParameter {
+                name: "omega_min",
+                value: format!("{omega_min:?}"),
+                reason: "must be finite and negative: the window must contain 0".to_string(),
+            });
+        }
+        let wmax = omega_max.max(-omega_min);
+        let lambda = beta * wmax;
+        require_positive_finite("beta * max(-omega_min, omega_max)", lambda)?;
+        Ok(Self {
+            logistic: LogisticKernel { lambda },
+            ymin: omega_min / wmax,
+            ymax: omega_max / wmax,
+        })
+    }
+}
+
+impl KernelProperties for LogisticKernelWindowed {
+    type SVEHintsType<T>
+        = LogisticWindowedSVEHints<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.logistic.conv_radius()
+    }
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        self.ymax
+    }
+
+    fn ymin(&self) -> f64 {
+        self.ymin
+    }
+
+    fn lambda(&self) -> f64 {
+        self.logistic.lambda
+    }
+
+    /// The regularizer of [`LogisticKernel`], whose formula this kernel shares
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+        self.logistic.regularizer::<S>(beta, omega)
+    }
+
+    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        LogisticWindowedSVEHints {
+            inner: LogisticSVEHints::new(self.logistic, epsilon),
+            ymin: self.ymin,
+            ymax: self.ymax,
+        }
+    }
+}
+
+impl AbstractKernel for LogisticKernelWindowed {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        self.logistic.compute(x, y)
+    }
+}
+
+/// SVE hints for [`LogisticKernelWindowed`] on its full domain
+///
+/// The segments of [`LogisticSVEHints`] on [0, 1] (x) and [0, 1] (y), mirrored
+/// onto [-1, 1] and scaled onto [ymin, ymax] respectively.
+#[derive(Debug, Clone)]
+pub struct LogisticWindowedSVEHints<T> {
+    inner: LogisticSVEHints<T>,
+    ymin: f64,
+    ymax: f64,
+}
+
+impl<T> SVEHints<T> for LogisticWindowedSVEHints<T>
+where
+    T: Copy + Debug + Send + Sync + CustomNumeric,
+{
+    fn segments_x(&self) -> Vec<T> {
+        crate::sve::utils::mirror_segments_to_full_domain(&self.inner.segments_x())
+    }
+
+    fn segments_y(&self) -> Vec<T> {
+        // [0, s1, ..., 1] -> [ymin, ..., ymin s1, 0, ymax s1, ..., ymax]
+        let half = self.inner.segments_y();
+        let (ymin, ymax) = (
+            T::from_f64_unchecked(self.ymin),
+            T::from_f64_unchecked(self.ymax),
+        );
+        let negative = half
+            .iter()
+            .rev()
+            .filter(|&&s| s > T::zero())
+            .map(|&s| s * ymin);
+        negative.chain(half.iter().map(|&s| s * ymax)).collect()
+    }
+
+    fn nsvals(&self) -> usize {
+        self.inner.nsvals()
+    }
+
+    fn ngauss(&self) -> usize {
+        self.inner.ngauss()
+    }
+}
+
 /// SVE hints for LogisticKernel
 #[derive(Debug, Clone)]
 pub struct LogisticSVEHints<T> {

@@ -23,9 +23,10 @@ pub enum Statistics {
 
 /// Finite temperature basis for imaginary time/frequency Green's functions
 ///
-/// For a continuation kernel `K` from real frequencies `ω ∈ [-ωmax, ωmax]` to
-/// imaginary time `τ ∈ [0, β]`, this type stores the truncated singular
-/// value expansion or IR basis:
+/// For a continuation kernel `K` from real frequencies `ω ∈ [ωmin, ωmax]`
+/// (`[-ωmax, ωmax]` for centrosymmetric kernels) to imaginary time
+/// `τ ∈ [0, β]`, this type stores the truncated singular value expansion or
+/// IR basis:
 ///
 /// ```text
 /// K(τ, ω) ≈ sum(u[l](τ) * s[l] * v[l](ω) for l in 0..L)
@@ -60,7 +61,7 @@ where
     /// Arc for efficient sharing (large immutable data)
     u: Arc<PiecewiseLegendrePolyVector>,
 
-    /// Right singular functions on real frequency axis ω ∈ [-ωmax, ωmax]
+    /// Right singular functions on real frequency axis ω ∈ [ωmin, ωmax]
     /// Arc for efficient sharing (large immutable data)
     v: Arc<PiecewiseLegendrePolyVector>,
 
@@ -78,47 +79,61 @@ where
     _phantom: std::marker::PhantomData<S>,
 }
 
-/// Check that `sve_result` is an SVE on [-1, 1] × [-1, 1], the domain of
-/// the kernels in the scaled variables x = 2τ/β - 1 and y = ω/ωmax
-///
-/// The tolerance is the one of the Fourier transform of the basis functions
-/// (`PiecewiseLegendreFT::new`), which requires the interval [-1, 1].
-fn check_unit_domain(sve_result: &SVEResult) -> Result<(), Error> {
+/// Check that `sve_result` is an SVE on the domain `[xmin, xmax] × [ymin, ymax]`
+/// of `kernel` (up to 1e-12, as from `spir_sve_result_from_matrix`)
+fn check_kernel_domain<K: KernelProperties>(
+    kernel: &K,
+    sve_result: &SVEResult,
+) -> Result<(), Error> {
     let domain =
         |funcs: &PiecewiseLegendrePolyVector| funcs.get_polys().first().map(|p| (p.xmin, p.xmax));
     let (Some(u), Some(v)) = (domain(&sve_result.u), domain(&sve_result.v)) else {
         return Err(Error::EmptyInput { name: "sve_result" });
     };
-    let is_unit = |(lo, hi): (f64, f64)| (lo + 1.0).abs() <= 1e-12 && (hi - 1.0).abs() <= 1e-12;
-    if is_unit(u) && is_unit(v) {
+    let (x, y) = (
+        (kernel.xmin(), kernel.xmax()),
+        (kernel.ymin(), kernel.ymax()),
+    );
+    let matches = |(lo, hi): (f64, f64), (min, max): (f64, f64)| {
+        (lo - min).abs() <= 1e-12 && (hi - max).abs() <= 1e-12
+    };
+    if matches(u, x) && matches(v, y) {
         Ok(())
     } else {
         Err(Error::InvalidParameter {
             name: "sve_result",
             value: format!("an SVE on [{:?}, {:?}] × [{:?}, {:?}]", u.0, u.1, v.0, v.1),
-            reason: "must be an SVE on [-1, 1] × [-1, 1]".to_string(),
+            reason: format!(
+                "must be an SVE on the kernel's domain [{:?}, {:?}] × [{:?}, {:?}]",
+                x.0, x.1, y.0, y.1
+            ),
         })
     }
 }
 
 /// Knots and widths of `poly` with the first and last knot set exactly to
-/// -1 and 1
+/// `min` and `max`
 ///
-/// `check_unit_domain` accepts an SVE whose domain differs from [-1, 1] by up
-/// to 1e-12 (e.g. from `spir_sve_result_from_matrix`). Scaled to τ and ω,
-/// such knots end inside [0, β] and [-ωmax, ωmax], where evaluating at the
-/// ends panics. The width of an end segment is recomputed only if its knot
-/// moved, so an SVE with exact ends keeps its knots and widths bit for bit.
-fn unit_knots_and_widths(poly: &PiecewiseLegendrePoly) -> (Vec<f64>, Vec<f64>) {
+/// `check_kernel_domain` accepts an SVE whose domain differs from the
+/// kernel's by up to 1e-12 (e.g. from `spir_sve_result_from_matrix`). Scaled
+/// to τ and ω, such knots end inside [0, β] and [ωmin, ωmax], where evaluating
+/// at the ends panics. The width of an end segment is recomputed only if its
+/// knot moved, so an SVE with exact ends keeps its knots and widths bit for
+/// bit.
+fn snapped_knots_and_widths(
+    poly: &PiecewiseLegendrePoly,
+    min: f64,
+    max: f64,
+) -> (Vec<f64>, Vec<f64>) {
     let mut knots = poly.knots.clone();
     let mut widths = poly.delta_x.clone();
     let last = knots.len() - 1;
-    if knots[0] != -1.0 {
-        knots[0] = -1.0;
+    if knots[0] != min {
+        knots[0] = min;
         widths[0] = knots[1] - knots[0];
     }
-    if knots[last] != 1.0 {
-        knots[last] = 1.0;
+    if knots[last] != max {
+        knots[last] = max;
         widths[last - 1] = knots[last] - knots[last - 1];
     }
     (knots, widths)
@@ -185,7 +200,9 @@ where
 
     // ========== Other methods ==========
 
-    /// Get the frequency cutoff ωmax
+    /// Get the frequency scale wmax = Λ/β, with ω = wmax·y: the frequency
+    /// cutoff ωmax of a symmetric kernel, and the larger of |ωmin| and ωmax of
+    /// an asymmetric window
     pub fn wmax(&self) -> f64 {
         self.kernel.lambda() / self.beta
     }
@@ -320,7 +337,8 @@ where
     ///
     /// * [`Error::InvalidParameter`] if `beta` is not positive and finite,
     ///   `epsilon` is not in [0, 1) (0 keeps every singular value), `max_size`
-    ///   is `Some(0)`, or `sve_result` is not an SVE on [-1, 1] × [-1, 1]
+    ///   is `Some(0)`, or `sve_result` is not an SVE on the kernel's domain
+    ///   `[xmin, xmax] × [ymin, ymax]`
     /// * [`Error::EmptyInput`] if `sve_result` has no singular functions
     /// * The errors of [`SVEResult::part`] (for an `SVEResult` whose public
     ///   fields break its invariants)
@@ -334,7 +352,7 @@ where
         require_positive_finite("beta", beta)?;
         require_threshold("epsilon", epsilon)?;
         require_nonzero_size("max_size", max_size)?;
-        check_unit_domain(&sve_result)?;
+        check_kernel_domain(&kernel, &sve_result)?;
 
         // Get truncated u, s, v from SVE result
         let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size)?;
@@ -346,37 +364,40 @@ where
             sve_result.s[sve_result.s.len() - 1] / sve_result.s[0]
         };
 
-        // Get kernel parameters
-        let lambda = kernel.lambda();
-        let omega_max = lambda / beta;
+        // Get kernel parameters: ω = wmax * y with wmax = Λ/β, so that
+        // y ∈ [ymin, ymax] maps to ω ∈ [ωmin, ωmax] (wmax = ωmax for
+        // symmetric kernels)
+        let wmax = kernel.lambda() / beta;
 
         // Scale polynomials to new variables
-        // tau = β/2 * (x + 1), w = ωmax * y
+        // tau = β/2 * (x + 1), w = wmax * y
 
         // Transform u: x ∈ [-1, 1] → τ ∈ [0, β]
-        let (x_knots, x_widths) = unit_knots_and_widths(&u_sve.get_polys()[0]);
+        let (x_knots, x_widths) =
+            snapped_knots_and_widths(&u_sve.get_polys()[0], kernel.xmin(), kernel.xmax());
         let u_knots: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
         let u_delta_x: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
         let u_symm: Vec<i32> = u_sve.get_polys().iter().map(|p| p.symm).collect();
 
         let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm))?;
 
-        // Transform v: y ∈ [-1, 1] → ω ∈ [-ωmax, ωmax]
-        let (y_knots, y_widths) = unit_knots_and_widths(&v_sve.get_polys()[0]);
-        let v_knots: Vec<f64> = y_knots.iter().map(|&y| omega_max * y).collect();
-        let v_delta_x: Vec<f64> = y_widths.iter().map(|&dy| omega_max * dy).collect();
+        // Transform v: y ∈ [ymin, ymax] → ω ∈ [ωmin, ωmax]
+        let (y_knots, y_widths) =
+            snapped_knots_and_widths(&v_sve.get_polys()[0], kernel.ymin(), kernel.ymax());
+        let v_knots: Vec<f64> = y_knots.iter().map(|&y| wmax * y).collect();
+        let v_delta_x: Vec<f64> = y_widths.iter().map(|&dy| wmax * dy).collect();
         let v_symm: Vec<i32> = v_sve.get_polys().iter().map(|p| p.symm).collect();
 
         let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm))?;
 
-        // Scale singular values to τ = β(x + 1)/2 and ω = ωmax y. A kernel with
-        // `ypower` carries that power of y = ω/ωmax, so its physical form is
-        // K(τ, ω) = ωmax^ypower K(x, y) and
-        // s_scaled = sqrt(β/2 * ωmax) * ωmax^ypower * s_sve,
+        // Scale singular values to τ = β(x + 1)/2 and ω = wmax y. A kernel with
+        // `ypower` carries that power of y = ω/wmax, so its physical form is
+        // K(τ, ω) = wmax^ypower K(x, y) and
+        // s_scaled = sqrt(β/2 * wmax) * wmax^ypower * s_sve,
         // e.g. S_l = sqrt(β ωmax³/2) s_l for RegularizedBoseKernel (irbasis
         // paper, Chikano et al., CPC 240, 181 (2019), arXiv:1807.05237, Eq. (25)).
         let ypower = kernel.ypower();
-        let scale_factor = (beta / 2.0 * omega_max).sqrt() * omega_max.powi(ypower);
+        let scale_factor = (beta / 2.0 * wmax).sqrt() * wmax.powi(ypower);
         let s: Vec<f64> = s_sve.iter().map(|&x| scale_factor * x).collect();
 
         // Construct uhat (Fourier transform of u)
@@ -422,9 +443,16 @@ where
         self.kernel.lambda()
     }
 
-    /// Get the frequency cutoff ωmax
+    /// Upper edge ωmax of the frequency window (= [`wmax`](Self::wmax) for
+    /// symmetric kernels)
     pub fn omega_max(&self) -> f64 {
-        self.lambda() / self.beta
+        self.kernel.ymax() * self.wmax()
+    }
+
+    /// Lower edge ωmin of the frequency window (= -[`wmax`](Self::wmax) for
+    /// symmetric kernels)
+    pub fn omega_min(&self) -> f64 {
+        self.kernel.ymin() * self.wmax()
     }
 
     /// Get significance of each singular value (s[i] / s[0])
@@ -475,7 +503,8 @@ where
         &self,
         size_requested: usize,
     ) -> Result<Vec<f64>, Error> {
-        let x = default_sampling_points(&self.sve_result.u, "u", size_requested)?;
+        let x_domain = (self.kernel.xmin(), self.kernel.xmax());
+        let x = default_sampling_points(&self.sve_result.u, "u", x_domain, size_requested)?;
         let half_beta = self.beta / 2.0;
         // Map roots to physical tau ∈ [0, β], then fold to [-β/2, β/2]
         let mut smpl_taus: Vec<f64> = x
@@ -707,14 +736,14 @@ where
     }
     /// Get default omega (real frequency) sampling points
     ///
-    /// Returns sampling points on the real-frequency axis ω ∈ [-ωmax, ωmax].
+    /// Returns sampling points on the real-frequency axis ω ∈ [ωmin, ωmax].
     /// These are used as pole locations for the Discrete Lehmann Representation (DLR).
     ///
     /// The sampling points are chosen as the roots of the L-th basis function
     /// in the spectral domain (v), which provides near-optimal conditioning.
     ///
     /// # Returns
-    /// Vector of real-frequency sampling points in [-ωmax, ωmax]
+    /// Vector of real-frequency sampling points in [ωmin, ωmax]
     ///
     /// # Errors
     ///
@@ -726,10 +755,11 @@ where
 
         // Use UNTRUNCATED sve_result.v (same as C++)
         // C++: default_sampling_points(*(sve_result->v), sz)
-        let y = default_sampling_points(&self.sve_result.v, "v", sz)?;
+        let y_domain = (self.kernel.ymin(), self.kernel.ymax());
+        let y = default_sampling_points(&self.sve_result.v, "v", y_domain, sz)?;
 
-        // Scale to [-ωmax, ωmax]
-        let wmax = self.kernel.lambda() / self.beta;
+        // Scale y ∈ [ymin, ymax] to ω ∈ [ωmin, ωmax]
+        let wmax = self.wmax();
         let omega_points: Vec<f64> = y.into_iter().map(|yi| wmax * yi).collect();
 
         Ok(omega_points)
@@ -846,7 +876,7 @@ where
         use crate::matrix::Mat;
 
         let basis_size = self.size();
-        // The v polynomials are on [-ωmax, ωmax] exactly (from_sve_result
+        // The v polynomials are on [ωmin, ωmax] exactly (from_sve_result
         // sets their ends).
         let domain = (self.v.xmin(), self.v.xmax());
         if let Some(&w) = omega.iter().find(|&&w| !(w >= domain.0 && w <= domain.1)) {

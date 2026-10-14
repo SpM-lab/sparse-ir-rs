@@ -704,3 +704,19 @@ fn test_parityless_asymptotic_model_matches_inner_transform() {
         );
     }
 }
+
+/// The basis functions of an asymmetric window have no parity: the
+/// asymptotic model at |n| >= n_asymp, which takes the boundary derivatives
+/// at both ends, must still agree with the exact inner transform.
+#[test]
+fn test_uhat_asymptotic_branch_logistic_windowed() {
+    use crate::kernel::LogisticKernelWindowed;
+
+    let (beta, omega_min, omega_max) = (10.0, -0.3, 1.0);
+    let kernel = LogisticKernelWindowed::from_physical(beta, omega_min, omega_max).unwrap();
+    let fermionic = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    assert!(fermionic.uhat()[0].poly.symm == 0);
+    check_asymptotic_branch_matches_exact(&fermionic);
+    let bosonic = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    check_asymptotic_branch_matches_exact(&bosonic);
+}

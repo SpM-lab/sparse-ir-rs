@@ -35,7 +35,7 @@ pub trait IrBasis<S: StatisticsType>: Basis<S> {
     ///   of `dlr`, or its kernel weight vanishes at a pole where the DLR
     ///   weight does not
     /// * [`Error::OutOfDomain`] named `poles` for a pole of `dlr` outside
-    ///   [-ωmax, ωmax] of this basis
+    ///   the frequency window [ωmin, ωmax] of this basis
     fn dlr_transform(&self, dlr: &DiscreteLehmannRepresentation<S>) -> Result<IrDlrTransform, Error>
     where
         S: 'static,
@@ -52,11 +52,17 @@ pub trait IrBasis<S: StatisticsType>: Basis<S> {
                 reason: format!("must equal beta = {:?} of the DLR", dlr.beta()),
             });
         }
-        if let Some(&pole) = dlr.poles().iter().find(|p| !(-wmax..=wmax).contains(*p)) {
+        // The frequency window [ωmin, ωmax] = wmax [ymin, ymax] of this basis
+        let domain = (self.kernel().ymin() * wmax, self.kernel().ymax() * wmax);
+        if let Some(&pole) = dlr
+            .poles()
+            .iter()
+            .find(|p| !(domain.0..=domain.1).contains(*p))
+        {
             return Err(Error::OutOfDomain {
                 name: "poles",
                 value: pole,
-                domain: (-wmax, wmax),
+                domain,
             });
         }
         let mut ratio = Vec::with_capacity(dlr.poles().len());
@@ -110,8 +116,9 @@ pub trait DlrFromIr<S: StatisticsType>: Sized {
     ///
     /// # Arguments
     /// * `basis` - The IR basis to construct DLR from
-    /// * `poles` - Pole positions on the real-frequency axis, in
-    ///   [-ωmax, ωmax] of `basis`
+    /// * `poles` - Pole positions on the real-frequency axis, in the
+    ///   frequency window [ωmin, ωmax] of `basis` ([-ωmax, ωmax] for a
+    ///   symmetric kernel)
     ///
     /// # Errors
     /// * [`Error::KernelStatisticsMismatch`] if the kernel does not support
@@ -119,7 +126,7 @@ pub trait DlrFromIr<S: StatisticsType>: Sized {
     ///   statistics)
     /// * [`Error::EmptyInput`] if `poles` is empty
     /// * [`Error::NonFiniteInput`] if a pole is NaN or infinite, and
-    ///   [`Error::OutOfDomain`] if a pole is outside [-ωmax, ωmax] of `basis`,
+    ///   [`Error::OutOfDomain`] if a pole is outside [ωmin, ωmax] of `basis`,
     ///   both named `poles`, for the first such pole
     /// * [`Error::NotSupported`] for a bosonic pole at 0 if the kernel has a
     ///   `ypower` other than 0 or 1 (the DLR knows the limit at 0 for those
@@ -172,8 +179,10 @@ impl<S: StatisticsType + 'static> DlrFromIr<S> for DiscreteLehmannRepresentation
         let accuracy = Basis::accuracy(basis);
         let kernel_ypower = basis.kernel().ypower();
 
-        // Each pole must be finite and in [-ωmax, ωmax], the domain of V_l.
-        // evaluate_omega below checks the domain of the basis again.
+        // Each pole must be finite and in [ωmin, ωmax] = wmax [ymin, ymax],
+        // the domain of V_l. evaluate_omega below checks the domain of the
+        // basis again.
+        let domain = (basis.kernel().ymin() * wmax, basis.kernel().ymax() * wmax);
         for (i, &pole) in poles.iter().enumerate() {
             if !pole.is_finite() {
                 return Err(Error::NonFiniteInput {
@@ -182,11 +191,11 @@ impl<S: StatisticsType + 'static> DlrFromIr<S> for DiscreteLehmannRepresentation
                     value: pole,
                 });
             }
-            if !(-wmax..=wmax).contains(&pole) {
+            if !(domain.0..=domain.1).contains(&pole) {
                 return Err(Error::OutOfDomain {
                     name: "poles",
                     value: pole,
-                    domain: (-wmax, wmax),
+                    domain,
                 });
             }
         }

@@ -673,15 +673,16 @@ fn test_default_sampling_points_rejects_scaled_functions() {
     // β = 1 and Λ = 10: u is on [0, 1] and v on [-10, 10], neither on [-1, 1].
     let basis =
         FermionicBasis::new(LogisticKernel::new(10.0).unwrap(), 1.0, Some(1e-6), None).unwrap();
-    let err = default_sampling_points(basis.u(), "u", 3).unwrap_err();
+    let unit = (-1.0, 1.0);
+    let err = default_sampling_points(basis.u(), "u", unit, 3).unwrap_err();
     assert!(
         matches!(err, Error::InvalidParameter { name: "u", .. }),
         "{err:?}"
     );
-    let err = default_sampling_points(basis.v(), "v", 3).unwrap_err();
+    let err = default_sampling_points(basis.v(), "v", unit, 3).unwrap_err();
     assert!(
         matches!(err, Error::InvalidParameter { name: "v", .. }),
         "{err:?}"
     );
-    assert!(default_sampling_points(&basis.sve_result().u, "u", 3).is_ok());
+    assert!(default_sampling_points(&basis.sve_result().u, "u", unit, 3).is_ok());
 }
