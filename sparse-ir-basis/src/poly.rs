@@ -1270,12 +1270,6 @@ pub(crate) fn default_sampling_points(
     Ok(x0)
 }
 
-// IndexMut implementation removed - PiecewiseLegendrePolyVector is designed to be immutable
-// If modification is needed, create a new instance instead
-
-// Note: FnOnce implementation removed due to experimental nature
-// Use evaluate_at() and evaluate_at_many() methods directly
-
 #[cfg(test)]
 #[path = "poly_tests.rs"]
 mod poly_tests;

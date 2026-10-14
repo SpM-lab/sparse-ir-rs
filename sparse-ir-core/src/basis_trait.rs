@@ -12,7 +12,6 @@ use crate::traits::StatisticsType;
 /// This trait abstracts over different basis representations:
 /// - `FiniteTempBasis`: IR (Intermediate Representation) basis
 /// - `DiscreteLehmannRepresentation`: DLR basis
-/// - `AugmentedBasis`: IR basis with additional functions
 ///
 /// Each basis provides:
 /// - Physical parameters (β, ωmax, Λ)
