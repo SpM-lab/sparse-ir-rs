@@ -249,13 +249,29 @@ where
     ///
     /// * [`Error::NotSupported`] if the kernel is not centrosymmetric
     ///   ([`AbstractKernel::is_centrosymmetric`]); use [`NonCentrosymmSVE`]
-    /// * [`Error::InvalidParameter`] if the SVE hints of the kernel give
-    ///   segments that are not finite and strictly increasing
+    /// * [`Error::InvalidParameter`] if the domain of the kernel is not
+    ///   symmetric (`xmin != -xmax` or `ymin != -ymax`), or if the SVE hints
+    ///   of the kernel give segments that are not finite and strictly
+    ///   increasing
     pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
         if !kernel.is_centrosymmetric() {
             return Err(Error::NotSupported {
                 what: "the even/odd SVE of a kernel that is not centrosymmetric".to_string(),
             });
+        }
+        // The even/odd SVE covers [0, xmax] x [0, ymax] and mirrors it, so it
+        // would silently drop the part of an asymmetric domain.
+        for (name, min, max) in [
+            ("kernel domain [xmin, xmax]", kernel.xmin(), kernel.xmax()),
+            ("kernel domain [ymin, ymax]", kernel.ymin(), kernel.ymax()),
+        ] {
+            if min != -max {
+                return Err(Error::InvalidParameter {
+                    name,
+                    value: format!("[{min:?}, {max:?}]"),
+                    reason: "must be symmetric about 0 for a centrosymmetric kernel".to_string(),
+                });
+            }
         }
         let hints = kernel.sve_hints::<T>(epsilon);
 

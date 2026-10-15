@@ -776,6 +776,82 @@ fn test_centrosymm_sve_rejects_non_centrosymmetric_kernel() {
     assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
 }
 
+/// A logistic kernel that claims centrosymmetry on the asymmetric domain
+/// y ∈ [-0.5, 1]
+#[derive(Debug, Clone, Copy)]
+struct AsymmetricDomainLogisticKernel(LogisticKernel);
+
+impl AbstractKernel for AsymmetricDomainLogisticKernel {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        self.0.compute(x, y)
+    }
+
+    fn is_centrosymmetric(&self) -> bool {
+        true
+    }
+}
+
+impl KernelProperties for AsymmetricDomainLogisticKernel {
+    type SVEHintsType<T>
+        = TiltedLogisticSVEHints<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.0.conv_radius()
+    }
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymin(&self) -> f64 {
+        -0.5
+    }
+
+    fn lambda(&self) -> f64 {
+        self.0.lambda()
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, _: f64, _: f64) -> f64 {
+        1.0
+    }
+
+    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        TiltedLogisticSVEHints(self.0.sve_hints::<T>(epsilon))
+    }
+}
+
+/// The even/odd strategy, and so `compute_sve`, rejects a centrosymmetric
+/// kernel whose domain is not symmetric instead of returning the SVE of its
+/// symmetric part
+#[test]
+fn test_centrosymm_sve_rejects_asymmetric_domain() {
+    use super::CentrosymmSVE;
+
+    let kernel = AsymmetricDomainLogisticKernel(LogisticKernel::new(10.0).unwrap());
+    let expected = Error::InvalidParameter {
+        name: "kernel domain [ymin, ymax]",
+        value: "[-0.5, 1.0]".to_string(),
+        reason: "must be symmetric about 0 for a centrosymmetric kernel".to_string(),
+    };
+    let err = CentrosymmSVE::<f64, _>::new(kernel, 1e-6).err().unwrap();
+    assert_eq!(err, expected);
+    let err = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap_err();
+    assert_eq!(err, expected);
+}
+
 // A non-centrosymmetric kernel with an analytically known SVE: a finite sum of
 // products of L2[-1,1]-orthonormal normalized Legendre polynomials
 // P̃_n(x) = sqrt((2n+1)/2) P_n(x),
