@@ -326,10 +326,12 @@ fn next_pivot_row<T: ComplexField>(used: &[bool], u: Option<&Vec<T>>) -> Option<
 /// `config.rtol` is also the ACA stopping tolerance. Partial-pivot ACA has
 /// no a-priori error bound, and its stopping test (even with the exact norm)
 /// can underestimate the residual, so singular values close to `rtol` are not
-/// reliable: callers must take `rtol` well below the accuracy they need. The
-/// SVE does so through [`crate::sve::DEFAULT_CUTOFF_FACTOR`], whose value was
-/// validated with this stopping rule; changing either (the norm estimate, the
-/// redo check, `OVERSAMPLE`) requires checking the SVE accuracy again.
+/// reliable: callers must take `rtol` well below the accuracy they need, as
+/// the SVE does with its default `2ε` and, in
+/// [`crate::sve::compute_sve_for_basis`], through
+/// [`crate::sve::BASIS_CUTOFF_FACTOR`], whose value was validated with this
+/// stopping rule; changing either (the norm estimate, the redo check,
+/// `OVERSAMPLE`) requires checking the SVE accuracy again.
 ///
 /// # Errors
 /// * The input errors of [`tsvd`]: [`Error::EmptyInput`] and

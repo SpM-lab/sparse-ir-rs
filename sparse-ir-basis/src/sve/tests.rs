@@ -985,11 +985,9 @@ fn test_compute_sve_recovers_analytic_sve_of_non_centrosymmetric_kernel() {
     }
 }
 
-/// Pin the default truncation cutoff of both SVE paths to
-/// `max(2 * u_work, DEFAULT_CUTOFF_FACTOR * epsilon)` (issue #249), `u_work`
-/// being the machine epsilon of the working precision. In f64 (epsilon >=
-/// 1e-8) that is `2 * u_work`, as in libsparseir, and the cases below make it
-/// observable:
+/// Pin the default truncation cutoff of both SVE paths to `2 * u_work`
+/// (issue #249), `u_work` being the machine epsilon of the working precision,
+/// as in libsparseir
 ///
 /// The cases are chosen so that the cutoff is observable: an odd-sector
 /// singular value lies at about 1.4 u_work s_0, between u_work s_0 and
@@ -1002,48 +1000,47 @@ fn test_compute_sve_recovers_analytic_sve_of_non_centrosymmetric_kernel() {
 /// `compute_sve_general` computes a single SVD block whose truncated SVD
 /// already drops singular values below `2 * u_work * s_0`, so a smaller default
 /// cutoff would not be observable there; the test still pins that its default
-/// equals the explicit one and keeps as many values as `compute_sve`.
-///
-/// In Df64 the default is `DEFAULT_CUTOFF_FACTOR * epsilon`, which truncates
-/// the full spectrum (see `test_default_cutoff_follows_epsilon`).
-fn assert_default_cutoff<K>(kernel: K, epsilon: f64, twork: TworkType)
+/// equals an explicit `2 * u_work` and keeps as many values as `compute_sve`.
+fn assert_default_cutoff_is_two_machine_epsilon<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
     K: AbstractKernel + KernelProperties + Clone + 'static,
 {
-    use super::DEFAULT_CUTOFF_FACTOR;
-
     let u_work = working_machine_epsilon(epsilon, twork);
-    let cutoff = (2.0 * u_work).max(DEFAULT_CUTOFF_FACTOR * epsilon);
 
-    let explicit = compute_sve(kernel.clone(), Some(epsilon), Some(cutoff), None, twork).unwrap();
+    let explicit_2u = compute_sve(
+        kernel.clone(),
+        Some(epsilon),
+        Some(2.0 * u_work),
+        None,
+        twork,
+    )
+    .unwrap();
     let explicit_u = compute_sve(kernel.clone(), Some(epsilon), Some(u_work), None, twork).unwrap();
-    if cutoff == 2.0 * u_work {
-        assert_eq!(
-            explicit_u.s.len(),
-            explicit.s.len() + 1,
-            "precondition: exactly one singular value must lie in [u, 2u) s_0 so that the \
-             cutoff is observable (eps={epsilon:e}, twork={twork:?}); choose another lambda"
-        );
-    } else {
-        assert!(
-            explicit_u.s.len() > explicit.s.len(),
-            "the default must truncate the full spectrum (eps={epsilon:e}, twork={twork:?})"
-        );
-    }
+    assert_eq!(
+        explicit_u.s.len(),
+        explicit_2u.s.len() + 1,
+        "precondition: exactly one singular value must lie in [u, 2u) s_0 so that the \
+         cutoff is observable (eps={epsilon:e}, twork={twork:?}); choose another lambda"
+    );
 
     let centro_default = compute_sve(kernel.clone(), Some(epsilon), None, None, twork).unwrap();
     assert_eq!(
-        centro_default.s, explicit.s,
-        "compute_sve default cutoff must be max(2 * machine epsilon, factor * epsilon) \
-         (eps={epsilon:e}, twork={twork:?})"
+        centro_default.s, explicit_2u.s,
+        "compute_sve default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
     );
 
-    let general_explicit =
-        compute_sve_general(kernel.clone(), Some(epsilon), Some(cutoff), None, twork).unwrap();
+    let general_2u = compute_sve_general(
+        kernel.clone(),
+        Some(epsilon),
+        Some(2.0 * u_work),
+        None,
+        twork,
+    )
+    .unwrap();
     let general_default = compute_sve_general(kernel, Some(epsilon), None, None, twork).unwrap();
     assert_eq!(
-        general_default.s, general_explicit.s,
-        "compute_sve_general default cutoff must be that of compute_sve (eps={epsilon:e}, twork={twork:?})"
+        general_default.s, general_2u.s,
+        "compute_sve_general default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
     );
     assert_eq!(
         general_default.s.len(),
@@ -1054,9 +1051,13 @@ where
 }
 
 #[test]
-fn test_default_cutoff_logistic() {
-    assert_default_cutoff(LogisticKernel::new(1.48).unwrap(), 1e-6, TworkType::Float64);
-    assert_default_cutoff(
+fn test_default_cutoff_is_two_machine_epsilon_logistic() {
+    assert_default_cutoff_is_two_machine_epsilon(
+        LogisticKernel::new(1.48).unwrap(),
+        1e-6,
+        TworkType::Float64,
+    );
+    assert_default_cutoff_is_two_machine_epsilon(
         LogisticKernel::new(1.37).unwrap(),
         1e-10,
         TworkType::Float64X2,
@@ -1064,13 +1065,13 @@ fn test_default_cutoff_logistic() {
 }
 
 #[test]
-fn test_default_cutoff_regularized_bose() {
-    assert_default_cutoff(
+fn test_default_cutoff_is_two_machine_epsilon_regularized_bose() {
+    assert_default_cutoff_is_two_machine_epsilon(
         RegularizedBoseKernel::new(1.48).unwrap(),
         1e-6,
         TworkType::Float64,
     );
-    assert_default_cutoff(
+    assert_default_cutoff_is_two_machine_epsilon(
         RegularizedBoseKernel::new(1.37).unwrap(),
         1e-10,
         TworkType::Float64X2,
@@ -1447,27 +1448,27 @@ fn test_svd_to_polynomials_needs_a_segment() {
     );
 }
 
-/// The default cutoff max(2·ε_work, DEFAULT_CUTOFF_FACTOR·ε) drops the
-/// singular values far below ε, but everything a basis built for ε uses
-/// agrees with the full spectrum (cutoff = 2·ε_work)
+/// `compute_sve_for_basis` truncates at max(2·ε_work, BASIS_CUTOFF_FACTOR·ε),
+/// dropping the singular values far below ε, but everything a basis built
+/// for ε uses agrees with the full spectrum (`compute_sve`)
 #[test]
-fn test_default_cutoff_follows_epsilon() {
-    use super::DEFAULT_CUTOFF_FACTOR;
+fn test_compute_sve_for_basis_keeps_what_a_basis_uses() {
+    use super::{BASIS_CUTOFF_FACTOR, compute_sve_for_basis};
 
     for (twork, eps) in [(TworkType::Float64, 1e-6), (TworkType::Float64X2, 1e-10)] {
         let full_cutoff = 2.0 * working_machine_epsilon(eps, twork);
         let kernel = LogisticKernel::new(100.0).unwrap();
-        let full = compute_sve(kernel, Some(eps), Some(full_cutoff), None, twork).unwrap();
-        let part = compute_sve(kernel, Some(eps), None, None, twork).unwrap();
+        let full = compute_sve(kernel, Some(eps), None, None, twork).unwrap();
+        let part = compute_sve_for_basis(kernel, eps, None, twork).unwrap();
         let s0 = full.s[0];
-        let cutoff = DEFAULT_CUTOFF_FACTOR * eps;
+        let cutoff = BASIS_CUTOFF_FACTOR * eps;
         if cutoff > full_cutoff {
             assert!(part.s.len() < full.s.len(), "{twork:?}: nothing truncated");
             assert!(*part.s.last().unwrap() >= cutoff * s0 * 0.99);
             assert!(full.s[part.s.len()] < cutoff * s0 * 1.01);
         } else {
             // The cutoff is floored at 2·ε_work: the full spectrum.
-            assert_eq!(part.s.len(), full.s.len(), "{twork:?}");
+            assert_eq!(part.s, full.s, "{twork:?}");
         }
         // The values a basis for ε uses (those >= ε·s₀ plus one more)
         let l = full.s.iter().take_while(|&&s| s >= eps * s0).count() + 1;

@@ -81,12 +81,10 @@ pub extern "C" fn spir_sve_result_is_assigned(obj: *const spir_sve_result) -> i3
 /// # Note
 /// Parameters `lmax` and `n_gauss` are accepted for libsparseir compatibility but
 /// currently ignored. The Rust implementation automatically determines optimal values.
-/// The singular value truncation cutoff is automatically set to
-/// max(2 * machine epsilon, 1e-10 * epsilon), with the machine epsilon of the
-/// working precision: singular values smaller than this cutoff times the
-/// largest singular value are discarded. For Float64 with epsilon <= 4.4e-6 this
-/// is 2 * machine epsilon (about 4.44e-16), as in libsparseir; otherwise it is
-/// 1e-10 * epsilon, far below the singular values a basis for epsilon uses.
+/// The singular value truncation cutoff is automatically set to 2 * machine epsilon
+/// of the working precision (about 4.44e-16 for Float64 and 4.93e-32 for Float64x2),
+/// as in libsparseir: singular values smaller than this cutoff times the largest
+/// singular value are discarded.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sve_result_new(
     k: *const spir_kernel,
@@ -138,7 +136,7 @@ pub extern "C" fn spir_sve_result_new(
         }
 
         // Dispatch based on kernel type
-        // cutoff = None selects the default max(2 * machine epsilon, 1e-10 * epsilon)
+        // cutoff = None selects the default 2 * machine epsilon of the working precision
         let computed = if let Some(logistic) = kernel.as_logistic() {
             debug_println!("spir_sve_result_new: computing SVE for LogisticKernel");
             compute_sve(
@@ -1076,18 +1074,17 @@ mod tests {
     }
 
     /// `spir_sve_result_new` truncates at the documented default cutoff,
-    /// max(2 * machine epsilon, DEFAULT_CUTOFF_FACTOR * epsilon) (issue #249)
+    /// 2 * machine epsilon of the working precision (issue #249)
     ///
-    /// In Float64 that is 2 * machine epsilon, and at this lambda one singular
-    /// value lies between one and two machine epsilons times the largest
-    /// singular value (see the `test_default_cutoff_*` tests in sparse-ir), so
-    /// the result distinguishes it from machine epsilon. In Float64x2 it is
-    /// DEFAULT_CUTOFF_FACTOR * epsilon, which truncates the full spectrum.
+    /// At these lambdas one singular value lies between one and two machine
+    /// epsilons times the largest singular value (see the
+    /// `test_default_cutoff_is_two_machine_epsilon_*` tests in sparse-ir), so
+    /// the result distinguishes 2 * machine epsilon from machine epsilon.
     #[test]
-    fn test_sve_result_new_default_cutoff() {
+    fn test_sve_result_new_default_cutoff_is_two_machine_epsilon() {
         use sparse_ir::kernel::{LogisticKernel, RegularizedBoseKernel};
         use sparse_ir::numeric::CustomNumeric;
-        use sparse_ir::sve::{DEFAULT_CUTOFF_FACTOR, SVEResult};
+        use sparse_ir::sve::SVEResult;
 
         let df64_eps = CustomNumeric::to_f64(<sparse_ir::Df64 as CustomNumeric>::epsilon());
         // (lambda, epsilon, C twork value, TworkType, machine epsilon of the working precision)
@@ -1129,27 +1126,18 @@ mod tests {
                     SPIR_COMPUTATION_SUCCESS
                 );
 
-                let default_cutoff = (2.0 * machine_eps).max(DEFAULT_CUTOFF_FACTOR * epsilon);
                 assert_eq!(
                     svals,
-                    reference(default_cutoff).s(),
-                    "default cutoff must be max(2 * machine epsilon, factor * epsilon) \
+                    reference(2.0 * machine_eps).s(),
+                    "default cutoff must be 2 * machine epsilon \
                      (lambda={lambda}, twork={twork}, bosonic={bosonic})"
                 );
-                if default_cutoff == 2.0 * machine_eps {
-                    assert_eq!(
-                        reference(machine_eps).s().len(),
-                        svals.len() + 1,
-                        "precondition: one singular value must lie in [1, 2) machine \
-                         epsilons times s[0] (lambda={lambda}, twork={twork}, bosonic={bosonic})"
-                    );
-                } else {
-                    assert!(
-                        reference(2.0 * machine_eps).s().len() > svals.len(),
-                        "the default must truncate the full spectrum \
-                         (lambda={lambda}, twork={twork}, bosonic={bosonic})"
-                    );
-                }
+                assert_eq!(
+                    reference(machine_eps).s().len(),
+                    svals.len() + 1,
+                    "precondition: one singular value must lie in [1, 2) machine epsilons \
+                     times s[0] (lambda={lambda}, twork={twork}, bosonic={bosonic})"
+                );
 
                 spir_sve_result_release(sve);
                 spir_kernel_release(kernel);
