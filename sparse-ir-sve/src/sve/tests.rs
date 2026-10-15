@@ -2,7 +2,7 @@
 
 use super::types::safe_epsilon;
 use super::utils::{extend_to_full_domain, merge_results};
-use super::{SVEResult, TworkType, compute_sve, compute_sve_general};
+use super::{SVEResult, TworkType, compute_sve, compute_sve_general, sve_residual};
 use crate::error::Error;
 use crate::kernel::{AbstractKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType};
 use crate::matrix::Mat;
@@ -1225,4 +1225,75 @@ fn test_compute_sve_of_a_kernel_whose_cholesky_recompression_fails() {
         // Measured: at most 2e-15 s_0
         assert!((a - b).abs() <= 1e-13 * s[0], "s_{l}: {a:e} vs {b:e}");
     }
+}
+
+/// max |K - Σ s_l u_l v_l| / s_0 on a 201 × 201 grid of [-1, 1]²
+fn residual_on_grid<K: AbstractKernel>(kernel: &K, sve: &SVEResult) -> f64 {
+    let grid: Vec<f64> = (0..=200).map(|i| -1.0 + i as f64 / 100.0).collect();
+    let s = sve.s();
+    let us: Vec<Vec<f64>> = (0..s.len())
+        .map(|l| sve.u()[l].evaluate_many(&grid))
+        .collect();
+    let vs: Vec<Vec<f64>> = (0..s.len())
+        .map(|l| sve.v()[l].evaluate_many(&grid))
+        .collect();
+    let mut residual: f64 = 0.0;
+    for (i, &x) in grid.iter().enumerate() {
+        for (j, &y) in grid.iter().enumerate() {
+            let expansion: f64 = (0..s.len()).map(|l| s[l] * us[l][i] * vs[l][j]).sum();
+            let k: f64 = kernel.compute(x, y);
+            residual = residual.max((k - expansion).abs());
+        }
+    }
+    residual / s[0]
+}
+
+/// sve_residual is small where the segments resolve the kernel, and close to
+/// the residual on a dense grid where they do not, for centrosymmetric and
+/// other kernels
+#[test]
+fn test_sve_residual_measures_the_discretization() {
+    let resolved = ExpKernel::new(10.0);
+    let sve = compute_sve(resolved, Some(1e-12), None, None, TworkType::Float64X2).unwrap();
+    let residual = sve_residual(&resolved, &sve);
+    // Measured: 3.2e-13, the rounding of the evaluation in f64
+    assert!(residual < 1e-11, "{residual:e}");
+
+    let exp = coarse_residuals(&ExpKernel { a: 50.0, nseg: 1 });
+    let tilted = coarse_residuals(&TiltedExpKernel(ExpKernel { a: 20.0, nseg: 1 }));
+    for (name, (residual, grid)) in [("exp", exp), ("tilted", tilted)] {
+        // Measured: 1.0 times the grid residual (2.0 and 1.4e-3)
+        assert!(grid > 1e-4, "{name}: {grid:e}");
+        assert!(
+            residual > 0.5 * grid && residual < 2.0 * grid,
+            "{name}: {residual:e} vs {grid:e} on the grid"
+        );
+    }
+}
+
+/// sve_residual and residual_on_grid of the SVE of `kernel` to 1e-12
+fn coarse_residuals<K>(kernel: &K) -> (f64, f64)
+where
+    K: SVEStrategyKernel,
+{
+    let sve = compute_sve(
+        kernel.clone(),
+        Some(1e-12),
+        None,
+        None,
+        TworkType::Float64X2,
+    )
+    .unwrap();
+    (sve_residual(kernel, &sve), residual_on_grid(kernel, &sve))
+}
+
+/// A kernel discontinuous at a knot (x = 0) is compared with the expansion
+/// on the same side of the knot, so its resolved SVE has a small residual
+#[test]
+fn test_sve_residual_of_a_kernel_discontinuous_at_a_knot() {
+    let kernel = HalfExpKernel(ExpKernel::new(1.0));
+    let sve = compute_sve(kernel, Some(1e-12), None, None, TworkType::Float64X2).unwrap();
+    let residual = sve_residual(&kernel, &sve);
+    // Measured: 2.7e-14
+    assert!(residual < 1e-11, "{residual:e}");
 }

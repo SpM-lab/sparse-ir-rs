@@ -34,7 +34,7 @@
 //! ```
 //! use sparse_ir_sve::{
 //!     AbstractKernel, CustomNumeric, ReducedKernel, SVEKernel, SegmentHints, SymmetryType,
-//!     TworkType, compute_sve,
+//!     TworkType, compute_sve, sve_residual,
 //! };
 //! use std::fmt::Debug;
 //!
@@ -99,6 +99,9 @@
 //!     .map(|l| s[l] * sve.u()[l].evaluate(x) * sve.v()[l].evaluate(y))
 //!     .sum();
 //! assert!((k - f64::exp(x * y)).abs() < 1e-8);
+//!
+//! // The segments resolve the kernel: the residual is far below 1e-10
+//! assert!(sve_residual(&ExpKernel, &sve) < 1e-12);
 //! # Ok::<(), sparse_ir_sve::Error>(())
 //! ```
 
@@ -140,6 +143,7 @@ pub use numeric::CustomNumeric;
 pub use poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 pub use sve::{
     CentrosymmSVE, KernelBlock, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,
+    sve_residual,
 };
 pub use tsvd::{
     SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,

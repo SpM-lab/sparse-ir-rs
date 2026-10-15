@@ -22,6 +22,10 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   of a kernel (`new`), or by a number of segments of equal length
   (`uniform`), for any kernel, so that a kernel defined outside the crates
   needs no hints type of its own.
+- `sve_residual`: max |K − Σ s_l u_l v_l| / s₀ of an SVE at points next to
+  the ends and at the midpoint of every segment, which shows whether the
+  segments of the hints resolve the kernel (`compute_sve` does not check
+  it). Limited from below by the rounding of the evaluation in f64.
 
 ### Changed
 

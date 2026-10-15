@@ -12,6 +12,8 @@ on statistics or Matsubara frequencies, so it can expand other kernels as well.
   full domain).
 - `SegmentHints` discretizes a kernel on given segments (or segments of equal
   length) of its domain, so that a kernel needs no hints type of its own.
+- `sve_residual` measures how well an SVE reproduces its kernel, which shows
+  whether the segments of the hints resolve the kernel.
 - In `f64` the SVE takes the SVDs of the discretized kernel by a dense
   column-pivoted QR, in double-double by adaptive cross approximation, which
   reads only a few of its rows and columns; `compute_sve_dense` takes the
