@@ -17,10 +17,11 @@ use crate::tsvd::{
     SVDResult, TSVDConfig, check_finite_entries, check_tsvd_input, try_svd_decompose, tsvd,
 };
 
-/// Oversampling window: the total number of pivots collected from
-/// the norm-based stopping trigger onward, *inclusive of the trigger iteration*.
-/// With `OVERSAMPLE = 3` the loop takes the triggering pivot plus 2 further
-/// pivots, then stops. (The trigger counts as the 1st of `OVERSAMPLE` because
+/// Oversampling window: the number of consecutive pivots that must pass the
+/// norm-based stopping test, *inclusive of the trigger iteration*. With
+/// `OVERSAMPLE = 3` the loop stops after the triggering pivot and 2 further
+/// pivots that also pass; a pivot that fails the test restarts the count.
+/// (The trigger counts as the 1st of `OVERSAMPLE` because
 /// the residual past the true rank settles near machine epsilon but not
 /// bit-exact zero, so the degenerate-pivot guard does not bound the window on
 /// its own — the counter does.) Oversampling defers the final rank decision to
@@ -78,8 +79,9 @@ enum AcaNorm {
 struct AcaFactors<T: ComplexField> {
     u: DMatrix<T>,
     v: DMatrix<T>,
-    /// `‖u_t‖‖v_t‖` of the pivot at which the stopping test first held, or
-    /// `None` if ACA stopped otherwise (exact rank or no row left).
+    /// Largest `‖u_t‖‖v_t‖` of the last `OVERSAMPLE` pivots, all of which
+    /// passed the stopping test, or `None` if ACA stopped otherwise (exact
+    /// rank or no row left).
     trigger: Option<T::RealField>,
 }
 
@@ -162,8 +164,9 @@ where
     let mut used_rows = vec![false; m];
     let mut i_star = 0usize; // initial pivot row
     let mut approx_norm_sq = T::RealField::zero();
+    // Largest ‖u_t‖‖v_t‖ of the pivots that passed the stopping test in a row
     let mut trigger = None;
-    // Pivots taken from the one at which the stopping test first held on
+    // Number of those pivots
     let mut since_trigger = 0;
 
     // Whether ACA stopped (by its stopping test, at the exact rank, or with
@@ -260,18 +263,23 @@ where
         u_cols.push(u_t);
         v_cols.push(v_t);
 
-        // Stopping: ‖u_t‖‖v_t‖ = sqrt(self_term) ≤ rtol · ‖A_k‖_F, then
-        // OVERSAMPLE pivots in all from (and including) the triggering one.
-        if trigger.is_none()
-            && self_term.clone().sqrt() <= rtol.clone() * approx_norm_sq.clone().sqrt()
-        {
-            trigger = Some(self_term.sqrt());
-        }
-        if trigger.is_some() {
+        // Stopping: ‖u_t‖‖v_t‖ = sqrt(self_term) ≤ rtol · ‖A_k‖_F for
+        // OVERSAMPLE pivots in a row. A larger pivot clears the trigger: a
+        // small pivot of partial-pivot ACA does not mean the residual is
+        // small, its row may just miss the rest of the matrix.
+        let term = self_term.sqrt();
+        if term <= rtol.clone() * approx_norm_sq.clone().sqrt() {
+            trigger = Some(match trigger {
+                Some(t) if t > term => t,
+                _ => term,
+            });
             since_trigger += 1;
             if since_trigger >= OVERSAMPLE {
                 break true;
             }
+        } else {
+            trigger = None;
+            since_trigger = 0;
         }
 
         // Next pivot row: largest |b[i]| among unused rows. No unused row
@@ -757,12 +765,12 @@ mod tests {
     #[test]
     fn tsvd_aca_redoes_aca_when_estimate_stops_too_early() {
         let rows: [[f64; 6]; 6] = [
-            [3.0, 1.0, -2.0, -3.0, -3.0, -1.0],
-            [-1.0, -2.0, -2.0, -3.0, -3.0, 2.0],
-            [3.0, -3.0, -60.0, -1.0, -2.0, 1.0],
-            [0.0, -2.0, 1.0, -3.0, -1.0, -2.0],
-            [-1.0, -3.0, -2.0, -1.0, -3.0, -3.0],
-            [90.0, -2.0, -2.0, 0.0, 1.0, -3.0],
+            [0.0, 1.0, -3.0, 3.0, -3.0, -3.0],
+            [-3.0, 0.0, -3.0, -1.0, 2.0, 3.0],
+            [0.0, 0.0, -1.0, 3.0, 0.0, -3.0],
+            [2.0, 3.0, -2.0, -3.0, -1.0, -3.0],
+            [-60.0, -2.0, 90.0, -2.0, 0.0, 3.0],
+            [-2.0, 0.0, -2.0, -1.0, 3.0, -3.0],
         ];
         let (m, n) = (6, 6);
         let a = DMatrix::<f64>::from_fn(m, n, |i, j| rows[i][j]);
@@ -987,6 +995,22 @@ mod tests {
         assert_eq!(aca.rank, cpqr.rank);
         for l in 0..3 {
             assert!((aca.s[l] - cpqr.s[l]).abs() < 1e-12 * cpqr.s[0]);
+        }
+    }
+
+    /// A small pivot followed by large ones does not stop ACA: the stopping
+    /// test held at the second pivot (1e-20 on the diagonal), but the next
+    /// rows hold three more unit singular values. With the trigger never
+    /// cleared, ACA stopped two pivots later and missed the last one.
+    #[test]
+    fn tsvd_aca_continues_after_a_small_pivot() {
+        let diag = [1.0, 1e-20, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0];
+        let a = DMatrix::from_fn(8, 8, |i, j| if i == j { diag[i] } else { 0.0 });
+        let rtol = 1e-15;
+        let aca = tsvd_aca_dense(&a, TSVDConfig::new(rtol)).unwrap();
+        assert_eq!(aca.rank, 4, "s = {:?}", aca.s.as_slice());
+        for l in 0..4 {
+            assert!((aca.s[l] - 1.0).abs() < 1e-15, "s = {:?}", aca.s.as_slice());
         }
     }
 
