@@ -45,7 +45,11 @@ default-features = false
 features = ["user-hooks"]
 
 [features]
-default = []
+# The threaded work of the library runs on the rayon thread pool (see
+# sparse-ir-core/src/parallel.rs); the C API (sparse-ir-capi) builds without
+# it.
+default = ["parallel"]
+parallel = ["sparse-ir-core/parallel", "sparse-ir-basis/parallel"]
 # Shared library features
 shared-lib = []
 # Use system BLAS (LP64) for the GEMM backend instead of Faer

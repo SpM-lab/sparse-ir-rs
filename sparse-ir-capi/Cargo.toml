@@ -29,8 +29,10 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 # build.rs will automatically generate sparseir.h via cbindgen
 
 [dependencies]
-# Main SparseIR library (version and local path from workspace.dependencies)
-sparse-ir.workspace = true
+# Main SparseIR library (version and local path from workspace.dependencies),
+# without its default `parallel` feature: no rayon thread pool in the C
+# library (see src/lib.rs)
+sparse-ir = { workspace = true, default-features = false }
 
 # C integer types (c_int etc.)
 libc.workspace = true

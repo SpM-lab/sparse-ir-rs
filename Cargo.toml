@@ -15,7 +15,7 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
-sparse-ir = { version = "0.13.0", path = "sparse-ir" }
+sparse-ir = { version = "0.13.0", path = "sparse-ir", default-features = false }
 sparse-ir-core = { version = "0.13.0", path = "sparse-ir-core" }
 sparse-ir-dlr = { version = "0.13.0", path = "sparse-ir-dlr" }
 sparse-ir-minipole = { version = "0.13.0", path = "sparse-ir-minipole" }

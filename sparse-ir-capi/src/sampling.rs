@@ -11,7 +11,7 @@
 //! - Memory: release, clone, is_assigned (via macro)
 
 use num_complex::Complex64;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
@@ -68,7 +68,7 @@ pub extern "C" fn spir_sampling_clone(src: *const spir_sampling) -> *mut spir_sa
         return std::ptr::null_mut();
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(std::panic::AssertUnwindSafe(|| unsafe {
         let src_ref = &*src;
         let cloned = (*src_ref).clone();
         Box::into_raw(Box::new(cloned))
@@ -126,7 +126,7 @@ pub extern "C" fn spir_tau_sampling_new(
     points: *const f64,
     status: *mut StatusCode,
 ) -> *mut spir_sampling {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         // Validate inputs
         if b.is_null() || points.is_null() {
             return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
@@ -267,7 +267,7 @@ pub extern "C" fn spir_matsu_sampling_new(
     points: *const i64,
     status: *mut StatusCode,
 ) -> *mut spir_sampling {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         // Validate inputs
         if b.is_null() || points.is_null() {
             return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
@@ -435,7 +435,7 @@ pub extern "C" fn spir_tau_sampling_new_with_matrix(
     matrix: *const f64,
     status: *mut StatusCode,
 ) -> *mut spir_sampling {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         // Validate inputs
         if points.is_null() || matrix.is_null() {
             return (std::ptr::null_mut(), SPIR_INVALID_ARGUMENT);
@@ -584,7 +584,7 @@ pub extern "C" fn spir_matsu_sampling_new_with_matrix(
         num_points
     );
     std::io::stderr().flush().ok();
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         use std::io::Write;
         debug_println!("spir_matsu_sampling_new_with_matrix: inside catch_unwind");
         std::io::stderr().flush().ok();
@@ -817,7 +817,7 @@ pub extern "C" fn spir_sampling_get_npoints(
     s: *const spir_sampling,
     num_points: *mut libc::c_int,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || num_points.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -867,7 +867,7 @@ pub extern "C" fn spir_sampling_get_npoints(
 /// - [`spir_sampling_get_npoints`]
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_get_taus(s: *const spir_sampling, points: *mut f64) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || points.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -900,7 +900,7 @@ pub extern "C" fn spir_sampling_get_matsus(
     s: *const spir_sampling,
     points: *mut i64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || points.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -997,7 +997,7 @@ pub extern "C" fn spir_sampling_get_cond_num(
     s: *const spir_sampling,
     cond_num: *mut f64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || cond_num.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -1087,7 +1087,7 @@ pub extern "C" fn spir_sampling_eval_dd(
     input: *const f64,
     out: *mut f64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         // Validate inputs
         if s.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
@@ -1182,7 +1182,7 @@ pub extern "C" fn spir_sampling_eval_dz(
     input: *const f64,
     out: *mut Complex64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         // Validate inputs
         if s.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
@@ -1277,7 +1277,7 @@ pub extern "C" fn spir_sampling_eval_zz(
     input: *const Complex64,
     out: *mut Complex64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -1402,7 +1402,7 @@ pub extern "C" fn spir_sampling_fit_dd(
     input: *const f64,
     out: *mut f64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -1498,7 +1498,7 @@ pub extern "C" fn spir_sampling_fit_zz(
     input: *const Complex64,
     out: *mut Complex64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -1623,7 +1623,7 @@ pub extern "C" fn spir_sampling_fit_zd(
     input: *const Complex64,
     out: *mut f64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if s.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }

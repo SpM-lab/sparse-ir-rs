@@ -30,9 +30,16 @@ nalgebra = "0.33"
 
 [dev-dependencies]
 # Thread pools of a given size, for the thread-count independence tests
+# (with the `parallel` feature)
 rayon.workspace = true
 # High-precision arithmetic (for precision tests)
 dashu-float.workspace = true
 dashu-base.workspace = true
-# The doc examples use the whole library
-sparse-ir = { path = "../sparse-ir" }
+# The doc examples use the whole library (without its default `parallel`
+# feature, which would otherwise always be on in the tests of this crate)
+sparse-ir = { path = "../sparse-ir", default-features = false }
+
+[features]
+# Run the threaded work (the SVE, batched Matsubara evaluations) on the rayon
+# thread pool; see sparse-ir-core/src/parallel.rs
+parallel = ["sparse-ir-core/parallel"]

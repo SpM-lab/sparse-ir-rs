@@ -116,7 +116,7 @@ macro_rules! impl_opaque_type_common {
                     return std::ptr::null_mut();
                 }
 
-                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+                let result = $crate::ffi_call(std::panic::AssertUnwindSafe(|| unsafe {
                     let src_ref = &*src;
                     let cloned = (*src_ref).clone();
                     // Clone uses Arc reference counting (cheap operation)

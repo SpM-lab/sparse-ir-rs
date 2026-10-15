@@ -177,12 +177,15 @@ pub fn init_fpu_check() {
 /// Running every such piece of work under the state of the thread that hands
 /// it out (with [`FpuContext::run`]) makes the threaded paths compute exactly
 /// what the serial ones would, whether or not the caller holds an
-/// [`FpuGuard`]. A no-op on other architectures.
+/// [`FpuGuard`]. A no-op on other architectures. Used only with the
+/// `parallel` feature.
+#[cfg_attr(not(feature = "parallel"), allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct FpuContext {
     mxcsr: u32,
 }
 
+#[cfg_attr(not(feature = "parallel"), allow(dead_code))]
 impl FpuContext {
     /// The state of the calling thread
     pub(crate) fn current() -> Self {

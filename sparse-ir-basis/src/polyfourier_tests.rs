@@ -953,6 +953,7 @@ fn test_evaluate_at_matches_each_function_bitwise() {
 /// Large batches are evaluated on the thread pool, frequency `i` by job
 /// `i % T`; the result is bitwise that of evaluating each frequency on the
 /// calling thread, over low and asymptotic frequencies
+#[cfg(feature = "parallel")]
 #[test]
 fn test_evaluate_at_many_on_the_pool_matches_serial() {
     let basis = FiniteTempBasis::<_, Fermionic>::new(

@@ -24,7 +24,7 @@ pub extern "C" fn spir_funcs_clone(src: *const spir_funcs) -> *mut spir_funcs {
         return std::ptr::null_mut();
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(std::panic::AssertUnwindSafe(|| unsafe {
         let src_ref = &*src;
         let cloned = (*src_ref).clone();
         Box::into_raw(Box::new(cloned))
@@ -71,7 +71,6 @@ pub extern "C" fn spir_funcs_deriv(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -91,7 +90,7 @@ pub extern "C" fn spir_funcs_deriv(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| -> Result<*mut spir_funcs, crate::StatusCode> {
+    let result = crate::ffi_call(|| -> Result<*mut spir_funcs, crate::StatusCode> {
         // SAFETY: `funcs` is non-null (checked above) and points to a valid
         // spir_funcs, as the caller guarantees.
         let funcs_ref = unsafe { &*funcs };
@@ -199,7 +198,6 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         SPIR_INVALID_DIMENSION,
     };
     use sparse_ir::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
-    use std::panic::catch_unwind;
     use std::sync::Arc;
 
     if status.is_null() {
@@ -243,7 +241,7 @@ pub extern "C" fn spir_funcs_from_piecewise_legendre(
         }
     };
 
-    let result = catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let result = crate::ffi_call(std::panic::AssertUnwindSafe(|| {
         // SAFETY: `segments` is non-null (checked above) and `validate_dims`
         // proved that `n_knots` f64 are addressable; the caller guarantees that
         // `segments` holds `n_segments + 1` elements.
@@ -375,7 +373,7 @@ pub extern "C" fn spir_funcs_get_slice(
         return std::ptr::null_mut();
     }
 
-    let result = std::panic::catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // SAFETY: `funcs` and `indices` are non-null (checked above); the
         // caller guarantees a live handle and `nslice` >= 1 readable indices.
         let funcs_ref = unsafe { &*funcs };
@@ -429,13 +427,12 @@ pub extern "C" fn spir_funcs_get_size(
     size: *mut libc::c_int,
 ) -> crate::StatusCode {
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
-    use std::panic::catch_unwind;
 
     if funcs.is_null() || size.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*funcs;
         *size = f.size() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
@@ -460,13 +457,12 @@ pub extern "C" fn spir_funcs_get_n_knots(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use std::panic::catch_unwind;
 
     if funcs.is_null() || n_knots.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*funcs;
         match f.knots() {
             Some(knots) => {
@@ -499,13 +495,12 @@ pub extern "C" fn spir_funcs_get_knots(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use std::panic::catch_unwind;
 
     if funcs.is_null() || knots.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*funcs;
         match f.knots() {
             Some(knot_vec) => {
@@ -556,7 +551,6 @@ pub extern "C" fn spir_funcs_eval(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use std::panic::catch_unwind;
 
     if funcs.is_null() || out.is_null() {
         return SPIR_INVALID_ARGUMENT;
@@ -564,7 +558,7 @@ pub extern "C" fn spir_funcs_eval(
 
     // SAFETY: `funcs` and `out` are non-null (checked above); the caller
     // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*funcs;
         match f.eval_continuous(x) {
             Some(Ok(values)) => {
@@ -608,7 +602,6 @@ pub extern "C" fn spir_funcs_eval_matsu(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use std::panic::catch_unwind;
 
     if funcs.is_null() || out.is_null() {
         return SPIR_INVALID_ARGUMENT;
@@ -616,7 +609,7 @@ pub extern "C" fn spir_funcs_eval_matsu(
 
     // SAFETY: `funcs` and `out` are non-null (checked above); the caller
     // guarantees a live handle and room for `spir_funcs_get_size(funcs)` values.
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*funcs;
         match f.eval_matsubara(n) {
             Some(Ok(values)) => {
@@ -669,7 +662,6 @@ pub extern "C" fn spir_funcs_batch_eval(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use std::panic::catch_unwind;
 
     if funcs.is_null() || xs.is_null() || out.is_null() || num_points <= 0 {
         return SPIR_INVALID_ARGUMENT;
@@ -682,7 +674,7 @@ pub extern "C" fn spir_funcs_batch_eval(
     // SAFETY: the pointers are non-null and `num_points` > 0 (checked above);
     // the caller guarantees a live handle, `num_points` readable points and
     // room for `num_points * spir_funcs_get_size(funcs)` values.
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*funcs;
         let xs_slice = std::slice::from_raw_parts(xs, num_points as usize);
 
@@ -759,7 +751,6 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
     use crate::{
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
-    use std::panic::catch_unwind;
 
     if funcs.is_null() || ns.is_null() || out.is_null() || num_freqs <= 0 {
         return SPIR_INVALID_ARGUMENT;
@@ -772,7 +763,7 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
     // SAFETY: the pointers are non-null and `num_freqs` > 0 (checked above);
     // the caller guarantees a live handle, `num_freqs` readable indices and
     // room for `num_freqs * spir_funcs_get_size(funcs)` values.
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*funcs;
         let ns_slice = std::slice::from_raw_parts(ns, num_freqs as usize);
 
@@ -874,7 +865,6 @@ pub extern "C" fn spir_uhat_get_default_matsus(
         SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT, SPIR_NOT_SUPPORTED,
     };
     use sparse_ir::traits::{Bosonic, Fermionic};
-    use std::panic::catch_unwind;
 
     if uhat.is_null() || n_points_total.is_null() {
         return SPIR_INVALID_ARGUMENT;
@@ -884,7 +874,7 @@ pub extern "C" fn spir_uhat_get_default_matsus(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let f = &*uhat;
         let inner = f.inner_type();
 

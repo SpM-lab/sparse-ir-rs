@@ -22,6 +22,9 @@ pub use sparse_ir_core::{
     taufuncs, traits,
 };
 
+#[doc(hidden)]
+pub use sparse_ir_core::parallel;
+
 pub use sparse_ir_dlr::dlr;
 pub use sparse_ir_dlr::{
     DiscreteLehmannRepresentation, DlrBuilder, IrDlrTransform, bosonic_single_pole,

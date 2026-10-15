@@ -28,14 +28,16 @@ thiserror.workspace = true
 blas-sys = { workspace = true, optional = true }
 # Lazy static initialization for GEMM dispatcher
 once_cell.workspace = true
-# Thread pool for the parallel work of the library (see src/parallel.rs)
-rayon.workspace = true
+# Thread pool for the parallel work of the library (see src/parallel.rs),
+# with the `parallel` feature
+rayon = { workspace = true, optional = true }
 # C FFI types (for BLAS function pointers)
 libc.workspace = true
 
 [dev-dependencies]
-# The doc examples use the whole library
-sparse-ir = { path = "../sparse-ir" }
+# The doc examples use the whole library (without its default `parallel`
+# feature, which would otherwise always be on in the tests of this crate)
+sparse-ir = { path = "../sparse-ir", default-features = false }
 
 [build-dependencies]
 pkg-config = "0.3"
@@ -44,3 +46,7 @@ pkg-config = "0.3"
 default = []
 # Use system BLAS (LP64) for the GEMM backend instead of Faer
 system-blas = ["blas-sys"]
+# Run the threaded work of the library (the SVE, batched Matsubara
+# evaluations) on the rayon thread pool; without it everything runs on the
+# calling thread. On by default only in the sparse-ir crate.
+parallel = ["dep:rayon"]

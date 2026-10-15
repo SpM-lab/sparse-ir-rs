@@ -1,10 +1,12 @@
 //! Parallel execution on the rayon thread pool.
 //!
 //! The threaded work of the library (the SVE and the batched Matsubara
-//! evaluations) runs on the current rayon pool (the global one unless the
-//! caller runs inside `ThreadPool::install`) through the functions here. Its
-//! size (`RAYON_NUM_THREADS`) therefore bounds the number of threads the
-//! library uses.
+//! evaluations) goes through the functions here. With the `parallel` feature
+//! (on by default only in the sparse-ir crate, off in the C API) it runs on
+//! the current rayon pool (the global one unless the caller runs inside
+//! `ThreadPool::install`), whose size (`RAYON_NUM_THREADS`) therefore bounds
+//! the number of threads the library uses. Without the feature, and inside
+//! [`sequential`], everything runs on the calling thread.
 //!
 //! Every job handed out here runs under the FPU state of the thread that
 //! hands it out (`crate::fpu_check::FpuContext`), so the threaded paths
@@ -18,9 +20,41 @@
 //!
 //! Internal to the sparse-ir crates; not part of the public API.
 
-/// Number of threads of the current rayon pool
+use std::cell::Cell;
+
+thread_local! {
+    /// Whether the calling thread is inside [`sequential`]
+    static SEQUENTIAL: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Run `f` with all the parallel regions it reaches on the calling thread,
+/// even with the `parallel` feature (as the C API does for every call)
+pub fn sequential<R>(f: impl FnOnce() -> R) -> R {
+    /// Restores the previous state, also when `f` panics
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SEQUENTIAL.with(|s| s.set(self.0));
+        }
+    }
+    let _restore = Restore(SEQUENTIAL.with(|s| s.replace(true)));
+    f()
+}
+
+/// Number of threads the parallel regions may use: that of the current
+/// rayon pool, or 1 without the `parallel` feature or inside [`sequential`]
 pub fn n_threads() -> usize {
-    rayon::current_num_threads()
+    if SEQUENTIAL.with(Cell::get) {
+        return 1;
+    }
+    #[cfg(feature = "parallel")]
+    {
+        rayon::current_num_threads()
+    }
+    #[cfg(not(feature = "parallel"))]
+    {
+        1
+    }
 }
 
 /// Parallel regions with less work than this, in `f64` operations, run on the
@@ -43,16 +77,25 @@ fn on_pool(work: usize) -> bool {
 const CHUNKS_PER_THREAD: usize = 4;
 
 /// Run `jobs` on the rayon pool and wait for all of them. Pool threads do not
-/// have the caller's FPU state, so every job runs under it.
+/// have the caller's FPU state, so every job runs under it. Without the
+/// `parallel` feature, or with a single thread, the jobs run in order on the
+/// calling thread.
 pub fn run_on_pool<'a, F: FnOnce() + Send + 'a>(jobs: impl IntoIterator<Item = F>) {
-    // Collected first: the scope closure must be `Send`, the iterator need not be.
-    let jobs: Vec<F> = jobs.into_iter().collect();
-    let fpu = crate::fpu_check::FpuContext::current();
-    rayon::scope(|scope| {
-        for job in jobs {
-            scope.spawn(move |_| fpu.run(job));
-        }
-    });
+    #[cfg(feature = "parallel")]
+    if n_threads() > 1 {
+        // Collected first: the scope closure must be `Send`, the iterator need not be.
+        let jobs: Vec<F> = jobs.into_iter().collect();
+        let fpu = crate::fpu_check::FpuContext::current();
+        rayon::scope(|scope| {
+            for job in jobs {
+                scope.spawn(move |_| fpu.run(job));
+            }
+        });
+        return;
+    }
+    for job in jobs {
+        job();
+    }
 }
 
 /// Run `f(start, chunk)` over contiguous chunks of `out`, where `start` is the
@@ -132,6 +175,7 @@ mod tests {
 
     /// A single large item runs on a pool thread, a small one on the caller's
     /// (a test thread, outside the pool).
+    #[cfg(feature = "parallel")]
     #[test]
     fn map_on_pool_sends_a_single_large_item_to_the_pool() {
         let thread_index = |work| map_on_pool(1, work, |_| rayon::current_thread_index())[0];
@@ -142,6 +186,7 @@ mod tests {
     }
 
     /// Inside `ThreadPool::install`, the library uses that pool's threads.
+    #[cfg(feature = "parallel")]
     #[test]
     fn uses_the_installed_pool() {
         let pool = rayon::ThreadPoolBuilder::new()
@@ -153,5 +198,29 @@ mod tests {
             let ids = map_on_pool(8, usize::MAX, |_| std::thread::current().id());
             assert!(ids.iter().all(|id| *id == ids[0]));
         });
+    }
+
+    /// Inside `sequential` everything runs on the calling thread, also with
+    /// the `parallel` feature and a large pool, and also in nested calls; the
+    /// state is restored afterwards, also after a panic.
+    #[test]
+    fn sequential_runs_on_the_calling_thread() {
+        let caller = std::thread::current().id();
+        let on_caller = || {
+            map_on_pool(16, usize::MAX, |_| std::thread::current().id())
+                .iter()
+                .all(|id| *id == caller)
+        };
+        sequential(|| {
+            assert_eq!(n_threads(), 1);
+            assert!(on_caller());
+            sequential(|| assert!(on_caller()));
+            assert_eq!(n_threads(), 1);
+        });
+        let panicked = std::panic::catch_unwind(|| sequential(|| panic!("in sequential")));
+        assert!(panicked.is_err());
+        assert!(!SEQUENTIAL.with(Cell::get));
+        #[cfg(not(feature = "parallel"))]
+        assert_eq!(n_threads(), 1);
     }
 }

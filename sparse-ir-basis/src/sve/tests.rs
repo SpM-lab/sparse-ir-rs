@@ -1494,6 +1494,7 @@ fn test_compute_sve_for_basis_keeps_what_a_basis_uses() {
 /// double-double products), but each value is computed by the same
 /// operations whatever the threading: the result on four threads is bitwise
 /// that on one, in f64 and Df64, with and without centrosymmetry.
+#[cfg(feature = "parallel")]
 #[test]
 fn test_sve_does_not_depend_on_the_number_of_threads() {
     let pool = |n| {
