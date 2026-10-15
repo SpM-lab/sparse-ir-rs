@@ -1,9 +1,11 @@
 //! # sparse-ir-basis
 //!
-//! The intermediate representation (IR) basis: kernels, the singular value
-//! expansion in extended precision, piecewise Legendre polynomials and their
-//! Fourier transforms, and [`FiniteTempBasis`]. Also the DLR built from an IR
-//! basis ([`DlrFromIr`]) and the IR <-> DLR transform.
+//! The intermediate representation (IR) basis: the kernels and their physical
+//! properties ([`KernelProperties`]), the Fourier transforms of the singular
+//! functions, and [`FiniteTempBasis`]. Also the DLR built from an IR basis
+//! ([`DlrFromIr`]) and the IR <-> DLR transform. The singular value expansion
+//! and the piecewise Legendre polynomials come from `sparse-ir-sve`,
+//! re-exported here under the same paths.
 //!
 //! Most users depend on the `sparse-ir` crate, which re-exports this crate.
 
@@ -31,31 +33,24 @@ use sparse_ir_dlr::{
     DiscreteLehmannRepresentation, DlrBuilder, IrDlrTransform, bosonic_single_pole,
 };
 
-pub(crate) mod aca; // ACA-accelerated truncated SVD for the SVE kernel blocks
 pub mod basis;
-pub(crate) mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
-pub(crate) mod cost; // Work estimates for the threading decisions
-pub(crate) mod ddgemm; // Double-double matrix products
-pub mod gauss;
-pub(crate) mod interpolation1d;
 pub mod ir_dlr; // DLR built from an IR basis, and the IR <-> DLR transform
 pub mod kernel;
-pub mod kernelmatrix;
-pub mod numeric;
 pub(crate) mod pair_select; // Matsubara sampling-point selection by pairs of rows
-pub mod poly;
 pub mod polyfourier;
 pub mod special_functions;
-pub mod sve;
-pub mod tsvd; // High-precision truncated SVD using nalgebra
+
+// The SVE and the numerics it is built on, under the paths of this crate
+pub use sparse_ir_sve::{gauss, kernelmatrix, numeric, poly, sve, tsvd};
 
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis, MatsubaraPointMethod};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
 pub use ir_dlr::{DlrFromIr, IrBasis};
 pub use kernel::{
     AbstractKernel, BasisKernel, CentrosymmKernel, KernelProperties, LogisticKernel,
-    LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints, RegularizedBoseKernel,
-    RegularizedBoseSVEHints, SVEHints, SymmetryType, compute_logistic_kernel,
+    LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints, ReducedKernel,
+    RegularizedBoseKernel, RegularizedBoseSVEHints, SVEHints, SVEKernel, SVEStrategyKernel,
+    SymmetryType, compute_logistic_kernel,
 };
 pub use kernelmatrix::{
     DiscretizedKernel, matrix_from_gauss, matrix_from_gauss_noncentrosymmetric,
@@ -67,13 +62,11 @@ pub use polyfourier::{
     BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector, FermionicPiecewiseLegendreFT,
     FermionicPiecewiseLegendreFTVector, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PowerModel,
 };
+pub use sparse_ir_sve::Df64;
 pub use sve::{
     CentrosymmSVE, KernelBlock, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,
 };
-pub use tsvd::{
-    SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
-};
-pub use xprec::Df64;
+pub use tsvd::{SVDResult, TSVDConfig, svd_decompose, tsvd_df64, tsvd_df64_from_f64, tsvd_f64};
 
 // Test utilities (only available in test mode)
 #[cfg(test)]
@@ -90,3 +83,6 @@ mod dlr_tests;
 mod matsubara_sampling_tests;
 #[cfg(test)]
 mod tau_sampling_tests;
+// Tests of the SVE of the kernels of this crate
+#[cfg(test)]
+mod sve_tests;

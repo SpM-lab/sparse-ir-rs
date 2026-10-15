@@ -433,8 +433,9 @@ const MAX_CHOLESKY_QR_LOSS: f64 = 1e-20;
 /// products and two lifts, all matrix products, instead of two Householder
 /// QRs, the formation of their `Q`, and the lifts. The ACA factors are well
 /// conditioned once their columns are normalized (κ(Ũ) ≲ 10⁵, κ(Ṽ) ≲ 10² for
-/// the SVE blocks up to Λ = 10⁶), so this is taken in double-double precision;
-/// in `f64`, `κ²·ε` always exceeds the bound and Householder QR is used.
+/// the SVE blocks of e^{-Λy(x+1)/2} / (1 + e^{-Λy}) up to Λ = 10⁶), so this
+/// is taken in double-double precision when `κ²·ε` is small enough, and
+/// Householder QR otherwise; in `f64`, `κ²·ε` always exceeds the bound.
 ///
 /// # Errors
 /// The errors of [`try_svd_decompose`] for the small SVD
@@ -705,10 +706,11 @@ mod tests {
     /// singular vectors. In `f64` it declines.
     #[test]
     fn cholesky_recompression_matches_householder_df64() {
-        use crate::kernel::LogisticKernel;
         use crate::sve::{CentrosymmSVE, SVEStrategy};
+        use crate::test_kernels::ExpKernel;
 
-        let sve = CentrosymmSVE::<Df64, _>::new(LogisticKernel::new(1e4).unwrap(), 1e-12).unwrap();
+        let kernel = ExpKernel { a: 10.0, nseg: 8 };
+        let sve = CentrosymmSVE::<Df64, _>::new(kernel, 1e-12).unwrap();
         let rtol = 1e-18;
         for block in sve.blocks() {
             let (m, n) = (block.nrows(), block.ncols());
@@ -802,13 +804,18 @@ mod tests {
     }
 
     /// Stopping ACA with the sum-of-squares norm estimate keeps the exact
-    /// stopping test satisfied and the singular values of the exact-norm ACA.
+    /// stopping test satisfied and the singular values of the exact-norm ACA,
+    /// on SVE blocks of a smooth kernel. The estimate is not a bound (for
+    /// exp(10 x y) on these segments it stops too early, and `tsvd_aca` redoes
+    /// ACA, see `tsvd_aca_redoes_aca_when_estimate_stops_too_early`); the
+    /// kernel here is one for which it holds.
     #[test]
     fn sum_of_squares_stop_matches_exact_norm() {
-        use crate::kernel::LogisticKernel;
         use crate::sve::{CentrosymmSVE, SVEStrategy};
+        use crate::test_kernels::ExpKernel;
 
-        let sve = CentrosymmSVE::<Df64, _>::new(LogisticKernel::new(1e4).unwrap(), 1e-12).unwrap();
+        let kernel = ExpKernel { a: 20.0, nseg: 8 };
+        let sve = CentrosymmSVE::<Df64, _>::new(kernel, 1e-12).unwrap();
         let rtol = 1e-18;
         for block in sve.blocks() {
             let (m, n) = (block.nrows(), block.ncols());

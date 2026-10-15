@@ -11,7 +11,7 @@ use sparse_ir::dlr::DiscreteLehmannRepresentation;
 use sparse_ir::fitters::InplaceFitter;
 use sparse_ir::freq::MatsubaraFreq;
 use sparse_ir::gemm::GemmBackendHandle;
-use sparse_ir::kernel::{AbstractKernel, CentrosymmKernel, LogisticKernel, RegularizedBoseKernel};
+use sparse_ir::kernel::{AbstractKernel, LogisticKernel, RegularizedBoseKernel};
 use sparse_ir::poly::PiecewiseLegendrePolyVector;
 use sparse_ir::polyfourier::PiecewiseLegendreFTVector;
 use sparse_ir::sve::SVEResult;

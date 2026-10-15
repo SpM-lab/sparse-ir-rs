@@ -12,217 +12,48 @@
 //! integral of K(x, y) rho'(y) dy,
 //!
 //! where ρ'(y) = ρ(y)/w(y) and w is the kernel's regularizer (see
-//! `AbstractKernel::regularizer`): it transforms the original spectral function
-//! ρ(y) into the scaled version ρ'(y) used in the integral equation.
+//! [`KernelProperties::regularizer`]): it transforms the original spectral
+//! function ρ(y) into the scaled version ρ'(y) used in the integral equation.
+//!
+//! The traits of a kernel's values and of its SVE come from `sparse-ir-sve`,
+//! re-exported here; [`KernelProperties`], [`CentrosymmKernel`] and
+//! [`BasisKernel`] add the physical properties.
 
 use crate::error::{Error, require_finite, require_positive_finite};
 use crate::numeric::CustomNumeric;
-use crate::sve::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use crate::traits::{Statistics, StatisticsType};
 use std::fmt::Debug;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SymmetryType {
-    Even,
-    Odd,
-}
-
-impl SymmetryType {
-    pub fn sign(self) -> i32 {
-        match self {
-            SymmetryType::Even => 1,
-            SymmetryType::Odd => -1,
-        }
-    }
-}
-
-/// Trait for SVE (Singular Value Expansion) hints
-///
-/// Provides discretization hints for singular value expansion of a given kernel.
-/// This includes segment information and numerical parameters for efficient computation.
-pub trait SVEHints<T>: Debug + Send + Sync
-where
-    T: Copy + Debug + Send + Sync,
-{
-    /// Get the x-axis segments for discretization
-    ///
-    /// For centrosymmetric kernels, returns only positive values (x >= 0) including the endpoints.
-    /// The returned vector contains segments from [0, xmax] where xmax is the
-    /// upper bound of the x domain.
-    ///
-    /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [xmin, xmax].
-    fn segments_x(&self) -> Vec<T>;
-
-    /// Get the y-axis segments for discretization
-    ///
-    /// For centrosymmetric kernels, returns only positive values (y >= 0) including the endpoints.
-    /// The returned vector contains segments from [0, ymax] where ymax is the
-    /// upper bound of the y domain.
-    ///
-    /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [ymin, ymax].
-    fn segments_y(&self) -> Vec<T>;
-
-    /// Get the number of singular values hint
-    fn nsvals(&self) -> usize;
-
-    /// Get the number of Gauss points for quadrature
-    fn ngauss(&self) -> usize;
-}
-
-/// Trait for kernel type properties (static characteristics)
-pub trait KernelProperties {
-    /// Associated type for SVE hints
-    type SVEHintsType<T>: SVEHints<T> + Clone
-    where
-        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
-    /// Power with which the y coordinate scales.
-    ///
-    /// For most kernels, this is 0 (no scaling).
-    /// For RegularizedBoseKernel, this is 1 (linear scaling).
-    fn ypower(&self) -> i32;
-
-    /// Convergence radius of the Matsubara basis asymptotic model
-    ///
-    /// For improved numerical accuracy, IR basis functions on Matsubara axis
-    /// can be evaluated from asymptotic expression for |n| > conv_radius.
-    fn conv_radius(&self) -> f64;
-
-    /// Get the upper bound of the x domain
-    fn xmax(&self) -> f64;
-
-    /// Get the upper bound of the y domain
-    fn ymax(&self) -> f64;
-
-    /// Lower bound of the x domain. Defaults to the symmetric case `-xmax`.
-    fn xmin(&self) -> f64 {
-        -self.xmax()
-    }
-
-    /// Lower bound of the y domain. Defaults to the symmetric case `-ymax`.
-    fn ymin(&self) -> f64 {
-        -self.ymax()
-    }
-
-    /// A regularizer for a bosonic kernel for avoiding a divergence at omega = 0.
-    ///
-    /// The bosonic kernel diverges at omega = 0.
-    /// This function returns a regularizer w(beta, omega) that avoids this divergence.
-    ///
-    ///    G(τ) = - ∫ K(τ, ω) ρ(ω) dω = - ∫ [K(τ, ω) w(ω)] [ρ(ω)/w(ω)] dω.
-    ///
-    /// The spectral function ρ(ω) and the weight function w(ω) must vanish linearly at omega = 0.
-    /// For a fermionic kernel, this function is expected to return 1.0.
-    ///
-    /// # Arguments
-    ///
-    /// * `beta` - Inverse temperature
-    /// * `omega` - Frequency
-    ///
-    /// # Returns
-    ///
-    /// The regularizer value w(beta, omega)
-    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64;
-
-    /// Create SVE hints for this kernel type.
-    ///
-    /// Provides discretization hints for singular value expansion computation.
-    /// The hints include segment information and numerical parameters optimized
-    /// for the specific kernel type.
-    ///
-    /// @param epsilon Target accuracy for the SVE computation
-    /// @return SVE hints specific to this kernel type
-    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
-    where
-        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
-}
-
-/// Trait for general kernels (both centrosymmetric and non-centrosymmetric)
-///
-/// This trait provides the basic interface for computing kernel values.
-/// Centrosymmetric kernels should implement `CentrosymmKernel` instead,
-/// which provides additional optimizations.
-pub trait AbstractKernel: Send + Sync {
-    /// Compute the kernel value K(x, y) with high precision
-    ///
-    /// # Arguments
-    ///
-    /// * `x` - The x coordinate (typically in [xmin, xmax])
-    /// * `y` - The y coordinate (typically in [ymin, ymax])
-    ///
-    /// # Returns
-    ///
-    /// The kernel value K(x, y)
-    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T;
-
-    /// Check if the kernel is centrosymmetric
-    ///
-    /// Returns true if and only if the domain is symmetric and
-    /// K(x, y) == K(-x, -y) for all values of x and y. This allows the kernel
-    /// to be block-diagonalized, speeding up the singular value expansion by a
-    /// factor of 4.
-    ///
-    /// # Returns
-    ///
-    /// True if the kernel is centrosymmetric, false otherwise.
-    fn is_centrosymmetric(&self) -> bool {
-        false
-    }
-}
+pub use sparse_ir_sve::kernel::{
+    AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType,
+};
 
 /// Trait for centrosymmetric kernels
 ///
 /// Centrosymmetric kernels satisfy K(x, y) = K(-x, -y) on a symmetric domain
 /// and can be decomposed into even and odd components for efficient
-/// computation.
-pub trait CentrosymmKernel: AbstractKernel {
-    /// Compute the reduced kernel value
-    ///
-    /// K_red(x, y) = K(x, y) + sign * K(x, -y)
-    /// where sign = 1 for even symmetry and sign = -1 for odd symmetry
-    fn compute_reduced<T: CustomNumeric + Copy + Debug>(
-        &self,
-        x: T,
-        y: T,
-        symmetry: SymmetryType,
-    ) -> T;
-
+/// computation ([`ReducedKernel::compute_reduced`]).
+pub trait CentrosymmKernel: ReducedKernel {
     /// Get the cutoff parameter Λ (lambda)
     fn lambda(&self) -> f64;
 }
 
-/// Kernel of a finite-temperature basis: the kernels that [`compute_sve`]
-/// and [`FiniteTempBasis`] accept
+/// Kernel of a finite-temperature basis: the kernels that
+/// [`FiniteTempBasis`] accepts
 ///
 /// Implemented for every [`CentrosymmKernel`], whose SVE is
 /// block-diagonalized into the even and odd reduced kernels, and for
 /// [`LogisticKernelWindowed`]. Other kernels implement
-/// [`BasisKernel::kernel_lambda`]; their SVE is taken over the full domain
-/// `[xmin, xmax] × [ymin, ymax]` and their singular functions have no
-/// definite parity.
+/// [`BasisKernel::kernel_lambda`] and [`SVEStrategyKernel`] (no methods);
+/// their SVE is taken over the full domain `[xmin, xmax] × [ymin, ymax]` and
+/// their singular functions have no definite parity.
 ///
-/// [`compute_sve`]: crate::sve::compute_sve
 /// [`FiniteTempBasis`]: crate::basis::FiniteTempBasis
-pub trait BasisKernel: AbstractKernel + KernelProperties + Clone + 'static {
+pub trait BasisKernel: SVEStrategyKernel + KernelProperties {
     /// The cutoff parameter Λ = β·wmax ([`CentrosymmKernel::lambda`] for a
     /// centrosymmetric kernel; named apart from it so that both traits can
     /// be in scope)
     fn kernel_lambda(&self) -> f64;
-
-    /// The SVE strategy of the kernel: the even/odd blocks for a
-    /// [`CentrosymmKernel`], otherwise the full domain
-    ///
-    /// # Errors
-    ///
-    /// The errors of [`NonCentrosymmSVE::new`] or [`CentrosymmSVE::new`]
-    #[doc(hidden)]
-    fn sve_strategy<T>(&self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
-    where
-        T: CustomNumeric + Send + Sync + Clone + 'static,
-    {
-        Ok(Box::new(NonCentrosymmSVE::new(self.clone(), epsilon)?))
-    }
 }
 
 impl<K> BasisKernel for K
@@ -231,13 +62,6 @@ where
 {
     fn kernel_lambda(&self) -> f64 {
         CentrosymmKernel::lambda(self)
-    }
-
-    fn sve_strategy<T>(&self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
-    where
-        T: CustomNumeric + Send + Sync + Clone + 'static,
-    {
-        Ok(Box::new(CentrosymmSVE::new(self.clone(), epsilon)?))
     }
 }
 
@@ -272,38 +96,17 @@ impl LogisticKernel {
     }
 }
 
-impl KernelProperties for LogisticKernel {
+impl SVEKernel for LogisticKernel {
     type SVEHintsType<T>
         = LogisticSVEHints<T>
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
-    fn ypower(&self) -> i32 {
-        0 // No y-power scaling for LogisticKernel
-    }
-
-    fn conv_radius(&self) -> f64 {
-        40.0 * self.lambda
-    }
 
     fn xmax(&self) -> f64 {
         1.0
     }
     fn ymax(&self) -> f64 {
         1.0
-    }
-
-    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
-        match S::STATISTICS {
-            Statistics::Fermionic => {
-                // For fermionic statistics: regularizer = 1.0 (safe, no division by zero)
-                1.0
-            }
-            Statistics::Bosonic => {
-                // For bosonic statistics: regularizer = tanh(0.5 * beta * omega) (safe, handles omega=0 case)
-                // This avoids division by zero when tanh(0.5 * beta * omega) approaches zero
-                (0.5 * beta * omega).tanh()
-            }
-        }
     }
 
     fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
@@ -359,7 +162,7 @@ impl AbstractKernel for LogisticKernel {
     }
 }
 
-impl CentrosymmKernel for LogisticKernel {
+impl ReducedKernel for LogisticKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
@@ -371,7 +174,9 @@ impl CentrosymmKernel for LogisticKernel {
             SymmetryType::Odd => compute_logistic_kernel_reduced_odd(self.lambda, x, y),
         }
     }
+}
 
+impl CentrosymmKernel for LogisticKernel {
     fn lambda(&self) -> f64 {
         self.lambda
     }
@@ -428,19 +233,11 @@ impl LogisticKernelWindowed {
     }
 }
 
-impl KernelProperties for LogisticKernelWindowed {
+impl SVEKernel for LogisticKernelWindowed {
     type SVEHintsType<T>
         = LogisticWindowedSVEHints<T>
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
-
-    fn ypower(&self) -> i32 {
-        0
-    }
-
-    fn conv_radius(&self) -> f64 {
-        self.logistic.conv_radius()
-    }
 
     fn xmax(&self) -> f64 {
         1.0
@@ -452,11 +249,6 @@ impl KernelProperties for LogisticKernelWindowed {
 
     fn ymin(&self) -> f64 {
         self.ymin
-    }
-
-    /// The regularizer of [`LogisticKernel`], whose formula this kernel shares
-    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
-        self.logistic.regularizer::<S>(beta, omega)
     }
 
     fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
@@ -476,6 +268,8 @@ impl AbstractKernel for LogisticKernelWindowed {
         self.logistic.compute(x, y)
     }
 }
+
+impl SVEStrategyKernel for LogisticKernelWindowed {}
 
 impl BasisKernel for LogisticKernelWindowed {
     fn kernel_lambda(&self) -> f64 {
@@ -501,7 +295,7 @@ where
     T: Copy + Debug + Send + Sync + CustomNumeric,
 {
     fn segments_x(&self) -> Vec<T> {
-        crate::sve::utils::mirror_segments_to_full_domain(&self.inner.segments_x())
+        crate::sve::mirror_segments_to_full_domain(&self.inner.segments_x())
     }
 
     fn segments_y(&self) -> Vec<T> {
@@ -520,7 +314,7 @@ where
             negative.chain(half.iter().map(|&s| s * ymax)).collect()
         } else {
             // [-1, ..., 1] -> [ymin, (its points strictly inside), ymax]
-            let full = crate::sve::utils::mirror_segments_to_full_domain(&half);
+            let full = crate::sve::mirror_segments_to_full_domain(&half);
             let inside = full.into_iter().filter(|&s| ymin < s && s < ymax);
             std::iter::once(ymin)
                 .chain(inside)
@@ -746,6 +540,11 @@ impl RegularizedBoseKernel {
         Ok(Self { lambda })
     }
 
+    /// Get the cutoff parameter
+    pub fn lambda(&self) -> f64 {
+        self.lambda
+    }
+
     /// Compute kernel value with numerical stability
     ///
     /// Evaluates K(x, y) = y * exp(-Λy(x+1)/2) / (1 - exp(-Λy))
@@ -812,19 +611,11 @@ impl RegularizedBoseKernel {
     }
 }
 
-impl KernelProperties for RegularizedBoseKernel {
+impl SVEKernel for RegularizedBoseKernel {
     type SVEHintsType<T>
         = RegularizedBoseSVEHints<T>
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
-
-    fn ypower(&self) -> i32 {
-        1 // K(x, y) carries one power of y; the kernel acts on ρ(ω)/ω
-    }
-
-    fn conv_radius(&self) -> f64 {
-        40.0 * self.lambda
-    }
 
     fn xmax(&self) -> f64 {
         1.0
@@ -832,18 +623,6 @@ impl KernelProperties for RegularizedBoseKernel {
 
     fn ymax(&self) -> f64 {
         1.0
-    }
-
-    fn regularizer<S: StatisticsType + 'static>(&self, _beta: f64, omega: f64) -> f64 {
-        match S::STATISTICS {
-            Statistics::Fermionic => {
-                panic!("RegularizedBoseKernel does not support fermionic functions");
-            }
-            Statistics::Bosonic => {
-                // regularizer = ω (safe, no division)
-                omega
-            }
-        }
     }
 
     fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
@@ -866,7 +645,7 @@ impl AbstractKernel for RegularizedBoseKernel {
     }
 }
 
-impl CentrosymmKernel for RegularizedBoseKernel {
+impl ReducedKernel for RegularizedBoseKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
@@ -894,7 +673,9 @@ impl CentrosymmKernel for RegularizedBoseKernel {
             }
         }
     }
+}
 
+impl CentrosymmKernel for RegularizedBoseKernel {
     fn lambda(&self) -> f64 {
         self.lambda
     }
@@ -1018,6 +799,108 @@ where
 
     fn ngauss(&self) -> usize {
         if self.epsilon >= 1e-8 { 10 } else { 16 }
+    }
+}
+
+/// The physical properties of a kernel, on top of its SVE ([`SVEKernel`])
+pub trait KernelProperties: SVEKernel {
+    /// Power with which the y coordinate scales.
+    ///
+    /// For most kernels, this is 0 (no scaling).
+    /// For RegularizedBoseKernel, this is 1 (linear scaling).
+    fn ypower(&self) -> i32;
+
+    /// Convergence radius of the Matsubara basis asymptotic model
+    ///
+    /// For improved numerical accuracy, IR basis functions on Matsubara axis
+    /// can be evaluated from asymptotic expression for |n| > conv_radius.
+    fn conv_radius(&self) -> f64;
+
+    /// A regularizer for a bosonic kernel for avoiding a divergence at omega = 0.
+    ///
+    /// The bosonic kernel diverges at omega = 0.
+    /// This function returns a regularizer w(beta, omega) that avoids this divergence.
+    ///
+    ///    G(τ) = - ∫ K(τ, ω) ρ(ω) dω = - ∫ [K(τ, ω) w(ω)] [ρ(ω)/w(ω)] dω.
+    ///
+    /// The spectral function ρ(ω) and the weight function w(ω) must vanish linearly at omega = 0.
+    /// For a fermionic kernel, this function is expected to return 1.0.
+    ///
+    /// # Arguments
+    ///
+    /// * `beta` - Inverse temperature
+    /// * `omega` - Frequency
+    ///
+    /// # Returns
+    ///
+    /// The regularizer value w(beta, omega)
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64;
+}
+
+/// The regularizer of [`LogisticKernel`]: 1 for fermions, tanh(βω/2) for bosons
+fn logistic_regularizer<S: StatisticsType + 'static>(beta: f64, omega: f64) -> f64 {
+    match S::STATISTICS {
+        Statistics::Fermionic => {
+            // For fermionic statistics: regularizer = 1.0 (safe, no division by zero)
+            1.0
+        }
+        Statistics::Bosonic => {
+            // For bosonic statistics: regularizer = tanh(0.5 * beta * omega) (safe, handles omega=0 case)
+            // This avoids division by zero when tanh(0.5 * beta * omega) approaches zero
+            (0.5 * beta * omega).tanh()
+        }
+    }
+}
+
+impl KernelProperties for LogisticKernel {
+    fn ypower(&self) -> i32 {
+        0 // No y-power scaling for LogisticKernel
+    }
+
+    fn conv_radius(&self) -> f64 {
+        40.0 * self.lambda()
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+        logistic_regularizer::<S>(beta, omega)
+    }
+}
+
+impl KernelProperties for LogisticKernelWindowed {
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    /// The convergence radius of the [`LogisticKernel`] with the same Λ
+    fn conv_radius(&self) -> f64 {
+        40.0 * self.lambda()
+    }
+
+    /// The regularizer of [`LogisticKernel`], whose formula this kernel shares
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+        logistic_regularizer::<S>(beta, omega)
+    }
+}
+
+impl KernelProperties for RegularizedBoseKernel {
+    fn ypower(&self) -> i32 {
+        1 // K(x, y) carries one power of y; the kernel acts on ρ(ω)/ω
+    }
+
+    fn conv_radius(&self) -> f64 {
+        40.0 * self.lambda()
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, _beta: f64, omega: f64) -> f64 {
+        match S::STATISTICS {
+            Statistics::Fermionic => {
+                panic!("RegularizedBoseKernel does not support fermionic functions");
+            }
+            Statistics::Bosonic => {
+                // regularizer = ω (safe, no division)
+                omega
+            }
+        }
     }
 }
 

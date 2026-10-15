@@ -1415,15 +1415,13 @@ dependencies = [
 name = "sparse-ir-basis"
 version = "0.15.0"
 dependencies = [
- "libm",
  "nalgebra",
  "num-complex",
  "num-traits",
- "simba",
  "sparse-ir-core",
  "sparse-ir-dlr",
+ "sparse-ir-sve",
  "tenferro-tensor",
- "xprec",
 ]
 
 [[package]]
@@ -1470,9 +1468,14 @@ dependencies = [
 name = "sparse-ir-sve"
 version = "0.15.0"
 dependencies = [
+ "libm",
+ "nalgebra",
+ "num-complex",
  "num-traits",
  "once_cell",
+ "simba",
  "thiserror 1.0.69",
+ "xprec",
 ]
 
 [[package]]

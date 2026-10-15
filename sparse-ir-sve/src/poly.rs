@@ -1,4 +1,4 @@
-//! Piecewise Legendre polynomial implementations for SparseIR
+//! Piecewise Legendre polynomials
 //!
 //! This module provides high-performance piecewise Legendre polynomial
 //! functionality compatible with the C++ implementation.
@@ -79,9 +79,10 @@ fn check_knots(knots: &[f64], nsegments: usize) -> Result<(), Error> {
 ///
 /// The first term is a relative tolerance on the segment length. The second
 /// covers the rounding of the knots, which grows with their magnitude: knots
-/// and widths scaled separately (as `FiniteTempBasis::from_sve_result` does,
-/// by β / 2) differ by a few units in the last place of the knots, which next
-/// to large knots can exceed 1e-10 times a narrow segment.
+/// and widths scaled separately (as when the functions of an SVE on [-1, 1]
+/// are mapped onto a longer interval) differ by a few units in the last place
+/// of the knots, which next to large knots can exceed 1e-10 times a narrow
+/// segment.
 fn check_delta_x(delta_x: &[f64], knots: &[f64]) -> Result<(), Error> {
     let nsegments = knots.len() - 1;
     if delta_x.len() != nsegments {
@@ -206,7 +207,7 @@ impl PiecewiseLegendrePoly {
     /// Rescale domain: create a new polynomial with the same data but different knots
     ///
     /// This is useful for transforming from one domain to another, e.g.,
-    /// from x ∈ [-1, 1] to τ ∈ [0, β].
+    /// from [-1, 1] to [0, b].
     ///
     /// # Arguments
     ///
@@ -238,8 +239,8 @@ impl PiecewiseLegendrePoly {
 
     /// Scale all data values by a constant factor
     ///
-    /// This is useful for normalizations, e.g., multiplying by √β for
-    /// Fourier transform preparations.
+    /// This is useful for normalizations, e.g., multiplying by √c to keep
+    /// the functions normalized after the domain is scaled by c.
     ///
     /// # Arguments
     ///
@@ -1178,103 +1179,6 @@ impl std::ops::Index<usize> for PiecewiseLegendrePolyVector {
     fn index(&self, index: usize) -> &Self::Output {
         &self.polyvec[index]
     }
-}
-
-/// Get default sampling points in [-1, 1]
-///
-/// C++ implementation: libsparseir/include/sparseir/basis.hpp:287-310
-///
-/// For orthogonal polynomials (the high-T limit of IR), we know that the
-/// ideal sampling points for a basis of size L are the roots of the L-th
-/// polynomial. We empirically find that these stay good sampling points
-/// for our kernels (probably because the kernels are totally positive).
-///
-/// If we do not have enough polynomials in the basis, we approximate the
-/// roots of the L'th polynomial by the extrema of the last basis function,
-/// which is sensible due to the strong interleaving property of these
-/// functions' roots.
-///
-/// `name` names `u` in the errors (`"u"` or `"v"`), and `domain` is the
-/// domain of the kernel the SVE expanded (`[xmin, xmax]` for `u`,
-/// `[ymin, ymax]` for `v`; [-1, 1] for a symmetric kernel).
-///
-/// # Errors
-///
-/// * [`Error::InvalidParameter`] named `name` if `u` is not on `domain`
-///   (1e-10), i.e. not the unscaled functions of an SVE
-/// * [`Error::NotSupported`] if the extrema are needed and the last function
-///   has none (e.g. an SVE truncated to 2 functions, whose u_1 is monotonic)
-pub(crate) fn default_sampling_points(
-    u: &PiecewiseLegendrePolyVector,
-    name: &'static str,
-    domain: (f64, f64),
-    l: usize,
-) -> Result<Vec<f64>, Error> {
-    // C++: if (u.xmin() != -1.0 || u.xmax() != 1.0)
-    //          throw std::runtime_error("Expecting unscaled functions here.");
-    // (here generalized to the domain of an asymmetric kernel)
-    if (u.xmin() - domain.0).abs() > 1e-10 || (u.xmax() - domain.1).abs() > 1e-10 {
-        return Err(Error::InvalidParameter {
-            name,
-            value: format!("functions on [{:?}, {:?}]", u.xmin(), u.xmax()),
-            reason: format!(
-                "must be the unscaled functions of an SVE, on [{:?}, {:?}]",
-                domain.0, domain.1
-            ),
-        });
-    }
-
-    let x0 = if l < u.polyvec.len() {
-        // C++: return u.polyvec[L].roots();
-        u[l].roots()
-    } else {
-        // C++: PiecewiseLegendrePoly poly = u.polyvec.back();
-        //      Eigen::VectorXd maxima = poly.deriv().roots();
-        let poly = u.last();
-        let poly_deriv = poly.deriv(1);
-        let maxima = poly_deriv.roots();
-
-        // C++ reads maxima[0] without a check; SparseIR.jl's first(maxima)
-        // fails the same way.
-        let (Some(&first), Some(&last)) = (maxima.first(), maxima.last()) else {
-            return Err(Error::NotSupported {
-                what: format!(
-                    "default sampling points for {l} basis functions: the last singular \
-                     function (l = {}) has no extrema to stand in for the roots of the \
-                     missing function l = {l} (an SVE truncated to too few functions)",
-                    poly.l
-                ),
-            });
-        };
-
-        // C++: double left = (maxima[0] + poly.xmin) / 2.0;
-        let left = (first + poly.xmin) / 2.0;
-
-        // C++: double right = (maxima[maxima.size() - 1] + poly.xmax) / 2.0;
-        let right = (last + poly.xmax) / 2.0;
-
-        // C++: Eigen::VectorXd x0(maxima.size() + 2);
-        //      x0[0] = left;
-        //      x0.segment(1, maxima.size()) = maxima;
-        //      x0[x0.size() - 1] = right;
-        let mut x0_vec = Vec::with_capacity(maxima.len() + 2);
-        x0_vec.push(left);
-        x0_vec.extend_from_slice(&maxima);
-        x0_vec.push(right);
-        x0_vec
-    };
-
-    // C++: if (x0.size() != L) { warning }
-    if x0.len() != l {
-        debug_warn!(
-            "Expecting to get {} sampling points for corresponding basis function, \
-             instead got {}. This may happen if not enough precision is left in the polynomial.",
-            l,
-            x0.len()
-        );
-    }
-
-    Ok(x0)
 }
 
 #[cfg(test)]

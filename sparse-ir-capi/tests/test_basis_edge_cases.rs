@@ -93,7 +93,7 @@ struct FullDomainMatrix {
 
 fn logistic_full_domain_matrix() -> FullDomainMatrix {
     use sparse_ir::gauss::legendre;
-    use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints};
+    use sparse_ir::kernel::{LogisticKernel, SVEHints, SVEKernel};
     use sparse_ir::kernelmatrix::matrix_from_gauss_noncentrosymmetric;
 
     let kernel = LogisticKernel::new(BETA * WMAX).unwrap();

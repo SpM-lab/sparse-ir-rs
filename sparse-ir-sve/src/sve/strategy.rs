@@ -2,7 +2,7 @@
 
 use crate::error::Error;
 use crate::gauss::{Rule, legendre_generic};
-use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
+use crate::kernel::{AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SymmetryType};
 use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
@@ -218,7 +218,7 @@ where
 pub struct CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + 'static,
-    K: CentrosymmKernel + KernelProperties,
+    K: ReducedKernel + SVEKernel,
 {
     kernel: K,
     epsilon: f64,
@@ -241,7 +241,7 @@ where
 impl<T, K> CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: CentrosymmKernel + KernelProperties + Clone,
+    K: ReducedKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new CentrosymmSVE
@@ -338,7 +338,7 @@ where
 impl<T, K> SVEStrategy<T> for CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: CentrosymmKernel + KernelProperties + Clone,
+    K: ReducedKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     fn matrices(&self) -> Vec<Mat<T>> {
@@ -456,7 +456,7 @@ where
 pub struct NonCentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + 'static,
-    K: AbstractKernel + KernelProperties,
+    K: AbstractKernel + SVEKernel,
 {
     kernel: K,
     epsilon: f64,
@@ -476,7 +476,7 @@ where
 impl<T, K> NonCentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: AbstractKernel + KernelProperties + Clone,
+    K: AbstractKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new NonCentrosymmSVE
@@ -544,7 +544,7 @@ where
 impl<T, K> SVEStrategy<T> for NonCentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: AbstractKernel + KernelProperties + Clone,
+    K: AbstractKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     fn matrices(&self) -> Vec<Mat<T>> {

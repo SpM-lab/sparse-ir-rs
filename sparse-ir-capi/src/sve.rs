@@ -1567,7 +1567,7 @@ mod tests {
     #[test]
     fn test_sve_result_from_matrix_centrosymmetric_vs_from_matrix() {
         use sparse_ir::gauss::legendre;
-        use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints, SymmetryType};
+        use sparse_ir::kernel::{LogisticKernel, SVEHints, SVEKernel, SymmetryType};
         use sparse_ir::kernelmatrix::{
             matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
         };
@@ -1790,7 +1790,7 @@ mod tests {
 
     fn logistic_kernel_matrices() -> KernelMatrices {
         use sparse_ir::gauss::legendre;
-        use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints, SymmetryType};
+        use sparse_ir::kernel::{LogisticKernel, SVEHints, SVEKernel, SymmetryType};
         use sparse_ir::kernelmatrix::{
             matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
         };

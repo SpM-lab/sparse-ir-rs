@@ -1,7 +1,9 @@
 //! Tests for the asymmetric-window logistic kernel (a non-centrosymmetric
 //! kernel) through the kernel, SVE, basis and DLR layers.
 
-use sparse_ir::kernel::{AbstractKernel, KernelProperties, LogisticKernel, LogisticKernelWindowed};
+use sparse_ir::kernel::{
+    AbstractKernel, KernelProperties, LogisticKernel, LogisticKernelWindowed, SVEKernel,
+};
 use sparse_ir::sve::compute_sve;
 use sparse_ir::traits::{Bosonic, Fermionic};
 use sparse_ir::{

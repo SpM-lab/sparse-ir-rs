@@ -13,15 +13,28 @@ categories.workspace = true
 
 [package.metadata.docs.rs]
 targets = ["x86_64-unknown-linux-gnu"]
+no-default-features = true
 
 [dependencies]
+num-complex.workspace = true
 num-traits.workspace = true
+# Extended precision
+xprec = "0.2.3"
+simba = "0.9"
+libm.workspace = true
+# Extended-precision TSVD / QR
+nalgebra = "0.33"
 thiserror.workspace = true
 # One-time FPU check
 once_cell.workspace = true
 # Thread pool for the parallel work of the library (see src/parallel.rs),
 # with the `parallel` feature
 rayon = { workspace = true, optional = true }
+
+[dev-dependencies]
+# High-precision arithmetic (for precision tests)
+dashu-float.workspace = true
+dashu-base.workspace = true
 
 [features]
 # Run the threaded work (the SVE) on the rayon thread pool; without it

@@ -2,7 +2,7 @@
 
 use crate::error::{Error, require_accuracy, require_nonzero_size};
 use crate::fpu_check::FpuGuard;
-use crate::kernel::{AbstractKernel, BasisKernel, KernelProperties};
+use crate::kernel::{AbstractKernel, SVEKernel, SVEStrategyKernel};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 
@@ -23,14 +23,16 @@ fn default_cutoff<T: CustomNumeric>() -> T {
 
 /// Cutoff of [`compute_sve_for_basis`] relative to the required accuracy ε
 ///
-/// A basis built for ε keeps the singular values ≥ ε·s₀, plus one more for
-/// its accuracy estimate; resolving the spectrum further down to 2·ε_work
-/// dominates the cost of the SVE in Df64. The cutoff is also the stopping
-/// tolerance of the ACA in the block SVDs, whose stopping test can
-/// underestimate the residual, so the factor leaves a margin: with 10⁻⁶·ε,
-/// the singular values a basis uses deviated from the full spectrum by up to
-/// 2·10⁻⁴ relative (logistic, Λ = 10⁶, ε = 10⁻¹²); at 10⁻¹⁰·ε they agree to
-/// ≲ 4·10⁻¹¹ relative for Λ ≤ 10⁶, ε = 10⁻¹⁰…10⁻¹⁵.
+/// A basis of singular functions accurate to ε keeps the singular values
+/// ≥ ε·s₀, plus one more to estimate its error; resolving the spectrum
+/// further down to 2·ε_work dominates the cost of the SVE in Df64. The cutoff
+/// is also the stopping tolerance of the ACA in the block SVDs, whose
+/// stopping test can underestimate the residual, so the factor leaves a
+/// margin: with 10⁻⁶·ε, the singular values such a basis uses deviated from
+/// the full spectrum by up to 2·10⁻⁴ relative, measured on the kernel
+/// e^{-Λy(x+1)/2} / (1 + e^{-Λy}) on [-1, 1]² with Λ = 10⁶, ε = 10⁻¹²; at
+/// 10⁻¹⁰·ε they agree to ≲ 4·10⁻¹¹ relative for Λ ≤ 10⁶,
+/// ε = 10⁻¹⁰…10⁻¹⁵.
 pub const BASIS_CUTOFF_FACTOR: f64 = 1e-10;
 
 /// Cutoff of [`compute_sve_for_basis`]:
@@ -85,13 +87,15 @@ fn release_unused_memory() {
 
 /// Main SVE computation function
 ///
-/// Chooses the SVE strategy from the kernel's symmetry and the working
-/// precision from epsilon. A centrosymmetric kernel
-/// ([`AbstractKernel::is_centrosymmetric`]) is block-diagonalized into its
-/// even and odd reduced kernels
-/// ([`CentrosymmSVE`](crate::sve::CentrosymmSVE)), whose singular functions
-/// have definite parity; any other kernel is expanded over its full domain
+/// Chooses the SVE strategy from the kernel ([`SVEStrategyKernel`]) and the
+/// working precision from epsilon. A centrosymmetric kernel
+/// ([`ReducedKernel`]) is block-diagonalized into its even and odd reduced
+/// kernels ([`CentrosymmSVE`]), whose singular functions have definite
+/// parity; any other kernel is expanded over its full domain
 /// `[xmin, xmax] × [ymin, ymax]` ([`NonCentrosymmSVE`]).
+///
+/// [`ReducedKernel`]: crate::kernel::ReducedKernel
+/// [`CentrosymmSVE`]: super::CentrosymmSVE
 ///
 /// # Arguments
 ///
@@ -117,7 +121,7 @@ fn release_unused_memory() {
 /// * [`Error::InvalidParameter`] if `epsilon` is not in (0, 1), `cutoff` is
 ///   not in [0, 1], or `max_num_svals` is `Some(0)`; checked before any work
 /// * [`Error::NonFiniteInput`] if the discretized kernel has a NaN or
-///   infinite entry (e.g. a cutoff Λ so small that 1/Λ overflows)
+///   infinite entry (e.g. a kernel value that overflows)
 /// * [`Error::DecompositionFailed`] if an SVD fails
 ///
 /// # FPU State Warning
@@ -134,7 +138,7 @@ pub fn compute_sve<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: BasisKernel,
+    K: SVEStrategyKernel,
 {
     compute_sve_impl(
         KernelDomain(kernel),
@@ -146,7 +150,8 @@ where
     )
 }
 
-/// [`compute_sve`] of the singular values a basis for `epsilon` uses
+/// [`compute_sve`] of the singular values a basis of singular functions
+/// accurate to `epsilon` uses
 ///
 /// Truncates the spectrum at `max(2 * machine epsilon, f * epsilon)` times
 /// the largest singular value, with `f` = [`BASIS_CUTOFF_FACTOR`] and the
@@ -179,7 +184,7 @@ pub fn compute_sve_for_basis<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: BasisKernel,
+    K: SVEStrategyKernel,
 {
     compute_sve_impl(
         KernelDomain(kernel),
@@ -231,7 +236,7 @@ where
 /// * [`Error::InvalidParameter`] if `epsilon` is not in (0, 1), `cutoff` is
 ///   not in [0, 1], or `max_num_svals` is `Some(0)`; checked before any work
 /// * [`Error::NonFiniteInput`] if the discretized kernel has a NaN or
-///   infinite entry (e.g. a cutoff Λ so small that 1/Λ overflows)
+///   infinite entry (e.g. a kernel value that overflows)
 /// * [`Error::DecompositionFailed`] if an SVD fails
 ///
 /// # FPU State Warning
@@ -248,7 +253,7 @@ pub fn compute_sve_general<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: AbstractKernel + SVEKernel + Clone + 'static,
 {
     compute_sve_impl(
         FullDomain(kernel),
@@ -290,11 +295,11 @@ trait StrategyOf {
     fn aca(&self) -> bool;
 }
 
-/// The strategy of the kernel ([`BasisKernel::sve_strategy`]): the even/odd
-/// blocks of a centrosymmetric kernel, otherwise the full domain
+/// The strategy of the kernel ([`SVEStrategyKernel::sve_strategy`]): the
+/// even/odd blocks of a centrosymmetric kernel, otherwise the full domain
 struct KernelDomain<K>(K);
 
-impl<K: BasisKernel> StrategyOf for KernelDomain<K> {
+impl<K: SVEStrategyKernel> StrategyOf for KernelDomain<K> {
     fn strategy<T>(self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
     where
         T: CustomNumeric + Send + Sync + Clone + 'static,
@@ -312,7 +317,7 @@ struct FullDomain<K>(K);
 
 impl<K> StrategyOf for FullDomain<K>
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: AbstractKernel + SVEKernel + Clone + 'static,
 {
     fn strategy<T>(self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
     where
@@ -458,26 +463,37 @@ where
 }
 
 /// [`compute_sve`] by the dense CPQR-based SVD of the fully formed blocks
-/// (`SVEStrategy::matrices` and `compute_svd_dtensor`), as before the ACA
+/// ([`SVEStrategy::matrices`] and [`compute_svd_dtensor`]), as before the ACA
 /// (and as `compute_sve` still does in f64): the reference the ACA path is
 /// tested against
 ///
+/// It forms every block and decomposes it in full, which in Float64X2 takes
+/// far longer than [`compute_sve`] (about 50 s, on 8 threads, for the kernel
+/// e^{-Λy(x+1)/2} / (1 + e^{-Λy}) with Λ = 10⁶), so it is meant for checking
+/// the result of [`compute_sve`] on a new kernel. The cutoff is the default one of
+/// [`compute_sve`], `2 * machine epsilon`.
+///
 /// With `full_domain`, the strategy of [`compute_sve_general`]
 /// ([`NonCentrosymmSVE`]) instead of that of the kernel.
-#[cfg(test)]
-pub(crate) fn compute_sve_dense<K>(
+///
+/// # Errors
+///
+/// The errors of [`compute_sve`]
+///
+/// [`compute_svd_dtensor`]: crate::tsvd::compute_svd_dtensor
+pub fn compute_sve_dense<K>(
     kernel: K,
     epsilon: Option<f64>,
     twork: TworkType,
     full_domain: bool,
 ) -> Result<SVEResult, Error>
 where
-    K: BasisKernel,
+    K: SVEStrategyKernel,
 {
     fn run<T, K>(kernel: K, epsilon: f64, full_domain: bool) -> Result<SVEResult, Error>
     where
         T: CustomNumeric + Send + Sync + Clone + 'static,
-        K: BasisKernel,
+        K: SVEStrategyKernel,
     {
         let sve = if full_domain {
             FullDomain(kernel).strategy::<T>(epsilon)?
@@ -494,6 +510,8 @@ where
         let (u, s, v) = truncate(u_list, s_list, v_list, default_cutoff::<T>(), None);
         sve.postprocess(u, s, v)
     }
+    check_sve_parameters(epsilon, None, None)?;
+    let _fpu_guard = FpuGuard::new_protect_computation();
     let (safe_epsilon, twork) = safe_epsilon(epsilon, twork);
     match twork {
         TworkType::Float64 => run::<f64, K>(kernel, safe_epsilon, full_domain),

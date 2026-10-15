@@ -5,7 +5,7 @@
 use crate::basis::{FermionicBasis, FiniteTempBasis};
 use crate::error::Error;
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};
-use crate::sve::{TworkType, compute_sve};
+use crate::sve::{SVEResult, TworkType, compute_sve};
 use crate::traits::{Bosonic, Fermionic};
 
 #[test]
@@ -140,7 +140,7 @@ fn test_basis_from_sve_result_checks_its_parameters() {
         rejected(10.0, Some(1e-6), Some(0)),
         invalid("max_size", "0", "must be positive")
     );
-    assert_eq!(build(10.0, Some(0.0), None).unwrap().size(), sve.s.len());
+    assert_eq!(build(10.0, Some(0.0), None).unwrap().size(), sve.s().len());
 }
 
 /// An SVE on another domain than [-1, 1] × [-1, 1] cannot define the basis:
@@ -148,9 +148,14 @@ fn test_basis_from_sve_result_checks_its_parameters() {
 #[test]
 fn test_basis_from_sve_result_rejects_an_sve_on_another_domain() {
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let mut sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
-    let knots: Vec<f64> = sve.u.get_polys()[0].knots.iter().map(|x| 2.0 * x).collect();
-    sve.u = sve.u.rescale_domain(knots, None, None).unwrap();
+    let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let knots: Vec<f64> = sve.u().get_polys()[0]
+        .get_knots()
+        .iter()
+        .map(|x| 2.0 * x)
+        .collect();
+    let u = sve.u().rescale_domain(knots, None, None).unwrap();
+    let sve = SVEResult::new(u, sve.s().to_vec(), sve.v().clone(), sve.epsilon()).unwrap();
     let err = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
         kernel, 10.0, sve, None, None,
     )
@@ -179,28 +184,28 @@ fn test_basis_from_an_sve_just_inside_the_unit_domain() {
 
     let beta = 10.0;
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let mut sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     let shrink = |funcs: &PiecewiseLegendrePolyVector| {
-        let mut knots = funcs.get_polys()[0].knots.clone();
+        let mut knots = funcs.get_polys()[0].get_knots().to_vec();
         let last = knots.len() - 1;
         knots[0] = -1.0 + 1e-13;
         knots[last] = 1.0 - 1e-13;
         funcs.rescale_domain(knots, None, None).unwrap()
     };
-    sve.u = shrink(&sve.u);
-    sve.v = shrink(&sve.v);
+    let (u, v) = (shrink(sve.u()), shrink(sve.v()));
+    let sve = SVEResult::new(u, sve.s().to_vec(), v, sve.epsilon()).unwrap();
 
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
         kernel, beta, sve, None, None,
     )
     .unwrap();
     for u in basis.u().get_polys() {
-        assert_eq!((u.xmin, u.xmax), (0.0, beta));
+        assert_eq!((u.get_xmin(), u.get_xmax()), (0.0, beta));
         assert!(u.evaluate(0.0).is_finite() && u.evaluate(beta).is_finite());
     }
     let wmax = basis.omega_max();
     for v in basis.v().get_polys() {
-        assert_eq!((v.xmin, v.xmax), (-wmax, wmax));
+        assert_eq!((v.get_xmin(), v.get_xmax()), (-wmax, wmax));
     }
 }
 
@@ -211,8 +216,8 @@ fn test_basis_knots_of_a_kernel_sve_are_the_scaled_knots() {
     let beta = 10.0;
     let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
-    let x_knots = sve.u.get_polys()[0].knots.clone();
-    let x_widths = sve.u.get_polys()[0].delta_x.clone();
+    let x_knots = sve.u().get_polys()[0].get_knots().to_vec();
+    let x_widths = sve.u().get_polys()[0].get_delta_x().to_vec();
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
         kernel, beta, sve, None, None,
     )
@@ -220,8 +225,8 @@ fn test_basis_knots_of_a_kernel_sve_are_the_scaled_knots() {
     let u = &basis.u().get_polys()[0];
     let scaled: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
     let widths: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
-    assert_eq!(u.knots, scaled);
-    assert_eq!(u.delta_x, widths);
+    assert_eq!(u.get_knots(), scaled);
+    assert_eq!(u.get_delta_x(), widths);
 }
 
 #[test]
@@ -564,7 +569,7 @@ fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
         let basis = FermionicBasis::new(kernel, beta, Some(1e-6), None)
             .unwrap_or_else(|e| panic!("beta = {beta}: {e}"));
         let u = &basis.u().get_polys()[0];
-        assert_eq!(u.xmax, beta);
+        assert_eq!(u.get_xmax(), beta);
         for tau in [0.0, 0.5 * beta, beta] {
             assert!(u.evaluate(tau).is_finite(), "beta = {beta}, tau = {tau}");
         }
@@ -593,7 +598,7 @@ fn test_default_matsubara_points_from_uhat() {
             .uhat_full()
             .get_polys()
             .iter()
-            .all(|u| u.poly.symm == 0)
+            .all(|u| u.poly.get_symm() == 0)
     );
     let ns = |mitigate, positive_only| -> Vec<i64> {
         default_matsubara_sampling_points_from_uhat(
@@ -632,7 +637,7 @@ fn test_default_matsubara_points_from_uhat() {
 fn test_default_tau_points_of_an_sve_truncated_to_two_functions() {
     let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve(kernel, Some(1e-6), None, Some(2), TworkType::Auto).unwrap();
-    assert_eq!(sve.s.len(), 2);
+    assert_eq!(sve.s().len(), 2);
     fn check<S: crate::traits::StatisticsType + 'static>(
         basis: &FiniteTempBasis<LogisticKernel, S>,
     ) {
@@ -685,7 +690,7 @@ fn test_default_tau_points_of_an_sve_truncated_to_two_functions() {
 /// rejected, under the name the caller gives them. It panicked.
 #[test]
 fn test_default_sampling_points_rejects_scaled_functions() {
-    use crate::poly::default_sampling_points;
+    use crate::basis::default_sampling_points;
 
     // β = 1 and Λ = 10: u is on [0, 1] and v on [-10, 10], neither on [-1, 1].
     let basis =
@@ -701,7 +706,7 @@ fn test_default_sampling_points_rejects_scaled_functions() {
         matches!(err, Error::InvalidParameter { name: "v", .. }),
         "{err:?}"
     );
-    assert!(default_sampling_points(&basis.sve_result().u, "u", unit, 3).is_ok());
+    assert!(default_sampling_points(basis.sve_result().u(), "u", unit, 3).is_ok());
 }
 
 /// The default Matsubara points are found once per basis and
@@ -766,7 +771,10 @@ fn test_default_matsubara_points_are_reused() {
 /// τ = β (x + 1) / 2, which would leave [0, β] (found by a code review).
 #[test]
 fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
-    use crate::kernel::{AbstractKernel, BasisKernel, KernelProperties, LogisticSVEHints};
+    use crate::kernel::{
+        AbstractKernel, BasisKernel, KernelProperties, LogisticSVEHints, SVEKernel,
+        SVEStrategyKernel,
+    };
     use crate::numeric::CustomNumeric;
     use crate::traits::StatisticsType;
     use std::fmt::Debug;
@@ -781,19 +789,11 @@ fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
         }
     }
 
-    impl KernelProperties for WideX {
+    impl SVEKernel for WideX {
         type SVEHintsType<T>
             = LogisticSVEHints<T>
         where
             T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
-
-        fn ypower(&self) -> i32 {
-            self.0.ypower()
-        }
-
-        fn conv_radius(&self) -> f64 {
-            self.0.conv_radius()
-        }
 
         fn xmax(&self) -> f64 {
             2.0
@@ -803,10 +803,6 @@ fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
             self.0.ymax()
         }
 
-        fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
-            self.0.regularizer::<S>(beta, omega)
-        }
-
         fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
         where
             T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
@@ -814,6 +810,22 @@ fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
             self.0.sve_hints::<T>(epsilon)
         }
     }
+
+    impl KernelProperties for WideX {
+        fn ypower(&self) -> i32 {
+            self.0.ypower()
+        }
+
+        fn conv_radius(&self) -> f64 {
+            self.0.conv_radius()
+        }
+
+        fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+            self.0.regularizer::<S>(beta, omega)
+        }
+    }
+
+    impl SVEStrategyKernel for WideX {}
 
     impl BasisKernel for WideX {
         fn kernel_lambda(&self) -> f64 {
@@ -835,4 +847,31 @@ fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
         "{:?}",
         result.err()
     );
+}
+
+/// Until #285, `FiniteTempBasis::new` truncated the SVE to `max_size`, so
+/// `Some(1)` hit the same panic (and `spir_basis_new(max_size = 1)` returned
+/// SPIR_INTERNAL_ERROR). It now truncates only the basis; a basis of size 1
+/// must still be the leading part of the full basis.
+#[test]
+fn test_basis_with_max_size_one() {
+    use crate::basis::FiniteTempBasis;
+    use crate::kernel::LogisticKernel;
+    use crate::traits::{Bosonic, Fermionic, StatisticsType};
+
+    fn check<S: StatisticsType + 'static>() {
+        let (beta, kernel) = (10.0, LogisticKernel::new(10.0).unwrap());
+        let full = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), None).unwrap();
+        let basis = FiniteTempBasis::<_, S>::new(kernel, beta, Some(1e-6), Some(1)).unwrap();
+        assert_eq!(basis.size(), 1);
+        assert_eq!(basis.s(), &full.s()[..1]);
+        for tau in [0.0, 0.3 * beta, beta] {
+            assert_eq!(basis.u()[0].evaluate(tau), full.u()[0].evaluate(tau));
+        }
+        for omega in [-1.0, 0.2, 1.0] {
+            assert_eq!(basis.v()[0].evaluate(omega), full.v()[0].evaluate(omega));
+        }
+    }
+    check::<Fermionic>();
+    check::<Bosonic>();
 }

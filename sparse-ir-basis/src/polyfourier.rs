@@ -60,10 +60,14 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     ///   default, disables the asymptotic model)
     pub fn new(poly: PiecewiseLegendrePoly, _stat: S, n_asymp: Option<f64>) -> Result<Self, Error> {
         // Validate domain
-        if !((poly.xmin + 1.0).abs() <= 1e-12 && (poly.xmax - 1.0).abs() <= 1e-12) {
+        if !((poly.get_xmin() + 1.0).abs() <= 1e-12 && (poly.get_xmax() - 1.0).abs() <= 1e-12) {
             return Err(Error::InvalidParameter {
                 name: "poly",
-                value: format!("a polynomial on [{:?}, {:?}]", poly.xmin, poly.xmax),
+                value: format!(
+                    "a polynomial on [{:?}, {:?}]",
+                    poly.get_xmin(),
+                    poly.get_xmax()
+                ),
                 reason: "must be defined on [-1, 1] (within 1e-12)".to_string(),
             });
         }
@@ -150,8 +154,8 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
         // within 1e-12 of -1/1, where derivs(-1.0)/derivs(1.0) would be
         // outside the domain.
         PowerModel::new(Self::power_moments(
-            &poly.derivs(poly.xmax),
-            &poly.derivs(poly.xmin),
+            &poly.derivs(poly.get_xmax()),
+            &poly.derivs(poly.get_xmin()),
         ))
     }
 
@@ -182,7 +186,10 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 
     /// Compute the inner Fourier transform (for small frequencies)
     fn compute_unl_inner(&self, poly: &PiecewiseLegendrePoly, wn: i64) -> Complex64 {
-        Self::contract_inner(poly, &InnerFactors::new::<S>(poly, poly.polyorder, wn))
+        Self::contract_inner(
+            poly,
+            &InnerFactors::new::<S>(poly, poly.get_polyorder(), wn),
+        )
     }
 
     /// Inner transform from precomputed segment-wise factors
@@ -191,12 +198,12 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// segment j first (real × complex over the contiguous column j of the
     /// column-major `data`), then divides each segment sum by `norms[j]` once.
     fn contract_inner(poly: &PiecewiseLegendrePoly, f: &InnerFactors) -> Complex64 {
-        let polyorder = poly.polyorder;
-        debug_assert_eq!(f.nseg, poly.knots.len() - 1);
+        let polyorder = poly.get_polyorder();
+        debug_assert_eq!(f.nseg, poly.get_knots().len() - 1);
         debug_assert!(polyorder <= f.polyorder);
         let mut res = Complex64::new(0.0, 0.0);
         for j in 0..f.nseg {
-            let col = &poly.data.col(j)[..polyorder];
+            let col = &poly.get_data().col(j)[..polyorder];
             let w_re = &f.w_re[j * f.polyorder..j * f.polyorder + polyorder];
             let w_im = &f.w_im[j * f.polyorder..j * f.polyorder + polyorder];
             let (mut acc_re, mut acc_im) = (0.0, 0.0);
@@ -204,7 +211,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
                 acc_re += col[o] * w_re[o];
                 acc_im += col[o] * w_im[o];
             }
-            res += Complex64::new(acc_re, acc_im) / poly.norms[j];
+            res += Complex64::new(acc_re, acc_im) / poly.get_norms()[j];
         }
         res / 2.0_f64.sqrt()
     }
@@ -286,7 +293,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// Computes: im^mod(wn * (extra_shift + 1), 4) * cispi(wn * xmid_diff / 2)
     /// where cispi(x) = exp(i*π*x)
     fn phase_stable(poly: &PiecewiseLegendrePoly, wn: i64) -> Vec<Complex64> {
-        let (xmid_diff, extra_shift) = Self::shift_xmid(&poly.knots, &poly.delta_x);
+        let (xmid_diff, extra_shift) = Self::shift_xmid(poly.get_knots(), poly.get_delta_x());
         let mut phase_wi = Vec::with_capacity(xmid_diff.len());
 
         let im_unit = Complex64::new(0.0, 1.0);
@@ -346,7 +353,7 @@ impl InnerFactors {
         let nseg = phase.len();
         let mut w_re = Vec::with_capacity(polyorder * nseg);
         let mut w_im = Vec::with_capacity(polyorder * nseg);
-        for (&dx, &ph) in poly.delta_x.iter().zip(&phase) {
+        for (&dx, &ph) in poly.get_delta_x().iter().zip(&phase) {
             for order in 0..polyorder {
                 let w = PiecewiseLegendreFT::<S>::get_tnl(order as i32, wred * dx) * ph;
                 w_re.push(w.re);
@@ -481,10 +488,10 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
         let Some(first) = self.polyvec.first() else {
             return Vec::new();
         };
-        let shared_knots = self
-            .polyvec
-            .iter()
-            .all(|p| p.poly.knots == first.poly.knots && p.poly.delta_x == first.poly.delta_x);
+        let shared_knots = self.polyvec.iter().all(|p| {
+            p.poly.get_knots() == first.poly.get_knots()
+                && p.poly.get_delta_x() == first.poly.get_delta_x()
+        });
         if !shared_knots {
             return self.polyvec.iter().map(|p| p.evaluate(omega)).collect();
         }
@@ -492,7 +499,7 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
         let polyorder = self
             .polyvec
             .iter()
-            .map(|p| p.poly.polyorder)
+            .map(|p| p.poly.get_polyorder())
             .max()
             .unwrap_or(0);
         let mut factors = None;

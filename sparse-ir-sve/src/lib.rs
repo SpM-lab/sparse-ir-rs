@@ -1,18 +1,165 @@
 //! # sparse-ir-sve
 //!
 //! The singular value expansion (SVE) of integral kernels K(x, y), computed
-//! in extended precision, together with the numerics it is built on: dense
-//! column-major containers, the error type, the FPU guard, and the parallel
-//! execution on the rayon pool.
+//! in extended precision with an ACA-accelerated truncated SVD, and the
+//! numerics it is built on: Gauss–Legendre quadrature, piecewise Legendre
+//! polynomials, dense column-major containers, the error type, the FPU guard,
+//! and the parallel execution on the rayon pool.
 //!
-//! The crate knows nothing about statistics, temperatures or Matsubara
-//! frequencies; the `sparse-ir` crates build the IR basis on top of it.
+//! A kernel implements [`AbstractKernel`] (its values) and [`SVEKernel`] (its
+//! domain and the discretization hints of its SVE), and either
+//! [`ReducedKernel`] (a centrosymmetric kernel, through its even and odd
+//! reduced kernels) or [`SVEStrategyKernel`] (any other kernel, no methods);
+//! [`compute_sve`] then returns its singular values and singular functions
+//! ([`SVEResult`]).
+//!
+//! In `f64`, [`compute_sve`] decomposes the discretized kernel by a dense
+//! column-pivoted QR; in double-double (`Df64`), where that is costly, by
+//! adaptive cross approximation (ACA), which reads only a few rows and
+//! columns of it. [`sve::compute_sve_dense`] takes the dense path in both,
+//! to check the result on a new kernel.
+//!
+//! The crate is mathematics only: it defines no concrete kernel. The
+//! `sparse-ir` crates define the kernels of the IR basis and build the basis
+//! on top of it.
+//!
+//! # Example
+//!
+//! The SVE of K(x, y) = exp(xy) on [-1, 1] × [-1, 1]. The kernel is
+//! centrosymmetric, K(-x, -y) = K(x, y), so its hints cover the half domain
+//! [0, 1] and the SVE is computed in even and odd blocks: the even and odd
+//! reduced kernels K(x, y) ± K(x, -y) are 2 cosh(xy) and 2 sinh(xy).
+//!
+//! ```
+//! use sparse_ir_sve::{
+//!     AbstractKernel, CustomNumeric, ReducedKernel, SVEHints, SVEKernel, SymmetryType, TworkType,
+//!     compute_sve,
+//! };
+//! use std::fmt::Debug;
+//!
+//! #[derive(Debug, Clone, Copy)]
+//! struct ExpKernel;
+//!
+//! impl AbstractKernel for ExpKernel {
+//!     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+//!         (x * y).exp()
+//!     }
+//!
+//!     fn is_centrosymmetric(&self) -> bool {
+//!         true
+//!     }
+//! }
+//!
+//! impl ReducedKernel for ExpKernel {
+//!     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
+//!         &self,
+//!         x: T,
+//!         y: T,
+//!         symmetry: SymmetryType,
+//!     ) -> T {
+//!         let two = T::from_f64_unchecked(2.0);
+//!         match symmetry {
+//!             SymmetryType::Even => two * (x * y).cosh(),
+//!             SymmetryType::Odd => two * (x * y).sinh(),
+//!         }
+//!     }
+//! }
+//!
+//! /// Quadrature segments and sizes of the discretization
+//! #[derive(Debug, Clone)]
+//! struct ExpHints;
+//!
+//! impl<T: Copy + Debug + Send + Sync + CustomNumeric> SVEHints<T> for ExpHints {
+//!     fn segments_x(&self) -> Vec<T> {
+//!         [0.0, 0.5, 1.0].map(T::from_f64_unchecked).to_vec()
+//!     }
+//!
+//!     fn segments_y(&self) -> Vec<T> {
+//!         [0.0, 0.5, 1.0].map(T::from_f64_unchecked).to_vec()
+//!     }
+//!
+//!     fn nsvals(&self) -> usize {
+//!         20
+//!     }
+//!
+//!     fn ngauss(&self) -> usize {
+//!         16
+//!     }
+//! }
+//!
+//! impl SVEKernel for ExpKernel {
+//!     type SVEHintsType<T>
+//!         = ExpHints
+//!     where
+//!         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+//!
+//!     fn xmax(&self) -> f64 {
+//!         1.0
+//!     }
+//!
+//!     fn ymax(&self) -> f64 {
+//!         1.0
+//!     }
+//!
+//!     fn sve_hints<T>(&self, _epsilon: f64) -> ExpHints
+//!     where
+//!         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+//!     {
+//!         ExpHints
+//!     }
+//! }
+//!
+//! let sve = compute_sve(ExpKernel, Some(1e-10), None, None, TworkType::Auto)?;
+//! let s = sve.s();
+//! assert!(s.windows(2).all(|w| w[0] >= w[1]));
+//!
+//! // K(x, y) = Σ_l s_l u_l(x) v_l(y), to the requested accuracy
+//! let (x, y) = (0.3, -0.7);
+//! let k: f64 = (0..s.len())
+//!     .map(|l| s[l] * sve.u()[l].evaluate(x) * sve.v()[l].evaluate(y))
+//!     .sum();
+//! assert!((k - f64::exp(x * y)).abs() < 1e-8);
+//! # Ok::<(), sparse_ir_sve::Error>(())
+//! ```
 
+pub(crate) mod aca; // ACA-accelerated truncated SVD for the SVE kernel blocks
+pub(crate) mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
+pub(crate) mod cost; // Work estimates for the threading decisions
+pub(crate) mod ddgemm; // Double-double matrix products
 pub mod error; // Error type of the public API
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
+pub mod gauss;
+pub(crate) mod interpolation1d;
+pub mod kernel;
+pub mod kernelmatrix;
 pub mod matrix; // Column-major dense containers for internal numerics
+pub mod numeric;
 #[doc(hidden)]
 pub mod parallel; // Parallel execution on the rayon pool (internal)
+pub mod poly;
+pub mod sve;
+pub mod tsvd; // High-precision truncated SVD using nalgebra
+
+// Kernels for the tests of this crate
+#[cfg(test)]
+mod test_kernels;
 
 pub use error::{Error, Result};
+pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
+pub use kernel::{
+    AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType,
+};
+pub use kernelmatrix::{
+    DiscretizedKernel, matrix_from_gauss, matrix_from_gauss_noncentrosymmetric,
+    matrix_from_gauss_with_segments,
+};
 pub use matrix::{Mat, Mat3};
+pub use numeric::CustomNumeric;
+pub use poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
+pub use sve::{
+    CentrosymmSVE, KernelBlock, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,
+};
+pub use tsvd::{
+    SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
+};
+pub use xprec::Df64;

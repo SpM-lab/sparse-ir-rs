@@ -1,10 +1,10 @@
-//! Kernel matrix discretization for SparseIR
+//! Kernel matrix discretization
 //!
 //! This module provides functionality to discretize kernels using Gauss quadrature
 //! rules and store them as matrices for numerical computation.
 
 use crate::gauss::Rule;
-use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SymmetryType};
+use crate::kernel::{AbstractKernel, ReducedKernel, SVEKernel, SymmetryType};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use std::fmt::Debug;
@@ -139,7 +139,7 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
 /// and returns a DiscretizedKernel containing the matrix, quadrature rules, and segments.
 pub fn matrix_from_gauss_with_segments<
     T: CustomNumeric + Clone + Send + Sync,
-    K: CentrosymmKernel + KernelProperties,
+    K: ReducedKernel + SVEKernel,
     H: crate::kernel::SVEHints<T>,
 >(
     kernel: &K,
@@ -204,7 +204,7 @@ pub fn matrix_from_gauss_with_segments<
 ///
 /// This function evaluates the kernel at all combinations of Gauss points
 /// and returns a DiscretizedKernel containing the matrix and quadrature rules.
-pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelProperties>(
+pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: ReducedKernel + SVEKernel>(
     kernel: &K,
     gauss_x: &Rule<T>,
     gauss_y: &Rule<T>,
@@ -273,7 +273,7 @@ pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelP
 /// DiscretizedKernel containing the matrix, quadrature rules, and segments
 pub fn matrix_from_gauss_noncentrosymmetric<
     T: CustomNumeric + Clone + Send + Sync,
-    K: AbstractKernel + KernelProperties,
+    K: AbstractKernel + SVEKernel,
     H: crate::kernel::SVEHints<T>,
 >(
     kernel: &K,
