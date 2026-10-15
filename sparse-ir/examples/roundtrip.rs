@@ -16,7 +16,7 @@ use sparse_ir::{
     Bosonic, DiscreteLehmannRepresentation, Fermionic, FiniteTempBasis, LogisticKernel, Matrix,
     MatsubaraSampling, RegularizedBoseKernel, TauSampling, TensorScalar, TypedTensor,
     basis_trait::Basis,
-    kernel::{AbstractKernel, KernelProperties},
+    kernel::{CentrosymmKernel, KernelProperties},
     sve::{SVEResult, TworkType, compute_sve},
     traits::StatisticsType,
 };
@@ -243,7 +243,7 @@ fn run_integration_example_single<K, S>(
     kernel: &K,
     sve: &SVEResult,
 ) where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
     S: StatisticsType + 'static,
 {
     let ndim = 1 + extra_dims.len();
@@ -526,7 +526,7 @@ fn run_integration_example_for_stat<K, S>(
     kernel: &K,
     sve: &SVEResult,
 ) where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
     S: StatisticsType + 'static,
 {
     for positive_only in [false, true] {

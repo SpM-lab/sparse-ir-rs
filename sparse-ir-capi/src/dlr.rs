@@ -1019,7 +1019,7 @@ mod tests {
     use crate::{SPIR_INTERNAL_ERROR, SPIR_STATISTICS_BOSONIC, SPIR_STATISTICS_FERMIONIC};
     use sparse_ir::basis::FiniteTempBasis;
     use sparse_ir::kernel::{
-        AbstractKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel,
+        CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel,
     };
     use sparse_ir::poly::PiecewiseLegendrePolyVector;
     use sparse_ir::sve::{SVEResult, TworkType, compute_sve};
@@ -1041,7 +1041,7 @@ mod tests {
     /// through the C API is known to, hence the synthetic SVE result.
     fn sve_with_too_few_default_poles<K>(kernel: K) -> SVEResult
     where
-        K: AbstractKernel + KernelProperties + Clone + 'static,
+        K: CentrosymmKernel + KernelProperties + Clone + 'static,
     {
         let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
         assert!(sve.s().len() > TRUNCATED_BASIS_SIZE);

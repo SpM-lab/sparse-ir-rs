@@ -779,7 +779,7 @@ fn test_default_matsubara_points_are_reused() {
 
     fn check<K, S>(kernel: K, beta: f64)
     where
-        K: crate::kernel::KernelProperties + crate::kernel::AbstractKernel + Clone + 'static,
+        K: crate::kernel::BasisKernel,
         S: StatisticsType + 'static,
     {
         let basis = FiniteTempBasis::<K, S>::new(kernel, beta, Some(1e-10), None).unwrap();

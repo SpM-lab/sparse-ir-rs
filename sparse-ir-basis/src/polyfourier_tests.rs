@@ -4,7 +4,7 @@
 
 use crate::basis::FiniteTempBasis;
 use crate::freq::{BosonicFreq, FermionicFreq};
-use crate::kernel::{AbstractKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel};
+use crate::kernel::{BasisKernel, LogisticKernel, RegularizedBoseKernel};
 use crate::matrix::mat;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::polyfourier::{
@@ -311,7 +311,7 @@ const ASYMPTOTIC_VS_EXACT_RTOL: f64 = 1e-6;
 /// them to agree.
 fn check_asymptotic_branch_matches_exact<K, S>(basis: &FiniteTempBasis<K, S>)
 where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     // #265 hit exactly l = 1, 2 (mod 4): make sure every residue occurs twice.
@@ -387,7 +387,7 @@ where
 /// (-1)^n u_l(beta) + u_l(0) instead, an error of 2 |u_l(beta)|.
 fn check_uhat_high_frequency_tail<K, S>(basis: &FiniteTempBasis<K, S>)
 where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     let beta = basis.beta();
@@ -651,7 +651,7 @@ fn test_sign_changes_of_parts_skip_the_vanishing_part() {
 
     fn n_parts<K, S>(basis: &FiniteTempBasis<K, S>) -> usize
     where
-        K: KernelProperties + AbstractKernel + Clone + 'static,
+        K: BasisKernel,
         S: StatisticsType + 'static,
     {
         let u = &basis.uhat_full()[basis.size() + 1];
@@ -750,11 +750,11 @@ fn test_uhat_negative_frequency_is_conjugate() {
 #[test]
 fn test_default_matsubara_points_symmetric() {
     use crate::freq::MatsubaraFreq;
-    use crate::kernel::{AbstractKernel, LogisticKernelWindowed};
+    use crate::kernel::LogisticKernelWindowed;
 
     fn check<K, S>(kernel: K)
     where
-        K: KernelProperties + AbstractKernel + Clone + 'static,
+        K: BasisKernel,
         S: StatisticsType + 'static,
     {
         let basis = FiniteTempBasis::<K, S>::new(kernel, 100.0, Some(1e-8), None).unwrap();
@@ -842,7 +842,7 @@ fn test_inner_transform_matches_term_by_term_sum() {
 fn test_evaluate_at_matches_each_function_bitwise() {
     use crate::kernel::LogisticKernelWindowed;
 
-    fn check<K: KernelProperties + crate::kernel::AbstractKernel + Clone + 'static>(kernel: K) {
+    fn check<K: BasisKernel>(kernel: K) {
         let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, 10.0, Some(1e-10), None).unwrap();
         let uhat = basis.uhat_full();
         for n in [1i64, -3, 51, 999, 100_001, 10_000_001] {

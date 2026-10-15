@@ -8,7 +8,7 @@ use std::sync::{Arc, OnceLock};
 use crate::error::{
     Error, require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
 };
-use crate::kernel::{AbstractKernel, KernelProperties, LogisticKernel};
+use crate::kernel::{BasisKernel, KernelProperties, LogisticKernel};
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector, default_sampling_points};
 use crate::polyfourier::PiecewiseLegendreFTVector;
 use crate::sve::{SVEResult, TworkType, compute_sve};
@@ -42,7 +42,7 @@ pub enum Statistics {
 #[derive(Clone)]
 pub struct FiniteTempBasis<K, S>
 where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     /// The kernel used to construct this basis
@@ -145,7 +145,7 @@ fn snapped_knots_and_widths(
 
 impl<K, S> FiniteTempBasis<K, S>
 where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     // ========== Getters ==========
@@ -208,7 +208,7 @@ where
     /// cutoff ωmax of a symmetric kernel, and the larger of |ωmin| and ωmax of
     /// an asymmetric window
     pub fn wmax(&self) -> f64 {
-        self.kernel.lambda() / self.beta
+        self.kernel.kernel_lambda() / self.beta
     }
 
     /// Get default Matsubara sampling points as i64 indices (for C-API)
@@ -257,7 +257,7 @@ where
     ///
     /// # Arguments
     ///
-    /// * `kernel` - Kernel implementing `KernelProperties + AbstractKernel`
+    /// * `kernel` - Kernel implementing [`BasisKernel`]
     /// * `beta` - Inverse temperature (β > 0)
     /// * `epsilon` - Accuracy of the basis, in (0, 1). `None` selects the best
     ///   accuracy of the working precision (about 1.6e-16).
@@ -359,7 +359,7 @@ where
         // Get kernel parameters: ω = wmax * y with wmax = Λ/β, so that
         // y ∈ [ymin, ymax] maps to ω ∈ [ωmin, ωmax] (wmax = ωmax for
         // symmetric kernels)
-        let wmax = kernel.lambda() / beta;
+        let wmax = kernel.kernel_lambda() / beta;
 
         // Scale polynomials to new variables
         // tau = β/2 * (x + 1), w = wmax * y
@@ -433,7 +433,7 @@ where
 
     /// Get the cutoff parameter Λ = β * ωmax
     pub fn lambda(&self) -> f64 {
-        self.kernel.lambda()
+        self.kernel.kernel_lambda()
     }
 
     /// Upper edge ωmax of the frequency window (= [`wmax`](Self::wmax) for
@@ -624,7 +624,7 @@ where
 
 impl<K, S> crate::basis_trait::Basis<S> for FiniteTempBasis<K, S>
 where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType + 'static,
 {
     fn beta(&self) -> f64 {
@@ -632,11 +632,11 @@ where
     }
 
     fn wmax(&self) -> f64 {
-        self.kernel.lambda() / self.beta
+        self.kernel.kernel_lambda() / self.beta
     }
 
     fn lambda(&self) -> f64 {
-        self.kernel.lambda()
+        self.kernel.kernel_lambda()
     }
 
     fn size(&self) -> usize {

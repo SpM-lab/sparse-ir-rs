@@ -11,7 +11,7 @@ use crate::basis::FiniteTempBasis;
 use crate::basis_trait::Basis;
 use crate::dlr::{DiscreteLehmannRepresentation, IrDlrTransform};
 use crate::error::Error;
-use crate::kernel::{AbstractKernel, KernelProperties};
+use crate::kernel::{BasisKernel, KernelProperties};
 use crate::matrix::Mat;
 use crate::traits::{Statistics, StatisticsType};
 
@@ -93,7 +93,7 @@ pub trait IrBasis<S: StatisticsType>: Basis<S> {
 
 impl<K, S> IrBasis<S> for FiniteTempBasis<K, S>
 where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType + 'static,
 {
     type Kernel = K;

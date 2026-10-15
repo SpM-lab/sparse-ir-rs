@@ -4,7 +4,7 @@
 //! rules and store them as matrices for numerical computation.
 
 use crate::gauss::Rule;
-use crate::kernel::{AbstractKernel, KernelProperties, SymmetryType};
+use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SymmetryType};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use std::fmt::Debug;
@@ -139,7 +139,7 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
 /// and returns a DiscretizedKernel containing the matrix, quadrature rules, and segments.
 pub fn matrix_from_gauss_with_segments<
     T: CustomNumeric + Clone + Send + Sync,
-    K: AbstractKernel + KernelProperties,
+    K: CentrosymmKernel + KernelProperties,
     H: crate::kernel::SVEHints<T>,
 >(
     kernel: &K,
@@ -204,7 +204,7 @@ pub fn matrix_from_gauss_with_segments<
 ///
 /// This function evaluates the kernel at all combinations of Gauss points
 /// and returns a DiscretizedKernel containing the matrix and quadrature rules.
-pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: AbstractKernel + KernelProperties>(
+pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelProperties>(
     kernel: &K,
     gauss_x: &Rule<T>,
     gauss_y: &Rule<T>,

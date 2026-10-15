@@ -21,7 +21,9 @@
 //! τ ∈ [0, β] in ascending order, omega points in ascending order.
 
 use sparse_ir::basis::FiniteTempBasis;
-use sparse_ir::kernel::{AbstractKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel};
+use sparse_ir::kernel::{
+    CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel,
+};
 use sparse_ir::sve::{TworkType, compute_sve};
 use sparse_ir::traits::{Bosonic, Fermionic, StatisticsType};
 
@@ -103,7 +105,7 @@ fn check_group(group: &Group) {
 
 fn check_kernel<K>(group: &Group, kernel: K)
 where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: KernelProperties + CentrosymmKernel + Clone + 'static,
 {
     // The untruncated SVE, whose functions a size-limited basis must keep.
     let n_sve = compute_sve(kernel.clone(), Some(group.eps), None, None, TworkType::Auto)
@@ -135,7 +137,7 @@ fn check_case<K, S>(
     n_sve: usize,
     failures: &mut Vec<String>,
 ) where
-    K: KernelProperties + AbstractKernel + Clone + 'static,
+    K: KernelProperties + CentrosymmKernel + Clone + 'static,
     S: StatisticsType + 'static,
 {
     let basis = FiniteTempBasis::<K, S>::new(

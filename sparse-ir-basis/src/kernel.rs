@@ -17,6 +17,7 @@
 
 use crate::error::{Error, require_positive_finite};
 use crate::numeric::CustomNumeric;
+use crate::sve::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use crate::traits::{Statistics, StatisticsType};
 use std::fmt::Debug;
 
@@ -104,9 +105,6 @@ pub trait KernelProperties {
         -self.ymax()
     }
 
-    /// Get the cutoff parameter Λ (lambda)
-    fn lambda(&self) -> f64;
-
     /// A regularizer for a bosonic kernel for avoiding a divergence at omega = 0.
     ///
     /// The bosonic kernel diverges at omega = 0.
@@ -140,12 +138,11 @@ pub trait KernelProperties {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 }
 
-/// Trait for kernels K(x, y), centrosymmetric or not
+/// Trait for general kernels (both centrosymmetric and non-centrosymmetric)
 ///
-/// Centrosymmetry is a runtime property ([`AbstractKernel::is_centrosymmetric`]):
-/// for a centrosymmetric kernel the SVE is block-diagonalized into the even
-/// and odd reduced kernels ([`AbstractKernel::compute_reduced`]); other
-/// kernels are expanded over their full domain.
+/// This trait provides the basic interface for computing kernel values.
+/// Centrosymmetric kernels should implement `CentrosymmKernel` instead,
+/// which provides additional optimizations.
 pub trait AbstractKernel: Send + Sync {
     /// Compute the kernel value K(x, y) with high precision
     ///
@@ -172,24 +169,75 @@ pub trait AbstractKernel: Send + Sync {
     fn is_centrosymmetric(&self) -> bool {
         false
     }
+}
 
-    /// Compute the reduced kernel value of a centrosymmetric kernel
+/// Trait for centrosymmetric kernels
+///
+/// Centrosymmetric kernels satisfy K(x, y) = K(-x, -y) on a symmetric domain
+/// and can be decomposed into even and odd components for efficient
+/// computation.
+pub trait CentrosymmKernel: AbstractKernel {
+    /// Compute the reduced kernel value
     ///
     /// K_red(x, y) = K(x, y) + sign * K(x, -y)
-    /// where sign = 1 for even symmetry and sign = -1 for odd symmetry.
-    ///
-    /// Only meaningful when [`AbstractKernel::is_centrosymmetric`] is true.
-    /// Kernels may override it to avoid the cancellation in the odd part.
+    /// where sign = 1 for even symmetry and sign = -1 for odd symmetry
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
         y: T,
         symmetry: SymmetryType,
-    ) -> T {
-        match symmetry {
-            SymmetryType::Even => self.compute(x, y) + self.compute(x, -y),
-            SymmetryType::Odd => self.compute(x, y) - self.compute(x, -y),
-        }
+    ) -> T;
+
+    /// Get the cutoff parameter Λ (lambda)
+    fn lambda(&self) -> f64;
+}
+
+/// Kernel of a finite-temperature basis: the kernels that [`compute_sve`]
+/// and [`FiniteTempBasis`] accept
+///
+/// Implemented for every [`CentrosymmKernel`], whose SVE is
+/// block-diagonalized into the even and odd reduced kernels, and for
+/// [`LogisticKernelWindowed`]. Other kernels implement
+/// [`BasisKernel::kernel_lambda`]; their SVE is taken over the full domain
+/// `[xmin, xmax] × [ymin, ymax]` and their singular functions have no
+/// definite parity.
+///
+/// [`compute_sve`]: crate::sve::compute_sve
+/// [`FiniteTempBasis`]: crate::basis::FiniteTempBasis
+pub trait BasisKernel: AbstractKernel + KernelProperties + Clone + 'static {
+    /// The cutoff parameter Λ = β·wmax ([`CentrosymmKernel::lambda`] for a
+    /// centrosymmetric kernel; named apart from it so that both traits can
+    /// be in scope)
+    fn kernel_lambda(&self) -> f64;
+
+    /// The SVE strategy of the kernel: the even/odd blocks for a
+    /// [`CentrosymmKernel`], otherwise the full domain
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`NonCentrosymmSVE::new`] or [`CentrosymmSVE::new`]
+    #[doc(hidden)]
+    fn sve_strategy<T>(&self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+    {
+        Ok(Box::new(NonCentrosymmSVE::new(self.clone(), epsilon)?))
+    }
+}
+
+impl<K> BasisKernel for K
+where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+{
+    fn kernel_lambda(&self) -> f64 {
+        CentrosymmKernel::lambda(self)
+    }
+
+    fn sve_strategy<T>(&self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+    {
+        Ok(Box::new(CentrosymmSVE::new(self.clone(), epsilon)?))
     }
 }
 
@@ -242,10 +290,6 @@ impl KernelProperties for LogisticKernel {
     }
     fn ymax(&self) -> f64 {
         1.0
-    }
-
-    fn lambda(&self) -> f64 {
-        self.lambda
     }
 
     fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
@@ -313,7 +357,9 @@ impl AbstractKernel for LogisticKernel {
     fn is_centrosymmetric(&self) -> bool {
         true
     }
+}
 
+impl CentrosymmKernel for LogisticKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
@@ -324,6 +370,10 @@ impl AbstractKernel for LogisticKernel {
             SymmetryType::Even => self.compute(x, y) + self.compute(x, -y),
             SymmetryType::Odd => compute_logistic_kernel_reduced_odd(self.lambda, x, y),
         }
+    }
+
+    fn lambda(&self) -> f64 {
+        self.lambda
     }
 }
 
@@ -370,6 +420,11 @@ impl LogisticKernelWindowed {
             ymax: omega_max / wmax,
         })
     }
+
+    /// Get the cutoff parameter Λ = β·wmax with wmax = max(|ωmin|, ωmax)
+    pub fn lambda(&self) -> f64 {
+        self.logistic.lambda
+    }
 }
 
 impl KernelProperties for LogisticKernelWindowed {
@@ -398,10 +453,6 @@ impl KernelProperties for LogisticKernelWindowed {
         self.ymin
     }
 
-    fn lambda(&self) -> f64 {
-        self.logistic.lambda
-    }
-
     /// The regularizer of [`LogisticKernel`], whose formula this kernel shares
     fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
         self.logistic.regularizer::<S>(beta, omega)
@@ -422,6 +473,12 @@ impl KernelProperties for LogisticKernelWindowed {
 impl AbstractKernel for LogisticKernelWindowed {
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
         self.logistic.compute(x, y)
+    }
+}
+
+impl BasisKernel for LogisticKernelWindowed {
+    fn kernel_lambda(&self) -> f64 {
+        self.lambda()
     }
 }
 
@@ -764,10 +821,6 @@ impl KernelProperties for RegularizedBoseKernel {
         1.0
     }
 
-    fn lambda(&self) -> f64 {
-        self.lambda
-    }
-
     fn regularizer<S: StatisticsType + 'static>(&self, _beta: f64, omega: f64) -> f64 {
         match S::STATISTICS {
             Statistics::Fermionic => {
@@ -798,7 +851,9 @@ impl AbstractKernel for RegularizedBoseKernel {
     fn is_centrosymmetric(&self) -> bool {
         true
     }
+}
 
+impl CentrosymmKernel for RegularizedBoseKernel {
     fn compute_reduced<T: CustomNumeric + Copy + Debug>(
         &self,
         x: T,
@@ -825,6 +880,10 @@ impl AbstractKernel for RegularizedBoseKernel {
                 }
             }
         }
+    }
+
+    fn lambda(&self) -> f64 {
+        self.lambda
     }
 }
 

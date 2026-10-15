@@ -2,7 +2,7 @@
 
 use crate::error::Error;
 use crate::gauss::{Rule, legendre_generic};
-use crate::kernel::{AbstractKernel, KernelProperties, SVEHints, SymmetryType};
+use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
 use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
@@ -217,7 +217,7 @@ where
 pub struct CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + 'static,
-    K: AbstractKernel + KernelProperties,
+    K: CentrosymmKernel + KernelProperties,
 {
     kernel: K,
     epsilon: f64,
@@ -240,25 +240,18 @@ where
 impl<T, K> CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: AbstractKernel + KernelProperties + Clone,
+    K: CentrosymmKernel + KernelProperties + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new CentrosymmSVE
     ///
     /// # Errors
     ///
-    /// * [`Error::NotSupported`] if the kernel is not centrosymmetric
-    ///   ([`AbstractKernel::is_centrosymmetric`]); use [`NonCentrosymmSVE`]
     /// * [`Error::InvalidParameter`] if the domain of the kernel is not
     ///   symmetric (`xmin != -xmax` or `ymin != -ymax`), or if the SVE hints
     ///   of the kernel give segments that are not finite and strictly
     ///   increasing
     pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
-        if !kernel.is_centrosymmetric() {
-            return Err(Error::NotSupported {
-                what: "the even/odd SVE of a kernel that is not centrosymmetric".to_string(),
-            });
-        }
         // The even/odd SVE covers [0, xmax] x [0, ymax] and mirrors it, so it
         // would silently drop the part of an asymmetric domain.
         for (name, min, max) in [
@@ -344,7 +337,7 @@ where
 impl<T, K> SVEStrategy<T> for CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: AbstractKernel + KernelProperties + Clone,
+    K: CentrosymmKernel + KernelProperties + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     fn matrices(&self) -> Vec<Mat<T>> {

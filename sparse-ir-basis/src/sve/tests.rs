@@ -7,8 +7,8 @@ use super::utils::{extend_to_full_domain, merge_results, mirror_segments_to_full
 use super::{SVEResult, TworkType, compute_sve, compute_sve_general};
 use crate::error::Error;
 use crate::kernel::{
-    AbstractKernel, KernelProperties, LogisticKernel, LogisticSVEHints, RegularizedBoseKernel,
-    SVEHints, SymmetryType,
+    AbstractKernel, BasisKernel, CentrosymmKernel, KernelProperties, LogisticKernel,
+    LogisticSVEHints, RegularizedBoseKernel, SVEHints, SymmetryType,
 };
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
@@ -256,7 +256,7 @@ where
 /// Test that the SVE computed by `compute_sve` reconstructs the kernel
 fn test_sve_decomposition_kernel_impl<K>(kernel: K, lambda: f64, epsilon: f64)
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     // Tolerance for comparison (absolute error)
     // Note: We use absolute error only because kernel values can be very small.
@@ -273,7 +273,7 @@ fn test_sve_decomposition_kernel_impl_with_tolerance<K>(
     epsilon: f64,
     tolerance: f64,
 ) where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let sve_result =
         compute_sve(kernel.clone(), Some(epsilon), None, None, TworkType::Auto).unwrap();
@@ -448,7 +448,7 @@ fn assert_general_path_matches_compute_sve<K>(
     twork: TworkType,
     expect_same_count: bool,
 ) where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let u_work = working_machine_epsilon(epsilon, twork);
     // Explicit cutoff, so that this comparison does not depend on the
@@ -630,10 +630,6 @@ impl KernelProperties for TiltedLogisticKernel {
         self.0.ymax()
     }
 
-    fn lambda(&self) -> f64 {
-        self.0.lambda()
-    }
-
     fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
         self.0.regularizer::<S>(beta, omega)
     }
@@ -643,6 +639,12 @@ impl KernelProperties for TiltedLogisticKernel {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {
         TiltedLogisticSVEHints(self.0.sve_hints::<T>(epsilon))
+    }
+}
+
+impl BasisKernel for TiltedLogisticKernel {
+    fn kernel_lambda(&self) -> f64 {
+        self.0.lambda()
     }
 }
 
@@ -683,10 +685,6 @@ impl KernelProperties for HalfLogisticKernel {
         1.0
     }
 
-    fn lambda(&self) -> f64 {
-        self.0.lambda()
-    }
-
     fn regularizer<S: StatisticsType + 'static>(&self, _: f64, _: f64) -> f64 {
         1.0
     }
@@ -696,6 +694,12 @@ impl KernelProperties for HalfLogisticKernel {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {
         TiltedLogisticSVEHints(self.0.sve_hints::<T>(epsilon))
+    }
+}
+
+impl BasisKernel for HalfLogisticKernel {
+    fn kernel_lambda(&self) -> f64 {
+        self.0.lambda()
     }
 }
 
@@ -766,16 +770,6 @@ fn test_compute_sve_of_non_centrosymmetric_kernel_uses_full_domain() {
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6 * 200.0);
 }
 
-/// The even/odd strategy rejects a kernel that is not centrosymmetric
-#[test]
-fn test_centrosymm_sve_rejects_non_centrosymmetric_kernel() {
-    use super::CentrosymmSVE;
-
-    let kernel = TiltedLogisticKernel(LogisticKernel::new(10.0).unwrap());
-    let err = CentrosymmSVE::<f64, _>::new(kernel, 1e-6).err().unwrap();
-    assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
-}
-
 /// A logistic kernel that claims centrosymmetry on the asymmetric domain
 /// y ∈ [-0.5, 1]
 #[derive(Debug, Clone, Copy)]
@@ -817,10 +811,6 @@ impl KernelProperties for AsymmetricDomainLogisticKernel {
         -0.5
     }
 
-    fn lambda(&self) -> f64 {
-        self.0.lambda()
-    }
-
     fn regularizer<S: StatisticsType + 'static>(&self, _: f64, _: f64) -> f64 {
         1.0
     }
@@ -830,6 +820,21 @@ impl KernelProperties for AsymmetricDomainLogisticKernel {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {
         TiltedLogisticSVEHints(self.0.sve_hints::<T>(epsilon))
+    }
+}
+
+impl CentrosymmKernel for AsymmetricDomainLogisticKernel {
+    fn compute_reduced<T: CustomNumeric + Copy + Debug>(
+        &self,
+        x: T,
+        y: T,
+        symmetry: SymmetryType,
+    ) -> T {
+        self.0.compute_reduced(x, y, symmetry)
+    }
+
+    fn lambda(&self) -> f64 {
+        self.0.lambda()
     }
 }
 
@@ -939,11 +944,6 @@ impl KernelProperties for SeparableNonsymmKernel {
         1.0
     }
 
-    fn lambda(&self) -> f64 {
-        // No physical cutoff; only used if a basis is built from the kernel
-        1.0
-    }
-
     fn regularizer<S: StatisticsType + 'static>(&self, _beta: f64, _omega: f64) -> f64 {
         1.0
     }
@@ -953,6 +953,13 @@ impl KernelProperties for SeparableNonsymmKernel {
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {
         SeparableNonsymmSVEHints(std::marker::PhantomData)
+    }
+}
+
+impl BasisKernel for SeparableNonsymmKernel {
+    fn kernel_lambda(&self) -> f64 {
+        // No physical cutoff; only used if a basis is built from the kernel
+        1.0
     }
 }
 
@@ -1003,7 +1010,7 @@ fn test_compute_sve_recovers_analytic_sve_of_non_centrosymmetric_kernel() {
 /// equals an explicit `2 * u_work` and keeps as many values as `compute_sve`.
 fn assert_default_cutoff_is_two_machine_epsilon<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let u_work = working_machine_epsilon(epsilon, twork);
 
@@ -1125,7 +1132,7 @@ fn assert_leading_part_of(truncated: &SVEResult, full: &SVEResult, n: usize) {
 /// `cutoff = Some(1.0)`.
 fn check_sve_truncated_to_one<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let full = compute_sve(kernel.clone(), Some(epsilon), None, None, twork).unwrap();
     assert!(full.s.len() >= 4, "SVE too small: {}", full.s.len());
@@ -1572,7 +1579,7 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
 /// 1e-14 (measured: 1.4e-16 and 1.2e-15).
 fn check_aca_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType)
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     use super::compute::compute_sve_dense;
 

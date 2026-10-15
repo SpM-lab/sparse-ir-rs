@@ -2,12 +2,12 @@
 
 use crate::error::{Error, require_accuracy, require_nonzero_size};
 use crate::fpu_check::FpuGuard;
-use crate::kernel::{AbstractKernel, KernelProperties, SVEHints};
+use crate::kernel::{AbstractKernel, BasisKernel, KernelProperties};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 
 use super::result::SVEResult;
-use super::strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
+use super::strategy::{NonCentrosymmSVE, SVEStrategy};
 use super::types::{TworkType, safe_epsilon};
 
 /// Default relative cutoff for singular value truncation: `2 * T::epsilon()`
@@ -133,16 +133,14 @@ pub fn compute_sve<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
-    let even_odd = kernel.is_centrosymmetric();
     compute_sve_impl(
-        kernel,
+        KernelDomain(kernel),
         epsilon,
         cutoff,
         max_num_svals,
         twork,
-        even_odd,
         Resolve::Full,
     )
 }
@@ -180,16 +178,14 @@ pub fn compute_sve_for_basis<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
-    let even_odd = kernel.is_centrosymmetric();
     compute_sve_impl(
-        kernel,
+        KernelDomain(kernel),
         Some(epsilon),
         None,
         max_num_svals,
         twork,
-        even_odd,
         Resolve::Basis,
     )
 }
@@ -201,7 +197,7 @@ where
 /// non-centrosymmetric kernel this is what [`compute_sve`] does.
 ///
 /// A centrosymmetric kernel is expanded correctly as well: its half-domain
-/// [`SVEHints`] segments are mirrored onto the full domain, so the singular
+/// [`SVEHints`](crate::kernel::SVEHints) segments are mirrored onto the full domain, so the singular
 /// values agree with [`compute_sve`] up to rounding. The even/odd block
 /// structure is not exploited, however: the SVD is taken of one matrix with
 /// twice as many rows and columns as each block used by [`compute_sve`]
@@ -254,12 +250,11 @@ where
     K: AbstractKernel + KernelProperties + Clone + 'static,
 {
     compute_sve_impl(
-        kernel,
+        FullDomain(kernel),
         epsilon,
         cutoff,
         max_num_svals,
         twork,
-        false,
         Resolve::Full,
     )
 }
@@ -283,21 +278,51 @@ fn check_sve_parameters(
     require_nonzero_size("max_num_svals", max_num_svals)
 }
 
-/// [`compute_sve`] by the even/odd blocks of a centrosymmetric kernel
-/// ([`CentrosymmSVE`]) if `even_odd`, otherwise over the full domain
-/// ([`NonCentrosymmSVE`])
-fn compute_sve_impl<K>(
-    kernel: K,
+/// The SVE strategy of a kernel, in the working precision chosen later
+trait StrategyOf {
+    fn strategy<T>(self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static;
+}
+
+/// The strategy of the kernel ([`BasisKernel::sve_strategy`]): the even/odd
+/// blocks of a centrosymmetric kernel, otherwise the full domain
+struct KernelDomain<K>(K);
+
+impl<K: BasisKernel> StrategyOf for KernelDomain<K> {
+    fn strategy<T>(self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+    {
+        self.0.sve_strategy(epsilon)
+    }
+}
+
+/// The full domain ([`NonCentrosymmSVE`]) for any kernel
+struct FullDomain<K>(K);
+
+impl<K> StrategyOf for FullDomain<K>
+where
+    K: AbstractKernel + KernelProperties + Clone + 'static,
+{
+    fn strategy<T>(self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+    {
+        Ok(Box::new(NonCentrosymmSVE::new(self.0, epsilon)?))
+    }
+}
+
+/// The SVE of [`compute_sve`] and [`compute_sve_general`] by the strategy
+/// `sve`
+fn compute_sve_impl<S: StrategyOf>(
+    sve: S,
     epsilon: Option<f64>,
     cutoff: Option<f64>,
     max_num_svals: Option<usize>,
     twork: TworkType,
-    even_odd: bool,
     resolve: Resolve,
-) -> Result<SVEResult, Error>
-where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
-{
+) -> Result<SVEResult, Error> {
     check_sve_parameters(epsilon, cutoff, max_num_svals)?;
 
     // Protect computation from dangerous FPU settings (FZ/DAZ)
@@ -309,20 +334,18 @@ where
 
     // Dispatch based on working precision
     let result = match twork_actual {
-        TworkType::Float64 => compute_sve_with_precision::<f64, K>(
-            kernel,
+        TworkType::Float64 => compute_sve_with_precision::<f64>(
+            sve.strategy(safe_epsilon)?,
             safe_epsilon,
             cutoff,
             max_num_svals,
-            even_odd,
             resolve,
         ),
-        TworkType::Float64X2 => compute_sve_with_precision::<crate::Df64, K>(
-            kernel,
+        TworkType::Float64X2 => compute_sve_with_precision::<crate::Df64>(
+            sve.strategy(safe_epsilon)?,
             safe_epsilon,
             cutoff.map(crate::Df64::from),
             max_num_svals,
-            even_odd,
             resolve,
         ),
         _ => panic!("Invalid TworkType: {:?}", twork_actual),
@@ -335,25 +358,17 @@ where
 }
 
 /// [`compute_sve_impl`] in the working precision `T`
-fn compute_sve_with_precision<T, K>(
-    kernel: K,
+fn compute_sve_with_precision<T>(
+    sve: Box<dyn SVEStrategy<T>>,
     epsilon: f64,
     cutoff: Option<T>,
     max_num_svals: Option<usize>,
-    even_odd: bool,
     resolve: Resolve,
 ) -> Result<SVEResult, Error>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: AbstractKernel + KernelProperties + Clone + 'static,
-    K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
-    // 1. SVE strategy
-    let sve: Box<dyn SVEStrategy<T>> = if even_odd {
-        Box::new(CentrosymmSVE::new(kernel, epsilon)?)
-    } else {
-        Box::new(NonCentrosymmSVE::new(kernel, epsilon)?)
-    };
+    // 1. SVE strategy: `sve`
 
     // 2. Discretized kernel blocks, evaluated lazily: the SVD below only
     // touches their pivot rows and columns
@@ -416,19 +431,14 @@ pub(crate) fn compute_sve_dense<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: AbstractKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     fn run<T, K>(kernel: K, epsilon: f64) -> Result<SVEResult, Error>
     where
         T: CustomNumeric + Send + Sync + Clone + 'static,
-        K: AbstractKernel + KernelProperties + Clone + 'static,
-        K::SVEHintsType<T>: SVEHints<T> + Clone,
+        K: BasisKernel,
     {
-        let sve: Box<dyn SVEStrategy<T>> = if kernel.is_centrosymmetric() {
-            Box::new(CentrosymmSVE::new(kernel, epsilon)?)
-        } else {
-            Box::new(NonCentrosymmSVE::new(kernel, epsilon)?)
-        };
+        let sve = kernel.sve_strategy::<T>(epsilon)?;
         let (mut u_list, mut s_list, mut v_list) = (Vec::new(), Vec::new(), Vec::new());
         for matrix in sve.matrices() {
             let (u, s, v) = crate::tsvd::compute_svd_dtensor(&matrix)?;

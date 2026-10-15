@@ -38,7 +38,8 @@ pub struct PiecewiseLegendreFT<S: StatisticsType> {
     pub(crate) n_asymp: f64,
     /// Power model for asymptotic behavior
     pub(crate) model: PowerModel,
-    _phantom: std::marker::PhantomData<S>,
+    // `fn() -> S` keeps the type Send + Sync whatever `S` is (it holds no S)
+    _phantom: std::marker::PhantomData<fn() -> S>,
 }
 
 // Type aliases for convenience
@@ -366,7 +367,8 @@ impl InnerFactors {
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendreFTVector<S: StatisticsType> {
     pub(crate) polyvec: Vec<PiecewiseLegendreFT<S>>,
-    _phantom: std::marker::PhantomData<S>,
+    // `fn() -> S` keeps the type Send + Sync whatever `S` is (it holds no S)
+    _phantom: std::marker::PhantomData<fn() -> S>,
 }
 
 // Type aliases for convenience
