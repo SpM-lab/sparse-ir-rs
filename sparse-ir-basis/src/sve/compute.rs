@@ -406,6 +406,47 @@ where
     sve.postprocess(u_trunc, s_trunc, v_trunc)
 }
 
+/// [`compute_sve`] by the dense CPQR-based SVD of the fully formed blocks
+/// (`SVEStrategy::matrices` and `compute_svd_dtensor`), as before the ACA:
+/// the reference the ACA path is tested against
+#[cfg(test)]
+pub(crate) fn compute_sve_dense<K>(
+    kernel: K,
+    epsilon: Option<f64>,
+    twork: TworkType,
+) -> Result<SVEResult, Error>
+where
+    K: AbstractKernel + KernelProperties + Clone + 'static,
+{
+    fn run<T, K>(kernel: K, epsilon: f64) -> Result<SVEResult, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+        K: AbstractKernel + KernelProperties + Clone + 'static,
+        K::SVEHintsType<T>: SVEHints<T> + Clone,
+    {
+        let sve: Box<dyn SVEStrategy<T>> = if kernel.is_centrosymmetric() {
+            Box::new(CentrosymmSVE::new(kernel, epsilon)?)
+        } else {
+            Box::new(NonCentrosymmSVE::new(kernel, epsilon)?)
+        };
+        let (mut u_list, mut s_list, mut v_list) = (Vec::new(), Vec::new(), Vec::new());
+        for matrix in sve.matrices() {
+            let (u, s, v) = crate::tsvd::compute_svd_dtensor(&matrix)?;
+            u_list.push(u);
+            s_list.push(s);
+            v_list.push(v);
+        }
+        let (u, s, v) = truncate(u_list, s_list, v_list, default_cutoff::<T>(), None);
+        sve.postprocess(u, s, v)
+    }
+    let (safe_epsilon, twork) = safe_epsilon(epsilon, twork);
+    match twork {
+        TworkType::Float64 => run::<f64, K>(kernel, safe_epsilon),
+        TworkType::Float64X2 => run::<crate::Df64, K>(kernel, safe_epsilon),
+        TworkType::Auto => unreachable!("safe_epsilon resolves TworkType::Auto"),
+    }
+}
+
 /// Truncate SVD results based on cutoff and maximum size
 ///
 /// # Arguments
