@@ -1,8 +1,8 @@
 # Sparse modeling
 
 *Ported from the Python notebook
-[`spm_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/spm_py.html)
-of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+[`spm_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/spm_py.html)
+of [sparse-ir-tutorial](https://spm-lab.github.io/sparse-ir-tutorial/).
 The program that produced every number and figure on this page is
 `docs/tutorial-code/src/bin/spm.rs`; the code below is included from it.*
 

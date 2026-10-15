@@ -1,7 +1,7 @@
 //! The fluctuation-exchange approximation, shared by `flex` and `flex_scan`.
 //!
-//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial-v2
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/FLEX_py.html>), whose
+//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/src/FLEX_py.html>), whose
 //! author is Niklas Witt.
 //!
 //! FLEX is the self-consistent sum of the bubble and ladder series. Unlike

@@ -1,8 +1,8 @@
 //! The `d`-wave superconducting transition line of the square-lattice Hubbard
 //! model in FLEX.
 //!
-//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial-v2
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/FLEX_py.html>), whose author is Niklas
+//! Ported from the Python notebook `FLEX_py.ipynb` of sparse-ir-tutorial
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/src/FLEX_py.html>), whose author is Niklas
 //! Witt; this is the calculation behind Figs. 3(b) and
 //! 4 of Arita et al. (2000), and Fig. 2(a) of Witt et al. (2021).
 //!

@@ -1,8 +1,8 @@
 # Orbital magnetic susceptibility
 
 *Ported from the Python notebook
-[`orbital_magnetic_susceptibility_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/orbital_magnetic_susceptibility_py.html)
-of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
+[`orbital_magnetic_susceptibility_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/orbital_magnetic_susceptibility_py.html)
+of [sparse-ir-tutorial](https://spm-lab.github.io/sparse-ir-tutorial/),
 whose authors are Soshun Ozaki and Takashi Koretsune. The program that
 produced every number and figure on this page is
 `docs/tutorial-code/src/bin/orbital_magnetic_susceptibility.rs`; the code below

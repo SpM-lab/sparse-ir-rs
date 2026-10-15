@@ -1,7 +1,7 @@
 //! Exchange interactions by the Liechtenstein method.
 //!
 //! Ported from the Python notebook `liechtenstein_py.ipynb` of
-//! sparse-ir-tutorial-v2 (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>),
+//! sparse-ir-tutorial (<https://spm-lab.github.io/sparse-ir-tutorial/>),
 //! whose author is Takuya Nomoto.
 //!
 //! The Liechtenstein formula reads the parameters of a classical Heisenberg

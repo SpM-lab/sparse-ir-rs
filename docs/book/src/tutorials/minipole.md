@@ -7,7 +7,7 @@ the reference implementation of the minimal pole method: L. Zhang and E. Gull,
 and, for matrix-valued functions, L. Zhang, Y. Yu and E. Gull,
 [Phys. Rev. B **110**, 235131 (2024)](https://doi.org/10.1103/PhysRevB.110.235131).
 Both rest on the ESPRIT algorithm, available on its own as `sparse_ir::esprit`.
-The [Python tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/) have
+The [Python tutorials](https://spm-lab.github.io/sparse-ir-tutorial/) have
 no MiniPole notebook; this page is written for the Rust library.
 
 MiniPole approximates a Green's function by a small number of poles that are

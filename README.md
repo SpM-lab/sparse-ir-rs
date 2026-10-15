@@ -12,6 +12,8 @@ Most end users should start from the ecosystem documentation / tutorials and use
 
 ## Documentation
 
+Part of the [sparse-ir ecosystem](https://spm-lab.github.io/sparse-ir-doc/), maintained by [SpM-lab](https://spm-lab.github.io/).
+
 **Start here for Rust:** **[Rust User Guide](https://spm-lab.github.io/sparse-ir-rs/)** — browser-readable tutorials with figures, runnable examples, and conventions.
 
 | Resource | Description |
@@ -21,7 +23,7 @@ Most end users should start from the ecosystem documentation / tutorials and use
 | **[Current Rust API](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html)** | API documentation built from `main` |
 | **[Ecosystem Documentation](https://spm-lab.github.io/sparse-ir-doc/)** | Theory and usage across languages |
 | **[IR, DLR and MiniPole: history and comparison](https://spm-lab.github.io/sparse-ir-doc/src/history_comparison.html)** | How the three representations are related and when to use which |
-| **[Python/Julia Tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/)** | Interactive tutorials with Jupyter notebooks |
+| **[Python/Julia Tutorials](https://spm-lab.github.io/sparse-ir-tutorial/)** | Interactive tutorials with Jupyter notebooks |
 | **[Rust API: sparse-ir (docs.rs)](https://docs.rs/sparse-ir)** | Core Rust crate API documentation |
 | **[Rust API: sparse-ir-capi (docs.rs)](https://docs.rs/sparse-ir-capi)** | C-API Rust crate API documentation |
 

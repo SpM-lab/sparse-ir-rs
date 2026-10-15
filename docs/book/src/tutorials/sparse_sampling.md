@@ -1,8 +1,8 @@
 # Sparse sampling
 
 *Ported from the Python notebook
-[`sparse_sampling_demo_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/sparse_sampling_demo_py.html)
-of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+[`sparse_sampling_demo_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/sparse_sampling_demo_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial/).
 The program that produced every number and figure on this page is
 `docs/tutorial-code/src/bin/sparse_sampling_demo.rs`.*
 

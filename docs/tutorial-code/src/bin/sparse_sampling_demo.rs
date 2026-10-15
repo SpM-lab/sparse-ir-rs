@@ -1,7 +1,7 @@
 //! Sparse sampling: recovering the IR coefficients from a handful of points.
 //!
 //! Ported from the Python notebook `sparse_sampling_demo_py.ipynb` of the
-//! sparse-ir tutorials (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
+//! sparse-ir tutorials (<https://spm-lab.github.io/sparse-ir-tutorial/>).
 //!
 //! The spectral function is the semicircle of full bandwidth 2,
 //!

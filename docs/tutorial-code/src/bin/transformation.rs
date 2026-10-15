@@ -1,7 +1,7 @@
 //! Getting numerical data into the IR basis, and back out again.
 //!
 //! Ported from the Python notebook `transformation_py.ipynb` of the
-//! sparse-ir tutorials (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
+//! sparse-ir tutorials (<https://spm-lab.github.io/sparse-ir-tutorial/>).
 //!
 //! Four routes in, one route out:
 //!

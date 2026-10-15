@@ -2,8 +2,8 @@
 //! `eliashberg_holstein` and `eliashberg_holstein_scan`.
 //!
 //! Ported from the Python notebook `eliashberg_holstein_py.ipynb` of
-//! sparse-ir-tutorial-v2
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/eliashberg_holstein_py.html>), whose
+//! sparse-ir-tutorial
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/src/eliashberg_holstein_py.html>), whose
 //! authors are Shintaro Hoshino and Hiroshi Shinaoka.
 //!
 //! The electrons live on a semicircular density of states and are coupled to

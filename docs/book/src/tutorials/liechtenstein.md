@@ -1,8 +1,8 @@
 # Exchange interactions
 
 *Ported from the Python notebook
-[`liechtenstein_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/liechtenstein_py.html)
-of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
+[`liechtenstein_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/liechtenstein_py.html)
+of [sparse-ir-tutorial](https://spm-lab.github.io/sparse-ir-tutorial/),
 whose author is Takuya Nomoto. The program that produced every number and
 figure on this page is `docs/tutorial-code/src/bin/liechtenstein.rs`; the code
 below is included from it.*
