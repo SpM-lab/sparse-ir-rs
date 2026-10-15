@@ -18,6 +18,10 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 - `compute_sve_dense`: the SVE by the dense column-pivoted QR of the fully
   formed blocks (what `compute_sve` does in f64), in f64 and double-double,
   to check the ACA path on a new kernel.
+- `SegmentHints`: SVE hints given by the segment boundaries on the domain
+  of a kernel (`new`), or by a number of segments of equal length
+  (`uniform`), for any kernel, so that a kernel defined outside the crates
+  needs no hints type of its own.
 
 ### Changed
 

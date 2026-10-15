@@ -5,15 +5,14 @@
 //! geometrically, about (a/2)^l / l!. Its variants break the symmetry
 //! ([`TiltedExpKernel`]) or give the discretization zero rows
 //! ([`HalfExpKernel`]), or claim centrosymmetry on an asymmetric domain
-//! ([`AsymmetricDomainExpKernel`]). The SVE hints are uniform segments, `nseg` on [0, 1]
-//! (mirrored onto [-1, 1] for the full-domain variants), so that a test sets
-//! the size of the discretization.
+//! ([`AsymmetricDomainExpKernel`]). The SVE hints are uniform segments,
+//! `nseg` on [0, 1] and their mirror images on [-1, 0]
+//! ([`SegmentHints::uniform`]), so that a test sets the size of the
+//! discretization.
 
-use crate::kernel::{
-    AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType,
-};
+use crate::hints::SegmentHints;
+use crate::kernel::{AbstractKernel, ReducedKernel, SVEKernel, SVEStrategyKernel, SymmetryType};
 use crate::numeric::CustomNumeric;
-use crate::sve::mirror_segments_to_full_domain;
 use std::fmt::Debug;
 
 /// K(x, y) = exp(a x y) on [-1, 1] × [-1, 1]
@@ -60,44 +59,9 @@ impl ReducedKernel for ExpKernel {
     }
 }
 
-/// Uniform segments: `nseg` on [0, 1], or `2 nseg` on [-1, 1] when `full`
-#[derive(Debug, Clone)]
-pub(crate) struct UniformHints {
-    nseg: usize,
-    full: bool,
-}
-
-impl<T> SVEHints<T> for UniformHints
-where
-    T: Copy + Debug + Send + Sync + CustomNumeric,
-{
-    fn segments_x(&self) -> Vec<T> {
-        let half: Vec<T> = (0..=self.nseg)
-            .map(|i| T::from_f64_unchecked(i as f64 / self.nseg as f64))
-            .collect();
-        if self.full {
-            mirror_segments_to_full_domain(&half)
-        } else {
-            half
-        }
-    }
-
-    fn segments_y(&self) -> Vec<T> {
-        self.segments_x()
-    }
-
-    fn nsvals(&self) -> usize {
-        40
-    }
-
-    fn ngauss(&self) -> usize {
-        16
-    }
-}
-
 impl SVEKernel for ExpKernel {
     type SVEHintsType<T>
-        = UniformHints
+        = SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 
@@ -109,14 +73,11 @@ impl SVEKernel for ExpKernel {
         1.0
     }
 
-    fn sve_hints<T>(&self, _epsilon: f64) -> UniformHints
+    fn sve_hints<T>(&self, _epsilon: f64) -> SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {
-        UniformHints {
-            nseg: self.nseg,
-            full: false,
-        }
+        SegmentHints::uniform(self, 2 * self.nseg, 2 * self.nseg, 16).unwrap()
     }
 }
 
@@ -133,7 +94,7 @@ impl AbstractKernel for TiltedExpKernel {
 
 impl SVEKernel for TiltedExpKernel {
     type SVEHintsType<T>
-        = UniformHints
+        = SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 
@@ -145,14 +106,11 @@ impl SVEKernel for TiltedExpKernel {
         1.0
     }
 
-    fn sve_hints<T>(&self, _epsilon: f64) -> UniformHints
+    fn sve_hints<T>(&self, _epsilon: f64) -> SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {
-        UniformHints {
-            nseg: self.0.nseg,
-            full: true,
-        }
+        SegmentHints::uniform(self, 2 * self.0.nseg, 2 * self.0.nseg, 16).unwrap()
     }
 }
 
@@ -175,7 +133,7 @@ impl AbstractKernel for HalfExpKernel {
 
 impl SVEKernel for HalfExpKernel {
     type SVEHintsType<T>
-        = UniformHints
+        = SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 
@@ -187,14 +145,11 @@ impl SVEKernel for HalfExpKernel {
         1.0
     }
 
-    fn sve_hints<T>(&self, _epsilon: f64) -> UniformHints
+    fn sve_hints<T>(&self, _epsilon: f64) -> SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {
-        UniformHints {
-            nseg: self.0.nseg,
-            full: true,
-        }
+        SegmentHints::uniform(self, 2 * self.0.nseg, 2 * self.0.nseg, 16).unwrap()
     }
 }
 
@@ -228,7 +183,7 @@ impl ReducedKernel for AsymmetricDomainExpKernel {
 
 impl SVEKernel for AsymmetricDomainExpKernel {
     type SVEHintsType<T>
-        = UniformHints
+        = SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 
@@ -244,7 +199,7 @@ impl SVEKernel for AsymmetricDomainExpKernel {
         -0.5
     }
 
-    fn sve_hints<T>(&self, epsilon: f64) -> UniformHints
+    fn sve_hints<T>(&self, epsilon: f64) -> SegmentHints
     where
         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
     {

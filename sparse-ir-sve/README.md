@@ -10,6 +10,8 @@ on statistics or Matsubara frequencies, so it can expand other kernels as well.
   and either `ReducedKernel` (a centrosymmetric kernel, expanded in even and
   odd blocks) or `SVEStrategyKernel` (any other kernel, expanded over its
   full domain).
+- `SegmentHints` discretizes a kernel on given segments (or segments of equal
+  length) of its domain, so that a kernel needs no hints type of its own.
 - In `f64` the SVE takes the SVDs of the discretized kernel by a dense
   column-pivoted QR, in double-double by adaptive cross approximation, which
   reads only a few of its rows and columns; `compute_sve_dense` takes the

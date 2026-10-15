@@ -26,14 +26,15 @@
 //! # Example
 //!
 //! The SVE of K(x, y) = exp(xy) on [-1, 1] × [-1, 1]. The kernel is
-//! centrosymmetric, K(-x, -y) = K(x, y), so its hints cover the half domain
-//! [0, 1] and the SVE is computed in even and odd blocks: the even and odd
-//! reduced kernels K(x, y) ± K(x, -y) are 2 cosh(xy) and 2 sinh(xy).
+//! centrosymmetric, K(-x, -y) = K(x, y), so the SVE is computed in even and
+//! odd blocks: the even and odd reduced kernels K(x, y) ± K(x, -y) are
+//! 2 cosh(xy) and 2 sinh(xy). [`SegmentHints`] discretizes it on segments of
+//! equal length.
 //!
 //! ```
 //! use sparse_ir_sve::{
-//!     AbstractKernel, CustomNumeric, ReducedKernel, SVEHints, SVEKernel, SymmetryType, TworkType,
-//!     compute_sve,
+//!     AbstractKernel, CustomNumeric, ReducedKernel, SVEKernel, SegmentHints, SymmetryType,
+//!     TworkType, compute_sve,
 //! };
 //! use std::fmt::Debug;
 //!
@@ -65,31 +66,9 @@
 //!     }
 //! }
 //!
-//! /// Quadrature segments and sizes of the discretization
-//! #[derive(Debug, Clone)]
-//! struct ExpHints;
-//!
-//! impl<T: Copy + Debug + Send + Sync + CustomNumeric> SVEHints<T> for ExpHints {
-//!     fn segments_x(&self) -> Vec<T> {
-//!         [0.0, 0.5, 1.0].map(T::from_f64_unchecked).to_vec()
-//!     }
-//!
-//!     fn segments_y(&self) -> Vec<T> {
-//!         [0.0, 0.5, 1.0].map(T::from_f64_unchecked).to_vec()
-//!     }
-//!
-//!     fn nsvals(&self) -> usize {
-//!         20
-//!     }
-//!
-//!     fn ngauss(&self) -> usize {
-//!         16
-//!     }
-//! }
-//!
 //! impl SVEKernel for ExpKernel {
 //!     type SVEHintsType<T>
-//!         = ExpHints
+//!         = SegmentHints
 //!     where
 //!         T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
 //!
@@ -101,11 +80,12 @@
 //!         1.0
 //!     }
 //!
-//!     fn sve_hints<T>(&self, _epsilon: f64) -> ExpHints
+//!     fn sve_hints<T>(&self, _epsilon: f64) -> SegmentHints
 //!     where
 //!         T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
 //!     {
-//!         ExpHints
+//!         // Four segments on each axis, 16 Gauss points on each segment
+//!         SegmentHints::uniform(self, 4, 4, 16).unwrap()
 //!     }
 //! }
 //!
@@ -129,6 +109,7 @@ pub(crate) mod ddgemm; // Double-double matrix products
 pub mod error; // Error type of the public API
 pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod gauss;
+pub mod hints;
 pub(crate) mod interpolation1d;
 pub mod kernel;
 pub mod kernelmatrix;
@@ -146,6 +127,7 @@ mod test_kernels;
 
 pub use error::{Error, Result};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
+pub use hints::SegmentHints;
 pub use kernel::{
     AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType,
 };
