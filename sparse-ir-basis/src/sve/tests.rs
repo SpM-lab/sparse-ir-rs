@@ -1563,62 +1563,66 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
     (ds, df)
 }
 
-/// Checks the SVE of `compute_sve` (block SVDs by ACA) against the SVE by
-/// the dense CPQR-based SVD of the fully formed blocks, the method of main
-/// before the ACA
+/// Checks the SVE of `compute_sve` against the SVE by the dense CPQR-based
+/// SVD of the fully formed blocks, the method of main before the ACA
 ///
-/// Tolerances: the CPQR SVE itself is accurate only to the working
-/// precision ε_w relative to s₀, so the singular values are compared to
-/// 64·ε_w·s₀ (measured: 17·ε_w·s₀ in f64, under ε_w·s₀ in Df64). Relative
-/// to each singular value, and for the functions, the comparison is over
-/// the values a basis for ε uses (s_l ≥ ε·s₀, plus one more): the values
-/// and functions further down approach ε_w·s₀ and are not resolved by
-/// either method. There, in f64, s_l agrees to 1e-10 relative and u_l,
-/// v_l to 1e-8 (measured: 2.5e-11 and 8.4e-10, while the f64 CPQR SVE
-/// itself deviates from the Df64 one by up to 4.5e-12 and 7.5e-10, so "a
-/// few ulp" is not attainable by either method), and in Df64 to 1e-15 and
-/// 1e-14 (measured: 1.4e-16 and 1.2e-15).
-fn check_aca_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType)
+/// In f64, `compute_sve` uses that method: the SVEs are identical. In Df64
+/// it takes the block SVDs by ACA, and the tolerances are those of the
+/// review of #342. The CPQR SVE is accurate only to the working precision
+/// ε_w relative to s₀, so the singular values are compared to 64·ε_w·s₀
+/// (measured: under ε_w·s₀). Relative to each singular value, and for the
+/// functions, the comparison is over the values a basis for ε uses
+/// (s_l ≥ ε·s₀, plus one more), where they agree to 1e-15 and 1e-14
+/// (measured: 1.4e-16 and 1.2e-15); further down they approach ε_w·s₀ and
+/// are not resolved by either method. (Had the f64 SVE been taken by ACA as
+/// well, a few ulp would not have been attainable there: the f64 CPQR SVE
+/// itself deviates from the Df64 one by up to 4.5e-12 relative in s_l and
+/// 7.5e-10 in u_l, v_l.)
+fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType)
 where
     K: BasisKernel,
 {
     use super::compute::compute_sve_dense;
 
-    let aca = compute_sve(kernel.clone(), Some(eps), None, None, twork).unwrap();
+    let sve = compute_sve(kernel.clone(), Some(eps), None, None, twork).unwrap();
     let dense = compute_sve_dense(kernel, Some(eps), twork).unwrap();
     assert_eq!(
-        aca.s.len(),
+        sve.s.len(),
         dense.s.len(),
         "{twork:?}: number of singular values"
     );
+    if twork == TworkType::Float64 {
+        assert_eq!(sve.s, dense.s);
+        for (a, b) in [(&sve.u, &dense.u), (&sve.v, &dense.v)] {
+            for (p, q) in a.get_polys().iter().zip(b.get_polys()) {
+                assert_eq!(p.data.as_slice(), q.data.as_slice());
+            }
+        }
+        return;
+    }
 
     let eps_w = working_machine_epsilon(eps, twork);
     let s0 = dense.s[0];
-    for (l, (a, d)) in aca.s.iter().zip(&dense.s).enumerate() {
+    for (l, (a, d)) in sve.s.iter().zip(&dense.s).enumerate() {
         assert!(
             (a - d).abs() <= 64.0 * eps_w * s0,
             "{twork:?}: s[{l}] = {a:e} vs {d:e}"
         );
     }
-
-    let (s_rtol, f_rtol) = match twork {
-        TworkType::Float64 => (1e-10, 1e-8),
-        _ => (1e-15, 1e-14),
-    };
     let l_basis = dense.s.iter().take_while(|&&s| s >= eps * s0).count() + 1;
-    let (ds, df) = sve_deviation(&aca, &dense, 0..l_basis);
-    assert!(ds <= s_rtol, "{twork:?}: s_l relative error {ds:e}");
-    assert!(df <= f_rtol, "{twork:?}: u_l, v_l error {df:e}");
+    let (ds, df) = sve_deviation(&sve, &dense, 0..l_basis);
+    assert!(ds <= 1e-15, "{twork:?}: s_l relative error {ds:e}");
+    assert!(df <= 1e-14, "{twork:?}: u_l, v_l error {df:e}");
 }
 
-/// The cases of [`check_aca_against_dense_cpqr`] at one Λ: f64 and Df64,
+/// The cases of [`check_sve_against_dense_cpqr`] at one Λ: f64 and Df64,
 /// centrosymmetric (logistic) and windowed kernels
-fn check_aca_against_dense_cpqr_at(lambda: f64) {
+fn check_sve_against_dense_cpqr_at(lambda: f64) {
     use crate::kernel::LogisticKernelWindowed;
 
     for (eps, twork) in [(1e-6, TworkType::Float64), (1e-15, TworkType::Float64X2)] {
-        check_aca_against_dense_cpqr(LogisticKernel::new(lambda).unwrap(), eps, twork);
-        check_aca_against_dense_cpqr(
+        check_sve_against_dense_cpqr(LogisticKernel::new(lambda).unwrap(), eps, twork);
+        check_sve_against_dense_cpqr(
             LogisticKernelWindowed::from_physical(1.0, -0.3 * lambda, lambda).unwrap(),
             eps,
             twork,
@@ -1627,19 +1631,19 @@ fn check_aca_against_dense_cpqr_at(lambda: f64) {
 }
 
 #[test]
-fn test_aca_matches_dense_cpqr_lambda_1e2() {
-    check_aca_against_dense_cpqr_at(1e2);
+fn test_sve_matches_dense_cpqr_lambda_1e2() {
+    check_sve_against_dense_cpqr_at(1e2);
 }
 
 #[test]
-fn test_aca_matches_dense_cpqr_lambda_1e4() {
-    check_aca_against_dense_cpqr_at(1e4);
+fn test_sve_matches_dense_cpqr_lambda_1e4() {
+    check_sve_against_dense_cpqr_at(1e4);
 }
 
 /// Λ = 1e6: the dense Df64 SVEs take about 50 s (release, 8 threads), so
 /// this runs on request: `cargo test --release -- --ignored`
 #[test]
 #[ignore = "slow: dense Df64 SVE at Λ = 1e6 (about 50 s in release)"]
-fn test_aca_matches_dense_cpqr_lambda_1e6() {
-    check_aca_against_dense_cpqr_at(1e6);
+fn test_sve_matches_dense_cpqr_lambda_1e6() {
+    check_sve_against_dense_cpqr_at(1e6);
 }

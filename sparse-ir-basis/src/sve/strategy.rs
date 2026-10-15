@@ -19,8 +19,8 @@ use super::utils::{
 /// (Gauss points `x_i`, `y_j`, weights `w_i`, `w'_j`) whose entries are
 /// evaluated on demand
 ///
-/// The SVD of the SVE, by adaptive cross approximation, only touches a few
-/// rows and columns of `A`, so the matrix is not formed.
+/// The SVD of the double-double SVE, by adaptive cross approximation, only
+/// touches a few rows and columns of `A`, so the matrix is not formed.
 pub struct KernelBlock<'a, T> {
     nrows: usize,
     ncols: usize,
@@ -61,8 +61,9 @@ pub trait SVEStrategy<T: CustomNumeric> {
     /// The discretized, weighted kernel blocks to decompose, the matrices of
     /// [`Self::matrices`] with their entries evaluated on demand
     ///
-    /// `compute_sve` decomposes these by adaptive cross approximation, which
-    /// reads only a few rows and columns of each. The default forms the
+    /// `compute_sve` decomposes these in double-double by adaptive cross
+    /// approximation, which reads only a few rows and columns of each (in
+    /// f64 it decomposes [`Self::matrices`] as before). The default forms the
     /// matrices; the strategies of this crate evaluate the kernel lazily.
     fn blocks(&self) -> Vec<KernelBlock<'_, T>>
     where

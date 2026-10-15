@@ -1,32 +1,23 @@
 //! The default sampling points of bases of centrosymmetric kernels are those
-//! of main (the SparseIR.jl method), now that the SVE is computed by ACA.
+//! of main (the SparseIR.jl method), bitwise.
 //!
 //! Reference data: the default points of `FiniteTempBasis::new(kernel, β,
-//! Some(ε), None)` on main at 28a30e3 (the base of this branch, SVE by dense
-//! CPQR), printed by an example that calls
-//! `default_matsubara_sampling_points_i64(false / true)`,
-//! `default_matsubara_sampling_points_i64_with_mitigate(false, true, L)` and
-//! `default_tau_sampling_points` (sorted).
+//! Some(ε), None)` on main at 28a30e3 (the base of this branch), printed by
+//! an example that calls `default_matsubara_sampling_points_i64(false /
+//! true)`, `default_matsubara_sampling_points_i64_with_mitigate(false, true,
+//! L)` and `default_tau_sampling_points` (sorted), with the shortest
+//! round-trip representation of the floats.
 //!
-//! The Matsubara points are integers and must agree exactly. The tau points
-//! are the roots of u_L, which differ between the ACA and the CPQR SVE by
-//! the deviation of the functions: see [`TAU_TOL`].
+//! The Matsubara points come from the code of main. The tau points are the
+//! roots of u_L: in f64 (ε = 1e-6) the SVE is that of main bitwise, and in
+//! double-double (ε = 1e-10, 1e-12) the ACA SVE gives the same points after
+//! rounding the functions to f64.
 
 use sparse_ir::basis::FiniteTempBasis;
 use sparse_ir::kernel::{
     CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel,
 };
 use sparse_ir::traits::{Bosonic, Fermionic, StatisticsType};
-
-/// Tolerance for the tau points, relative to β
-///
-/// In Df64 (ε = 1e-10, 1e-12) the points agree exactly. In f64 (ε = 1e-6),
-/// the singular functions of the ACA and the CPQR SVE agree only to about
-/// 1e-9 relative (the f64 CPQR SVE itself deviates from the Df64 one by as
-/// much, see `check_aca_against_dense_cpqr` in sparse-ir-basis), and the
-/// roots of u_L by up to 9.1e-12 β (Λ = 10). 1e-10 leaves a margin of 10; a
-/// different root, as from a wrong u_L, moves a point by far more.
-const TAU_TOL: f64 = 1e-10;
 
 #[derive(Clone, Copy, Debug)]
 enum KernelKind {
@@ -93,21 +84,8 @@ where
     }
     let mut tau = basis.default_tau_sampling_points().unwrap();
     tau.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    if tau.len() != case.tau.len() {
-        failures.push(format!(
-            "{name}: {} tau points vs {}",
-            tau.len(),
-            case.tau.len()
-        ));
-    } else {
-        let dev = tau
-            .iter()
-            .zip(case.tau)
-            .map(|(a, b)| (a - b).abs() / case.beta)
-            .fold(0.0, f64::max);
-        if dev > TAU_TOL {
-            failures.push(format!("{name}: tau points deviate by {dev:e} β"));
-        }
+    if tau != case.tau {
+        failures.push(format!("{name}: tau points {tau:?} vs {:?}", case.tau));
     }
     failures
 }

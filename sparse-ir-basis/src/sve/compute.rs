@@ -147,13 +147,13 @@ where
 
 /// [`compute_sve`] of the singular values a basis for `epsilon` uses
 ///
-/// Resolves the spectrum only down to `max(2 * machine epsilon, f * epsilon)`
-/// times the largest singular value, with `f` = [`BASIS_CUTOFF_FACTOR`] and
-/// the machine epsilon of the working precision, and truncates it there. In
-/// Float64X2 (`epsilon` below about 1e-8) this is about 1.5 to 2.3 times
-/// faster than [`compute_sve`] and returns about 20% fewer singular values;
-/// in Float64 with `epsilon` ≤ 4.4e-6 the cutoff is that of
-/// [`compute_sve`] and the result is the same.
+/// Truncates the spectrum at `max(2 * machine epsilon, f * epsilon)` times
+/// the largest singular value, with `f` = [`BASIS_CUTOFF_FACTOR`] and the
+/// machine epsilon of the working precision. In Float64X2 (`epsilon` below
+/// about 1e-8) the block SVDs stop there, which is about 1.5 to 2.3 times
+/// faster than [`compute_sve`], with about 20% fewer singular values. In
+/// Float64 the result is that of [`compute_sve`] truncated at the cutoff,
+/// which for `epsilon` ≤ 4.4e-6 is that of [`compute_sve`]: the same result.
 ///
 /// The singular values a basis for `epsilon` uses (those ≥ `epsilon` times
 /// the largest, plus one more) agree with those of [`compute_sve`] to about
@@ -370,14 +370,10 @@ where
 {
     // 1. SVE strategy: `sve`
 
-    // 2. Discretized kernel blocks, evaluated lazily: the SVD below only
-    // touches their pivot rows and columns
-    let blocks = sve.blocks();
-
     // The block SVDs resolve the spectrum to the working precision, which an
     // explicit cutoff then only truncates in step 4 (the singular values of
     // an SVD close to its tolerance are not accurate, see `tsvd_aca`), or,
-    // for `compute_sve_for_basis`, only down to its cutoff.
+    // for `compute_sve_for_basis` in Df64, only down to its cutoff.
     let (rtol_t, svd_rtol) = match resolve {
         Resolve::Full => (cutoff.unwrap_or_else(default_cutoff::<T>), 0.0),
         Resolve::Basis => {
@@ -386,23 +382,41 @@ where
         }
     };
 
-    // 3. Compute the SVD of each block by adaptive cross approximation, the
-    // blocks concurrently (they are independent). The work is counted as
-    // forming the blocks in full (ACA reads fewer entries but does more per
-    // entry read).
-    let work = blocks
-        .iter()
-        .map(|block| block.nrows() * block.ncols() * crate::cost::KERNEL_ENTRY)
-        .sum();
-    let svds = crate::parallel::map_on_pool(blocks.len(), work, |b| {
-        let block = &blocks[b];
-        crate::tsvd::compute_svd_aca(
-            block.nrows(),
-            block.ncols(),
-            &|i, j| block.entry(i, j),
-            svd_rtol,
-        )
-    });
+    // 2.-3. The SVD of each block, the blocks concurrently (they are
+    // independent). The work is counted as forming the blocks in full.
+    let svds = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        // In f64, by the column-pivoted QR of the formed blocks, as before
+        // the ACA: the f64 SVE is that of main bitwise. Taken by ACA, its
+        // singular values agree to the working precision, but the number of
+        // those at the 2·ε_work noise floor differed in about one case out
+        // of eight, by up to 8; and the f64 SVE is cheap either way.
+        let matrices = sve.matrices();
+        let work = matrices
+            .iter()
+            .map(|m| m.shape().0 * m.shape().1 * crate::cost::KERNEL_ENTRY)
+            .sum();
+        crate::parallel::map_on_pool(matrices.len(), work, |b| {
+            crate::tsvd::compute_svd_dtensor(&matrices[b])
+        })
+    } else {
+        // In Df64, by adaptive cross approximation of the blocks, evaluated
+        // lazily: the SVD only touches their pivot rows and columns (ACA
+        // reads fewer entries but does more per entry read).
+        let blocks = sve.blocks();
+        let work = blocks
+            .iter()
+            .map(|block| block.nrows() * block.ncols() * crate::cost::KERNEL_ENTRY)
+            .sum();
+        crate::parallel::map_on_pool(blocks.len(), work, |b| {
+            let block = &blocks[b];
+            crate::tsvd::compute_svd_aca(
+                block.nrows(),
+                block.ncols(),
+                &|i, j| block.entry(i, j),
+                svd_rtol,
+            )
+        })
+    };
 
     let mut u_list = Vec::new();
     let mut s_list = Vec::new();
@@ -422,8 +436,9 @@ where
 }
 
 /// [`compute_sve`] by the dense CPQR-based SVD of the fully formed blocks
-/// (`SVEStrategy::matrices` and `compute_svd_dtensor`), as before the ACA:
-/// the reference the ACA path is tested against
+/// (`SVEStrategy::matrices` and `compute_svd_dtensor`), as before the ACA
+/// (and as `compute_sve` still does in f64): the reference the ACA path is
+/// tested against
 #[cfg(test)]
 pub(crate) fn compute_sve_dense<K>(
     kernel: K,
