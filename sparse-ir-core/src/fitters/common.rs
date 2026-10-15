@@ -632,11 +632,25 @@ fn svd_failed(matrix: String, err: impl std::fmt::Display) -> Error {
     }
 }
 
+/// Number of the descending singular values `s` with `s_l > rtol * s_0`
+///
+/// # Errors
+/// A message naming the first non-finite value: with a NaN s_0 every
+/// comparison is false, so the rank would be 0 and fits would silently return
+/// zeros.
+pub(super) fn pinv_rank(s: &[f64], rtol: f64) -> std::result::Result<usize, String> {
+    if let Some(l) = s.iter().position(|v| !v.is_finite()) {
+        return Err(format!("non-finite singular value s[{l}] = {}", s[l]));
+    }
+    let s0 = s.first().copied().unwrap_or(0.0);
+    Ok(s.iter().take_while(|&&v| v > rtol * s0).count())
+}
+
 /// [`compute_pinv`] of a matrix that `name` names in the error
 ///
 /// # Errors
 /// [`Error::DecompositionFailed`] if the SVD does not converge or returns
-/// factors of the wrong shape.
+/// non-finite singular values or factors of the wrong shape.
 pub(crate) fn compute_pinv_of<T: SvdScalar>(
     a: &[T],
     n: usize,
@@ -689,10 +703,7 @@ fn compute_pinv_impl<T: SvdScalar>(
     let (ldu, ldvt) = (u_shape[0], vt_shape[0]);
     let singular_values: Vec<f64> = s[..rank].iter().map(|&v| T::real_part(v)).collect();
     let rtol = rtol.unwrap_or(n.max(m) as f64 * f64::EPSILON);
-    let s0 = T::real_part(s[0]);
-    let rank = (0..rank)
-        .take_while(|&l| T::real_part(s[l]) > rtol * s0)
-        .count();
+    let rank = pinv_rank(&singular_values, rtol).map_err(|err| svd_failed(name(), err))?;
 
     // U^H: uh[l + r*i] = conj(U[i, l])
     let mut uh = vec![T::zero(); rank * n];
