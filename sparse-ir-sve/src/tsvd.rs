@@ -51,7 +51,7 @@ impl<T> TSVDConfig<T> {
 const SVD_MAX_SWEEPS_PER_SINGULAR_VALUE: usize = 30;
 
 /// Iteration limit of the SVD of an `nrows × ncols` matrix
-fn svd_max_sweeps(nrows: usize, ncols: usize) -> usize {
+pub(crate) fn svd_max_sweeps(nrows: usize, ncols: usize) -> usize {
     // Never 0, which nalgebra reads as "no limit"
     SVD_MAX_SWEEPS_PER_SINGULAR_VALUE * nrows.min(ncols).max(1)
 }

@@ -1209,3 +1209,20 @@ fn test_sve_matches_dense_cpqr() {
         );
     }
 }
+
+/// The block SVDs of exp(50 x y) in double-double precision, whose ACA
+/// factors make the Cholesky factor of the recompression NaN, finish (they
+/// looped forever in the SVD of that factor) and agree with the SVE of the
+/// same discretization in f64.
+#[test]
+fn test_compute_sve_of_a_kernel_whose_cholesky_recompression_fails() {
+    let kernel = ExpKernel { a: 50.0, nseg: 2 };
+    let df64 = compute_sve(kernel, Some(1e-12), None, None, TworkType::Float64X2).unwrap();
+    let f64 = compute_sve(kernel, Some(1e-12), None, None, TworkType::Float64).unwrap();
+    let (s, s_f64) = (df64.s(), f64.s());
+    assert!(s.len() > s_f64.len(), "{} vs {}", s.len(), s_f64.len());
+    for (l, (a, b)) in s.iter().zip(s_f64).enumerate() {
+        // Measured: at most 2e-15 s_0
+        assert!((a - b).abs() <= 1e-13 * s[0], "s_{l}: {a:e} vs {b:e}");
+    }
+}

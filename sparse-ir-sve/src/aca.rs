@@ -6,7 +6,7 @@
 //! rank-decaying) SVE kernel matrices. The factors are recompressed to a true
 //! SVD by two thin QRs plus a small `k×k` SVD.
 
-use nalgebra::{ComplexField, DMatrix, RealField};
+use nalgebra::{ComplexField, DMatrix, RealField, SVD};
 use num_traits::{One, ToPrimitive, Zero};
 
 use crate::cost::KERNEL_ENTRY;
@@ -14,7 +14,8 @@ use crate::error::Error;
 use crate::numeric::CustomNumeric;
 use crate::parallel::for_each_chunk;
 use crate::tsvd::{
-    SVDResult, TSVDConfig, check_finite_entries, check_tsvd_input, try_svd_decompose, tsvd,
+    SVDResult, TSVDConfig, check_finite_entries, check_tsvd_input, svd_max_sweeps,
+    try_svd_decompose, tsvd,
 };
 
 /// Oversampling window: the number of consecutive pivots that must pass the
@@ -466,7 +467,22 @@ where
             .l()
             .transpose();
         let r_f64 = r.map(|x| CustomNumeric::to_f64(x));
-        let sv = r_f64.singular_values();
+        // Where ŨᵀŨ is not numerically positive definite, the double-double
+        // Cholesky can return NaN instead of failing; an SVD of NaN never
+        // converges.
+        if !r_f64.iter().all(|x| x.is_finite()) {
+            return None;
+        }
+        // nalgebra's singular_values() with an iteration limit
+        let n = r_f64.nrows();
+        let sv = SVD::try_new_unordered(
+            r_f64,
+            false,
+            false,
+            5.0 * f64::EPSILON,
+            svd_max_sweeps(n, n),
+        )?
+        .singular_values;
         let kappa = sv.max() / sv.min();
         (kappa * kappa * eps <= MAX_CHOLESKY_QR_LOSS).then_some((scaled, d, r))
     };
