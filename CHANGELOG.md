@@ -5,6 +5,39 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+### Added
+
+- The `sparse-ir-sve` crate: the SVE of integral kernels K(x, y), with the
+  ACA-accelerated truncated SVD, and the numerics it is built on (Gauss
+  quadrature, piecewise Legendre polynomials, `Df64`, the dense containers,
+  the error type, the FPU guard, the rayon pool), without the physics of the
+  IR basis, for use with other kernels. `sparse-ir-basis` re-exports its
+  modules under the previous paths (`sparse_ir::sve`, `sparse_ir::gauss`,
+  `sparse_ir::poly`, ...). Its `parallel` feature is off by default and
+  turned on by that of `sparse-ir-core`.
+- `compute_sve_dense`: the SVE by the dense column-pivoted QR of the fully
+  formed blocks (what `compute_sve` does in f64), in f64 and double-double,
+  to check the ACA path on a new kernel.
+
+### Changed
+
+- The kernel traits are split into the mathematics of the SVE, defined in
+  `sparse-ir-sve`, and the physics of the basis. `AbstractKernel` (values),
+  `SVEKernel` (domain and SVE hints, taken out of `KernelProperties`),
+  `ReducedKernel` (`compute_reduced`, taken out of `CentrosymmKernel`) and
+  `SVEStrategyKernel` (the SVE strategy, taken out of `BasisKernel`) come
+  from `sparse-ir-sve`; `KernelProperties` (`ypower`, `conv_radius`,
+  `regularizer`), `CentrosymmKernel` (`lambda`) and `BasisKernel`
+  (`kernel_lambda`) stay in `sparse-ir-basis`, each extending the trait it
+  was split from. Code that bounds on these traits is unchanged; a kernel
+  defined outside the crates implements `SVEKernel` next to
+  `KernelProperties`, `ReducedKernel` next to `CentrosymmKernel`, and, if it
+  is not centrosymmetric, `SVEStrategyKernel` next to `BasisKernel`. Calling
+  `xmax()` or `sve_hints()` on a concrete kernel needs `SVEKernel` in scope.
+- The functions of the SVE, the quadrature and the polynomials return
+  `sparse_ir_sve::Error`, which converts into `sparse_ir::Error` (`?`,
+  `From`).
+
 ## [0.15.0] - 2026-10-31
 
 ### Added

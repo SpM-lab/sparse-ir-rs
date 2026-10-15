@@ -3,7 +3,7 @@
 These are sparse-ir-rs-specific rules. Apply them in addition to the shared
 [SpM-lab agent rules](https://github.com/SpM-lab/spm-agent-rules).
 
-The workspace publishes six Rust crates: four implementation crates,
+The workspace publishes seven Rust crates: five implementation crates,
 the `sparse-ir` facade, and the `sparse-ir-capi` C ABI crate. It also maintains
 thin Python and Fortran bindings to that C ABI. Rules below protect the
 numerical contracts and the boundaries between those layers.
@@ -16,17 +16,31 @@ issue or explicit maintainer approval that defines its scope and verification.
 
 ## Workspace Layout
 
-This is a Cargo workspace (`resolver = "2"`) with six published members,
-defined in the top-level `Cargo.toml`. The Rust library is split into four
+This is a Cargo workspace (`resolver = "2"`) with seven published members,
+defined in the top-level `Cargo.toml`. The Rust library is split into five
 crates by dependency, with `sparse-ir` re-exporting them under the usual
 paths (`sparse_ir::basis`, `sparse_ir::dlr`, ...):
 
+- **`sparse-ir-sve/`** — the singular value expansion of kernels K(x, y),
+  usable without the rest of the workspace: the kernel traits
+  (`kernel.rs`), kernel matrices (`kernelmatrix.rs`), the SVE (`sve/`), the truncated SVD and its
+  ACA front-end (`tsvd.rs`, `aca.rs`, `col_piv_qr.rs`, `ddgemm.rs`),
+  extended precision (`numeric.rs`), Gauss quadrature (`gauss.rs`),
+  piecewise Legendre polynomials (`poly.rs`), Legendre collocation
+  (`interpolation1d.rs`), column-major containers (`matrix.rs`), its error
+  type (`error.rs`), FPU state handling (`fpu_check.rs`) and the parallel
+  execution on the rayon pool (`parallel.rs`, with the `parallel` feature,
+  which the one of `sparse-ir-core` turns on). Mathematics only: it defines
+  no concrete kernel and knows nothing of statistics or Matsubara
+  frequencies; its tests use kernels of their own (`test_kernels.rs`).
+  Depends on no other crate of the workspace.
 - **`sparse-ir-core/`** — statistics and Matsubara frequencies (`traits.rs`,
-  `freq.rs`, `taufuncs.rs`), the error type (`error.rs`), the GEMM dispatch
-  layer (`gemm.rs`), column-major containers (`matrix.rs`), the least-squares
-  fitters (`fitters/`), the `Basis` trait (`basis_trait.rs`), sparse sampling
-  (`sampling.rs`, `matsubara_sampling.rs`) and FPU state handling
-  (`fpu_check.rs`). No extended precision, no IR basis. Owns the
+  `freq.rs`, `taufuncs.rs`), the error type (`error.rs`, which converts the
+  errors of `sparse-ir-sve`), the GEMM dispatch layer (`gemm.rs`), the
+  tenferro conversions of the column-major containers (`matrix.rs`), the
+  least-squares fitters (`fitters/`), the `Basis` trait (`basis_trait.rs`)
+  and sparse sampling (`sampling.rs`, `matsubara_sampling.rs`); re-exports
+  `fpu_check` and `parallel` from `sparse-ir-sve`. No IR basis. Owns the
   `system-blas` feature and the `build.rs` that links BLAS.
 - **`sparse-ir-dlr/`** — the discrete Lehmann representation (`dlr.rs`) and
   its interpolative-decomposition construction (`dlr_id.rs`). Depends on
@@ -36,14 +50,18 @@ paths (`sparse_ir::basis`, `sparse_ir::dlr`, ...):
   in `LICENSE-THIRD-PARTY`). `tests/reference_parity.rs` compares them with
   outputs of the reference written by `tests/reference/gen_reference.py`.
   Depends on the core and the DLR.
-- **`sparse-ir-basis/`** — the IR basis: kernels and SVE (`kernel.rs`,
-  `kernelmatrix.rs`, `sve/`, `tsvd.rs`, `col_piv_qr.rs`, `numeric.rs`),
-  piecewise Legendre polynomials and their Fourier transforms (`poly.rs`,
-  `polyfourier.rs`), Legendre collocation (`interpolation1d.rs`), Gauss
-  quadrature (`gauss.rs`), special functions, `FiniteTempBasis` (`basis.rs`)
-  and the DLR built from an IR basis (`ir_dlr.rs`: `IrBasis`, `DlrFromIr`,
-  `dlr_transform`). Depends on the core and the DLR; its unit tests also
-  cover the samplings and the DLR on an IR basis.
+- **`sparse-ir-basis/`** — the IR basis: the kernels (logistic, windowed
+  logistic, regularized Bose), their SVE hints and physical properties
+  (`kernel.rs`: `KernelProperties`, `CentrosymmKernel`, `BasisKernel`), the
+  Fourier transforms of the piecewise Legendre polynomials
+  (`polyfourier.rs`), the Matsubara sampling-point selection
+  (`pair_select.rs`), special functions,
+  `FiniteTempBasis` (`basis.rs`) and the DLR built from an IR basis
+  (`ir_dlr.rs`: `IrBasis`, `DlrFromIr`, `dlr_transform`). Re-exports the
+  modules of `sparse-ir-sve` under its own paths (`sparse_ir_basis::sve`,
+  `gauss`, `poly`, ...). Depends on `sparse-ir-sve`, the core and the DLR;
+  its unit tests also cover the SVE of its kernels (`sve_tests.rs`), the
+  samplings and the DLR on an IR basis.
 - **`sparse-ir/`** — the facade crate (`sparse_ir`, lib crate types
   `cdylib` + `rlib`): re-exports only. Holds the examples, the integration
   tests (`sparse-ir/tests/`) and the crates.io README. The other library
@@ -90,15 +108,15 @@ Accelerate framework as the default BLAS backend) and mirror what CI runs in
 ```bash
 # Build/test the library crates (default backend: faer, pure Rust)
 cargo build -p sparse-ir --release
-cargo test -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --release
+cargo test -p sparse-ir-sve -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --release
 
 # Build/test the whole workspace
 cargo build --all-targets --release --locked
 cargo test --all-targets --release --locked
 
 # Build/test the library crates with the system-BLAS (LP64) GEMM backend instead of faer
-cargo build -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked
-cargo test -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked
+cargo build -p sparse-ir-sve -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked
+cargo test -p sparse-ir-sve -p sparse-ir-core -p sparse-ir-dlr -p sparse-ir-minipole -p sparse-ir-basis -p sparse-ir --features sparse-ir-core/system-blas --all-targets --release --locked
 
 # Build/test the C API crate
 cargo build -p sparse-ir-capi --release
@@ -446,10 +464,10 @@ Workflows in `.github/workflows/` (all triggered on push/PR to `main`):
   `python/pyproject.toml` `[project].version` and the `sparse-ir/README.md`
   install snippets with the workspace version and run
   `python3 check_version.py`, which fails on either mismatch.
-- Publish `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`,
-  `sparse-ir-basis`, `sparse-ir`, and `sparse-ir-capi` in dependency order.
-  The manual release workflow enforces this order and pushes `vX.Y.Z` only
-  after all six are published to crates.io.
+- Publish `sparse-ir-sve`, `sparse-ir-core`, `sparse-ir-dlr`,
+  `sparse-ir-minipole`, `sparse-ir-basis`, `sparse-ir`, and `sparse-ir-capi` in
+  dependency order. The manual release workflow enforces this order and pushes
+  `vX.Y.Z` only after all seven are published to crates.io.
 - Update downstream Julia version metadata only after the corresponding crates
   are available from crates.io. Follow the shared `sparse-ir-release` skill
   for that separate stage.

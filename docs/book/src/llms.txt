@@ -34,10 +34,11 @@
 ## API reference
 
 - [Facade crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir/index.html): Main Rust API and re-exports.
+- [SVE crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_sve/index.html): Singular value expansion of kernels, truncated SVD, and ACA.
 - [Core crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_core/index.html): Statistics, tensors, sampling, fitters, and errors.
 - [DLR crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_dlr/index.html): Discrete Lehmann representation.
 - [MiniPole crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_minipole/index.html): ESPRIT and minimal-pole routines.
-- [Basis crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_basis/index.html): Kernels, SVE, and IR basis.
+- [Basis crate](https://spm-lab.github.io/sparse-ir-rs/api/sparse_ir_basis/index.html): Physical kernels and IR basis.
 - [C API crate](https://docs.rs/sparse-ir-capi/): C ABI and Rust wrapper API.
 
 ## Agent usage

@@ -74,10 +74,11 @@ Rust users typically depend on the crates below. Users of other languages typica
 ### Rust crates
 
 - **`sparse-ir`** — Rust implementation of the IR basis, DLR, MiniPole and sampling ([README](sparse-ir/README.md), [docs.rs](https://docs.rs/sparse-ir)). It re-exports the crates it is made of; all of them are published on crates.io and can also be used on their own:
+  - [`sparse-ir-sve`](sparse-ir-sve/README.md) — the singular value expansion of integral kernels (with the ACA-accelerated truncated SVD), usable on its own for other kernels
   - [`sparse-ir-core`](sparse-ir-core/README.md) — statistics, errors, GEMM, fitters, the `Basis` trait and sparse sampling
   - [`sparse-ir-dlr`](sparse-ir-dlr/README.md) — the discrete Lehmann representation (no IR basis needed)
   - [`sparse-ir-minipole`](sparse-ir-minipole/README.md) — ESPRIT and minimal pole representations
-  - [`sparse-ir-basis`](sparse-ir-basis/README.md) — kernels, the singular value expansion and the IR basis
+  - [`sparse-ir-basis`](sparse-ir-basis/README.md) — the physical kernels and the IR basis
 - **`sparse-ir-capi`** — Rust crate providing a C-compatible API (shared library + C header) ([README](sparse-ir-capi/README.md), [docs.rs](https://docs.rs/sparse-ir-capi))
 
 ### Bindings (other languages)
@@ -135,7 +136,7 @@ This workspace is dual-licensed under the terms of the MIT license and the Apach
 
 Some components incorporate third-party code:
 
-- the `col_piv_qr` module in the `sparse-ir-basis` crate is based on nalgebra (Apache-2.0); see [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE`;
+- the `col_piv_qr` module in the `sparse-ir-sve` crate is based on nalgebra (Apache-2.0); see [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE`;
 - the ESPRIT and MiniPole code in the `sparse-ir-minipole` crate is a port of [MiniPole](https://github.com/Green-Phys/MiniPole) (MIT); see [`sparse-ir-minipole/LICENSE-THIRD-PARTY`](sparse-ir-minipole/LICENSE-THIRD-PARTY).
 
 ---
@@ -150,9 +151,10 @@ sparse-ir-rs/
 │   ├── examples/        # Rust examples
 │   └── tests/           # Integration tests
 ├── sparse-ir-core/      # Statistics, errors, GEMM, fitters, Basis trait, sampling
+├── sparse-ir-sve/       # Singular value expansion (kernels, TSVD, ACA)
 ├── sparse-ir-dlr/       # Discrete Lehmann representation
 ├── sparse-ir-minipole/  # ESPRIT and minimal pole representations
-├── sparse-ir-basis/     # Kernels, SVE, IR basis
+├── sparse-ir-basis/     # Physical kernels, IR basis
 ├── sparse-ir-capi/      # C-compatible API (shared library)
 ├── python/              # Python thin wrapper (pylibsparseir)
 │   ├── pylibsparseir/   # ctypes bindings to C-API
@@ -283,6 +285,7 @@ The release process is done in **two stages** because Julia bindings depend on t
    
    [workspace.dependencies]
    sparse-ir = { version = "X.Y.Z", path = "sparse-ir" }
+   sparse-ir-sve = { version = "X.Y.Z", path = "sparse-ir-sve" }
    sparse-ir-core = { version = "X.Y.Z", path = "sparse-ir-core" }
    sparse-ir-dlr = { version = "X.Y.Z", path = "sparse-ir-dlr" }
    sparse-ir-minipole = { version = "X.Y.Z", path = "sparse-ir-minipole" }
@@ -300,7 +303,7 @@ The release process is done in **two stages** because Julia bindings depend on t
    root `README.md`, and the snippets in `docs/book/src/getting-started/installation.md`. The
    crate README is packaged with the crate and rendered on crates.io, so `check_version.py` fails
    until they all match. Also update the prose that names the release the docs are written
-   against ("the 0.N release") in `README.md`, `sparse-ir/README.md`, the four sub-crate READMEs
+   against ("the 0.N release") in `README.md`, `sparse-ir/README.md`, the sub-crate READMEs
    and `installation.md`; `check_version.py` does not check it.
 
    Regenerate the lock files: `cargo update -w`, `(cd python && uv lock)`, and
@@ -310,13 +313,13 @@ The release process is done in **two stages** because Julia bindings depend on t
 4. Verify version consistency and test publishing (dry run):
    ```bash
    python3 check_version.py
-   cargo publish -p sparse-ir-core --dry-run
+   cargo publish -p sparse-ir-sve --dry-run
    ```
 
-   The library crates depend on each other (`sparse-ir-core` <- `sparse-ir-dlr` <-
-   `sparse-ir-minipole`, `sparse-ir-basis` <- `sparse-ir` <- `sparse-ir-capi`), so the registry
+   The library crates depend on each other (`sparse-ir-sve` <- `sparse-ir-core` <- `sparse-ir-dlr`
+   <- `sparse-ir-minipole`, `sparse-ir-basis` <- `sparse-ir` <- `sparse-ir-capi`), so the registry
    verification of each one only succeeds after the version it depends on is visible on crates.io;
-   only `sparse-ir-core` can be dry-run first. The manual release workflow publishes them in that
+   only `sparse-ir-sve` can be dry-run first. The manual release workflow publishes them in that
    order and waits for each one.
 
 5. Create a PR for the version bump:
@@ -343,7 +346,7 @@ The release process is done in **two stages** because Julia bindings depend on t
    gh run watch "$RUN_ID"
    ```
 
-   The workflow publishes `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`,
+   The workflow publishes `sparse-ir-sve`, `sparse-ir-core`, `sparse-ir-dlr`, `sparse-ir-minipole`,
    `sparse-ir-basis`, `sparse-ir`, and `sparse-ir-capi` in dependency order,
    waiting for registry visibility before proceeding. Only then does it push `vX.Y.Z`.
 
