@@ -1,8 +1,8 @@
 # DMFT with an IPT solver
 
 *Ported from the Python notebook
-[`DMFT_IPT_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/DMFT_IPT_py.html)
-of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
+[`DMFT_IPT_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/DMFT_IPT_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial/),
 whose author is Niklas Witt. The programs that produced every number and
 figure on this page are `docs/tutorial-code/src/bin/dmft_ipt.rs` and
 `docs/tutorial-code/src/bin/dmft_ipt_scan.rs`; the loop itself is in

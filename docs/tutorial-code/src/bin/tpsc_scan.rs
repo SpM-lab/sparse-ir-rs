@@ -1,7 +1,7 @@
 //! The interaction dependence of the TPSC vertices, at half filling.
 //!
-//! Ported from the last section of `TPSC_py.ipynb` of sparse-ir-tutorial-v2
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/TPSC_py.html>; author: Niklas Witt),
+//! Ported from the last section of `TPSC_py.ipynb` of sparse-ir-tutorial
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/src/TPSC_py.html>; author: Niklas Witt),
 //! which reproduces Fig. 2 of Vilk and Tremblay, J. Phys. I 7, 1309 (1997).
 //!
 //! The same solver as `tpsc`, run at fifty-one interaction strengths. The

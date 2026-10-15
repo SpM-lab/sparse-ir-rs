@@ -1,7 +1,7 @@
 //! Orbital magnetic susceptibility of a tight-binding model.
 //!
 //! Ported from the Python notebook `orbital_magnetic_susceptibility_py.ipynb`
-//! of sparse-ir-tutorial-v2 (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>),
+//! of sparse-ir-tutorial (<https://spm-lab.github.io/sparse-ir-tutorial/>),
 //! whose authors are Soshun Ozaki and Takashi Koretsune.
 //!
 //! For a tight-binding model the orbital susceptibility is the Matsubara sum

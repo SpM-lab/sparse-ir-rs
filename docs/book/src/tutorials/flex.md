@@ -1,8 +1,8 @@
 # Fluctuation exchange
 
 *Ported from the Python notebook
-[`FLEX_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/FLEX_py.html)
-of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
+[`FLEX_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/FLEX_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial/),
 whose author is Niklas Witt. The programs that produced every number and
 figure on this page are `docs/tutorial-code/src/bin/flex.rs` and
 `docs/tutorial-code/src/bin/flex_scan.rs`; the solver is in

@@ -2,8 +2,8 @@
 //! model, at one temperature.
 //!
 //! Ported from the Python notebook `eliashberg_holstein_py.ipynb` of
-//! sparse-ir-tutorial-v2
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/src/eliashberg_holstein_py.html>), whose
+//! sparse-ir-tutorial
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/src/eliashberg_holstein_py.html>), whose
 //! authors are Shintaro Hoshino and Hiroshi Shinaoka.
 //!
 //! Every quantity here is local, so the loop is as small as a self-consistent

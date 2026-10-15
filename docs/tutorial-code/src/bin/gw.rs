@@ -1,7 +1,7 @@
 //! One GF2 & GW iteration, and then twenty of them.
 //!
-//! Ported from the Python notebook `GW_py.ipynb` of sparse-ir-tutorial-v2
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
+//! Ported from the Python notebook `GW_py.ipynb` of sparse-ir-tutorial
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/>).
 //!
 //! The Hedin equations are each diagonal in one representation or the other,
 //! so a GW iteration is a tour of all of them:

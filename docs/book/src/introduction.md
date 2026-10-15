@@ -38,7 +38,7 @@ another code. *Representations* introduces the IR basis, the DLR and MiniPole.
 *Applied examples* solve complete many-body problems with the IR basis.
 
 Most pages follow a notebook of the Python and Julia tutorials,
-[sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/);
+[sparse-ir-tutorial](https://spm-lab.github.io/sparse-ir-tutorial/);
 each page says which one.
 
 ## How this book is built

@@ -1,7 +1,7 @@
 //! Second-order perturbation theory for the Hubbard model on a square lattice.
 //!
 //! Ported from the Python notebook `second_order_perturbation_py.ipynb` of
-//! sparse-ir-tutorial-v2 (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
+//! sparse-ir-tutorial (<https://spm-lab.github.io/sparse-ir-tutorial/>).
 //!
 //! The second-order self-energy is a product of three Green's functions in
 //! imaginary time and real space,

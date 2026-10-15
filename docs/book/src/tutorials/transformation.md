@@ -1,8 +1,8 @@
 # Transformation from and to IR
 
 *Ported from the Python notebook
-[`transformation_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/transformation_py.html)
-of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+[`transformation_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/transformation_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial/).
 The program that produced every number and figure on this
 page is `docs/tutorial-code/src/bin/transformation.rs`.*
 
