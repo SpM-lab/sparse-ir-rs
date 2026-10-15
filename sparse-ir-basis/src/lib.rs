@@ -49,7 +49,7 @@ pub mod special_functions;
 pub mod sve;
 pub mod tsvd; // High-precision truncated SVD using nalgebra
 
-pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
+pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis, MatsubaraPointMethod};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
 pub use ir_dlr::{DlrFromIr, IrBasis};
 pub use kernel::{

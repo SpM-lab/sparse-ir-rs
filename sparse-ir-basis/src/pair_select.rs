@@ -4,7 +4,7 @@
 //! so that the rows of the first `n_cols` columns, together with some fixed
 //! rows, form a well-conditioned square matrix `F_S`. Used for Matsubara
 //! frequencies, where a pair is `(Re û(n), Im û(n))` (see
-//! [`crate::polyfourier::select_sign_changes`]).
+//! [`crate::polyfourier::pair_sampling_points`]).
 //!
 //! The selection minimizes `‖F_S⁻¹ T_S‖² + ‖F_S⁻¹‖²` (Frobenius norms), where
 //! `T` are the remaining columns of `A` (the next functions, beyond those
@@ -32,35 +32,28 @@ const RANK_TOL: f64 = 1e-12;
 ///
 /// Columns `..n_cols` of `a` and `fixed` are fitted; the remaining columns of
 /// `a` (and `fixed`), if any, enter the aliasing term. `fixed` rows are always
-/// part of the selection. Pairs `..n_square` are added until there are at
-/// least `n_cols` rows; if this makes the selection square, it is improved by
-/// exchanges. Then `n_extra` more pairs, among all those of `a`, are added
-/// (oversampling), each maximizing the growth of `det(F_Sᵀ F_S)`.
+/// part of the selection. Pairs are added until there are at least `n_cols`
+/// rows; if this makes the selection square, it is improved by exchanges.
+/// Then `n_extra` more pairs are added (oversampling), each maximizing the
+/// growth of `det(F_Sᵀ F_S)`.
 ///
 /// Returns pair indices in selection order. Fewer pairs are returned if the
-/// rows of the first `n_square` pairs do not have rank `n_cols`.
+/// rows of `a` do not have rank `n_cols`.
 pub(crate) fn select_pairs(
     a: &DMatrix<f64>,
-    n_square: usize,
     fixed: &DMatrix<f64>,
     n_cols: usize,
     n_extra: usize,
 ) -> Vec<usize> {
     assert_eq!(a.nrows() % 2, 0, "rows of `a` come in pairs");
-    assert!(2 * n_square <= a.nrows());
     assert_eq!(a.ncols(), fixed.ncols());
     let n_cols = n_cols.min(a.ncols());
     if n_cols == 0 {
         return Vec::new();
     }
-    let square = a.rows(0, 2 * n_square).into_owned();
-    let mut pairs = greedy_pairs(
-        &square.columns(0, n_cols),
-        &fixed.columns(0, n_cols),
-        n_cols,
-    );
+    let mut pairs = greedy_pairs(&a.columns(0, n_cols), &fixed.columns(0, n_cols), n_cols);
     if fixed.nrows() + 2 * pairs.len() == n_cols {
-        exchange_pairs(&square, fixed, n_cols, &mut pairs);
+        exchange_pairs(a, fixed, n_cols, &mut pairs);
     }
     add_pairs_oversampling(
         &a.columns(0, n_cols),

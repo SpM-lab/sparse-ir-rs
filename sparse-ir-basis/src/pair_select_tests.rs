@@ -34,10 +34,7 @@ fn greedy_selects_dominant_pairs() {
         a[(2 * p, 2 * k)] = 10.0;
         a[(2 * p + 1, 2 * k + 1)] = 10.0;
     }
-    assert_eq!(
-        sorted(select_pairs(&a, a.nrows() / 2, &no_fixed(4), 4, 0)),
-        vec![1, 3]
-    );
+    assert_eq!(sorted(select_pairs(&a, &no_fixed(4), 4, 0)), vec![1, 3]);
 }
 
 /// Pairs 0, 1 have a slightly larger volume than pairs 2, 3 (so the greedy
@@ -65,7 +62,7 @@ fn exchange_prefers_vanishing_tail() {
         greedy[0] < 2,
         "greedy step should pick a larger pair: {greedy:?}"
     );
-    let pairs = select_pairs(&a, a.nrows() / 2, &no_fixed(3), 2, 0);
+    let pairs = select_pairs(&a, &no_fixed(3), 2, 0);
     assert_eq!(pairs.len(), 1);
     assert!(pairs[0] >= 2, "selected pair {pairs:?} has a nonzero tail");
 }
@@ -77,7 +74,7 @@ fn exchange_lowers_objective() {
     let fixed = no_fixed(12);
     let n_cols = 10;
     let greedy = greedy_pairs(&a.columns(0, n_cols), &fixed.columns(0, n_cols), n_cols);
-    let selected = select_pairs(&a, a.nrows() / 2, &fixed, n_cols, 0);
+    let selected = select_pairs(&a, &fixed, n_cols, 0);
     assert_eq!(selected.len(), 5);
     assert!(
         objective(&a, &fixed, n_cols, &selected) < objective(&a, &fixed, n_cols, &greedy),
@@ -89,7 +86,7 @@ fn exchange_lowers_objective() {
 #[test]
 fn no_tail_columns() {
     let a = smooth(40, 6);
-    let selected = select_pairs(&a, a.nrows() / 2, &no_fixed(6), 6, 0);
+    let selected = select_pairs(&a, &no_fixed(6), 6, 0);
     assert_eq!(selected.len(), 3);
     let rows = selected_rows(&a.as_view(), &no_fixed(6).as_view(), &selected);
     assert!(rows.try_inverse().is_some());
@@ -100,7 +97,7 @@ fn no_tail_columns() {
 fn fixed_rows_count() {
     let a = smooth(40, 8);
     let fixed = DMatrix::from_fn(1, 8, |_, j| 1.0 / (1.0 + j as f64));
-    let selected = select_pairs(&a, a.nrows() / 2, &fixed, 7, 0);
+    let selected = select_pairs(&a, &fixed, 7, 0);
     assert_eq!(selected.len(), 3); // 1 + 2 * 3 = 7 rows
     assert!(objective(&a, &fixed, 7, &selected).is_finite());
 }
@@ -111,7 +108,7 @@ fn fixed_rows_count() {
 fn odd_columns_select_extra_row() {
     let a = smooth(40, 7);
     let fixed = no_fixed(7);
-    let selected = select_pairs(&a, a.nrows() / 2, &fixed, 5, 0);
+    let selected = select_pairs(&a, &fixed, 5, 0);
     assert_eq!(selected.len(), 3); // 6 rows for 5 columns
     assert_eq!(
         selected,
@@ -124,7 +121,7 @@ fn odd_columns_select_extra_row() {
 fn rank_deficient_returns_fewer_pairs() {
     // Every row is a multiple of (1, 1, 1, 1): rank 1
     let a = DMatrix::from_fn(20, 4, |i, _| (i + 1) as f64);
-    let selected = select_pairs(&a, a.nrows() / 2, &no_fixed(4), 4, 0);
+    let selected = select_pairs(&a, &no_fixed(4), 4, 0);
     assert_eq!(selected.len(), 1);
 }
 
@@ -137,8 +134,8 @@ fn oversampling_adds_pairs_and_grows_volume() {
         let rows = selected_rows(&a.as_view(), &fixed.as_view(), pairs);
         (rows.transpose() * rows).determinant()
     };
-    let square = select_pairs(&a, a.nrows() / 2, &fixed, 8, 0);
-    let over = select_pairs(&a, a.nrows() / 2, &fixed, 8, 3);
+    let square = select_pairs(&a, &fixed, 8, 0);
+    let over = select_pairs(&a, &fixed, 8, 3);
     assert_eq!(over.len(), square.len() + 3);
     assert_eq!(&over[..square.len()], &square[..]);
     assert_eq!(
@@ -151,27 +148,11 @@ fn oversampling_adds_pairs_and_grows_volume() {
     assert!(gram_det(&over) > gram_det(&square));
 }
 
-/// Pairs from `n_square` on are candidates of the oversampling only: the
-/// dominant pairs 1 and 3 of `greedy_selects_dominant_pairs`, past
-/// `n_square = 2`, are left to the oversampling, which takes them first.
-#[test]
-fn pairs_past_n_square_only_oversample() {
-    let mut a = smooth(5, 4);
-    for (k, p) in [1usize, 3].iter().enumerate() {
-        a[(2 * p, 2 * k)] = 10.0;
-        a[(2 * p + 1, 2 * k + 1)] = 10.0;
-    }
-    let square = select_pairs(&a, 2, &no_fixed(4), 4, 0);
-    assert_eq!(sorted(square.clone()), vec![0, 1]);
-    let over = select_pairs(&a, 2, &no_fixed(4), 4, 1);
-    assert_eq!(over, [square, vec![3]].concat());
-}
-
 #[test]
 fn empty_selection() {
     let a = smooth(10, 4);
-    assert!(select_pairs(&a, a.nrows() / 2, &no_fixed(4), 0, 0).is_empty());
-    assert!(select_pairs(&DMatrix::zeros(0, 4), 0, &no_fixed(4), 4, 0).is_empty());
+    assert!(select_pairs(&a, &no_fixed(4), 0, 0).is_empty());
+    assert!(select_pairs(&DMatrix::zeros(0, 4), &no_fixed(4), 4, 0).is_empty());
 }
 
 /// After a sequence of rank-2 swaps, the exchange state equals the one

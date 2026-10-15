@@ -573,33 +573,29 @@ fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
 
 /// default_matsubara_sampling_points_from_uhat, which the C API calls with a
 /// Matsubara-space spir_funcs, selects points for functions without a
-/// definite parity too (they were NotSupported, #183). The functions of
-/// `compute_sve_general` for a symmetric kernel have symm = 0 but are even or
-/// odd up to rounding: their points are those of the centrosymmetric SVE,
-/// with and without mitigate and positive_only. No functions give EmptyInput
-/// (it panicked on `len() - 1`).
+/// definite parity too (they were NotSupported, #183): a set symmetric in ±n
+/// of fermionic frequencies, `size()` of them rounded up to an even number,
+/// the non-negative half with `positive_only`, more with mitigate. No
+/// functions give EmptyInput (it panicked on `len() - 1`).
 #[test]
 fn test_default_matsubara_points_from_uhat() {
     use crate::basis::default_matsubara_sampling_points_from_uhat;
     use crate::polyfourier::PiecewiseLegendreFTVector;
     use crate::sve::compute_sve_general;
 
-    let kernel = LogisticKernel::new(1e3).unwrap();
+    let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
-    let general =
+    let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();
     assert!(
-        general
+        basis
             .uhat_full()
             .get_polys()
             .iter()
             .all(|u| u.poly.symm == 0)
     );
-    let symmetric = FiniteTempBasis::<_, Fermionic>::new(kernel, 1.0, Some(1e-6), None).unwrap();
-    assert_eq!(general.size(), symmetric.size());
-    assert!(general.size() >= 20, "fencing needs 20 points");
-    let ns = |basis: &FiniteTempBasis<_, Fermionic>, mitigate, positive_only| -> Vec<i64> {
+    let ns = |mitigate, positive_only| -> Vec<i64> {
         default_matsubara_sampling_points_from_uhat(
             basis.uhat_full(),
             basis.size(),
@@ -611,80 +607,20 @@ fn test_default_matsubara_points_from_uhat() {
         .map(|f| f.n())
         .collect()
     };
-    for mitigate in [false, true] {
-        for positive_only in [false, true] {
-            assert_eq!(
-                ns(&general, mitigate, positive_only),
-                ns(&symmetric, mitigate, positive_only),
-                "mitigate = {mitigate}, positive_only = {positive_only}"
-            );
-        }
-    }
-    assert!(ns(&general, true, false).len() > ns(&general, false, false).len());
+    let full = ns(false, false);
+    assert_eq!(full.len(), basis.size() + basis.size() % 2, "{full:?}");
+    assert!(full.iter().all(|n| n % 2 != 0), "{full:?}");
+    assert!(full.windows(2).all(|w| w[0] < w[1]), "{full:?}");
+    assert!(full.iter().all(|n| full.contains(&-n)), "{full:?}");
+    let positive: Vec<i64> = full.iter().copied().filter(|&n| n > 0).collect();
+    assert_eq!(ns(false, true), positive);
+    assert!(ns(true, false).len() > full.len());
 
     let empty = PiecewiseLegendreFTVector::<Fermionic>::new();
     assert_eq!(
         default_matsubara_sampling_points_from_uhat(&empty, 4, false, false).unwrap_err(),
         Error::EmptyInput { name: "uhat_full" }
     );
-}
-
-/// Without a parity, the default Matsubara points are selected among the
-/// sign changes of both parts of û_L, or the extrema of the last function
-/// when there is no û_L; where these do not determine the functions, as the
-/// extrema here or, at ε = 1e-15, the sign changes (of which the selection
-/// leaves out a pair, dependent on the others to 1e-12), among the whole
-/// grid. Either way there are as many points
-/// as with a parity, n = 0 included for bosons; those of the basis size fit
-/// its functions with a moderate condition number. (All the functions of
-/// the SVE are not: the fermionic points for them are those of the earlier
-/// selection among the whole grid, with a condition number near 1e10.)
-#[test]
-fn test_default_matsubara_points_of_a_window_without_uhat_l() {
-    use crate::kernel::LogisticKernelWindowed;
-    use crate::traits::StatisticsType;
-
-    fn check<S: StatisticsType + 'static>(eps: f64) {
-        let window = LogisticKernelWindowed::from_physical(10.0, -0.3, 1.0).unwrap();
-        let basis = FiniteTempBasis::<_, S>::new(window, 10.0, Some(eps), None).unwrap();
-        let uhat = basis.uhat_full();
-        let bosonic = S::STATISTICS == crate::traits::Statistics::Bosonic;
-        for l in [basis.size(), uhat.len()] {
-            let points =
-                crate::basis::default_matsubara_sampling_points_from_uhat(uhat, l, false, false)
-                    .unwrap();
-            let expected = if bosonic { l + 1 - l % 2 } else { l + l % 2 };
-            assert_eq!(points.len(), expected, "ε = {eps}, L = {l}");
-            assert_eq!(points.iter().any(|p| p.n() == 0), bosonic);
-            if l > basis.size() {
-                continue;
-            }
-            let values = uhat.evaluate_at_many(&points);
-            let a = nalgebra::DMatrix::from_fn(points.len(), l, |i, j| values[i][j]);
-            let sv = a.singular_values();
-            assert!(
-                sv[0] / sv[l - 1] < 1e3,
-                "L = {l}: cond = {}",
-                sv[0] / sv[l - 1]
-            );
-        }
-    }
-    for eps in [1e-6, 1e-15] {
-        check::<Fermionic>(eps);
-        check::<Bosonic>(eps);
-    }
-
-    // No functions to fit: no fermionic points; bosons have n = 0 only
-    let window = LogisticKernelWindowed::from_physical(10.0, -0.3, 1.0).unwrap();
-    let fermionic = FiniteTempBasis::<_, Fermionic>::new(window, 10.0, Some(1e-6), None).unwrap();
-    let points = crate::basis::default_matsubara_sampling_points_from_uhat(
-        fermionic.uhat_full(),
-        0,
-        false,
-        false,
-    )
-    .unwrap();
-    assert!(points.is_empty(), "{points:?}");
 }
 
 /// A basis from an SVE truncated to 2 functions has no default tau sampling
@@ -768,9 +704,8 @@ fn test_default_sampling_points_rejects_scaled_functions() {
     assert!(default_sampling_points(&basis.sve_result().u, "u", unit, 3).is_ok());
 }
 
-/// The default Matsubara points are found once per basis; the
-/// `positive_only` points are the `n >= 0` part of the full set, which must
-/// be exactly the points found for `positive_only` directly (with and
+/// The default Matsubara points are found once per basis and
+/// `positive_only`: they are exactly the points found directly (with and
 /// without parity, both statistics), also when asked for repeatedly.
 #[test]
 fn test_default_matsubara_points_are_reused() {

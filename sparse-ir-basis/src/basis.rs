@@ -76,9 +76,10 @@ where
     /// Arc for efficient sharing (large immutable data, used for Matsubara sampling)
     uhat_full: Arc<PiecewiseLegendreFTVector<S>>,
 
-    /// Default Matsubara sampling points (both signs), found on first use:
-    /// each sampling object and C-API query asks for them again
-    default_matsubara_points: OnceLock<Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>>,
+    /// Default Matsubara sampling points for `positive_only` = false and
+    /// true, found on first use: each sampling object and C-API query asks
+    /// for them again
+    default_matsubara_points: [OnceLock<Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>>; 2],
 
     _phantom: std::marker::PhantomData<S>,
 }
@@ -253,6 +254,38 @@ where
         Ok(freqs.into_iter().map(|f| f.n()).collect())
     }
 
+    /// Matsubara sampling points chosen by `method`
+    ///
+    /// [`Self::default_matsubara_sampling_points`] uses
+    /// [`MatsubaraPointMethod::SignChanges`] for basis functions with a
+    /// definite parity and [`MatsubaraPointMethod::PairSelection`] for the
+    /// others; this chooses the method explicitly, e.g. the pair selection
+    /// for a basis of a centrosymmetric kernel. See
+    /// [`matsubara_sampling_points_from_uhat`] for `mitigate`.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`matsubara_sampling_points_from_uhat`]: for
+    /// [`MatsubaraPointMethod::SignChanges`], [`Error::NotSupported`] if the
+    /// basis functions have no definite parity
+    pub fn matsubara_sampling_points(
+        &self,
+        positive_only: bool,
+        mitigate: bool,
+        method: MatsubaraPointMethod,
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+    where
+        S: 'static,
+    {
+        matsubara_sampling_points_from_uhat(
+            &self.uhat_full,
+            self.size(),
+            mitigate,
+            positive_only,
+            method,
+        )
+    }
+
     /// Create a new FiniteTempBasis
     ///
     /// # Arguments
@@ -421,7 +454,7 @@ where
             s,
             uhat: Arc::new(uhat),
             uhat_full: Arc::new(uhat_full),
-            default_matsubara_points: OnceLock::new(),
+            default_matsubara_points: [OnceLock::new(), OnceLock::new()],
             _phantom: std::marker::PhantomData,
         })
     }
@@ -521,9 +554,9 @@ where
     /// first discarded Matsubara basis function (its extrema when that function
     /// is not available), as in SparseIR.jl; bosonic sets always include n = 0.
     /// Basis functions without a definite parity (an SVE that is not
-    /// centrosymmetric, e.g. of [`LogisticKernelWindowed`]) change sign in
-    /// both their real and imaginary parts; the points are selected among
-    /// these sign changes as a set symmetric in ±n (see
+    /// centrosymmetric, e.g. of [`LogisticKernelWindowed`] or from
+    /// `compute_sve_general`) have no such sign changes; their points are
+    /// selected as a set symmetric in ±n instead (see
     /// [`default_matsubara_sampling_points_from_uhat`]).
     ///
     /// # Arguments
@@ -545,24 +578,16 @@ where
     where
         S: 'static,
     {
-        // The set is symmetric in ±n, so the points n >= 0 are those of
-        // `positive_only`.
-        let points = self
-            .default_matsubara_points
+        let points = self.default_matsubara_points[usize::from(positive_only)]
             .get_or_init(|| {
                 default_matsubara_sampling_points_from_uhat(
                     &self.uhat_full,
                     self.size(),
                     false,
-                    false,
+                    positive_only,
                 )
             })
             .clone()?;
-        let points = if positive_only {
-            points.into_iter().filter(|f| f.n() >= 0).collect()
-        } else {
-            points
-        };
         let basis_size = self.size();
         // For positive_only=true, we need 2*n_sampling_points >= basis_size
         // For positive_only=false, we need n_sampling_points >= basis_size
@@ -765,29 +790,33 @@ pub type FermionicBasis = FiniteTempBasis<LogisticKernel, Fermionic>;
 /// Type alias for bosonic basis with LogisticKernel
 pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
 
+/// How the Matsubara sampling points of a basis are chosen
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MatsubaraPointMethod {
+    /// The sign changes of the first function beyond the basis, as in
+    /// SparseIR.jl and libsparseir: the default for functions with a definite
+    /// parity (centrosymmetric kernels), which only they have.
+    SignChanges,
+    /// A set symmetric in ±n, selected as pairs that minimize the noise
+    /// amplification and aliasing of the fit (the bias + variance criterion
+    /// of Box and Draper): the only method, and so the default, for functions
+    /// without a parity (e.g. [`LogisticKernelWindowed`]); available for the
+    /// others on request.
+    ///
+    /// [`LogisticKernelWindowed`]: crate::kernel::LogisticKernelWindowed
+    PairSelection,
+}
+
 /// Default Matsubara sampling points for a basis of size `l`, from the
 /// Matsubara basis functions `uhat_full` alone
 ///
-/// The number of points is `l` rounded up to the parity of the statistics:
-/// an even number for fermions, an odd one including n = 0 for bosons. The
-/// points are the sign changes of `û_L = uhat_full[L]` for that number `L`,
-/// or the extrema of the last function when `uhat_full` has no function `L`
-/// (see [`crate::polyfourier`]).
-///
-/// - Functions with a definite parity make `û_L` purely real or purely
-///   imaginary, and its sign changes are the points, as in SparseIR.jl.
-///   `mitigate` adds points near the outer frequencies (fencing).
-/// - Functions without a parity (symm = 0, as from an SVE that is not
-///   centrosymmetric) make both parts of `û_L` change sign, usually giving
-///   about twice as many sign changes as points. The points are selected
-///   among them as a set symmetric in ±n that minimizes the noise
-///   amplification and aliasing of the fit, or among the whole grid of
-///   candidate frequencies where they do not determine the functions well.
-///   `mitigate` selects about 10% more frequencies (oversampling), as
-///   fencing does not help there.
-///
-/// This is what [`FiniteTempBasis::default_matsubara_sampling_points`]
-/// computes, for a caller that holds the functions but not the basis.
+/// For functions with a definite parity, the points are those of
+/// [`MatsubaraPointMethod::SignChanges`], as in SparseIR.jl; for functions
+/// without one (symm = 0, as from an SVE that is not centrosymmetric), those
+/// of [`MatsubaraPointMethod::PairSelection`]. This is what
+/// [`FiniteTempBasis::default_matsubara_sampling_points`] computes, for a
+/// caller that holds the functions but not the basis.
 ///
 /// # Errors
 ///
@@ -801,56 +830,100 @@ pub fn default_matsubara_sampling_points_from_uhat<S>(
 where
     S: StatisticsType + 'static,
 {
-    use crate::freq::MatsubaraFreq;
-    use crate::polyfourier::{select_sign_changes, sign_changes_of_parts};
+    let method = if uhat_full.get_polys().iter().any(|u| u.poly.symm == 0) {
+        MatsubaraPointMethod::PairSelection
+    } else {
+        MatsubaraPointMethod::SignChanges
+    };
+    matsubara_sampling_points_from_uhat(uhat_full, l, mitigate, positive_only, method)
+}
 
+/// Matsubara sampling points for a basis of size `l` by `method`, from the
+/// Matsubara basis functions `uhat_full` alone
+///
+/// [`MatsubaraPointMethod::SignChanges`]: the sign changes of `uhat_full[l]`
+/// (after the parity adjustment of `l`), or the extrema of the last function
+/// when `uhat_full` has no function `l`, as in SparseIR.jl; bosonic sets
+/// always include n = 0. `mitigate` adds points near the outer frequencies
+/// (fencing).
+///
+/// [`MatsubaraPointMethod::PairSelection`]: as many frequencies as
+/// functions, rounded up to an even number for fermions and an odd one
+/// including n = 0 for bosons; `mitigate` adds about 10% more frequencies
+/// (oversampling).
+///
+/// # Errors
+///
+/// * [`Error::EmptyInput`] if `uhat_full` is empty
+/// * [`Error::NotSupported`] for [`MatsubaraPointMethod::SignChanges`] if the
+///   functions have no definite parity (symm = 0, #183)
+pub fn matsubara_sampling_points_from_uhat<S>(
+    uhat_full: &PiecewiseLegendreFTVector<S>,
+    l: usize,
+    mitigate: bool,
+    positive_only: bool,
+    method: MatsubaraPointMethod,
+) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+where
+    S: StatisticsType + 'static,
+{
     if uhat_full.is_empty() {
         return Err(Error::EmptyInput { name: "uhat_full" });
     }
-    let bosonic = S::STATISTICS == crate::traits::Statistics::Bosonic;
-    // Adjust l_requested to the parity of the statistics (same as C++)
-    let l_requested = if bosonic { l + 1 - l % 2 } else { l + l % 2 };
+    match method {
+        MatsubaraPointMethod::SignChanges => {
+            sign_change_sampling_points(uhat_full, l, mitigate, positive_only)
+        }
+        MatsubaraPointMethod::PairSelection => {
+            crate::polyfourier::pair_sampling_points(uhat_full, l, positive_only, mitigate)
+        }
+    }
+}
 
-    // Sign changes of û_L, or extrema of the last function without û_L
-    let (ks, n_parts) = if l_requested < uhat_full.len() {
-        sign_changes_of_parts(&uhat_full[l_requested], false)
+/// [`MatsubaraPointMethod::SignChanges`], as in main and SparseIR.jl
+fn sign_change_sampling_points<S>(
+    uhat_full: &PiecewiseLegendreFTVector<S>,
+    l: usize,
+    mitigate: bool,
+    positive_only: bool,
+) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+where
+    S: StatisticsType + 'static,
+{
+    use crate::freq::MatsubaraFreq;
+    use crate::polyfourier::{find_extrema, sign_changes};
+    use std::collections::BTreeSet;
+
+    let mut l_requested = l;
+
+    // Adjust l_requested based on statistics (same as C++)
+    if S::STATISTICS == crate::traits::Statistics::Fermionic && l_requested % 2 != 0 {
+        l_requested += 1;
+    } else if S::STATISTICS == crate::traits::Statistics::Bosonic && l_requested % 2 == 0 {
+        l_requested += 1;
+    }
+
+    // Choose sign_changes or find_extrema based on l_requested
+    let mut omega_n = if l_requested < uhat_full.len() {
+        sign_changes(&uhat_full[l_requested], positive_only)?
     } else {
-        sign_changes_of_parts(&uhat_full[uhat_full.len() - 1], true)
-    };
-    let without_parity = n_parts == 2;
-    let n_extra = if mitigate && without_parity {
-        l.div_ceil(10).div_ceil(2)
-    } else {
-        0
-    };
-    let ks = if without_parity {
-        select_sign_changes(uhat_full, &ks, l_requested, n_extra)
-    } else {
-        ks
+        find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)?
     };
 
-    let zeta = i64::from(!bosonic);
-    let mut ns: Vec<i64> = ks.iter().map(|&k| 2 * k + zeta).collect();
     // For bosons, include zero frequency explicitly to prevent conditioning issues
-    if bosonic {
-        ns.push(0);
+    if S::STATISTICS == crate::traits::Statistics::Bosonic {
+        omega_n.push(MatsubaraFreq::<S>::new(0).unwrap());
     }
-    if !positive_only {
-        let negative: Vec<i64> = ns.iter().filter(|&&n| n > 0).map(|&n| -n).collect();
-        ns.extend(negative);
-    }
-    ns.sort_unstable();
-    ns.dedup();
-    let mut omega_n: Vec<MatsubaraFreq<S>> = ns
-        .into_iter()
-        .map(MatsubaraFreq::new)
-        .collect::<Result<_, _>>()?;
+
+    // Sort and remove duplicates using BTreeSet
+    let omega_n_set: BTreeSet<MatsubaraFreq<S>> = omega_n.into_iter().collect();
+    let mut omega_n: Vec<MatsubaraFreq<S>> = omega_n_set.into_iter().collect();
 
     // Check expected size
     let expected_size = if positive_only {
-        l_requested.div_ceil(2) + n_extra
+        l_requested.div_ceil(2)
     } else {
-        l_requested + 2 * n_extra
+        l_requested
     };
 
     if omega_n.len() != expected_size {
@@ -863,7 +936,7 @@ where
     }
 
     // Apply fencing if requested (same as C++ implementation)
-    if mitigate && !without_parity {
+    if mitigate {
         fence_matsubara_sampling(&mut omega_n, positive_only);
     }
 
