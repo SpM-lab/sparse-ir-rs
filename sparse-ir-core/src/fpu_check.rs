@@ -169,6 +169,45 @@ pub fn init_fpu_check() {
     let _ = *FPU_CHECK_INIT;
 }
 
+/// The calling thread's FPU control state (MXCSR on x86), to apply to the
+/// work the library hands to other threads
+///
+/// The FPU state is per thread: a newly spawned thread does not reliably
+/// start from its parent's, and a pool thread keeps whatever state it has.
+/// Running every such piece of work under the state of the thread that hands
+/// it out (with [`FpuContext::run`]) makes the threaded paths compute exactly
+/// what the serial ones would, whether or not the caller holds an
+/// [`FpuGuard`]. A no-op on other architectures. Used only with the
+/// `parallel` feature.
+#[cfg_attr(not(feature = "parallel"), allow(dead_code))]
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct FpuContext {
+    mxcsr: u32,
+}
+
+#[cfg_attr(not(feature = "parallel"), allow(dead_code))]
+impl FpuContext {
+    /// The state of the calling thread
+    pub(crate) fn current() -> Self {
+        Self {
+            mxcsr: get_fpu_state().mxcsr,
+        }
+    }
+
+    /// Run `f` under this state, restoring the thread's own afterwards
+    pub(crate) fn run<R>(self, f: impl FnOnce() -> R) -> R {
+        struct Restore(u32);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                set_mxcsr(self.0);
+            }
+        }
+        let _restore = Restore(get_fpu_state().mxcsr);
+        set_mxcsr(self.mxcsr);
+        f()
+    }
+}
+
 /// RAII guard that protects a computation from dangerous FPU settings
 ///
 /// On creation:
@@ -252,6 +291,36 @@ impl Drop for FpuGuard {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fpu_context_runs_the_closure() {
+        let context = FpuContext::current();
+        let value = std::thread::spawn(move || context.run(|| 6 * 7))
+            .join()
+            .unwrap();
+        assert_eq!(value, 42);
+    }
+
+    /// Work run under a context sees the spawning thread's FZ/DAZ, and the
+    /// worker's own state is restored afterwards.
+    #[cfg(any(target_arch = "x86_64", target_arch = "x86"))]
+    #[test]
+    fn fpu_context_carries_the_state_to_another_thread() {
+        let original = get_fpu_state().mxcsr;
+        let dangerous = original | (1 << MXCSR_FZ_BIT) | (1 << MXCSR_DAZ_BIT);
+        set_mxcsr(dangerous);
+        let context = FpuContext::current();
+        set_mxcsr(original);
+
+        let (inside, after) = std::thread::spawn(move || {
+            let inside = context.run(get_fpu_state);
+            (inside, get_fpu_state())
+        })
+        .join()
+        .unwrap();
+        assert!(inside.flush_to_zero && inside.denormals_are_zero);
+        assert!(!after.flush_to_zero && !after.denormals_are_zero);
+    }
 
     #[test]
     fn test_get_fpu_state() {

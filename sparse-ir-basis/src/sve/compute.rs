@@ -260,20 +260,8 @@ where
     // 1. Determine SVE strategy (automatically chooses CentrosymmSVE for centrosymmetric kernels)
     let sve = determine_sve::<T, K>(kernel, epsilon)?;
 
-    // 2. Compute matrices
-    let matrices = sve.matrices();
-
-    // 3. Compute SVD for each matrix
-    let mut u_list = Vec::new();
-    let mut s_list = Vec::new();
-    let mut v_list = Vec::new();
-
-    for matrix in matrices.iter() {
-        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
-        u_list.push(u);
-        s_list.push(s);
-        v_list.push(v);
-    }
+    // 2.-3. The SVD of each block
+    let (u_list, s_list, v_list) = block_svds(sve.as_ref())?;
 
     // 4. Truncate based on cutoff (default: 2 * T::epsilon(), see default_cutoff)
     let rtol_t = cutoff.unwrap_or_else(default_cutoff::<T>);
@@ -298,20 +286,8 @@ where
     // 1. Determine SVE strategy (full-domain NonCentrosymmSVE)
     let sve = determine_sve_general::<T, K>(kernel, epsilon)?;
 
-    // 2. Compute matrices
-    let matrices = sve.matrices();
-
-    // 3. Compute SVD for each matrix
-    let mut u_list = Vec::new();
-    let mut s_list = Vec::new();
-    let mut v_list = Vec::new();
-
-    for matrix in matrices.iter() {
-        let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
-        u_list.push(u);
-        s_list.push(s);
-        v_list.push(v);
-    }
+    // 2.-3. The SVD of each block
+    let (u_list, s_list, v_list) = block_svds(sve.as_ref())?;
 
     // 4. Truncate based on cutoff (default: 2 * T::epsilon(), see default_cutoff)
     let rtol_t = cutoff.unwrap_or_else(default_cutoff::<T>);
@@ -319,6 +295,41 @@ where
 
     // 5. Post-process to create SVEResult
     sve.postprocess(u_trunc, s_trunc, v_trunc)
+}
+
+/// The SVDs `(U, s, V)` of the blocks of `sve`, as lists over the blocks
+///
+/// The blocks are independent, so they are decomposed concurrently (with the
+/// `parallel` feature); each SVD is computed as on a single thread, so the
+/// result does not depend on the number of threads.
+///
+/// # Errors
+/// The errors of [`crate::tsvd::compute_svd_dtensor`]
+#[allow(clippy::type_complexity)]
+fn block_svds<T>(sve: &dyn SVEStrategy<T>) -> Result<(Vec<Mat<T>>, Vec<Vec<T>>, Vec<Mat<T>>), Error>
+where
+    T: CustomNumeric + Send + Sync + Clone + 'static,
+{
+    let matrices = sve.matrices();
+    // The work is counted as forming the blocks
+    let work = matrices
+        .iter()
+        .map(|m| m.shape().0 * m.shape().1 * crate::cost::KERNEL_ENTRY)
+        .sum();
+    let svds = crate::parallel::map_on_pool(matrices.len(), work, |b| {
+        crate::tsvd::compute_svd_dtensor(&matrices[b])
+    });
+
+    let mut u_list = Vec::new();
+    let mut s_list = Vec::new();
+    let mut v_list = Vec::new();
+    for svd in svds {
+        let (u, s, v) = svd?;
+        u_list.push(u);
+        s_list.push(s);
+        v_list.push(v);
+    }
+    Ok((u_list, s_list, v_list))
 }
 
 /// Determine the appropriate SVE strategy

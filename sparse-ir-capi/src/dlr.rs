@@ -10,7 +10,7 @@
 //! - Conversion: spir_ir2dlr_dd, spir_ir2dlr_zz, spir_dlr2ir_dd, spir_dlr2ir_zz
 
 use num_complex::Complex64;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::gemm::{get_backend_handle, spir_gemm_backend};
@@ -58,7 +58,7 @@ pub extern "C" fn spir_dlr_new_independent(
     epsilon: f64,
     status: *mut StatusCode,
 ) -> *mut spir_basis {
-    let result = catch_unwind(AssertUnwindSafe(
+    let result = crate::ffi_call(AssertUnwindSafe(
         || -> Result<*mut spir_basis, StatusCode> {
             let basis = match statistics {
                 SPIR_STATISTICS_FERMIONIC => spir_basis::new_dlr_fermionic(Arc::new(
@@ -118,7 +118,7 @@ pub extern "C" fn spir_dlr_new_independent(
 /// Caller must ensure `b` is a valid IR basis pointer
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_dlr_new(b: *const spir_basis, status: *mut StatusCode) -> *mut spir_basis {
-    let result = catch_unwind(AssertUnwindSafe(
+    let result = crate::ffi_call(AssertUnwindSafe(
         || -> Result<(*mut spir_basis, StatusCode), StatusCode> {
             // Validate inputs
             if b.is_null() {
@@ -229,7 +229,7 @@ pub extern "C" fn spir_dlr_new_with_poles(
     poles: *const f64,
     status: *mut StatusCode,
 ) -> *mut spir_basis {
-    let result = catch_unwind(AssertUnwindSafe(
+    let result = crate::ffi_call(AssertUnwindSafe(
         || -> Result<(*mut spir_basis, StatusCode), StatusCode> {
             // Validate inputs
             if b.is_null() || poles.is_null() {
@@ -345,7 +345,7 @@ pub extern "C" fn spir_dlr_get_npoles(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         let dlr_ref = unsafe { &*dlr };
 
         // Get number of poles based on DLR type
@@ -381,7 +381,7 @@ pub extern "C" fn spir_dlr_get_poles(dlr: *const spir_basis, poles: *mut f64) ->
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         let dlr_ref = unsafe { &*dlr };
 
         // Get poles based on DLR type
@@ -462,7 +462,7 @@ pub extern "C" fn spir_ir2dlr_dd(
     input: *const f64,
     out: *mut f64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if dlr.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -582,7 +582,7 @@ pub extern "C" fn spir_ir2dlr_zz(
     input: *const Complex64,
     out: *mut Complex64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if dlr.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -706,7 +706,7 @@ pub extern "C" fn spir_dlr2ir_dd(
     input: *const f64,
     out: *mut f64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if dlr.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }
@@ -826,7 +826,7 @@ pub extern "C" fn spir_dlr2ir_zz(
     input: *const Complex64,
     out: *mut Complex64,
 ) -> StatusCode {
-    let result = catch_unwind(AssertUnwindSafe(|| {
+    let result = crate::ffi_call(AssertUnwindSafe(|| {
         if dlr.is_null() || input_dims.is_null() || input.is_null() || out.is_null() {
             return SPIR_INVALID_ARGUMENT;
         }

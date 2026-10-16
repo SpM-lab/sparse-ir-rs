@@ -111,7 +111,7 @@ pub extern "C" fn spir_gemm_backend_new_from_fblas_lp64(
     }
 
     // Catch panics (e.g. OOM from Box::new) to prevent unwinding across FFI boundary
-    let result = std::panic::catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Cast to Fortran BLAS function pointer types
         let dgemm_fn: DgemmFnPtr = unsafe { std::mem::transmute(dgemm) };
         let zgemm_fn: ZgemmFnPtr = unsafe { std::mem::transmute(zgemm) };
@@ -158,7 +158,7 @@ pub extern "C" fn spir_gemm_backend_new_from_fblas_ilp64(
     }
 
     // Catch panics (e.g. OOM from Box::new) to prevent unwinding across FFI boundary
-    let result = std::panic::catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Cast to Fortran BLAS function pointer types
         let dgemm64_fn: Dgemm64FnPtr = unsafe { std::mem::transmute(dgemm64) };
         let zgemm64_fn: Zgemm64FnPtr = unsafe { std::mem::transmute(zgemm64) };

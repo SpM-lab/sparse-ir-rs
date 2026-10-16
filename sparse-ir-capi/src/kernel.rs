@@ -2,8 +2,6 @@
 //!
 //! Functions for creating and manipulating kernel objects.
 
-use std::panic::catch_unwind;
-
 use sparse_ir::kernel::SVEHints;
 
 use crate::status::status_from;
@@ -44,7 +42,7 @@ pub extern "C" fn spir_logistic_kernel_new(
     }
 
     // Catch panics to prevent unwinding across FFI boundary
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         spir_kernel::new_logistic(lambda).map(|kernel| Box::into_raw(Box::new(kernel)))
     });
 
@@ -92,7 +90,7 @@ pub extern "C" fn spir_reg_bose_kernel_new(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         spir_kernel::new_regularized_bose(lambda).map(|kernel| Box::into_raw(Box::new(kernel)))
     });
 
@@ -137,7 +135,7 @@ pub extern "C" fn spir_kernel_get_lambda(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let k = &*kernel;
         *lambda_out = k.lambda();
         SPIR_COMPUTATION_SUCCESS
@@ -169,7 +167,7 @@ pub extern "C" fn spir_kernel_compute(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let k = &*kernel;
         *out = k.compute(x, y);
         SPIR_COMPUTATION_SUCCESS
@@ -201,7 +199,7 @@ pub extern "C" fn spir_kernel_clone(src: *const spir_kernel) -> *mut spir_kernel
         return std::ptr::null_mut();
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(std::panic::AssertUnwindSafe(|| unsafe {
         let src_ref = &*src;
         let cloned = (*src_ref).clone();
         Box::into_raw(Box::new(cloned))
@@ -248,7 +246,7 @@ pub extern "C" fn spir_kernel_get_domain(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
         let (xmin_val, xmax_val, ymin_val, ymax_val) = kernel.domain();
         *xmin = xmin_val;
@@ -294,7 +292,7 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_x(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
 
         // Get SVE hints based on kernel type
@@ -370,7 +368,7 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_y(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
 
         // Get SVE hints based on kernel type
@@ -438,7 +436,7 @@ pub extern "C" fn spir_kernel_get_sve_hints_nsvals(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
 
         // Get SVE hints based on kernel type
@@ -487,7 +485,7 @@ pub extern "C" fn spir_kernel_get_sve_hints_ngauss(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
 
         // Get SVE hints based on kernel type

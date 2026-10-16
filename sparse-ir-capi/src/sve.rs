@@ -2,8 +2,6 @@
 //!
 //! Functions for computing and manipulating Singular Value Expansion (SVE) results.
 
-use std::panic::catch_unwind;
-
 use sparse_ir::sve::{TworkType, compute_sve};
 
 use crate::status::status_from;
@@ -31,7 +29,7 @@ pub extern "C" fn spir_sve_result_clone(src: *const spir_sve_result) -> *mut spi
         return std::ptr::null_mut();
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(std::panic::AssertUnwindSafe(|| unsafe {
         let src_ref = &*src;
         let cloned = (*src_ref).clone();
         Box::into_raw(Box::new(cloned))
@@ -128,7 +126,7 @@ pub extern "C" fn spir_sve_result_new(
         );
         std::io::Write::flush(&mut std::io::stderr()).ok();
     }
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
         if crate::is_debug_enabled() {
             eprintln!("[SPARSEIR DEBUG] spir_sve_result_new: kernel type determined");
@@ -220,7 +218,7 @@ pub extern "C" fn spir_sve_result_get_size(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let s = &*sve;
         *size = s.size() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
@@ -285,7 +283,7 @@ pub extern "C" fn spir_sve_result_truncate(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let sve_ref = &*sve;
 
         // Convert max_size (-1 means no limit)
@@ -354,7 +352,7 @@ pub extern "C" fn spir_sve_result_get_svals(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let s = &*sve;
         let sval_slice = s.svals();
         std::ptr::copy_nonoverlapping(sval_slice.as_ptr(), svals, sval_slice.len());
@@ -507,7 +505,6 @@ pub extern "C" fn spir_sve_result_from_matrix(
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
     use sparse_ir::sve::SVEResult;
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -578,7 +575,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Reconstruct Gauss rules
         let rule_base_dd = legendre::<sparse_ir::Df64>(n_gauss as usize);
 
@@ -782,7 +779,6 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
     use sparse_ir::sve::SVEResult;
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -872,7 +868,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Get xmax and ymax from segments
         let xmax = segs_x_slice[segs_x_slice.len() - 1];
         let ymax = segs_y_slice[segs_y_slice.len() - 1];

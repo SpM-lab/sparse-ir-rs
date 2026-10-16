@@ -14,7 +14,7 @@ extern crate sparse_ir_core;
 #[allow(unused_imports)]
 use sparse_ir_core::{
     ArrayRole, Matrix, MatsubaraFreq, StatisticsType, TypedTensor, basis_trait, error, fitters,
-    fpu_check, freq, matrix, matsubara_sampling, sampling, taufuncs, traits,
+    fpu_check, freq, matrix, matsubara_sampling, parallel, sampling, taufuncs, traits,
 };
 #[allow(unused_imports)]
 use sparse_ir_dlr::{dlr, fermionic_single_pole, giwn_single_pole, gtau_single_pole};
@@ -33,6 +33,7 @@ use sparse_ir_dlr::{
 
 pub mod basis;
 pub(crate) mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
+pub(crate) mod cost; // Work estimates for the threading decisions
 pub mod gauss;
 pub(crate) mod interpolation1d;
 pub mod ir_dlr; // DLR built from an IR basis, and the IR <-> DLR transform
