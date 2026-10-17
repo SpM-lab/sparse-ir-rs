@@ -22,16 +22,26 @@ tenferro-tensor.workspace = true
 num-complex.workspace = true
 num-traits.workspace = true
 # Extended precision
-xprec = "0.2.2"
+xprec = "0.2.3"
 simba = "0.9"
 libm.workspace = true
 # Extended-precision TSVD / QR
 nalgebra = "0.33"
 
 [dev-dependencies]
+# Thread pools of a given size, for the thread-count independence tests
+# (with the `parallel` feature)
+rayon.workspace = true
 approx.workspace = true
 # High-precision arithmetic (for precision tests)
 dashu-float.workspace = true
 dashu-base.workspace = true
 # The doc examples use the whole library
-sparse-ir = { path = "../sparse-ir" }
+# (without its default `parallel` feature, which would otherwise always be
+# on in the tests of this crate)
+sparse-ir = { path = "../sparse-ir", default-features = false }
+
+[features]
+# Run the threaded work (the SVE) on the rayon thread pool; see
+# sparse-ir-core/src/parallel.rs
+parallel = ["sparse-ir-core/parallel"]

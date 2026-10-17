@@ -12,7 +12,6 @@
 use crate::error::Error;
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
-use simba::scalar::ComplexField;
 use std::fmt::Debug;
 
 /// `Ok` if there is one weight per point

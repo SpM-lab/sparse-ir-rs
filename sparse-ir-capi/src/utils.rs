@@ -422,7 +422,6 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
     use crate::status::status_from;
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
     use sparse_ir::legendre;
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return SPIR_INVALID_ARGUMENT;
@@ -442,7 +441,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Convert segments to Vec
         let segments_slice =
             unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
@@ -535,7 +534,6 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
     use crate::status::status_from;
     use crate::{SPIR_COMPUTATION_SUCCESS, SPIR_INTERNAL_ERROR, SPIR_INVALID_ARGUMENT};
     use sparse_ir::legendre;
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return SPIR_INVALID_ARGUMENT;
@@ -560,7 +558,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Convert segments to Vec
         let segments_slice =
             unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };

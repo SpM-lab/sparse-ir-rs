@@ -38,5 +38,14 @@ jobs:
         cd libsparseir && git submodule update --init --jobs 4 || true
     - name: Build
       run: cargo build -p sparse-ir-capi --release
+    - name: Check that the C library is built without the parallel feature
+      # The `parallel` feature of sparse-ir (a rayon thread pool for the SVE)
+      # must stay out of the C library; it is on only in a build of the
+      # sparse-ir crate or of the whole workspace.
+      run: |
+        if cargo tree -p sparse-ir-capi -e features -i sparse-ir-core | grep 'sparse-ir-core feature "parallel"'; then
+          echo "sparse-ir-capi enables the parallel feature of sparse-ir-core" >&2
+          exit 1
+        fi
     - name: Run tests
       run: cargo test -p sparse-ir-capi --release

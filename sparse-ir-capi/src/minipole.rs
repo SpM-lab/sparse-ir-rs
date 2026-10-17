@@ -13,7 +13,7 @@
 //!   spir_pole_repr_is_assigned
 
 use num_complex::Complex64;
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use crate::status::status_from;
@@ -98,7 +98,7 @@ pub extern "C" fn spir_pole_repr_clone(src: *const spir_pole_repr) -> *mut spir_
     if src.is_null() {
         return std::ptr::null_mut();
     }
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         Box::into_raw(Box::new((*src).clone()))
     }));
     result.unwrap_or(std::ptr::null_mut())
@@ -261,7 +261,7 @@ pub extern "C" fn spir_minipole_from_dlr(
     symmetry: bool,
     status: *mut StatusCode,
 ) -> *mut spir_pole_repr {
-    let result = catch_unwind(AssertUnwindSafe(|| -> Result<PoleReprInner, StatusCode> {
+    let result = crate::ffi_call(AssertUnwindSafe(|| -> Result<PoleReprInner, StatusCode> {
         if dlr.is_null() || n0 < 0 || !(err.is_finite() && nmax.is_finite()) {
             return Err(SPIR_INVALID_ARGUMENT);
         }
@@ -345,7 +345,7 @@ pub extern "C" fn spir_minipole_from_matsubara(
     ratio_max: f64,
     status: *mut StatusCode,
 ) -> *mut spir_pole_repr {
-    let result = catch_unwind(AssertUnwindSafe(|| -> Result<PoleReprInner, StatusCode> {
+    let result = crate::ffi_call(AssertUnwindSafe(|| -> Result<PoleReprInner, StatusCode> {
         if matsubara_indices.is_null()
             || n_freqs <= 0
             || n0_shift < 0
@@ -403,7 +403,7 @@ pub extern "C" fn spir_pole_repr_get_npoles(
     if rep.is_null() || num_poles.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         *num_poles = (*rep).inner().poles.len() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -419,7 +419,7 @@ pub extern "C" fn spir_pole_repr_get_poles(
     if rep.is_null() || poles.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let p = &(*rep).inner().poles;
         std::ptr::copy_nonoverlapping(p.as_ptr(), poles, p.len());
         SPIR_COMPUTATION_SUCCESS
@@ -439,7 +439,7 @@ pub extern "C" fn spir_pole_repr_get_residues(
     if rep.is_null() || residues.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let r = &(*rep).inner().residues;
         std::ptr::copy_nonoverlapping(r.as_ptr(), residues, r.len());
         SPIR_COMPUTATION_SUCCESS
@@ -460,7 +460,7 @@ pub extern "C" fn spir_pole_repr_get_constant(
     if rep.is_null() || constant.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let c = &(*rep).inner().constant;
         std::ptr::copy_nonoverlapping(c.as_ptr(), constant, c.len());
         SPIR_COMPUTATION_SUCCESS
@@ -477,7 +477,7 @@ pub extern "C" fn spir_pole_repr_get_n0(
     if rep.is_null() || n0.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         *n0 = (*rep).inner().n0 as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
     }));
@@ -496,7 +496,7 @@ pub extern "C" fn spir_pole_repr_get_err_max(
     if rep.is_null() || err_max.is_null() {
         return SPIR_INVALID_ARGUMENT;
     }
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         match (*rep).inner().err_max {
             Some(e) => {
                 *err_max = e;

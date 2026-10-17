@@ -2,7 +2,7 @@
 //!
 //! Functions for creating and manipulating finite temperature basis objects.
 
-use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::panic::AssertUnwindSafe;
 
 use sparse_ir::basis::FiniteTempBasis;
 
@@ -30,7 +30,7 @@ pub unsafe extern "C" fn spir_basis_clone(src: *const spir_basis) -> *mut spir_b
         return std::ptr::null_mut();
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(std::panic::AssertUnwindSafe(|| unsafe {
         let src_ref = &*src;
         let cloned = (*src_ref).clone();
         Box::into_raw(Box::new(cloned))
@@ -138,7 +138,7 @@ pub extern "C" fn spir_basis_new(
         Some(max_size as usize)
     };
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let kernel_ref = &*k;
 
         // Check that kernel's lambda matches beta * omega_max
@@ -357,7 +357,7 @@ pub extern "C" fn spir_basis_new_from_sve_and_regularizer(
         Some(max_size as usize)
     };
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let sve_ref = &*sve;
         let sve_result = sve_ref.inner().as_ref().clone();
 
@@ -470,7 +470,7 @@ pub extern "C" fn spir_basis_get_size(b: *const spir_basis, size: *mut libc::c_i
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         *size = basis.size() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
@@ -497,7 +497,7 @@ pub extern "C" fn spir_basis_get_svals(b: *const spir_basis, svals: *mut f64) ->
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let sval_vec = basis.svals();
         debug_println!("spir_basis_get_svals: sval_vec.len() = {}", sval_vec.len());
@@ -547,7 +547,7 @@ pub extern "C" fn spir_basis_get_stats(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         *statistics = basis.statistics();
         SPIR_COMPUTATION_SUCCESS
@@ -591,7 +591,7 @@ pub extern "C" fn spir_basis_get_n_default_taus(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let points = match basis.default_tau_sampling_points() {
             Ok(points) => points,
@@ -635,7 +635,7 @@ pub extern "C" fn spir_basis_get_default_taus(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let tau_points = match basis.default_tau_sampling_points() {
             Ok(points) => points,
@@ -677,7 +677,7 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let points = match basis.default_matsubara_sampling_points(positive_only) {
             Ok(points) => points,
@@ -720,7 +720,7 @@ pub extern "C" fn spir_basis_get_default_matsus(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let matsu_points = match basis.default_matsubara_sampling_points(positive_only) {
             Ok(points) => points,
@@ -751,7 +751,6 @@ pub unsafe extern "C" fn spir_basis_get_u(
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
     use crate::types::{BasisType, DlrOf, spir_funcs};
-    use std::panic::catch_unwind;
     use std::sync::Arc;
 
     if status.is_null() {
@@ -765,7 +764,7 @@ pub unsafe extern "C" fn spir_basis_get_u(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis_ref = &*b;
         let beta = basis_ref.beta();
 
@@ -833,7 +832,6 @@ pub unsafe extern "C" fn spir_basis_get_v(
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
     use crate::types::{BasisType, spir_funcs};
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -846,7 +844,7 @@ pub unsafe extern "C" fn spir_basis_get_v(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis_ref = &*b;
         let beta = basis_ref.beta();
 
@@ -917,7 +915,7 @@ pub extern "C" fn spir_basis_get_n_default_ws(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let omega_points = match basis.default_omega_sampling_points() {
             Ok(points) => points,
@@ -953,7 +951,7 @@ pub extern "C" fn spir_basis_get_default_ws(b: *const spir_basis, points: *mut f
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let omega_points = match basis.default_omega_sampling_points() {
             Ok(points) => points,
@@ -984,7 +982,6 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
     status: *mut StatusCode,
 ) -> *mut spir_funcs {
     use crate::types::{BasisType, DlrOf, spir_funcs};
-    use std::panic::catch_unwind;
     use std::sync::Arc;
 
     if status.is_null() {
@@ -998,7 +995,7 @@ pub unsafe extern "C" fn spir_basis_get_uhat(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis_ref = &*b;
         let beta = basis_ref.beta();
 
@@ -1082,7 +1079,6 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
 ) -> *mut spir_funcs {
     use crate::SPIR_NOT_SUPPORTED;
     use crate::types::{BasisType, spir_funcs};
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -1095,7 +1091,7 @@ pub unsafe extern "C" fn spir_basis_get_uhat_full(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis_ref = &*b;
         let beta = basis_ref.beta();
 
@@ -1184,7 +1180,7 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let tau_points = match basis.default_tau_sampling_points_size_requested(n_points as usize) {
             Ok(points) => points,
@@ -1248,7 +1244,7 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,
@@ -1320,7 +1316,7 @@ pub extern "C" fn spir_basis_get_default_matsus_ext(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(AssertUnwindSafe(|| unsafe {
         let basis = &*b;
         let matsu_points = match basis.default_matsubara_sampling_points_with_mitigate(
             positive_only,

@@ -2,8 +2,6 @@
 //!
 //! Functions for computing and manipulating Singular Value Expansion (SVE) results.
 
-use std::panic::catch_unwind;
-
 use sparse_ir::sve::{TworkType, compute_sve};
 
 use crate::status::status_from;
@@ -31,7 +29,7 @@ pub extern "C" fn spir_sve_result_clone(src: *const spir_sve_result) -> *mut spi
         return std::ptr::null_mut();
     }
 
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe {
+    let result = crate::ffi_call(std::panic::AssertUnwindSafe(|| unsafe {
         let src_ref = &*src;
         let cloned = (*src_ref).clone();
         Box::into_raw(Box::new(cloned))
@@ -128,7 +126,7 @@ pub extern "C" fn spir_sve_result_new(
         );
         std::io::Write::flush(&mut std::io::stderr()).ok();
     }
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
         if crate::is_debug_enabled() {
             eprintln!("[SPARSEIR DEBUG] spir_sve_result_new: kernel type determined");
@@ -220,7 +218,7 @@ pub extern "C" fn spir_sve_result_get_size(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let s = &*sve;
         *size = s.size() as libc::c_int;
         SPIR_COMPUTATION_SUCCESS
@@ -285,7 +283,7 @@ pub extern "C" fn spir_sve_result_truncate(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let sve_ref = &*sve;
 
         // Convert max_size (-1 means no limit)
@@ -354,7 +352,7 @@ pub extern "C" fn spir_sve_result_get_svals(
         return SPIR_INVALID_ARGUMENT;
     }
 
-    let result = catch_unwind(|| unsafe {
+    let result = crate::ffi_call(|| unsafe {
         let s = &*sve;
         let sval_slice = s.svals();
         std::ptr::copy_nonoverlapping(sval_slice.as_ptr(), svals, sval_slice.len());
@@ -430,6 +428,22 @@ fn is_gauss_point_count(n: libc::c_int, n_segments: libc::c_int, n_gauss: libc::
     n_segments.checked_mul(n_gauss) == Some(n)
 }
 
+/// The double-double number `hi + lo`, normalized: a pair passed in through
+/// the C API need not satisfy `hi + lo == hi`.
+///
+/// # Errors
+/// `SPIR_INVALID_ARGUMENT` if the normalized value is not finite: finite
+/// parts whose sum overflows (e.g. 1.7e308 + 1.7e308) give hi = Inf and
+/// lo = NaN, which the finiteness check of the parts does not catch.
+fn df64_from_parts(hi: f64, lo: f64) -> Result<sparse_ir::Df64, StatusCode> {
+    let v = sparse_ir::Df64::from(hi) + sparse_ir::Df64::from(lo);
+    if v.hi().is_finite() && v.lo().is_finite() {
+        Ok(v)
+    } else {
+        Err(SPIR_INVALID_ARGUMENT)
+    }
+}
+
 /// Create a SVE result from a discretized kernel matrix
 ///
 /// This function performs singular value expansion (SVE) on a discretized kernel
@@ -463,11 +477,11 @@ fn is_gauss_point_count(n: libc::c_int, n_segments: libc::c_int, n_gauss: libc::
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
 ///   a size is less than 1, `epsilon` is not positive and finite or is 1 or
-///   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
-///   are not finite and strictly increasing, a segment length is not finite
-///   or is subnormal, the sum of the ends of a segment overflows, `nx` is
-///   not `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`,
-///   or the matrix has rank 0
+///   more, an entry of `K_high` or `K_low` is NaN or infinite or their sum
+///   overflows, the segments are not finite and strictly increasing, a
+///   segment length is not finite or is subnormal, the sum of the ends of a
+///   segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is not
+///   `n_segments_y * n_gauss`, or the matrix has rank 0
 /// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
 /// - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
 ///   overflows) or an internal error occurs
@@ -491,7 +505,6 @@ pub extern "C" fn spir_sve_result_from_matrix(
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
     use sparse_ir::sve::SVEResult;
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -562,7 +575,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Reconstruct Gauss rules
         let rule_base_dd = legendre::<sparse_ir::Df64>(n_gauss as usize);
 
@@ -595,9 +608,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = i * (ny as usize) + j;
-                            // Use unsafe new_full since K_high and K_low are already properly compensated
-                            matrix[[i, j]] =
-                                unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                            matrix[[i, j]] = df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
                         }
                     }
                 }
@@ -605,9 +616,7 @@ pub extern "C" fn spir_sve_result_from_matrix(
                     for i in 0..(nx as usize) {
                         for j in 0..(ny as usize) {
                             let idx = j * (nx as usize) + i;
-                            // Use unsafe new_full since K_high and K_low are already properly compensated
-                            matrix[[i, j]] =
-                                unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                            matrix[[i, j]] = df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
                         }
                     }
                 }
@@ -739,11 +748,11 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
 ///   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
 ///   and finite or is 1 or more, an entry of a matrix that is read is NaN or
-///   infinite, the segments are not finite and strictly increasing, the
-///   segments do not start at 0, a segment length is not finite or is
-///   subnormal, the sum of the ends of a segment overflows, `nx` is not
-///   `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`, or
-///   both matrices have rank 0
+///   infinite or the sum of a high and a low entry overflows, the segments
+///   are not finite and strictly increasing, the segments do not start at 0,
+///   a segment length is not finite or is subnormal, the sum of the ends of
+///   a segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is
+///   not `n_segments_y * n_gauss`, or both matrices have rank 0
 /// - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
 /// - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
 ///   or an internal error occurs
@@ -770,7 +779,6 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
     use crate::utils::MemoryOrder;
     use sparse_ir::gauss::legendre;
     use sparse_ir::sve::SVEResult;
-    use std::panic::catch_unwind;
 
     if status.is_null() {
         return std::ptr::null_mut();
@@ -860,7 +868,7 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         return std::ptr::null_mut();
     }
 
-    let result = catch_unwind(|| {
+    let result = crate::ffi_call(|| {
         // Get xmax and ymax from segments
         let xmax = segs_x_slice[segs_x_slice.len() - 1];
         let ymax = segs_y_slice[segs_y_slice.len() - 1];
@@ -879,64 +887,65 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
             .map_err(|e| status_from(&e))?;
 
         // Assemble one symmetry block of the kernel matrix
-        let matrix_of = |k_high_slice: &[f64], k_low_slice: Option<&[f64]>| {
-            let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
-            if let Some(k_low_slice) = k_low_slice {
-                use sparse_ir::Df64;
-                use sparse_ir::numeric::CustomNumeric;
-                let mut matrix_dd = sparse_ir::matrix::Mat::<Df64>::from_elem(
-                    [nx as usize, ny as usize],
-                    Df64::new(0.0),
-                );
-                match memory_order {
-                    MemoryOrder::RowMajor => {
-                        for i in 0..(nx as usize) {
-                            for j in 0..(ny as usize) {
-                                let idx = i * (ny as usize) + j;
-                                matrix_dd[[i, j]] =
-                                    unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+        let matrix_of =
+            |k_high_slice: &[f64], k_low_slice: Option<&[f64]>| -> Result<_, StatusCode> {
+                let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
+                if let Some(k_low_slice) = k_low_slice {
+                    use sparse_ir::Df64;
+                    use sparse_ir::numeric::CustomNumeric;
+                    let mut matrix_dd = sparse_ir::matrix::Mat::<Df64>::from_elem(
+                        [nx as usize, ny as usize],
+                        Df64::new(0.0),
+                    );
+                    match memory_order {
+                        MemoryOrder::RowMajor => {
+                            for i in 0..(nx as usize) {
+                                for j in 0..(ny as usize) {
+                                    let idx = i * (ny as usize) + j;
+                                    matrix_dd[[i, j]] =
+                                        df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
+                                }
+                            }
+                        }
+                        MemoryOrder::ColumnMajor => {
+                            for i in 0..(nx as usize) {
+                                for j in 0..(ny as usize) {
+                                    let idx = j * (nx as usize) + i;
+                                    matrix_dd[[i, j]] =
+                                        df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
+                                }
                             }
                         }
                     }
-                    MemoryOrder::ColumnMajor => {
-                        for i in 0..(nx as usize) {
-                            for j in 0..(ny as usize) {
-                                let idx = j * (nx as usize) + i;
-                                matrix_dd[[i, j]] =
-                                    unsafe { Df64::new_full(k_high_slice[idx], k_low_slice[idx]) };
+                    // The centrosymmetric SVE is computed in double precision
+                    Ok(matrix_dd.map(|v| v.to_f64()))
+                } else {
+                    let mut matrix_f64 =
+                        sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
+                    match memory_order {
+                        MemoryOrder::RowMajor => {
+                            for i in 0..(nx as usize) {
+                                for j in 0..(ny as usize) {
+                                    let idx = i * (ny as usize) + j;
+                                    matrix_f64[[i, j]] = k_high_slice[idx];
+                                }
+                            }
+                        }
+                        MemoryOrder::ColumnMajor => {
+                            for i in 0..(nx as usize) {
+                                for j in 0..(ny as usize) {
+                                    let idx = j * (nx as usize) + i;
+                                    matrix_f64[[i, j]] = k_high_slice[idx];
+                                }
                             }
                         }
                     }
+                    Ok(matrix_f64)
                 }
-                // The centrosymmetric SVE is computed in double precision
-                matrix_dd.map(|v| v.to_f64())
-            } else {
-                let mut matrix_f64 =
-                    sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
-                match memory_order {
-                    MemoryOrder::RowMajor => {
-                        for i in 0..(nx as usize) {
-                            for j in 0..(ny as usize) {
-                                let idx = i * (ny as usize) + j;
-                                matrix_f64[[i, j]] = k_high_slice[idx];
-                            }
-                        }
-                    }
-                    MemoryOrder::ColumnMajor => {
-                        for i in 0..(nx as usize) {
-                            for j in 0..(ny as usize) {
-                                let idx = j * (nx as usize) + i;
-                                matrix_f64[[i, j]] = k_high_slice[idx];
-                            }
-                        }
-                    }
-                }
-                matrix_f64
-            }
-        };
+            };
 
-        let even = matrix_of(k_even_high, k_lows.map(|(even, _)| even));
-        let odd = matrix_of(k_odd_high, k_lows.map(|(_, odd)| odd));
+        let even = matrix_of(k_even_high, k_lows.map(|(even, _)| even))?;
+        let odd = matrix_of(k_odd_high, k_lows.map(|(_, odd)| odd))?;
 
         let sve_result = SVEResult::from_discretized_matrices_centrosymmetric(
             &even,
@@ -1929,6 +1938,20 @@ mod tests {
             assert_eq!(status, SPIR_INVALID_ARGUMENT, "low part = {bad}");
             assert!(sve.is_null());
         }
+
+        // Finite parts whose double-double sum overflows
+        let (mut k_high, mut k_low) = (m.full.clone(), zeros.clone());
+        k_high[cols + 2] = 1.7e308;
+        k_low[cols + 2] = 1.7e308;
+        let (status, sve) = sve_from_full_matrix(
+            &m,
+            &k_high,
+            Some(&k_low),
+            SPIR_ORDER_ROW_MAJOR,
+            &m.segs_x_full,
+        );
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "overflowing hi + lo");
+        assert!(sve.is_null());
     }
 
     /// Same as above for the even/odd matrices of the centrosymmetric variant
@@ -1964,6 +1987,14 @@ mod tests {
             assert_eq!(status, SPIR_INVALID_ARGUMENT, "low part = {bad}");
             assert!(sve.is_null());
         }
+
+        // Finite parts whose double-double sum overflows
+        let (mut k_odd, mut k_low) = (m.odd.clone(), zeros.clone());
+        k_odd[m.ny + 2] = 1.7e308;
+        k_low[m.ny + 2] = 1.7e308;
+        let (status, sve) = sve_from_reduced_matrices(&m, &m.even, &k_odd, Some(&k_low), &m.segs_x);
+        assert_eq!(status, SPIR_INVALID_ARGUMENT, "overflowing hi + lo");
+        assert!(sve.is_null());
     }
 
     /// Segments that are not strictly increasing were detected, but the status
@@ -2146,5 +2177,30 @@ mod tests {
             assert_eq!(status, SPIR_INVALID_ARGUMENT, "{segs_x:?}");
             assert!(sve.is_null());
         }
+    }
+
+    /// Normalized (hi, lo) pairs are kept as they are; others are normalized
+    /// without changing their value.
+    #[test]
+    fn test_df64_from_parts() {
+        let x = sparse_ir::Df64::from(1.0) / sparse_ir::Df64::from(3.0);
+        let y = df64_from_parts(x.hi(), x.lo()).unwrap();
+        assert_eq!((y.hi(), y.lo()), (x.hi(), x.lo()));
+
+        let z = df64_from_parts(1.0, 1.0).unwrap();
+        assert_eq!((z.hi(), z.lo()), (2.0, 0.0));
+        let w = df64_from_parts(1.0, 1e-17 + 2f64.powi(-53)).unwrap();
+        assert_eq!(w.hi() + w.lo(), w.hi());
+
+        // Finite parts whose sum overflows
+        assert_eq!(
+            df64_from_parts(1.7e308, 1.7e308),
+            Err(SPIR_INVALID_ARGUMENT)
+        );
+        assert_eq!(
+            df64_from_parts(-f64::MAX, -f64::MAX),
+            Err(SPIR_INVALID_ARGUMENT)
+        );
+        assert!(df64_from_parts(f64::MAX, -f64::MAX).is_ok());
     }
 }

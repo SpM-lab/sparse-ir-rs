@@ -15,7 +15,7 @@ exclude = [
 resolver = "2"
 
 [workspace.dependencies]
-sparse-ir = { version = "0.13.0", path = "sparse-ir" }
+sparse-ir = { version = "0.13.0", path = "sparse-ir", default-features = false }
 sparse-ir-core = { version = "0.13.0", path = "sparse-ir-core" }
 sparse-ir-dlr = { version = "0.13.0", path = "sparse-ir-dlr" }
 sparse-ir-minipole = { version = "0.13.0", path = "sparse-ir-minipole" }
@@ -30,6 +30,7 @@ num-complex = "0.4"
 num-traits = "0.2"
 thiserror = "1.0"
 once_cell = "1.19"
+rayon = "1.10"
 libc = "0.2"
 blas-sys = "0.7"
 
