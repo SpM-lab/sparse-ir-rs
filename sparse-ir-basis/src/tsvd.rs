@@ -62,19 +62,30 @@ fn check_finite<T>(matrix: &DMatrix<T>) -> Result<(), Error>
 where
     T: ComplexField + ToPrimitive + Copy,
 {
-    for col in 0..matrix.ncols() {
-        for row in 0..matrix.nrows() {
-            let value = matrix[(row, col)];
-            if !value.is_finite() {
-                return Err(Error::NonFiniteInput {
-                    name: "matrix",
-                    index: vec![row, col],
-                    value: ToPrimitive::to_f64(&value).unwrap_or(f64::NAN),
-                });
-            }
+    let nrows = matrix.nrows();
+    check_finite_entries(matrix.as_slice(), |k| (k % nrows, k / nrows))
+}
+
+/// [`Error::NonFiniteInput`] (named `matrix`) for the first NaN or infinite
+/// value of `values`, the matrix entries at `index(k)`
+pub(crate) fn check_finite_entries<T>(
+    values: &[T],
+    index: impl Fn(usize) -> (usize, usize),
+) -> Result<(), Error>
+where
+    T: ComplexField + ToPrimitive + Copy,
+{
+    match values.iter().position(|x| !x.is_finite()) {
+        None => Ok(()),
+        Some(k) => {
+            let (row, col) = index(k);
+            Err(Error::NonFiniteInput {
+                name: "matrix",
+                index: vec![row, col],
+                value: ToPrimitive::to_f64(&values[k]).unwrap_or(f64::NAN),
+            })
         }
     }
-    Ok(())
 }
 
 /// Get appropriate epsilon value for SVD convergence based on type
@@ -130,7 +141,7 @@ where
 }
 
 /// [`svd_decompose`] returning an error instead of panicking
-fn try_svd_decompose<T>(matrix: &DMatrix<T>, rtol: f64) -> Result<SVDResult<T>, Error>
+pub(crate) fn try_svd_decompose<T>(matrix: &DMatrix<T>, rtol: f64) -> Result<SVDResult<T>, Error>
 where
     T: ComplexField + RealField + Copy + nalgebra::RealField + ToPrimitive,
 {
@@ -286,19 +297,7 @@ where
         + CustomNumeric,
 {
     let (m, n) = matrix.shape();
-
-    if m == 0 || n == 0 {
-        return Err(Error::EmptyInput { name: "matrix" });
-    }
-
-    // Written so that a NaN tolerance fails the check too
-    if !(config.rtol > Zero::zero() && config.rtol < One::one()) {
-        return Err(Error::InvalidParameter {
-            name: "rtol",
-            value: format!("{:?}", CustomNumeric::to_f64(config.rtol)),
-            reason: "must be in (0, 1)".to_string(),
-        });
-    }
+    check_tsvd_input(m, n, config.rtol)?;
 
     // The SVD iteration never converges on a NaN or an infinity (it looped
     // forever before the iteration limit of `bounded_svd`).
@@ -315,17 +314,12 @@ where
     // A finite matrix can still overflow in the QR (a column norm above
     // f64::MAX). The input is valid, so a non-finite entry of R is a failure
     // of the decomposition, not a non-finite input.
-    match check_finite(&r_matrix) {
-        Ok(()) => {}
-        Err(Error::NonFiniteInput { index, value, .. }) => {
-            return Err(Error::DecompositionFailed {
-                reason: format!(
-                    "the R factor of the QR decomposition has the non-finite entry {value} at index {index:?}"
-                ),
-            });
-        }
-        // check_finite reports only NonFiniteInput; pass anything else on.
-        Err(other) => return Err(other),
+    if let Err(Error::NonFiniteInput { index, value, .. }) = check_finite(&r_matrix) {
+        return Err(Error::DecompositionFailed {
+            reason: format!(
+                "the R factor of the QR decomposition has the non-finite entry {value} at index {index:?}"
+            ),
+        });
     }
 
     // Step 2: Apply QR-based rank estimation first
@@ -385,6 +379,32 @@ where
     })
 }
 
+/// Check that an `m × n` input of a truncated SVD is not empty and that
+/// `0 < rtol < 1`
+///
+/// # Errors
+/// * [`Error::EmptyInput`] if the matrix has no rows or no columns
+/// * [`Error::InvalidParameter`] unless `0 < rtol < 1` (a NaN tolerance is
+///   rejected)
+pub(crate) fn check_tsvd_input<T: RealField + CustomNumeric>(
+    m: usize,
+    n: usize,
+    rtol: T,
+) -> Result<(), Error> {
+    if m == 0 || n == 0 {
+        return Err(Error::EmptyInput { name: "matrix" });
+    }
+    // Written so that a NaN tolerance fails the check too
+    if !(rtol > Zero::zero() && rtol < One::one()) {
+        return Err(Error::InvalidParameter {
+            name: "rtol",
+            value: format!("{:?}", CustomNumeric::to_f64(rtol)),
+            reason: "must be in (0, 1)".to_string(),
+        });
+    }
+    Ok(())
+}
+
 /// Convenience function for f64 TSVD
 pub fn tsvd_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<f64>, Error> {
     tsvd(matrix, TSVDConfig::new(rtol))
@@ -404,9 +424,13 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
     tsvd(&matrix_df64, TSVDConfig::new(rtol_df64))
 }
 
+/// Thin SVD `(U, s, V)` as matrices of the element type
+pub(crate) type SvdMats<T> = (Mat<T>, Vec<T>, Mat<T>);
+
 /// Compute SVD for DTensor using nalgebra-based TSVD
 ///
-/// Supports both f64 and Df64 types. Uses nalgebra TSVD backend for both.
+/// Supports both f64 and Df64 types. Uses the dense CPQR-based [`tsvd`], which
+/// is robust for arbitrary matrices.
 ///
 /// # Errors
 /// The errors of [`tsvd`]: [`Error::EmptyInput`], [`Error::NonFiniteInput`]
@@ -416,65 +440,90 @@ pub fn tsvd_df64_from_f64(matrix: &DMatrix<f64>, rtol: f64) -> Result<SVDResult<
 /// Panics if `T` is neither `f64` nor `Df64`
 pub fn compute_svd_dtensor<T: CustomNumeric + 'static>(
     matrix: &Mat<T>,
-) -> Result<(Mat<T>, Vec<T>, Mat<T>), Error> {
-    use nalgebra::DMatrix;
+) -> Result<SvdMats<T>, Error> {
+    let (m, n) = *matrix.shape();
+    in_element_type::<T>(
+        0.0,
+        |config| {
+            tsvd(
+                &DMatrix::from_fn(m, n, |i, j| f64::convert_from(matrix[[i, j]])),
+                config,
+            )
+        },
+        |config| {
+            tsvd(
+                &DMatrix::from_fn(m, n, |i, j| Df64::convert_from(matrix[[i, j]])),
+                config,
+            )
+        },
+    )
+}
+
+/// Truncated SVD of the `m × n` matrix whose entries are `entry(i, j)`, by
+/// the ACA-accelerated [`crate::aca::tsvd_aca`], which evaluates the entries
+/// only at its pivot rows and columns
+///
+/// Intended for the smooth, rapidly rank-decaying SVE kernel matrices, where
+/// it is several times faster than [`compute_svd_dtensor`]. Singular values
+/// below `rtol` times the largest one are dropped; `rtol` is raised to at
+/// least 2·ε of the element type (pass 0 for that tolerance, as in
+/// [`compute_svd_dtensor`]). Falls back to the dense path if ACA does not
+/// converge.
+///
+/// # Errors
+/// The errors of [`crate::aca::tsvd_aca`]
+///
+/// # Panics
+/// Panics if `T` is neither `f64` nor `Df64`
+pub(crate) fn compute_svd_aca<T: CustomNumeric + 'static>(
+    m: usize,
+    n: usize,
+    entry: &(dyn Fn(usize, usize) -> T + Sync),
+    rtol: f64,
+) -> Result<SvdMats<T>, Error> {
+    in_element_type::<T>(
+        rtol,
+        |config| crate::aca::tsvd_aca(m, n, |i, j| f64::convert_from(entry(i, j)), config),
+        |config| crate::aca::tsvd_aca(m, n, |i, j| Df64::convert_from(entry(i, j)), config),
+    )
+}
+
+/// Run the `f64` or the `Df64` SVD, whichever matches `T`, with the relative
+/// tolerance `max(rtol, 2ε)` for the `ε` of that type, and return the result
+/// as matrices of `T` (conversions between equal types are exact)
+///
+/// # Panics
+/// Panics if `T` is neither `f64` nor `Df64`
+fn in_element_type<T: CustomNumeric + 'static>(
+    rtol: f64,
+    svd_f64: impl FnOnce(TSVDConfig<f64>) -> Result<SVDResult<f64>, Error>,
+    svd_df64: impl FnOnce(TSVDConfig<Df64>) -> Result<SVDResult<Df64>, Error>,
+) -> Result<SvdMats<T>, Error> {
     use std::any::TypeId;
 
-    // Dispatch based on type: convert to appropriate DMatrix type
     if TypeId::of::<T>() == TypeId::of::<f64>() {
-        // Convert to DMatrix<f64>
-        let matrix_f64 = DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
-            CustomNumeric::to_f64(matrix[[i, j]])
-        });
-
-        // Use TSVD with appropriate tolerance for f64
-        let rtol = 2.0 * f64::EPSILON;
-        let result = tsvd(&matrix_f64, TSVDConfig::new(rtol))?;
-
-        // Convert back to DTensor<T>
-        let u = Mat::<T>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
-            let [i, j] = [idx[0], idx[1]];
-            T::from_f64_unchecked(result.u[(i, j)])
-        });
-
-        let s: Vec<T> = result.s.iter().map(|x| T::from_f64_unchecked(*x)).collect();
-
-        let v = Mat::<T>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
-            let [i, j] = [idx[0], idx[1]];
-            T::from_f64_unchecked(result.v[(i, j)])
-        });
-
-        Ok((u, s, v))
+        let rtol = rtol.max(2.0 * f64::EPSILON);
+        Ok(svd_result_to_mats(svd_f64(TSVDConfig::new(rtol))?))
     } else if TypeId::of::<T>() == TypeId::of::<Df64>() {
-        // Convert to DMatrix<Df64> without going through f64 to preserve precision
-        // TypeId check ensures T == Df64 at runtime, so we can safely cast
-        let matrix_df64: DMatrix<Df64> =
-            DMatrix::from_fn(matrix.shape().0, matrix.shape().1, |i, j| {
-                // Safe: TypeId check guarantees T == Df64
-                unsafe { std::mem::transmute_copy(&matrix[[i, j]]) }
-            });
-
-        // Use TSVD with appropriate tolerance for Df64
-        let rtol = Df64::from(2.0) * Df64::epsilon();
-        let result = tsvd_df64(&matrix_df64, rtol)?;
-
-        // Convert back to DTensor<T> without going through f64 to preserve Df64 precision
-        let u = Mat::<T>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
-            let [i, j] = [idx[0], idx[1]];
-            T::convert_from(result.u[(i, j)])
-        });
-
-        let s: Vec<T> = result.s.iter().map(|x| T::convert_from(*x)).collect();
-
-        let v = Mat::<T>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
-            let [i, j] = [idx[0], idx[1]];
-            T::convert_from(result.v[(i, j)])
-        });
-
-        Ok((u, s, v))
+        let rtol = CustomNumeric::max(Df64::from(rtol), Df64::from(2.0) * Df64::epsilon());
+        Ok(svd_result_to_mats(svd_df64(TSVDConfig::new(rtol))?))
     } else {
         panic!("SVD is only implemented for f64 and Df64");
     }
+}
+
+/// Split an [`SVDResult`] into matrices `(U, s, V)`, converting each element
+fn svd_result_to_mats<R: CustomNumeric + 'static, T: CustomNumeric>(
+    result: SVDResult<R>,
+) -> SvdMats<T> {
+    let u = Mat::<T>::from_fn([result.u.nrows(), result.u.ncols()], |idx| {
+        T::convert_from(result.u[(idx[0], idx[1])])
+    });
+    let s: Vec<T> = result.s.iter().map(|&x| T::convert_from(x)).collect();
+    let v = Mat::<T>::from_fn([result.v.nrows(), result.v.ncols()], |idx| {
+        T::convert_from(result.v[(idx[0], idx[1])])
+    });
+    (u, s, v)
 }
 
 #[cfg(test)]

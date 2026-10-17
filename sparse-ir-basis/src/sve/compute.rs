@@ -260,8 +260,8 @@ where
     // 1. Determine SVE strategy (automatically chooses CentrosymmSVE for centrosymmetric kernels)
     let sve = determine_sve::<T, K>(kernel, epsilon)?;
 
-    // 2.-3. The SVD of each block
-    let (u_list, s_list, v_list) = block_svds(sve.as_ref())?;
+    // 2.-3. The SVD of each block, by ACA in Df64
+    let (u_list, s_list, v_list) = block_svds(sve.as_ref(), true)?;
 
     // 4. Truncate based on cutoff (default: 2 * T::epsilon(), see default_cutoff)
     let rtol_t = cutoff.unwrap_or_else(default_cutoff::<T>);
@@ -286,8 +286,8 @@ where
     // 1. Determine SVE strategy (full-domain NonCentrosymmSVE)
     let sve = determine_sve_general::<T, K>(kernel, epsilon)?;
 
-    // 2.-3. The SVD of each block
-    let (u_list, s_list, v_list) = block_svds(sve.as_ref())?;
+    // 2.-3. The SVD of each block, by the dense CPQR (see `block_svds`)
+    let (u_list, s_list, v_list) = block_svds(sve.as_ref(), false)?;
 
     // 4. Truncate based on cutoff (default: 2 * T::epsilon(), see default_cutoff)
     let rtol_t = cutoff.unwrap_or_else(default_cutoff::<T>);
@@ -299,26 +299,62 @@ where
 
 /// The SVDs `(U, s, V)` of the blocks of `sve`, as lists over the blocks
 ///
+/// By the column-pivoted QR of the formed blocks ([`SVEStrategy::matrices`]),
+/// or, with `aca` and in Df64, by adaptive cross approximation of the blocks
+/// evaluated lazily ([`SVEStrategy::blocks`]), which reads only their pivot
+/// rows and columns.
+///
+/// [`compute_sve`] takes the ACA: on the even and odd blocks it gives the
+/// same number of singular values as the CPQR in every case tested. Not in
+/// f64, where the number of those at the `2·ε_work` noise floor differed in
+/// about one case out of eight (by up to 8), and the SVE is cheap either
+/// way; nor in [`compute_sve_general`], whose single full-domain block holds
+/// the even and odd spectra interleaved in nearly degenerate pairs: there
+/// the ACA missed up to 5 singular values within 7·ε_work·s₀ of the cutoff
+/// (logistic kernel, Λ = 1e5 and 1e6, ε = 1e-15).
+///
 /// The blocks are independent, so they are decomposed concurrently (with the
-/// `parallel` feature); each SVD is computed as on a single thread, so the
-/// result does not depend on the number of threads.
+/// `parallel` feature); each SVD is computed by the same operations
+/// whatever the threading, so the result does not depend on the number of
+/// threads.
 ///
 /// # Errors
-/// The errors of [`crate::tsvd::compute_svd_dtensor`]
+/// The errors of [`crate::tsvd::compute_svd_dtensor`] and
+/// [`crate::tsvd::compute_svd_aca`]
 #[allow(clippy::type_complexity)]
-fn block_svds<T>(sve: &dyn SVEStrategy<T>) -> Result<(Vec<Mat<T>>, Vec<Vec<T>>, Vec<Mat<T>>), Error>
+fn block_svds<T>(
+    sve: &dyn SVEStrategy<T>,
+    aca: bool,
+) -> Result<(Vec<Mat<T>>, Vec<Vec<T>>, Vec<Mat<T>>), Error>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
 {
-    let matrices = sve.matrices();
     // The work is counted as forming the blocks
-    let work = matrices
-        .iter()
-        .map(|m| m.shape().0 * m.shape().1 * crate::cost::KERNEL_ENTRY)
-        .sum();
-    let svds = crate::parallel::map_on_pool(matrices.len(), work, |b| {
-        crate::tsvd::compute_svd_dtensor(&matrices[b])
-    });
+    let svds = if !aca || std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        let matrices = sve.matrices();
+        let work = matrices
+            .iter()
+            .map(|m| m.shape().0 * m.shape().1 * crate::cost::KERNEL_ENTRY)
+            .sum();
+        crate::parallel::map_on_pool(matrices.len(), work, |b| {
+            crate::tsvd::compute_svd_dtensor(&matrices[b])
+        })
+    } else {
+        let blocks = sve.blocks();
+        let work = blocks
+            .iter()
+            .map(|block| block.nrows() * block.ncols() * crate::cost::KERNEL_ENTRY)
+            .sum();
+        crate::parallel::map_on_pool(blocks.len(), work, |b| {
+            let block = &blocks[b];
+            crate::tsvd::compute_svd_aca(
+                block.nrows(),
+                block.ncols(),
+                &|i, j| block.entry(i, j),
+                0.0,
+            )
+        })
+    };
 
     let mut u_list = Vec::new();
     let mut s_list = Vec::new();
@@ -456,6 +492,51 @@ pub(crate) fn truncate<T: CustomNumeric>(
     }
 
     (u_trunc, s_trunc, v_trunc)
+}
+
+/// The SVE by the dense column-pivoted QR of the formed blocks, as
+/// [`compute_sve`] took it in every precision before the ACA: the reference
+/// of the tests of the ACA path
+///
+/// `centrosymmetric` selects the strategy of [`compute_sve`] (even/odd
+/// blocks), otherwise that of [`compute_sve_general`] (the full domain).
+#[cfg(test)]
+pub(crate) fn compute_sve_dense<K>(
+    kernel: K,
+    epsilon: f64,
+    twork: TworkType,
+    centrosymmetric: bool,
+) -> Result<SVEResult, Error>
+where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+{
+    fn run<T, K>(kernel: K, epsilon: f64, centrosymmetric: bool) -> Result<SVEResult, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+        K: CentrosymmKernel + KernelProperties + Clone + 'static,
+        K::SVEHintsType<T>: SVEHints<T> + Clone,
+    {
+        let sve = if centrosymmetric {
+            determine_sve::<T, K>(kernel, epsilon)?
+        } else {
+            determine_sve_general::<T, K>(kernel, epsilon)?
+        };
+        let (mut u_list, mut s_list, mut v_list) = (Vec::new(), Vec::new(), Vec::new());
+        for matrix in sve.matrices() {
+            let (u, s, v) = crate::tsvd::compute_svd_dtensor(&matrix)?;
+            u_list.push(u);
+            s_list.push(s);
+            v_list.push(v);
+        }
+        let (u, s, v) = truncate(u_list, s_list, v_list, default_cutoff::<T>(), None);
+        sve.postprocess(u, s, v)
+    }
+    let (safe_epsilon, twork) = safe_epsilon(Some(epsilon), twork);
+    match twork {
+        TworkType::Float64 => run::<f64, K>(kernel, safe_epsilon, centrosymmetric),
+        TworkType::Float64X2 => run::<crate::Df64, K>(kernel, safe_epsilon, centrosymmetric),
+        TworkType::Auto => unreachable!("safe_epsilon resolves TworkType::Auto"),
+    }
 }
 
 #[cfg(test)]

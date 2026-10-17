@@ -22,7 +22,7 @@ pub(crate) mod utils;
 // Re-export public API
 pub use compute::{compute_sve, compute_sve_general};
 pub use result::SVEResult;
-pub use strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy, SamplingSVE};
+pub use strategy::{CentrosymmSVE, KernelBlock, NonCentrosymmSVE, SVEStrategy, SamplingSVE};
 pub use types::TworkType;
 
 #[cfg(test)]

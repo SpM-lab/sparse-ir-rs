@@ -15,10 +15,68 @@ use super::utils::{
     mirror_segments_to_full_domain, remove_weights, svd_to_polynomials,
 };
 
+/// A discretized, weighted kernel matrix `A[i, j] = K(x_i, y_j) √w_i √w'_j`
+/// (Gauss points `x_i`, `y_j`, weights `w_i`, `w'_j`) whose entries are
+/// evaluated on demand
+///
+/// The SVD of the double-double SVE, by adaptive cross approximation, only
+/// touches a few rows and columns of `A`, so the matrix is not formed.
+pub struct KernelBlock<'a, T> {
+    nrows: usize,
+    ncols: usize,
+    entry: Box<dyn Fn(usize, usize) -> T + Sync + 'a>,
+}
+
+impl<'a, T: CustomNumeric> KernelBlock<'a, T> {
+    /// Block of size `nrows × ncols` with entries `entry(i, j)`
+    pub fn new(nrows: usize, ncols: usize, entry: impl Fn(usize, usize) -> T + Sync + 'a) -> Self {
+        Self {
+            nrows,
+            ncols,
+            entry: Box::new(entry),
+        }
+    }
+
+    /// Number of rows (Gauss points in x)
+    pub fn nrows(&self) -> usize {
+        self.nrows
+    }
+
+    /// Number of columns (Gauss points in y)
+    pub fn ncols(&self) -> usize {
+        self.ncols
+    }
+
+    /// Entry `A[i, j]`
+    pub fn entry(&self, i: usize, j: usize) -> T {
+        (self.entry)(i, j)
+    }
+}
+
 /// Trait for SVE computation strategies
 pub trait SVEStrategy<T: CustomNumeric> {
     /// Compute the discretized matrices for SVD
     fn matrices(&self) -> Vec<Mat<T>>;
+
+    /// The discretized, weighted kernel blocks to decompose, the matrices of
+    /// [`Self::matrices`] with their entries evaluated on demand
+    ///
+    /// `compute_sve` decomposes these in double-double by adaptive cross
+    /// approximation, which reads only a few rows and columns of each (in
+    /// f64 it decomposes [`Self::matrices`]). The default forms the
+    /// matrices; [`CentrosymmSVE`] evaluates the kernel lazily.
+    fn blocks(&self) -> Vec<KernelBlock<'_, T>>
+    where
+        T: Send + Sync + 'static,
+    {
+        self.matrices()
+            .into_iter()
+            .map(|m| {
+                let (nrows, ncols) = *m.shape();
+                KernelBlock::new(nrows, ncols, move |i, j| m[[i, j]])
+            })
+            .collect()
+    }
 
     /// Post-process SVD results to create SVEResult
     ///
@@ -80,6 +138,18 @@ where
             epsilon,
             n_gauss,
         }
+    }
+
+    /// The weighted block `K(x_i, y_j) √w_i √w'_j` of the kernel function `k`
+    /// on this discretization, as the matrices of the strategies weight it
+    pub(crate) fn weighted_block<'a>(
+        &'a self,
+        k: impl Fn(T, T) -> T + Sync + 'a,
+    ) -> KernelBlock<'a, T> {
+        let wx: Vec<T> = self.gauss_x.w.iter().map(|w| w.sqrt()).collect();
+        let wy: Vec<T> = self.gauss_y.w.iter().map(|w| w.sqrt()).collect();
+        let (x, y) = (&self.gauss_x.x, &self.gauss_y.x);
+        KernelBlock::new(x.len(), y.len(), move |i, j| k(x[i], y[j]) * wx[i] * wy[j])
     }
 
     /// Post-process a single SVD result to create polynomials
@@ -261,6 +331,17 @@ where
         let odd_matrix = self.compute_reduced_matrix(SymmetryType::Odd);
 
         vec![even_matrix, odd_matrix]
+    }
+
+    fn blocks(&self) -> Vec<KernelBlock<'_, T>> {
+        // The weighted reduced kernels K(x, y) ± K(x, -y), evaluated lazily
+        [SymmetryType::Even, SymmetryType::Odd]
+            .into_iter()
+            .map(|symmetry| {
+                self.sampling_sve
+                    .weighted_block(move |x, y| self.kernel.compute_reduced(x, y, symmetry))
+            })
+            .collect()
     }
 
     fn postprocess(
