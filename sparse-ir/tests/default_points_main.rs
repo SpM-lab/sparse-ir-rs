@@ -1,5 +1,6 @@
 //! The default sampling points of bases of centrosymmetric kernels are those
-//! of main before the double-double SVE by ACA, bitwise.
+//! of main before the double-double SVE by ACA: the Matsubara points exactly,
+//! the tau points to 1e-10·β.
 //!
 //! Reference data: the default points of `FiniteTempBasis::new(kernel, β,
 //! Some(ε), None)` on main at 28a30e3, printed by
@@ -8,9 +9,12 @@
 //! L)` and `default_tau_sampling_points` (sorted), with the shortest
 //! round-trip representation of the floats.
 //!
-//! In f64 (ε = 1e-6) the SVE is that of main bitwise; in double-double
-//! (ε = 1e-10, 1e-12) the ACA SVE gives the same points (the tau points, the
-//! roots of u_L, after rounding the functions to f64).
+//! The data were taken on aarch64 macOS, where the tau points agree bitwise
+//! (in f64, ε = 1e-6, the SVE is that of main bitwise; in double-double,
+//! ε = 1e-10 and 1e-12, the ACA SVE gives the same roots of u_L after
+//! rounding the functions to f64). Other platforms round the f64 SVE
+//! differently (on x86_64 Linux the tau points of main itself differ by
+//! about 1e-13·β), hence the tolerance, far below any change of method.
 
 use sparse_ir::basis::FiniteTempBasis;
 use sparse_ir::kernel::{
@@ -83,7 +87,12 @@ where
     }
     let mut tau = basis.default_tau_sampling_points().unwrap();
     tau.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    if tau != case.tau {
+    let close = tau.len() == case.tau.len()
+        && tau
+            .iter()
+            .zip(case.tau)
+            .all(|(a, b)| (a - b).abs() <= 1e-10 * case.beta);
+    if !close {
         failures.push(format!("{name}: tau points {tau:?} vs {:?}", case.tau));
     }
     failures

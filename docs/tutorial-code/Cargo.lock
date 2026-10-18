@@ -1437,6 +1437,7 @@ dependencies = [
  "num-traits",
  "once_cell",
  "pkg-config",
+ "rayon",
  "tenferro-cpu",
  "tenferro-linalg",
  "tenferro-tensor",
