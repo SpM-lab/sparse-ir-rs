@@ -864,39 +864,37 @@ fn symmetrize_matsubara_inplace(xs: &mut Vec<i64>) {
     xs.dedup();
 }
 
-/// Number of functions beyond those fitted that the Matsubara sampling-point
-/// selection keeps aliasing small for (see
-/// [`pair_sampling_points`]).
-const MATSUBARA_SELECTION_TAIL: usize = 2;
-
 /// Matsubara sampling frequencies for fitting the first `n_points` functions
 /// of `uhat`, selected as symmetric pairs; the default points of functions
 /// without a definite parity
 ///
 /// The sign changes of `û_L` that choose the default points of functions with
-/// a parity (as in SparseIR.jl) need `û_L` to be purely
-/// real or purely imaginary. This selection needs no parity.
-///
-/// Candidates are the frequencies `n = 2k + ζ >= 0` for `k` on
-/// the grid of the sign-change search (as in SparseIR.jl), which is dense at
-/// low frequencies and logarithmic beyond.
+/// a parity (as in SparseIR.jl) need `û_L` to be purely real or purely
+/// imaginary. This selection needs no parity.
 ///
 /// The selected set is symmetric, `{±n_k}`. Since `û_l(-n) = conj(û_l(n))`
 /// for a real `u_l(τ)`, fitting at `±n_k` is equivalent to fitting the real
 /// and imaginary parts at `n_k`, so the selection is made on the real matrix
 /// whose rows are `Re û_l(n_k)` and `Im û_l(n_k)`: two rows per frequency
-/// `n_k > 0`, one for `n = 0` (bosons). This needs no parity of the
-/// functions, so it serves kernels without centrosymmetry as well. As many
-/// rows as fitted functions are selected, rounded up to the parity allowed by
-/// these row counts: an even
-/// number for fermions, an odd number including `n = 0` for bosons, as for
-/// the sign changes. The rows are chosen by the `pair_select` module, which minimizes the noise
-/// amplification and the aliasing of the next [`MATSUBARA_SELECTION_TAIL`]
-/// functions, when `uhat` has them (the bias + variance criterion of Box and
-/// Draper).
+/// `n_k > 0`, and for bosons one row, `Re û_l(0)`, for `n = 0`, which is
+/// always selected. The rows are chosen by an interpolative decomposition
+/// (the pivoted QR of the rows, taking pairs; see the `pair_select` module),
+/// as Kaye, Chen and Parcollet do for the DLR (Phys. Rev. B 105, 235115
+/// (2022)), until there are at least `n_points` rows: an even number for
+/// fermions, an odd one for bosons, as for the sign changes. When `uhat` has
+/// the next function, the selection is made on `n_points` rounded up to that
+/// parity, so that it is square.
 ///
-/// With `mitigate`, about 10% more frequencies are added (oversampling),
-/// which further improves the conditioning of the fit.
+/// Candidates are the frequencies `n = 2k + ζ >= 0` for `k` on the grid of
+/// the sign-change search (as in SparseIR.jl): every `k` below 64, then
+/// about 32 points per octave (spacing about 2%). The selected frequencies
+/// are points of this grid, unlike the sign changes, which are bisected to
+/// the exact integer; at high frequency, where the grid is sparse, the
+/// functions vary slowly in `n`.
+///
+/// With `mitigate`, about 10% more frequencies are added (oversampling), in
+/// ± pairs, each pair the one that most decreases the noise variance
+/// `trace((FᵀF)⁻¹)` of the fit (A-optimal).
 ///
 /// With `positive_only`, the frequencies `n_k >= 0` are returned (as used
 /// for fitting real-valued imaginary-time functions); otherwise `±n_k`.
@@ -904,7 +902,12 @@ const MATSUBARA_SELECTION_TAIL: usize = 2;
 ///
 /// # Errors
 ///
-/// [`Error::EmptyInput`] if `uhat` is empty
+/// * [`Error::EmptyInput`] if `uhat` is empty
+/// * [`Error::InvalidParameter`] if `n_points` exceeds the number of
+///   functions of `uhat`
+/// * [`Error::DecompositionFailed`] if the rows of the functions on the grid
+///   have rank below `n_points`, so that fewer points than requested would
+///   be returned
 pub(crate) fn pair_sampling_points<S: StatisticsType + 'static>(
     uhat: &PiecewiseLegendreFTVector<S>,
     n_points: usize,
@@ -917,51 +920,71 @@ pub(crate) fn pair_sampling_points<S: StatisticsType + 'static>(
     if uhat.is_empty() {
         return Err(Error::EmptyInput { name: "uhat" });
     }
-    let n_funcs = (n_points + 1 + MATSUBARA_SELECTION_TAIL).min(uhat.len());
-    let n_points = n_points.min(n_funcs);
+    if n_points > uhat.len() {
+        return Err(Error::InvalidParameter {
+            name: "n_points",
+            value: n_points.to_string(),
+            reason: format!(
+                "the pair selection fits at most the {} functions given",
+                uhat.len()
+            ),
+        });
+    }
     if n_points == 0 {
         return Ok(Vec::new());
     }
     let bosonic = S::STATISTICS == Statistics::Bosonic;
-    // Number of rows (and fitted columns) of the square selection
-    let n_cols = if bosonic {
+    // Rows of the selection: n_points rounded up to the parity of the
+    // statistics; as many functions are fitted when uhat has them.
+    let n_rows = if bosonic {
         n_points + 1 - n_points % 2
     } else {
         n_points + n_points % 2
-    }
-    .min(n_funcs);
-    let n_used = (n_cols + MATSUBARA_SELECTION_TAIL).min(n_funcs);
+    };
+    let n_fit = if n_rows <= uhat.len() {
+        n_rows
+    } else {
+        n_points
+    };
     let zeta = i64::from(!bosonic);
     // The candidates 2k + ζ have the parity of the statistics.
     let freqs: Vec<MatsubaraFreq<S>> = DEFAULT_GRID
         .iter()
         .map(|&k| MatsubaraFreq::new(2 * k + zeta))
         .collect::<Result<_, _>>()?;
-    // Only the first n_used functions enter the selection: evaluate just
+    // Only the first n_fit functions enter the selection: evaluate just
     // those. û_l(-n) = conj(û_l(n)) as u_l(τ) is real: only n >= 0 is
     // evaluated.
-    let used = PiecewiseLegendreFTVector::from_vector(uhat.polyvec[..n_used].to_vec());
+    let used = PiecewiseLegendreFTVector::from_vector(uhat.polyvec[..n_fit].to_vec());
     let values: Vec<Vec<Complex64>> = used.evaluate_at_many(&freqs);
-    // n = 0 (bosons only) is the first candidate; it gives one row, Re û(0)
+    // n = 0 (bosons only) is the first candidate; it gives one fixed row,
+    // Re û(0)
     let first = usize::from(bosonic);
-    let pairs = DMatrix::<f64>::from_fn(2 * (freqs.len() - first), n_used, |i, l| {
+    let pairs = DMatrix::<f64>::from_fn(2 * (freqs.len() - first), n_fit, |i, l| {
         let v = values[first + i / 2][l];
         if i % 2 == 0 { v.re } else { v.im }
     });
-    let fixed = DMatrix::<f64>::from_fn(usize::from(bosonic && n_cols % 2 == 1), n_used, |_, l| {
-        values[0][l].re
-    });
+    let fixed = DMatrix::<f64>::from_fn(first, n_fit, |_, l| values[0][l].re);
     // Oversampling adds 10% more frequencies, in ± pairs
     let n_extra = if mitigate {
         n_points.div_ceil(10).div_ceil(2)
     } else {
         0
     };
-    let mut selected: Vec<MatsubaraFreq<S>> = select_pairs(&pairs, &fixed, n_cols, n_extra)
+    let selected_pairs = select_pairs(&pairs, &fixed, n_extra);
+    if first + 2 * selected_pairs.len() < n_points {
+        return Err(Error::DecompositionFailed {
+            reason: format!(
+                "the functions have rank {} below {n_points} on the candidate frequencies",
+                first + 2 * selected_pairs.len()
+            ),
+        });
+    }
+    let mut selected: Vec<MatsubaraFreq<S>> = selected_pairs
         .into_iter()
         .map(|p| freqs[first + p])
         .collect();
-    if fixed.nrows() == 1 {
+    if bosonic {
         selected.push(freqs[0]);
     }
     if !positive_only {

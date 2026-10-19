@@ -798,11 +798,12 @@ pub enum MatsubaraPointMethod {
     /// SparseIR.jl and libsparseir: the default for functions with a definite
     /// parity (centrosymmetric kernels), which only they have.
     SignChanges,
-    /// A set symmetric in ±n, selected as pairs that minimize the noise
-    /// amplification and aliasing of the fit (the bias + variance criterion
-    /// of Box and Draper): the only method, and so the default, for functions
-    /// without a parity (e.g. [`LogisticKernelWindowed`]); available for the
-    /// others on request.
+    /// A set symmetric in ±n, selected in pairs by an interpolative
+    /// decomposition (pivoted QR of the rows `Re û(n)`, `Im û(n)`, as Kaye,
+    /// Chen and Parcollet do for the DLR, Phys. Rev. B 105, 235115 (2022)):
+    /// the only method, and so the default, for functions without a parity
+    /// (e.g. [`LogisticKernelWindowed`]); available for the others on
+    /// request.
     ///
     /// [`LogisticKernelWindowed`]: crate::kernel::LogisticKernelWindowed
     PairSelection,
@@ -849,12 +850,18 @@ where
 ///
 /// [`MatsubaraPointMethod::PairSelection`]: as many frequencies as
 /// functions, rounded up to an even number for fermions and an odd one
-/// including n = 0 for bosons; `mitigate` adds about 10% more frequencies
-/// (oversampling).
+/// including n = 0 for bosons, chosen among the frequencies of the grid of
+/// the sign-change search (spacing about 2% at high frequency); `mitigate`
+/// adds about 10% more frequencies (oversampling that minimizes the noise
+/// variance of the fit).
 ///
 /// # Errors
 ///
 /// * [`Error::EmptyInput`] if `uhat_full` is empty
+/// * For [`MatsubaraPointMethod::PairSelection`], [`Error::InvalidParameter`]
+///   if `l` exceeds the number of functions of `uhat_full`, and
+///   [`Error::DecompositionFailed`] if they have rank below `l` on the
+///   candidate frequencies
 /// * [`Error::NotSupported`] for [`MatsubaraPointMethod::SignChanges`] if the
 ///   functions have no definite parity (symm = 0, #183)
 pub fn matsubara_sampling_points_from_uhat<S>(
