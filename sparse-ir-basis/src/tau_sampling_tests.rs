@@ -1,7 +1,7 @@
 // RegularizedBoseKernel is deprecated (#273) but tested until it is removed.
 #![allow(deprecated)]
 use crate::basis::FiniteTempBasis;
-use crate::kernel::{CentrosymmKernel, KernelProperties};
+use crate::kernel::{AbstractKernel, KernelProperties};
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};
 use crate::sampling::TauSampling;
 use crate::test_utils::At;
@@ -14,7 +14,7 @@ use crate::test_utils::{ErrorNorm, movedim};
 fn test_evaluate_nd_roundtrip_real<S>()
 where
     S: StatisticsType + 'static,
-    LogisticKernel: KernelProperties + CentrosymmKernel + Clone + 'static,
+    LogisticKernel: KernelProperties + AbstractKernel + Clone + 'static,
 {
     let beta = 1.0;
     let wmax = 10.0;
@@ -89,7 +89,7 @@ fn test_evaluate_nd_bosonic_real() {
 fn test_evaluate_nd_roundtrip_complex<S>()
 where
     S: StatisticsType + 'static,
-    LogisticKernel: KernelProperties + CentrosymmKernel + Clone + 'static,
+    LogisticKernel: KernelProperties + AbstractKernel + Clone + 'static,
 {
     let beta = 1.0;
     let wmax = 10.0;

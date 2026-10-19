@@ -112,6 +112,20 @@ fn unsupported_combination_is_reported() {
     ));
 }
 
+/// A rank-deficient matrix (two equal columns) gives the minimum-norm
+/// least-squares solution, not inf/NaN; so does the zero matrix.
+#[test]
+fn fit_rank_deficient_matrix() {
+    let a = Mat::<f64>::from_fn([5, 2], |idx| (idx[0] + 1) as f64);
+    let fitter = RealMatrixFitter::new(a);
+    let values: Vec<f64> = (1..=5).map(|i| i as f64).collect();
+    let coeffs = fitter.fit(None, &values).unwrap();
+    assert!((coeffs[0] - 0.5).abs() < 1e-14 && (coeffs[1] - 0.5).abs() < 1e-14);
+
+    let zero = RealMatrixFitter::new(Mat::<f64>::from_elem([4, 3], 0.0));
+    assert_eq!(zero.fit(None, &[1.0, 2.0, 3.0, 4.0]).unwrap(), vec![0.0; 3]);
+}
+
 /// The rank cut `s_l > rtol * s_0` is false for every l when s_0 is NaN; it
 /// must fail instead of giving a rank-0 pseudo-inverse whose fits are zeros.
 /// (The SVD backend reports non-convergence for a non-finite matrix before
@@ -119,21 +133,18 @@ fn unsupported_combination_is_reported() {
 #[test]
 fn pinv_rank_rejects_non_finite_singular_values() {
     use crate::fitters::common::pinv_rank;
-    assert_eq!(pinv_rank(&[2.0, 1.0, 1e-20], Some(1e-15)), Ok(2));
-    assert_eq!(pinv_rank(&[2.0, 1.0, 1e-20], None), Ok(3));
-    assert_eq!(pinv_rank(&[], Some(1e-15)), Ok(0));
+    assert_eq!(pinv_rank(&[2.0, 1.0, 1e-20], 1e-15), Ok(2));
+    assert_eq!(pinv_rank(&[], 1e-15), Ok(0));
     for bad in [f64::NAN, f64::INFINITY] {
-        for rtol in [Some(1e-15), None] {
-            assert_eq!(
-                pinv_rank(&[bad, 1.0], rtol).unwrap_err(),
-                format!("non-finite singular value s[0] = {bad}")
-            );
-            assert!(pinv_rank(&[2.0, bad], rtol).is_err());
-        }
+        assert_eq!(
+            pinv_rank(&[bad, 1.0], 1e-15).unwrap_err(),
+            format!("non-finite singular value s[0] = {bad}")
+        );
+        assert!(pinv_rank(&[2.0, bad], 1e-15).is_err());
     }
 }
 
-/// A fit with a non-finite matrix fails instead of returning zeros or NaN.
+/// A fit with a non-finite matrix fails instead of returning zeros.
 #[test]
 fn fit_non_finite_matrix_is_error() {
     for bad in [f64::NAN, f64::INFINITY] {

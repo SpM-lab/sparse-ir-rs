@@ -6,6 +6,7 @@
 use num_complex::Complex64;
 use std::f64::consts::PI;
 
+use crate::cost::{MATSUBARA_LONE_VALUE, MATSUBARA_VALUE};
 use crate::error::Error;
 use crate::freq::MatsubaraFreq;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
@@ -37,7 +38,8 @@ pub struct PiecewiseLegendreFT<S: StatisticsType> {
     pub(crate) n_asymp: f64,
     /// Power model for asymptotic behavior
     pub(crate) model: PowerModel,
-    _phantom: std::marker::PhantomData<S>,
+    // `fn() -> S` keeps the type Send + Sync whatever `S` is (it holds no S)
+    _phantom: std::marker::PhantomData<fn() -> S>,
 }
 
 // Type aliases for convenience
@@ -145,52 +147,66 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 
     /// Create power model for asymptotic behavior
     fn power_model(poly: &PiecewiseLegendrePoly) -> PowerModel {
-        // Evaluate at the right end of the domain: `new` accepts an xmax
-        // within 1e-12 of 1, where derivs(1.0) would be outside the domain.
-        let deriv_x1 = poly.derivs(poly.xmax);
-        let moments = Self::power_moments(&deriv_x1, poly.l);
-        PowerModel::new(moments)
+        // Evaluate at the ends of the domain: `new` accepts an xmin/xmax
+        // within 1e-12 of -1/1, where derivs(-1.0)/derivs(1.0) would be
+        // outside the domain.
+        PowerModel::new(Self::power_moments(
+            &poly.derivs(poly.xmax),
+            &poly.derivs(poly.xmin),
+        ))
     }
 
-    /// Compute power moments for asymptotic expansion
+    /// Asymptotic power moments from the boundary derivatives at both ends
     ///
-    /// Integration by parts gives moments that combine the derivatives of the
-    /// function at x = 1 and at x = -1. Only those at x = 1 (`deriv_x1`) are
-    /// used; the ones at x = -1 follow from the parity `(-1)^l`. `l` must
-    /// therefore be the index of the singular function in its SVE result (see
-    /// `PiecewiseLegendrePoly::l`), not its index within an even or odd block.
-    fn power_moments(deriv_x1: &[f64], l: i32) -> Vec<f64> {
+    /// `M_m = -( statsign · (-1)^(m+1) · u^(m)(+1) + (-1)^m · u^(m)(-1) ) / sqrt(2)`,
+    /// where `deriv_p[m]` / `deriv_m[m]` is the order-m derivative at x = +1 / -1.
+    /// No parity is assumed, so this holds for functions without definite
+    /// parity (`symm == 0`, e.g. from `compute_sve_general`); for a function
+    /// of parity `(-1)^l` it reduces to the one-sided form with
+    /// `u^(m)(-1) = (-1)^(l+m) u^(m)(+1)`.
+    fn power_moments(deriv_p: &[f64], deriv_m: &[f64]) -> Vec<f64> {
         let statsign = match S::STATISTICS {
             Statistics::Fermionic => -1.0,
             Statistics::Bosonic => 1.0,
         };
-
-        let mut moments = deriv_x1.to_vec();
-        for (m, moment) in moments.iter_mut().enumerate() {
-            let m_f64 = (m + 1) as f64; // Julia uses 1-based indexing
-            *moment *=
-                -(statsign * (-1.0_f64).powi(m_f64 as i32) + (-1.0_f64).powi(l)) / 2.0_f64.sqrt();
-        }
-        moments
+        deriv_p
+            .iter()
+            .zip(deriv_m)
+            .enumerate()
+            .map(|(m, (&dp, &dm))| {
+                let sign_p = (-1.0_f64).powi((m + 1) as i32);
+                let sign_m = (-1.0_f64).powi(m as i32);
+                -(statsign * sign_p * dp + sign_m * dm) / 2.0_f64.sqrt()
+            })
+            .collect()
     }
 
     /// Compute the inner Fourier transform (for small frequencies)
     fn compute_unl_inner(&self, poly: &PiecewiseLegendrePoly, wn: i64) -> Complex64 {
-        let wred = PI / 4.0 * wn as f64;
-        let phase_wi = Self::phase_stable(poly, wn);
+        Self::contract_inner(poly, &InnerFactors::new::<S>(poly, poly.polyorder, wn))
+    }
+
+    /// Inner transform from precomputed segment-wise factors
+    ///
+    /// Sums `data[order, j] · T_nl[order, j] · phase[j]` over the orders of each
+    /// segment j first (real × complex over the contiguous column j of the
+    /// column-major `data`), then divides each segment sum by `norms[j]` once.
+    fn contract_inner(poly: &PiecewiseLegendrePoly, f: &InnerFactors) -> Complex64 {
+        let polyorder = poly.polyorder;
+        debug_assert_eq!(f.nseg, poly.knots.len() - 1);
+        debug_assert!(polyorder <= f.polyorder);
         let mut res = Complex64::new(0.0, 0.0);
-
-        let order_max = poly.polyorder;
-        let segment_count = poly.knots.len() - 1;
-
-        for order in 0..order_max {
-            for j in 0..segment_count {
-                let data_oj = poly.data[[order, j]];
-                let tnl = Self::get_tnl(order as i32, wred * poly.delta_x[j]);
-                res += data_oj * tnl * phase_wi[j] / poly.norms[j];
+        for j in 0..f.nseg {
+            let col = &poly.data.col(j)[..polyorder];
+            let w_re = &f.w_re[j * f.polyorder..j * f.polyorder + polyorder];
+            let w_im = &f.w_im[j * f.polyorder..j * f.polyorder + polyorder];
+            let (mut acc_re, mut acc_im) = (0.0, 0.0);
+            for o in 0..polyorder {
+                acc_re += col[o] * w_re[o];
+                acc_im += col[o] * w_im[o];
             }
+            res += Complex64::new(acc_re, acc_im) / poly.norms[j];
         }
-
         res / 2.0_f64.sqrt()
     }
 
@@ -312,11 +328,47 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     }
 }
 
+/// Segment-wise factors of the inner Fourier transform at one frequency:
+/// `w[order, j] = T_nl[order, j] · phase[j]`, stored as separate real and
+/// imaginary parts, segment-major (index `j * polyorder + order`, matching the
+/// column-major polynomial data). They depend only on the knots, so
+/// polynomials sharing knots can share them.
+struct InnerFactors {
+    nseg: usize,
+    polyorder: usize,
+    w_re: Vec<f64>,
+    w_im: Vec<f64>,
+}
+
+impl InnerFactors {
+    fn new<S: StatisticsType>(poly: &PiecewiseLegendrePoly, polyorder: usize, wn: i64) -> Self {
+        let wred = PI / 4.0 * wn as f64;
+        let phase = PiecewiseLegendreFT::<S>::phase_stable(poly, wn);
+        let nseg = phase.len();
+        let mut w_re = Vec::with_capacity(polyorder * nseg);
+        let mut w_im = Vec::with_capacity(polyorder * nseg);
+        for (&dx, &ph) in poly.delta_x.iter().zip(&phase) {
+            for order in 0..polyorder {
+                let w = PiecewiseLegendreFT::<S>::get_tnl(order as i32, wred * dx) * ph;
+                w_re.push(w.re);
+                w_im.push(w.im);
+            }
+        }
+        Self {
+            nseg,
+            polyorder,
+            w_re,
+            w_im,
+        }
+    }
+}
+
 /// Vector of PiecewiseLegendreFT polynomials
 #[derive(Debug, Clone)]
 pub struct PiecewiseLegendreFTVector<S: StatisticsType> {
     pub(crate) polyvec: Vec<PiecewiseLegendreFT<S>>,
-    _phantom: std::marker::PhantomData<S>,
+    // `fn() -> S` keeps the type Send + Sync whatever `S` is (it holds no S)
+    _phantom: std::marker::PhantomData<fn() -> S>,
 }
 
 // Type aliases for convenience
@@ -423,16 +475,51 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     }
 
     /// Evaluate all polynomials at a Matsubara frequency
+    ///
+    /// When all polynomials share their knots (as the functions of one basis
+    /// do), the segment-wise factors of the inner transform are computed once.
     pub fn evaluate_at(&self, omega: &MatsubaraFreq<S>) -> Vec<Complex64> {
+        let Some(first) = self.polyvec.first() else {
+            return Vec::new();
+        };
+        let shared_knots = self
+            .polyvec
+            .iter()
+            .all(|p| p.poly.knots == first.poly.knots && p.poly.delta_x == first.poly.delta_x);
+        if !shared_knots {
+            return self.polyvec.iter().map(|p| p.evaluate(omega)).collect();
+        }
+        let n = omega.get_n();
+        let polyorder = self
+            .polyvec
+            .iter()
+            .map(|p| p.poly.polyorder)
+            .max()
+            .unwrap_or(0);
+        let mut factors = None;
         self.polyvec
             .iter()
-            .map(|poly| poly.evaluate(omega))
+            .map(|p| {
+                if (n as f64).abs() < p.n_asymp {
+                    let f = factors
+                        .get_or_insert_with(|| InnerFactors::new::<S>(&first.poly, polyorder, n));
+                    PiecewiseLegendreFT::<S>::contract_inner(&p.poly, f)
+                } else {
+                    p.giw(n)
+                }
+            })
             .collect()
     }
 
     /// Evaluate all polynomials at multiple Matsubara frequencies
+    ///
+    /// Large batches are evaluated on the rayon pool, one job per frequency
+    /// (so cheap asymptotic and costly frequencies balance out). Each value
+    /// is computed exactly as in the serial case (under the caller's FPU
+    /// state), so the result does not depend on the number of threads.
     pub fn evaluate_at_many(&self, omegas: &[MatsubaraFreq<S>]) -> Vec<Vec<Complex64>> {
-        omegas.iter().map(|omega| self.evaluate_at(omega)).collect()
+        let work = omegas.len() * self.polyvec.len() * MATSUBARA_VALUE;
+        crate::parallel::map_on_pool(omegas.len(), work, |i| self.evaluate_at(&omegas[i]))
     }
 }
 
@@ -460,7 +547,7 @@ impl<S: StatisticsType> Default for PiecewiseLegendreFTVector<S> {
 
 // ===== Matsubara sampling point selection =====
 
-/// Default grid for finding extrema/sign changes
+/// Grid of reduced Matsubara indices k (n = 2k + ζ) for sampling candidates
 /// Matches C++ DEFAULT_GRID: [0:2^6-1] followed by exponential spacing up to 2^25
 /// Generated from Julia: [range(0; length=2^6); trunc.(Int, exp2.(range(6, 25; length=32 * (25 - 6) + 1)))]
 const DEFAULT_GRID: &[i64] = &[
@@ -522,7 +609,8 @@ const DEFAULT_GRID: &[i64] = &[
 ///
 /// # Errors
 ///
-/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0, #183)
+/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0);
+/// such functions get their points from [`pair_sampling_points`] instead
 pub(crate) fn sign_changes<S: StatisticsType + 'static>(
     u_hat: &PiecewiseLegendreFT<S>,
     positive_only: bool,
@@ -549,7 +637,8 @@ pub(crate) fn sign_changes<S: StatisticsType + 'static>(
 ///
 /// # Errors
 ///
-/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0, #183)
+/// [`Error::NotSupported`] if `u_hat` has no definite parity (symm = 0);
+/// such functions get their points from [`pair_sampling_points`] instead
 pub(crate) fn find_extrema<S: StatisticsType + 'static>(
     u_hat: &PiecewiseLegendreFT<S>,
     positive_only: bool,
@@ -586,7 +675,7 @@ enum Part {
 /// # Errors
 ///
 /// [`Error::NotSupported`] if `symm` is not ±1: the singular functions of an
-/// SVE that is not centrosymmetric have no parity (#183).
+/// SVE that is not centrosymmetric have no parity.
 fn part_with_the_sign_changes<S: StatisticsType>(symm: i32) -> Result<Part, Error> {
     match (symm, S::STATISTICS) {
         (1, Statistics::Bosonic) | (-1, Statistics::Fermionic) => Ok(Part::Real),
@@ -613,7 +702,7 @@ impl Part {
 /// sign changes (see [`part_with_the_sign_changes`])
 fn func_for_part<S: StatisticsType + 'static>(
     poly_ft: &PiecewiseLegendreFT<S>,
-) -> Result<Box<dyn Fn(i64) -> f64>, Error> {
+) -> Result<Box<dyn Fn(i64) -> f64 + Sync>, Error> {
     let part = part_with_the_sign_changes::<S>(poly_ft.poly.symm())?;
     let zeta = poly_ft.zeta();
     let poly_ft_clone = poly_ft.clone();
@@ -678,26 +767,38 @@ fn bisect_discr_extremum(f: &dyn Fn(i64) -> f64, a: i64, b: i64) -> i64 {
 /// Find all sign changes of a function on a grid, using bisection to locate
 /// the precise integer position within each grid interval.
 /// Matches Julia's `find_all` with `bisect`.
-fn find_all(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
-    if xgrid.is_empty() {
-        return Vec::new();
-    }
+///
+/// The grid values and the bisections run on the thread pool: each value is
+/// computed by the same operations whatever the threading, so the result
+/// does not depend on the number of threads.
+fn find_all(f: &(dyn Fn(i64) -> f64 + Sync), xgrid: &[i64]) -> Vec<i64> {
+    use crate::parallel::map_on_pool;
 
-    let mut results = Vec::new();
-    let mut prev_val = f(xgrid[0]);
-
-    for i in 1..xgrid.len() {
-        let val = f(xgrid[i]);
-        // Detect sign change (both values must be nonzero)
-        if prev_val.signum() != val.signum() && prev_val != 0.0 && val != 0.0 {
-            // Bisect to find precise integer location of the zero
-            let root = bisect(f, xgrid[i - 1], xgrid[i], prev_val);
-            results.push(root);
-        }
-        prev_val = val;
-    }
-
-    results
+    let fx = map_on_pool(xgrid.len(), xgrid.len() * MATSUBARA_LONE_VALUE, |i| {
+        f(xgrid[i])
+    });
+    // Intervals with a sign change (both values must be nonzero)
+    let brackets: Vec<usize> = (1..xgrid.len())
+        .filter(|&i| fx[i - 1].signum() != fx[i].signum() && fx[i - 1] != 0.0 && fx[i] != 0.0)
+        .collect();
+    // A bisection over a gap of g evaluates f ⌈log₂ g⌉ times
+    let evaluations: u32 = brackets
+        .iter()
+        .map(|&i| {
+            (xgrid[i] - xgrid[i - 1])
+                .unsigned_abs()
+                .next_power_of_two()
+                .trailing_zeros()
+        })
+        .sum();
+    map_on_pool(
+        brackets.len(),
+        evaluations as usize * MATSUBARA_LONE_VALUE,
+        |k| {
+            let i = brackets[k];
+            bisect(f, xgrid[i - 1], xgrid[i], fx[i - 1])
+        },
+    )
 }
 
 /// Find discrete extrema of a function on a grid, using bisection to locate
@@ -761,6 +862,118 @@ fn symmetrize_matsubara_inplace(xs: &mut Vec<i64>) {
     xs.append(&mut negatives);
     xs.sort();
     xs.dedup();
+}
+
+/// Number of functions beyond those fitted that the Matsubara sampling-point
+/// selection keeps aliasing small for (see
+/// [`pair_sampling_points`]).
+const MATSUBARA_SELECTION_TAIL: usize = 2;
+
+/// Matsubara sampling frequencies for fitting the first `n_points` functions
+/// of `uhat`, selected as symmetric pairs; the default points of functions
+/// without a definite parity
+///
+/// The sign changes of `û_L` that choose the default points of functions with
+/// a parity (as in SparseIR.jl) need `û_L` to be purely
+/// real or purely imaginary. This selection needs no parity.
+///
+/// Candidates are the frequencies `n = 2k + ζ >= 0` for `k` on
+/// the grid of the sign-change search (as in SparseIR.jl), which is dense at
+/// low frequencies and logarithmic beyond.
+///
+/// The selected set is symmetric, `{±n_k}`. Since `û_l(-n) = conj(û_l(n))`
+/// for a real `u_l(τ)`, fitting at `±n_k` is equivalent to fitting the real
+/// and imaginary parts at `n_k`, so the selection is made on the real matrix
+/// whose rows are `Re û_l(n_k)` and `Im û_l(n_k)`: two rows per frequency
+/// `n_k > 0`, one for `n = 0` (bosons). This needs no parity of the
+/// functions, so it serves kernels without centrosymmetry as well. As many
+/// rows as fitted functions are selected, rounded up to the parity allowed by
+/// these row counts: an even
+/// number for fermions, an odd number including `n = 0` for bosons, as for
+/// the sign changes. The rows are chosen by the `pair_select` module, which minimizes the noise
+/// amplification and the aliasing of the next [`MATSUBARA_SELECTION_TAIL`]
+/// functions, when `uhat` has them (the bias + variance criterion of Box and
+/// Draper).
+///
+/// With `mitigate`, about 10% more frequencies are added (oversampling),
+/// which further improves the conditioning of the fit.
+///
+/// With `positive_only`, the frequencies `n_k >= 0` are returned (as used
+/// for fitting real-valued imaginary-time functions); otherwise `±n_k`.
+/// Returned sorted; empty if `n_points` is 0.
+///
+/// # Errors
+///
+/// [`Error::EmptyInput`] if `uhat` is empty
+pub(crate) fn pair_sampling_points<S: StatisticsType + 'static>(
+    uhat: &PiecewiseLegendreFTVector<S>,
+    n_points: usize,
+    positive_only: bool,
+    mitigate: bool,
+) -> Result<Vec<MatsubaraFreq<S>>, Error> {
+    use crate::pair_select::select_pairs;
+    use nalgebra::DMatrix;
+
+    if uhat.is_empty() {
+        return Err(Error::EmptyInput { name: "uhat" });
+    }
+    let n_funcs = (n_points + 1 + MATSUBARA_SELECTION_TAIL).min(uhat.len());
+    let n_points = n_points.min(n_funcs);
+    if n_points == 0 {
+        return Ok(Vec::new());
+    }
+    let bosonic = S::STATISTICS == Statistics::Bosonic;
+    // Number of rows (and fitted columns) of the square selection
+    let n_cols = if bosonic {
+        n_points + 1 - n_points % 2
+    } else {
+        n_points + n_points % 2
+    }
+    .min(n_funcs);
+    let n_used = (n_cols + MATSUBARA_SELECTION_TAIL).min(n_funcs);
+    let zeta = i64::from(!bosonic);
+    // The candidates 2k + ζ have the parity of the statistics.
+    let freqs: Vec<MatsubaraFreq<S>> = DEFAULT_GRID
+        .iter()
+        .map(|&k| MatsubaraFreq::new(2 * k + zeta))
+        .collect::<Result<_, _>>()?;
+    // Only the first n_used functions enter the selection: evaluate just
+    // those. û_l(-n) = conj(û_l(n)) as u_l(τ) is real: only n >= 0 is
+    // evaluated.
+    let used = PiecewiseLegendreFTVector::from_vector(uhat.polyvec[..n_used].to_vec());
+    let values: Vec<Vec<Complex64>> = used.evaluate_at_many(&freqs);
+    // n = 0 (bosons only) is the first candidate; it gives one row, Re û(0)
+    let first = usize::from(bosonic);
+    let pairs = DMatrix::<f64>::from_fn(2 * (freqs.len() - first), n_used, |i, l| {
+        let v = values[first + i / 2][l];
+        if i % 2 == 0 { v.re } else { v.im }
+    });
+    let fixed = DMatrix::<f64>::from_fn(usize::from(bosonic && n_cols % 2 == 1), n_used, |_, l| {
+        values[0][l].re
+    });
+    // Oversampling adds 10% more frequencies, in ± pairs
+    let n_extra = if mitigate {
+        n_points.div_ceil(10).div_ceil(2)
+    } else {
+        0
+    };
+    let mut selected: Vec<MatsubaraFreq<S>> = select_pairs(&pairs, &fixed, n_cols, n_extra)
+        .into_iter()
+        .map(|p| freqs[first + p])
+        .collect();
+    if fixed.nrows() == 1 {
+        selected.push(freqs[0]);
+    }
+    if !positive_only {
+        let negative: Vec<MatsubaraFreq<S>> = selected
+            .iter()
+            .filter(|f| f.get_n() != 0)
+            .map(|&f| -f)
+            .collect();
+        selected.extend(negative);
+    }
+    selected.sort();
+    Ok(selected)
 }
 
 #[cfg(test)]

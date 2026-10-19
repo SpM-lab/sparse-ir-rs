@@ -6,18 +6,14 @@
 //! `min_x ||[Re A; Im A] x - [Re y; Im y]||`, which is solved with a real SVD
 //! of the stacked `2n x m` matrix.
 
-use super::common::{
-    InplaceFitter, PinvFactors, complex_to_stacked, compute_pinv_of,
-    condition_number_from_singular_values, run_alloc, run_to,
-};
-use super::complex::{check_slab_len, evaluate_stacked, stack_complex_matrix};
+use super::common::{InplaceFitter, condition_number_from_singular_values, run_alloc, run_to};
+use super::complex::{StackedMatrix, check_slab_len};
 use super::real::check_vec_len;
 use crate::Matrix;
 use crate::error::Result;
 use crate::gemm::GemmBackendHandle;
 use crate::matrix::Mat;
 use num_complex::Complex;
-use std::sync::OnceLock;
 use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
 
 type C64 = Complex<f64>;
@@ -63,11 +59,10 @@ type C64 = Complex<f64>;
 /// ```
 pub(crate) struct ComplexToRealFitter {
     matrix: Matrix<C64>,
-    /// `[Re A; Im A]`, column-major `2 n_points x basis_size`.
-    a_stacked: Vec<f64>,
+    /// `[Re A; Im A]`
+    stacked: StackedMatrix,
     n_points: usize,
     basis_size: usize,
-    pinv: OnceLock<Result<PinvFactors<f64>>>,
 }
 
 impl ComplexToRealFitter {
@@ -76,13 +71,12 @@ impl ComplexToRealFitter {
     /// The SVD is computed lazily on the first fit.
     pub fn new(matrix: Mat<C64>) -> Self {
         let (n_points, basis_size) = *matrix.shape();
-        let a_stacked = stack_complex_matrix(matrix.as_slice(), n_points, basis_size);
+        let stacked = StackedMatrix::new(matrix.as_slice(), n_points, basis_size);
         Self {
             matrix: matrix.into_typed(),
-            a_stacked,
+            stacked,
             n_points,
             basis_size,
-            pinv: OnceLock::new(),
         }
     }
 
@@ -107,24 +101,9 @@ impl ComplexToRealFitter {
     ///
     /// [`Error::DecompositionFailed`] if the SVD fails
     pub fn condition_number(&self) -> Result<f64> {
-        Ok(condition_number_from_singular_values(&self.pinv()?.s))
-    }
-
-    fn pinv(&self) -> Result<&PinvFactors<f64>> {
-        self.pinv
-            .get_or_init(|| {
-                compute_pinv_of(&self.a_stacked, 2 * self.n_points, self.basis_size, || {
-                    format!(
-                        "{} x {cols} real matrix stacked from the {} x {cols} \
-                         complex sampling matrix",
-                        2 * self.n_points,
-                        self.n_points,
-                        cols = self.basis_size,
-                    )
-                })
-            })
-            .as_ref()
-            .map_err(Clone::clone)
+        Ok(condition_number_from_singular_values(
+            &self.stacked.pinv()?.s,
+        ))
     }
 
     // ------------------------------------------------------------------
@@ -140,16 +119,7 @@ impl ComplexToRealFitter {
         post: usize,
         out: &mut [C64],
     ) -> Result<()> {
-        evaluate_stacked(
-            backend,
-            &self.a_stacked,
-            self.n_points,
-            self.basis_size,
-            coeffs,
-            pre,
-            post,
-            out,
-        )
+        self.stacked.evaluate_slab(backend, coeffs, pre, post, out)
     }
 
     /// Complex coefficients to complex values.
@@ -177,9 +147,7 @@ impl ComplexToRealFitter {
         post: usize,
         out: &mut [f64],
     ) -> Result<()> {
-        check_slab_len("values", values.len(), pre, self.n_points, post)?;
-        let stacked = complex_to_stacked(values, pre, self.n_points, post);
-        self.pinv()?.solve(backend, &stacked, pre, post, out)
+        self.stacked.fit_slab(backend, values, pre, post, out)
     }
 
     /// Complex values to complex coefficients with zero imaginary parts.

@@ -1717,9 +1717,9 @@ pub extern "C" fn spir_sampling_fit_zd(
         let backend_handle = unsafe { get_backend_handle(backend) };
 
         // Fit using InplaceFitter (zd: complex → real)
-        // Note: For full-range Matsubara, this takes the real part of the fitted
-        // complex coefficients. This is physically correct for Green's functions
-        // where IR coefficients are guaranteed to be real by symmetry.
+        // The least-squares solution over real coefficients; for Green's
+        // functions, whose IR coefficients are real, it equals the real part
+        // of the complex solution.
         if let Err(e) = InplaceFitter::fit_nd_zd_to(
             sampling_inner,
             backend_handle,

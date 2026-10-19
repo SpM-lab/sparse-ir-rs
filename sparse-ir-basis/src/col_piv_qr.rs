@@ -33,7 +33,6 @@ use nalgebra::dimension::{Dim, DimMin, DimMinimum};
 
 use nalgebra::geometry::Reflection;
 use nalgebra::linalg::{PermutationSequence, householder};
-use std::mem::MaybeUninit;
 
 /// The QR decomposition (with column pivoting) of a general matrix.
 #[derive(Clone, Debug)]
@@ -86,7 +85,7 @@ where
             };
         }
 
-        let mut diag = Matrix::uninit(min_nrows_ncols, Const::<1>);
+        let mut diag = Matrix::zeros_generic(min_nrows_ncols, Const::<1>);
         let mut first_diag_abs = None;
 
         for i in 0..min_nrows_ncols.value() {
@@ -107,20 +106,14 @@ where
             if let Some(ref rtol_val) = rtol {
                 if let Some(ref first_abs) = first_diag_abs {
                     if diag_abs < rtol_val.clone() * first_abs.clone() {
-                        // Early termination: set remaining diagonal elements to zero
-                        for j in i..min_nrows_ncols.value() {
-                            diag[j] = MaybeUninit::new(T::zero());
-                        }
+                        // Early termination: the remaining diagonal elements stay zero
                         break;
                     }
                 }
             }
 
-            diag[i] = MaybeUninit::new(diag_value);
+            diag[i] = diag_value;
         }
-
-        // Safety: diag is now fully initialized (either with values or zeros).
-        let diag = unsafe { diag.assume_init() };
 
         ColPivQR {
             col_piv_qr: matrix,

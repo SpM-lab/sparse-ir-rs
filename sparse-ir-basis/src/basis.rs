@@ -3,12 +3,12 @@
 //! This module provides the `FiniteTempBasis` type which represents the
 //! intermediate representation (IR) basis for a given temperature.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use crate::error::{
     Error, require_accuracy, require_nonzero_size, require_positive_finite, require_threshold,
 };
-use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel};
+use crate::kernel::{BasisKernel, KernelProperties, LogisticKernel};
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector, default_sampling_points};
 use crate::polyfourier::PiecewiseLegendreFTVector;
 use crate::sve::{SVEResult, TworkType, compute_sve};
@@ -23,9 +23,10 @@ pub enum Statistics {
 
 /// Finite temperature basis for imaginary time/frequency Green's functions
 ///
-/// For a continuation kernel `K` from real frequencies `ω ∈ [-ωmax, ωmax]` to
-/// imaginary time `τ ∈ [0, β]`, this type stores the truncated singular
-/// value expansion or IR basis:
+/// For a continuation kernel `K` from real frequencies `ω ∈ [ωmin, ωmax]`
+/// (`[-ωmax, ωmax]` for centrosymmetric kernels) to imaginary time
+/// `τ ∈ [0, β]`, this type stores the truncated singular value expansion or
+/// IR basis:
 ///
 /// ```text
 /// K(τ, ω) ≈ sum(u[l](τ) * s[l] * v[l](ω) for l in 0..L)
@@ -36,12 +37,12 @@ pub enum Statistics {
 ///
 /// # Type Parameters
 ///
-/// * `K` - Kernel type implementing `KernelProperties + CentrosymmKernel`
+/// * `K` - Kernel type implementing `KernelProperties + AbstractKernel`
 /// * `S` - Statistics type (`Fermionic` or `Bosonic`)
 #[derive(Clone)]
 pub struct FiniteTempBasis<K, S>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     /// The kernel used to construct this basis
@@ -60,7 +61,7 @@ where
     /// Arc for efficient sharing (large immutable data)
     u: Arc<PiecewiseLegendrePolyVector>,
 
-    /// Right singular functions on real frequency axis ω ∈ [-ωmax, ωmax]
+    /// Right singular functions on real frequency axis ω ∈ [ωmin, ωmax]
     /// Arc for efficient sharing (large immutable data)
     v: Arc<PiecewiseLegendrePolyVector>,
 
@@ -75,50 +76,69 @@ where
     /// Arc for efficient sharing (large immutable data, used for Matsubara sampling)
     uhat_full: Arc<PiecewiseLegendreFTVector<S>>,
 
+    /// Default Matsubara sampling points for `positive_only` = false and
+    /// true, found on first use: each sampling object and C-API query asks
+    /// for them again
+    default_matsubara_points: [OnceLock<Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>>; 2],
+
     _phantom: std::marker::PhantomData<S>,
 }
 
-/// Check that `sve_result` is an SVE on [-1, 1] × [-1, 1], the domain of
-/// the kernels in the scaled variables x = 2τ/β - 1 and y = ω/ωmax
-///
-/// The tolerance is the one of the Fourier transform of the basis functions
-/// (`PiecewiseLegendreFT::new`), which requires the interval [-1, 1].
-fn check_unit_domain(sve_result: &SVEResult) -> Result<(), Error> {
+/// Check that `sve_result` is an SVE on the domain `[xmin, xmax] × [ymin, ymax]`
+/// of `kernel` (up to 1e-12, as from `spir_sve_result_from_matrix`)
+fn check_kernel_domain<K: KernelProperties>(
+    kernel: &K,
+    sve_result: &SVEResult,
+) -> Result<(), Error> {
     let domain =
         |funcs: &PiecewiseLegendrePolyVector| funcs.get_polys().first().map(|p| (p.xmin, p.xmax));
     let (Some(u), Some(v)) = (domain(&sve_result.u), domain(&sve_result.v)) else {
         return Err(Error::EmptyInput { name: "sve_result" });
     };
-    let is_unit = |(lo, hi): (f64, f64)| (lo + 1.0).abs() <= 1e-12 && (hi - 1.0).abs() <= 1e-12;
-    if is_unit(u) && is_unit(v) {
+    let (x, y) = (
+        (kernel.xmin(), kernel.xmax()),
+        (kernel.ymin(), kernel.ymax()),
+    );
+    let matches = |(lo, hi): (f64, f64), (min, max): (f64, f64)| {
+        (lo - min).abs() <= 1e-12 && (hi - max).abs() <= 1e-12
+    };
+    if matches(u, x) && matches(v, y) {
         Ok(())
     } else {
         Err(Error::InvalidParameter {
             name: "sve_result",
             value: format!("an SVE on [{:?}, {:?}] × [{:?}, {:?}]", u.0, u.1, v.0, v.1),
-            reason: "must be an SVE on [-1, 1] × [-1, 1]".to_string(),
+            reason: format!(
+                "must be an SVE on the kernel's domain [{:?}, {:?}] × [{:?}, {:?}]",
+                x.0, x.1, y.0, y.1
+            ),
         })
     }
 }
 
 /// Knots and widths of `poly` with the first and last knot set exactly to
-/// -1 and 1
+/// `min` and `max`
 ///
-/// `check_unit_domain` accepts an SVE whose domain differs from [-1, 1] by up
-/// to 1e-12 (e.g. from `spir_sve_result_from_matrix`). Scaled to τ and ω,
-/// such knots end inside [0, β] and [-ωmax, ωmax], where evaluating at the
-/// ends panics. The width of an end segment is recomputed only if its knot
-/// moved, so an SVE with exact ends keeps its knots and widths bit for bit.
-fn unit_knots_and_widths(poly: &PiecewiseLegendrePoly) -> (Vec<f64>, Vec<f64>) {
+/// `check_kernel_domain` accepts an SVE whose domain differs from the
+/// kernel's by up to 1e-12 (e.g. from `spir_sve_result_from_matrix`). Scaled
+/// to τ and ω, such knots end inside [0, β] and [ωmin, ωmax], where evaluating
+/// at the ends panics. The width of an end segment is recomputed only if its
+/// knot moved, so an SVE with exact ends keeps its knots and widths bit for
+/// bit.
+fn snapped_knots_and_widths(
+    poly: &PiecewiseLegendrePoly,
+    min: f64,
+    max: f64,
+) -> (Vec<f64>, Vec<f64>) {
     let mut knots = poly.knots.clone();
     let mut widths = poly.delta_x.clone();
     let last = knots.len() - 1;
-    if knots[0] != -1.0 {
-        knots[0] = -1.0;
+    if knots[0] != min {
+        knots[0] = min;
         widths[0] = knots[1] - knots[0];
     }
-    if knots[last] != 1.0 {
-        knots[last] = 1.0;
+    if knots[last] != max {
+        knots[last] = max;
         widths[last - 1] = knots[last] - knots[last - 1];
     }
     (knots, widths)
@@ -126,7 +146,7 @@ fn unit_knots_and_widths(poly: &PiecewiseLegendrePoly) -> (Vec<f64>, Vec<f64>) {
 
 impl<K, S> FiniteTempBasis<K, S>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     // ========== Getters ==========
@@ -185,18 +205,18 @@ where
 
     // ========== Other methods ==========
 
-    /// Get the frequency cutoff ωmax
+    /// Get the frequency scale wmax = Λ/β, with ω = wmax·y: the frequency
+    /// cutoff ωmax of a symmetric kernel, and the larger of |ωmin| and ωmax of
+    /// an asymmetric window
     pub fn wmax(&self) -> f64 {
-        self.kernel.lambda() / self.beta
+        self.kernel.kernel_lambda() / self.beta
     }
 
     /// Get default Matsubara sampling points as i64 indices (for C-API)
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis functions have no definite parity
-    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
-    /// #183)
+    /// The errors of [`Self::default_matsubara_sampling_points`]
     pub fn default_matsubara_sampling_points_i64(
         &self,
         positive_only: bool,
@@ -215,9 +235,7 @@ where
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis functions have no definite parity
-    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
-    /// #183)
+    /// The errors of [`Self::default_matsubara_sampling_points`]
     pub fn default_matsubara_sampling_points_i64_with_mitigate(
         &self,
         positive_only: bool,
@@ -227,28 +245,52 @@ where
     where
         S: 'static,
     {
-        if !self.kernel().is_centrosymmetric() {
-            return Err(Error::NotSupported {
-                what: "default Matsubara sampling points of a basis whose kernel is not \
-                       centrosymmetric: they rely on the parity of the basis functions"
-                    .to_string(),
-            });
-        }
-        let fence = mitigate;
-        let freqs = Self::default_matsubara_sampling_points_impl(
+        let freqs = default_matsubara_sampling_points_from_uhat(
             &self.uhat_full,
             n_points,
-            fence,
+            mitigate,
             positive_only,
         )?;
         Ok(freqs.into_iter().map(|f| f.n()).collect())
+    }
+
+    /// Matsubara sampling points chosen by `method`
+    ///
+    /// [`Self::default_matsubara_sampling_points`] uses
+    /// [`MatsubaraPointMethod::SignChanges`] for basis functions with a
+    /// definite parity and [`MatsubaraPointMethod::PairSelection`] for the
+    /// others; this chooses the method explicitly, e.g. the pair selection
+    /// for a basis of a centrosymmetric kernel. See
+    /// [`matsubara_sampling_points_from_uhat`] for `mitigate`.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`matsubara_sampling_points_from_uhat`]: for
+    /// [`MatsubaraPointMethod::SignChanges`], [`Error::NotSupported`] if the
+    /// basis functions have no definite parity
+    pub fn matsubara_sampling_points(
+        &self,
+        positive_only: bool,
+        mitigate: bool,
+        method: MatsubaraPointMethod,
+    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+    where
+        S: 'static,
+    {
+        matsubara_sampling_points_from_uhat(
+            &self.uhat_full,
+            self.size(),
+            mitigate,
+            positive_only,
+            method,
+        )
     }
 
     /// Create a new FiniteTempBasis
     ///
     /// # Arguments
     ///
-    /// * `kernel` - Kernel implementing `KernelProperties + CentrosymmKernel`
+    /// * `kernel` - Kernel implementing [`BasisKernel`]
     /// * `beta` - Inverse temperature (β > 0)
     /// * `epsilon` - Accuracy of the basis, in (0, 1). `None` selects the best
     ///   accuracy of the working precision (about 1.6e-16).
@@ -320,7 +362,8 @@ where
     ///
     /// * [`Error::InvalidParameter`] if `beta` is not positive and finite,
     ///   `epsilon` is not in [0, 1) (0 keeps every singular value), `max_size`
-    ///   is `Some(0)`, or `sve_result` is not an SVE on [-1, 1] × [-1, 1]
+    ///   is `Some(0)`, or `sve_result` is not an SVE on the kernel's domain
+    ///   `[xmin, xmax] × [ymin, ymax]`
     /// * [`Error::EmptyInput`] if `sve_result` has no singular functions
     /// * The errors of [`SVEResult::part`] (for an `SVEResult` whose public
     ///   fields break its invariants)
@@ -334,7 +377,7 @@ where
         require_positive_finite("beta", beta)?;
         require_threshold("epsilon", epsilon)?;
         require_nonzero_size("max_size", max_size)?;
-        check_unit_domain(&sve_result)?;
+        check_kernel_domain(&kernel, &sve_result)?;
 
         // Get truncated u, s, v from SVE result
         let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size)?;
@@ -346,37 +389,40 @@ where
             sve_result.s[sve_result.s.len() - 1] / sve_result.s[0]
         };
 
-        // Get kernel parameters
-        let lambda = kernel.lambda();
-        let omega_max = lambda / beta;
+        // Get kernel parameters: ω = wmax * y with wmax = Λ/β, so that
+        // y ∈ [ymin, ymax] maps to ω ∈ [ωmin, ωmax] (wmax = ωmax for
+        // symmetric kernels)
+        let wmax = kernel.kernel_lambda() / beta;
 
         // Scale polynomials to new variables
-        // tau = β/2 * (x + 1), w = ωmax * y
+        // tau = β/2 * (x + 1), w = wmax * y
 
         // Transform u: x ∈ [-1, 1] → τ ∈ [0, β]
-        let (x_knots, x_widths) = unit_knots_and_widths(&u_sve.get_polys()[0]);
+        let (x_knots, x_widths) =
+            snapped_knots_and_widths(&u_sve.get_polys()[0], kernel.xmin(), kernel.xmax());
         let u_knots: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
         let u_delta_x: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
         let u_symm: Vec<i32> = u_sve.get_polys().iter().map(|p| p.symm).collect();
 
         let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm))?;
 
-        // Transform v: y ∈ [-1, 1] → ω ∈ [-ωmax, ωmax]
-        let (y_knots, y_widths) = unit_knots_and_widths(&v_sve.get_polys()[0]);
-        let v_knots: Vec<f64> = y_knots.iter().map(|&y| omega_max * y).collect();
-        let v_delta_x: Vec<f64> = y_widths.iter().map(|&dy| omega_max * dy).collect();
+        // Transform v: y ∈ [ymin, ymax] → ω ∈ [ωmin, ωmax]
+        let (y_knots, y_widths) =
+            snapped_knots_and_widths(&v_sve.get_polys()[0], kernel.ymin(), kernel.ymax());
+        let v_knots: Vec<f64> = y_knots.iter().map(|&y| wmax * y).collect();
+        let v_delta_x: Vec<f64> = y_widths.iter().map(|&dy| wmax * dy).collect();
         let v_symm: Vec<i32> = v_sve.get_polys().iter().map(|p| p.symm).collect();
 
         let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm))?;
 
-        // Scale singular values to τ = β(x + 1)/2 and ω = ωmax y. A kernel with
-        // `ypower` carries that power of y = ω/ωmax, so its physical form is
-        // K(τ, ω) = ωmax^ypower K(x, y) and
-        // s_scaled = sqrt(β/2 * ωmax) * ωmax^ypower * s_sve,
+        // Scale singular values to τ = β(x + 1)/2 and ω = wmax y. A kernel with
+        // `ypower` carries that power of y = ω/wmax, so its physical form is
+        // K(τ, ω) = wmax^ypower K(x, y) and
+        // s_scaled = sqrt(β/2 * wmax) * wmax^ypower * s_sve,
         // e.g. S_l = sqrt(β ωmax³/2) s_l for RegularizedBoseKernel (irbasis
         // paper, Chikano et al., CPC 240, 181 (2019), arXiv:1807.05237, Eq. (25)).
         let ypower = kernel.ypower();
-        let scale_factor = (beta / 2.0 * omega_max).sqrt() * omega_max.powi(ypower);
+        let scale_factor = (beta / 2.0 * wmax).sqrt() * wmax.powi(ypower);
         let s: Vec<f64> = s_sve.iter().map(|&x| scale_factor * x).collect();
 
         // Construct uhat (Fourier transform of u)
@@ -408,6 +454,7 @@ where
             s,
             uhat: Arc::new(uhat),
             uhat_full: Arc::new(uhat_full),
+            default_matsubara_points: [OnceLock::new(), OnceLock::new()],
             _phantom: std::marker::PhantomData,
         })
     }
@@ -419,12 +466,19 @@ where
 
     /// Get the cutoff parameter Λ = β * ωmax
     pub fn lambda(&self) -> f64 {
-        self.kernel.lambda()
+        self.kernel.kernel_lambda()
     }
 
-    /// Get the frequency cutoff ωmax
+    /// Upper edge ωmax of the frequency window (= [`wmax`](Self::wmax) for
+    /// symmetric kernels)
     pub fn omega_max(&self) -> f64 {
-        self.lambda() / self.beta
+        self.kernel.ymax() * self.wmax()
+    }
+
+    /// Lower edge ωmin of the frequency window (= -[`wmax`](Self::wmax) for
+    /// symmetric kernels)
+    pub fn omega_min(&self) -> f64 {
+        self.kernel.ymin() * self.wmax()
     }
 
     /// Get significance of each singular value (s[i] / s[0])
@@ -475,7 +529,8 @@ where
         &self,
         size_requested: usize,
     ) -> Result<Vec<f64>, Error> {
-        let x = default_sampling_points(&self.sve_result.u, "u", size_requested)?;
+        let x_domain = (self.kernel.xmin(), self.kernel.xmax());
+        let x = default_sampling_points(&self.sve_result.u, "u", x_domain, size_requested)?;
         let half_beta = self.beta / 2.0;
         // Map roots to physical tau ∈ [0, β], then fold to [-β/2, β/2]
         let mut smpl_taus: Vec<f64> = x
@@ -497,7 +552,12 @@ where
     ///
     /// Returns sampling points as MatsubaraFreq objects: the sign changes of the
     /// first discarded Matsubara basis function (its extrema when that function
-    /// is not available); bosonic sets always include n = 0.
+    /// is not available), as in SparseIR.jl; bosonic sets always include n = 0.
+    /// Basis functions without a definite parity (an SVE that is not
+    /// centrosymmetric, e.g. of [`LogisticKernelWindowed`] or from
+    /// `compute_sve_general`) have no such sign changes; their points are
+    /// selected as a set symmetric in ±n instead (see
+    /// [`default_matsubara_sampling_points_from_uhat`]).
     ///
     /// # Arguments
     /// * `positive_only` - If true, returns only non-negative frequencies
@@ -507,9 +567,10 @@ where
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis functions have no definite parity
-    /// (an SVE that is not centrosymmetric, e.g. from `compute_sve_general`;
-    /// #183)
+    /// [`Error::EmptyInput`] if the basis has no Matsubara functions, which a
+    /// basis from [`Self::new`] or [`Self::from_sve_result`] always has
+    ///
+    /// [`LogisticKernelWindowed`]: crate::kernel::LogisticKernelWindowed
     pub fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
@@ -517,20 +578,16 @@ where
     where
         S: 'static,
     {
-        if !self.kernel().is_centrosymmetric() {
-            return Err(Error::NotSupported {
-                what: "default Matsubara sampling points of a basis whose kernel is not \
-                       centrosymmetric: they rely on the parity of the basis functions"
-                    .to_string(),
-            });
-        }
-        let fence = false;
-        let points = Self::default_matsubara_sampling_points_impl(
-            &self.uhat_full,
-            self.size(),
-            fence,
-            positive_only,
-        )?;
+        let points = self.default_matsubara_points[usize::from(positive_only)]
+            .get_or_init(|| {
+                default_matsubara_sampling_points_from_uhat(
+                    &self.uhat_full,
+                    self.size(),
+                    false,
+                    positive_only,
+                )
+            })
+            .clone()?;
         let basis_size = self.size();
         // For positive_only=true, we need 2*n_sampling_points >= basis_size
         // For positive_only=false, we need n_sampling_points >= basis_size
@@ -554,167 +611,16 @@ where
         Ok(points)
     }
 
-    /// Fence Matsubara sampling points to improve conditioning
-    ///
-    /// This function adds additional sampling points near the outer frequencies
-    /// to improve the conditioning of the sampling matrix. This is particularly
-    /// important for Matsubara sampling where we cannot freely choose sampling points.
-    ///
-    /// Implementation matches C++ version in `basis.hpp` (lines 407-452).
-    fn fence_matsubara_sampling(
-        omega_n: &mut Vec<crate::freq::MatsubaraFreq<S>>,
-        positive_only: bool,
-    ) where
-        S: StatisticsType + 'static,
-    {
-        use crate::freq::{BosonicFreq, MatsubaraFreq};
-
-        if omega_n.is_empty() {
-            return;
-        }
-
-        // Collect outer frequencies
-        let mut outer_frequencies = Vec::new();
-        if positive_only {
-            outer_frequencies.push(omega_n[omega_n.len() - 1]);
-        } else {
-            outer_frequencies.push(omega_n[0]);
-            outer_frequencies.push(omega_n[omega_n.len() - 1]);
-        }
-
-        for wn_outer in outer_frequencies {
-            let outer_val = wn_outer.n();
-            // In SparseIR.jl-v1, ωn_diff is always created as BosonicFreq
-            // This ensures diff_val is always even (valid for Bosonic)
-            let mut diff_val = 2 * (0.025 * outer_val as f64).round() as i64;
-
-            // Handle edge case: if diff_val is 0, set it to 2 (minimum even value for Bosonic)
-            if diff_val == 0 {
-                diff_val = 2;
-            }
-
-            // Get the n value from BosonicFreq (same as diff_val since it's even)
-            let wn_diff = BosonicFreq::new(diff_val).unwrap().n();
-
-            // Sign function: returns +1 if n > 0, -1 if n < 0, 0 if n == 0
-            // Matches C++ implementation: (a.get_n() > 0) - (a.get_n() < 0)
-            let sign_val = if outer_val > 0 {
-                1
-            } else if outer_val < 0 {
-                -1
-            } else {
-                0
-            };
-
-            // Check original size before adding (C++ checks wn.size() before each push)
-            let original_size = omega_n.len();
-            if original_size >= 20 {
-                // For Fermionic: wn_outer.n is odd, wn_diff is even, so wn_outer.n ± wn_diff is odd (valid)
-                // For Bosonic: wn_outer.n is even, wn_diff is even, so wn_outer.n ± wn_diff is even (valid)
-                let new_n = outer_val - sign_val * wn_diff;
-                if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
-                    omega_n.push(new_freq);
-                }
-            }
-            if original_size >= 42 {
-                let new_n = outer_val + sign_val * wn_diff;
-                if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
-                    omega_n.push(new_freq);
-                }
-            }
-        }
-
-        // Sort and remove duplicates using BTreeSet
-        let omega_n_set: std::collections::BTreeSet<MatsubaraFreq<S>> = omega_n.drain(..).collect();
-        *omega_n = omega_n_set.into_iter().collect();
-    }
-
-    /// Default Matsubara sampling points for a basis of size `l` from the
-    /// Matsubara basis functions `uhat_full`: the sign changes of
-    /// `uhat_full[l]` (after the parity adjustment of `l`), or the extrema of
-    /// the last function when `uhat_full` has no function `l`; bosonic sets
-    /// always include n = 0. `fence` adds points near the outer frequencies.
-    ///
-    /// # Errors
-    ///
-    /// * [`Error::EmptyInput`] if `uhat_full` is empty
-    /// * [`Error::NotSupported`] if the functions have no definite parity
-    ///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
-    pub(crate) fn default_matsubara_sampling_points_impl(
-        uhat_full: &PiecewiseLegendreFTVector<S>,
-        l: usize,
-        fence: bool,
-        positive_only: bool,
-    ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
-    where
-        S: StatisticsType + 'static,
-    {
-        use crate::freq::MatsubaraFreq;
-        use crate::polyfourier::{find_extrema, sign_changes};
-        use std::collections::BTreeSet;
-
-        if uhat_full.is_empty() {
-            return Err(Error::EmptyInput { name: "uhat_full" });
-        }
-
-        let mut l_requested = l;
-
-        // Adjust l_requested based on statistics (same as C++)
-        if S::STATISTICS == crate::traits::Statistics::Fermionic && l_requested % 2 != 0 {
-            l_requested += 1;
-        } else if S::STATISTICS == crate::traits::Statistics::Bosonic && l_requested % 2 == 0 {
-            l_requested += 1;
-        }
-
-        // Choose sign_changes or find_extrema based on l_requested
-        let mut omega_n = if l_requested < uhat_full.len() {
-            sign_changes(&uhat_full[l_requested], positive_only)?
-        } else {
-            find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)?
-        };
-
-        // For bosons, include zero frequency explicitly to prevent conditioning issues
-        if S::STATISTICS == crate::traits::Statistics::Bosonic {
-            omega_n.push(MatsubaraFreq::<S>::new(0).unwrap());
-        }
-
-        // Sort and remove duplicates using BTreeSet
-        let omega_n_set: BTreeSet<MatsubaraFreq<S>> = omega_n.into_iter().collect();
-        let mut omega_n: Vec<MatsubaraFreq<S>> = omega_n_set.into_iter().collect();
-
-        // Check expected size
-        let expected_size = if positive_only {
-            l_requested.div_ceil(2)
-        } else {
-            l_requested
-        };
-
-        if omega_n.len() != expected_size {
-            debug_warn!(
-                "Requested {} sampling frequencies for basis size L = {}, but got {}.",
-                expected_size,
-                l,
-                omega_n.len()
-            );
-        }
-
-        // Apply fencing if requested (same as C++ implementation)
-        if fence {
-            Self::fence_matsubara_sampling(&mut omega_n, positive_only);
-        }
-
-        Ok(omega_n)
-    }
     /// Get default omega (real frequency) sampling points
     ///
-    /// Returns sampling points on the real-frequency axis ω ∈ [-ωmax, ωmax].
+    /// Returns sampling points on the real-frequency axis ω ∈ [ωmin, ωmax].
     /// These are used as pole locations for the Discrete Lehmann Representation (DLR).
     ///
     /// The sampling points are chosen as the roots of the L-th basis function
     /// in the spectral domain (v), which provides near-optimal conditioning.
     ///
     /// # Returns
-    /// Vector of real-frequency sampling points in [-ωmax, ωmax]
+    /// Vector of real-frequency sampling points in [ωmin, ωmax]
     ///
     /// # Errors
     ///
@@ -726,10 +632,11 @@ where
 
         // Use UNTRUNCATED sve_result.v (same as C++)
         // C++: default_sampling_points(*(sve_result->v), sz)
-        let y = default_sampling_points(&self.sve_result.v, "v", sz)?;
+        let y_domain = (self.kernel.ymin(), self.kernel.ymax());
+        let y = default_sampling_points(&self.sve_result.v, "v", y_domain, sz)?;
 
-        // Scale to [-ωmax, ωmax]
-        let wmax = self.kernel.lambda() / self.beta;
+        // Scale y ∈ [ymin, ymax] to ω ∈ [ωmin, ωmax]
+        let wmax = self.wmax();
         let omega_points: Vec<f64> = y.into_iter().map(|yi| wmax * yi).collect();
 
         Ok(omega_points)
@@ -742,7 +649,7 @@ where
 
 impl<K, S> crate::basis_trait::Basis<S> for FiniteTempBasis<K, S>
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType + 'static,
 {
     fn beta(&self) -> f64 {
@@ -750,11 +657,11 @@ where
     }
 
     fn wmax(&self) -> f64 {
-        self.kernel.lambda() / self.beta
+        self.kernel.kernel_lambda() / self.beta
     }
 
     fn lambda(&self) -> f64 {
-        self.kernel.lambda()
+        self.kernel.kernel_lambda()
     }
 
     fn size(&self) -> usize {
@@ -832,21 +739,21 @@ where
             );
         }
 
-        // Evaluate each basis function at all Matsubara frequencies
+        // Evaluate all basis functions frequency by frequency, so that the
+        // segment-wise factors of the transform are shared among them.
         // Result: matrix[i, l] = uhat_l(iν[i])
-        Ok(Mat::<Complex<f64>>::from_fn([n_points, basis_size], |idx| {
-            let i = idx[0]; // frequency index
-            let l = idx[1]; // basis function index
-            self.uhat[l].evaluate(&freqs[i])
-        })
-        .into_typed())
+        let rows = self.uhat.evaluate_at_many(freqs);
+        Ok(
+            Mat::<Complex<f64>>::from_fn([n_points, basis_size], |idx| rows[idx[0]][idx[1]])
+                .into_typed(),
+        )
     }
 
     fn evaluate_omega(&self, omega: &[f64]) -> Result<crate::Matrix<f64>, Error> {
         use crate::matrix::Mat;
 
         let basis_size = self.size();
-        // The v polynomials are on [-ωmax, ωmax] exactly (from_sve_result
+        // The v polynomials are on [ωmin, ωmax] exactly (from_sve_result
         // sets their ends).
         let domain = (self.v.xmin(), self.v.xmax());
         if let Some(&w) = omega.iter().find(|&&w| !(w >= domain.0 && w <= domain.1)) {
@@ -883,36 +790,230 @@ pub type FermionicBasis = FiniteTempBasis<LogisticKernel, Fermionic>;
 /// Type alias for bosonic basis with LogisticKernel
 pub type BosonicBasis = FiniteTempBasis<LogisticKernel, Bosonic>;
 
+/// How the Matsubara sampling points of a basis are chosen
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum MatsubaraPointMethod {
+    /// The sign changes of the first function beyond the basis, as in
+    /// SparseIR.jl and libsparseir: the default for functions with a definite
+    /// parity (centrosymmetric kernels), which only they have.
+    SignChanges,
+    /// A set symmetric in ±n, selected as pairs that minimize the noise
+    /// amplification and aliasing of the fit (the bias + variance criterion
+    /// of Box and Draper): the only method, and so the default, for functions
+    /// without a parity (e.g. [`LogisticKernelWindowed`]); available for the
+    /// others on request.
+    ///
+    /// [`LogisticKernelWindowed`]: crate::kernel::LogisticKernelWindowed
+    PairSelection,
+}
+
 /// Default Matsubara sampling points for a basis of size `l`, from the
 /// Matsubara basis functions `uhat_full` alone
 ///
-/// The points are the sign changes of `uhat_full[l]` (after the parity
-/// adjustment of `l`), or the extrema of the last function when `uhat_full`
-/// has no function `l`; bosonic sets always include n = 0. `fence` adds
-/// points near the outer frequencies. This is what
+/// For functions with a definite parity, the points are those of
+/// [`MatsubaraPointMethod::SignChanges`], as in SparseIR.jl; for functions
+/// without one (symm = 0, as from an SVE that is not centrosymmetric), those
+/// of [`MatsubaraPointMethod::PairSelection`]. This is what
 /// [`FiniteTempBasis::default_matsubara_sampling_points`] computes, for a
 /// caller that holds the functions but not the basis.
 ///
 /// # Errors
 ///
-/// * [`Error::EmptyInput`] if `uhat_full` is empty
-/// * [`Error::NotSupported`] if the functions have no definite parity
-///   (symm = 0, as from an SVE that is not centrosymmetric, #183)
+/// [`Error::EmptyInput`] if `uhat_full` is empty
 pub fn default_matsubara_sampling_points_from_uhat<S>(
     uhat_full: &PiecewiseLegendreFTVector<S>,
     l: usize,
-    fence: bool,
+    mitigate: bool,
     positive_only: bool,
 ) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
 where
     S: StatisticsType + 'static,
 {
-    FiniteTempBasis::<LogisticKernel, S>::default_matsubara_sampling_points_impl(
-        uhat_full,
-        l,
-        fence,
-        positive_only,
-    )
+    let method = if uhat_full.get_polys().iter().any(|u| u.poly.symm == 0) {
+        MatsubaraPointMethod::PairSelection
+    } else {
+        MatsubaraPointMethod::SignChanges
+    };
+    matsubara_sampling_points_from_uhat(uhat_full, l, mitigate, positive_only, method)
+}
+
+/// Matsubara sampling points for a basis of size `l` by `method`, from the
+/// Matsubara basis functions `uhat_full` alone
+///
+/// [`MatsubaraPointMethod::SignChanges`]: the sign changes of `uhat_full[l]`
+/// (after the parity adjustment of `l`), or the extrema of the last function
+/// when `uhat_full` has no function `l`, as in SparseIR.jl; bosonic sets
+/// always include n = 0. `mitigate` adds points near the outer frequencies
+/// (fencing).
+///
+/// [`MatsubaraPointMethod::PairSelection`]: as many frequencies as
+/// functions, rounded up to an even number for fermions and an odd one
+/// including n = 0 for bosons; `mitigate` adds about 10% more frequencies
+/// (oversampling).
+///
+/// # Errors
+///
+/// * [`Error::EmptyInput`] if `uhat_full` is empty
+/// * [`Error::NotSupported`] for [`MatsubaraPointMethod::SignChanges`] if the
+///   functions have no definite parity (symm = 0, #183)
+pub fn matsubara_sampling_points_from_uhat<S>(
+    uhat_full: &PiecewiseLegendreFTVector<S>,
+    l: usize,
+    mitigate: bool,
+    positive_only: bool,
+    method: MatsubaraPointMethod,
+) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+where
+    S: StatisticsType + 'static,
+{
+    if uhat_full.is_empty() {
+        return Err(Error::EmptyInput { name: "uhat_full" });
+    }
+    match method {
+        MatsubaraPointMethod::SignChanges => {
+            sign_change_sampling_points(uhat_full, l, mitigate, positive_only)
+        }
+        MatsubaraPointMethod::PairSelection => {
+            crate::polyfourier::pair_sampling_points(uhat_full, l, positive_only, mitigate)
+        }
+    }
+}
+
+/// [`MatsubaraPointMethod::SignChanges`], as in main and SparseIR.jl
+fn sign_change_sampling_points<S>(
+    uhat_full: &PiecewiseLegendreFTVector<S>,
+    l: usize,
+    mitigate: bool,
+    positive_only: bool,
+) -> Result<Vec<crate::freq::MatsubaraFreq<S>>, Error>
+where
+    S: StatisticsType + 'static,
+{
+    use crate::freq::MatsubaraFreq;
+    use crate::polyfourier::{find_extrema, sign_changes};
+    use std::collections::BTreeSet;
+
+    let mut l_requested = l;
+
+    // Adjust l_requested based on statistics (same as C++)
+    if S::STATISTICS == crate::traits::Statistics::Fermionic && l_requested % 2 != 0 {
+        l_requested += 1;
+    } else if S::STATISTICS == crate::traits::Statistics::Bosonic && l_requested % 2 == 0 {
+        l_requested += 1;
+    }
+
+    // Choose sign_changes or find_extrema based on l_requested
+    let mut omega_n = if l_requested < uhat_full.len() {
+        sign_changes(&uhat_full[l_requested], positive_only)?
+    } else {
+        find_extrema(&uhat_full[uhat_full.len() - 1], positive_only)?
+    };
+
+    // For bosons, include zero frequency explicitly to prevent conditioning issues
+    if S::STATISTICS == crate::traits::Statistics::Bosonic {
+        omega_n.push(MatsubaraFreq::<S>::new(0).unwrap());
+    }
+
+    // Sort and remove duplicates using BTreeSet
+    let omega_n_set: BTreeSet<MatsubaraFreq<S>> = omega_n.into_iter().collect();
+    let mut omega_n: Vec<MatsubaraFreq<S>> = omega_n_set.into_iter().collect();
+
+    // Check expected size
+    let expected_size = if positive_only {
+        l_requested.div_ceil(2)
+    } else {
+        l_requested
+    };
+
+    if omega_n.len() != expected_size {
+        debug_warn!(
+            "Requested {} sampling frequencies for basis size L = {}, but got {}.",
+            expected_size,
+            l,
+            omega_n.len()
+        );
+    }
+
+    // Apply fencing if requested (same as C++ implementation)
+    if mitigate {
+        fence_matsubara_sampling(&mut omega_n, positive_only);
+    }
+
+    Ok(omega_n)
+}
+
+/// Fence Matsubara sampling points to improve conditioning
+///
+/// This function adds additional sampling points near the outer frequencies
+/// to improve the conditioning of the sampling matrix. This is particularly
+/// important for Matsubara sampling where we cannot freely choose sampling points.
+///
+/// Implementation matches C++ version in `basis.hpp` (lines 407-452).
+fn fence_matsubara_sampling<S: StatisticsType + 'static>(
+    omega_n: &mut Vec<crate::freq::MatsubaraFreq<S>>,
+    positive_only: bool,
+) {
+    use crate::freq::{BosonicFreq, MatsubaraFreq};
+
+    if omega_n.is_empty() {
+        return;
+    }
+
+    // Collect outer frequencies
+    let mut outer_frequencies = Vec::new();
+    if positive_only {
+        outer_frequencies.push(omega_n[omega_n.len() - 1]);
+    } else {
+        outer_frequencies.push(omega_n[0]);
+        outer_frequencies.push(omega_n[omega_n.len() - 1]);
+    }
+
+    for wn_outer in outer_frequencies {
+        let outer_val = wn_outer.n();
+        // In SparseIR.jl-v1, ωn_diff is always created as BosonicFreq
+        // This ensures diff_val is always even (valid for Bosonic)
+        let mut diff_val = 2 * (0.025 * outer_val as f64).round() as i64;
+
+        // Handle edge case: if diff_val is 0, set it to 2 (minimum even value for Bosonic)
+        if diff_val == 0 {
+            diff_val = 2;
+        }
+
+        // Get the n value from BosonicFreq (same as diff_val since it's even)
+        let wn_diff = BosonicFreq::new(diff_val).unwrap().n();
+
+        // Sign function: returns +1 if n > 0, -1 if n < 0, 0 if n == 0
+        // Matches C++ implementation: (a.get_n() > 0) - (a.get_n() < 0)
+        let sign_val = if outer_val > 0 {
+            1
+        } else if outer_val < 0 {
+            -1
+        } else {
+            0
+        };
+
+        // Check original size before adding (C++ checks wn.size() before each push)
+        let original_size = omega_n.len();
+        if original_size >= 20 {
+            // For Fermionic: wn_outer.n is odd, wn_diff is even, so wn_outer.n ± wn_diff is odd (valid)
+            // For Bosonic: wn_outer.n is even, wn_diff is even, so wn_outer.n ± wn_diff is even (valid)
+            let new_n = outer_val - sign_val * wn_diff;
+            if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
+                omega_n.push(new_freq);
+            }
+        }
+        if original_size >= 42 {
+            let new_n = outer_val + sign_val * wn_diff;
+            if let Ok(new_freq) = MatsubaraFreq::<S>::new(new_n) {
+                omega_n.push(new_freq);
+            }
+        }
+    }
+
+    // Sort and remove duplicates using BTreeSet
+    let omega_n_set: std::collections::BTreeSet<MatsubaraFreq<S>> = omega_n.drain(..).collect();
+    *omega_n = omega_n_set.into_iter().collect();
 }
 
 #[cfg(test)]

@@ -17,6 +17,7 @@
 
 use crate::error::{Error, require_positive_finite};
 use crate::numeric::CustomNumeric;
+use crate::sve::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use crate::traits::{Statistics, StatisticsType};
 use std::fmt::Debug;
 
@@ -50,7 +51,7 @@ where
     /// upper bound of the x domain.
     ///
     /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [-xmax, xmax].
+    /// [xmin, xmax].
     fn segments_x(&self) -> Vec<T>;
 
     /// Get the y-axis segments for discretization
@@ -60,7 +61,7 @@ where
     /// upper bound of the y domain.
     ///
     /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [-ymax, ymax].
+    /// [ymin, ymax].
     fn segments_y(&self) -> Vec<T>;
 
     /// Get the number of singular values hint
@@ -93,6 +94,16 @@ pub trait KernelProperties {
 
     /// Get the upper bound of the y domain
     fn ymax(&self) -> f64;
+
+    /// Lower bound of the x domain. Defaults to the symmetric case `-xmax`.
+    fn xmin(&self) -> f64 {
+        -self.xmax()
+    }
+
+    /// Lower bound of the y domain. Defaults to the symmetric case `-ymax`.
+    fn ymin(&self) -> f64 {
+        -self.ymax()
+    }
 
     /// A regularizer for a bosonic kernel for avoiding a divergence at omega = 0.
     ///
@@ -137,8 +148,8 @@ pub trait AbstractKernel: Send + Sync {
     ///
     /// # Arguments
     ///
-    /// * `x` - The x coordinate (typically in [-xmax, xmax])
-    /// * `y` - The y coordinate (typically in [-ymax, ymax])
+    /// * `x` - The x coordinate (typically in [xmin, xmax])
+    /// * `y` - The y coordinate (typically in [ymin, ymax])
     ///
     /// # Returns
     ///
@@ -147,9 +158,10 @@ pub trait AbstractKernel: Send + Sync {
 
     /// Check if the kernel is centrosymmetric
     ///
-    /// Returns true if and only if K(x, y) == K(-x, -y) for all values of x and y.
-    /// This allows the kernel to be block-diagonalized, speeding up the
-    /// singular value expansion by a factor of 4.
+    /// Returns true if and only if the domain is symmetric and
+    /// K(x, y) == K(-x, -y) for all values of x and y. This allows the kernel
+    /// to be block-diagonalized, speeding up the singular value expansion by a
+    /// factor of 4.
     ///
     /// # Returns
     ///
@@ -161,8 +173,9 @@ pub trait AbstractKernel: Send + Sync {
 
 /// Trait for centrosymmetric kernels
 ///
-/// Centrosymmetric kernels satisfy K(x, y) = K(-x, -y) and can be decomposed
-/// into even and odd components for efficient computation.
+/// Centrosymmetric kernels satisfy K(x, y) = K(-x, -y) on a symmetric domain
+/// and can be decomposed into even and odd components for efficient
+/// computation.
 pub trait CentrosymmKernel: AbstractKernel {
     /// Compute the reduced kernel value
     ///
@@ -177,6 +190,55 @@ pub trait CentrosymmKernel: AbstractKernel {
 
     /// Get the cutoff parameter Λ (lambda)
     fn lambda(&self) -> f64;
+}
+
+/// Kernel of a finite-temperature basis: the kernels that [`compute_sve`]
+/// and [`FiniteTempBasis`] accept
+///
+/// Implemented for every [`CentrosymmKernel`], whose SVE is
+/// block-diagonalized into the even and odd reduced kernels, and for
+/// [`LogisticKernelWindowed`]. Other kernels implement
+/// [`BasisKernel::kernel_lambda`]; their SVE is taken over the full domain
+/// `[xmin, xmax] × [ymin, ymax]` and their singular functions have no
+/// definite parity.
+///
+/// [`compute_sve`]: crate::sve::compute_sve
+/// [`FiniteTempBasis`]: crate::basis::FiniteTempBasis
+pub trait BasisKernel: AbstractKernel + KernelProperties + Clone + 'static {
+    /// The cutoff parameter Λ = β·wmax ([`CentrosymmKernel::lambda`] for a
+    /// centrosymmetric kernel; named apart from it so that both traits can
+    /// be in scope)
+    fn kernel_lambda(&self) -> f64;
+
+    /// The SVE strategy of the kernel: the even/odd blocks for a
+    /// [`CentrosymmKernel`], otherwise the full domain
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`NonCentrosymmSVE::new`] or [`CentrosymmSVE::new`]
+    #[doc(hidden)]
+    fn sve_strategy<T>(&self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+    {
+        Ok(Box::new(NonCentrosymmSVE::new(self.clone(), epsilon)?))
+    }
+}
+
+impl<K> BasisKernel for K
+where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+{
+    fn kernel_lambda(&self) -> f64 {
+        CentrosymmKernel::lambda(self)
+    }
+
+    fn sve_strategy<T>(&self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
+    where
+        T: CustomNumeric + Send + Sync + Clone + 'static,
+    {
+        Ok(Box::new(CentrosymmSVE::new(self.clone(), epsilon)?))
+    }
 }
 
 /// Logistic kernel for fermionic and bosonic analytical continuation
@@ -312,6 +374,154 @@ impl CentrosymmKernel for LogisticKernel {
 
     fn lambda(&self) -> f64 {
         self.lambda
+    }
+}
+
+/// Logistic kernel restricted to an asymmetric frequency window
+///
+/// The kernel formula is that of [`LogisticKernel`]; the non-centrosymmetry
+/// comes solely from restricting the y (= ω/wmax) domain to `[ymin, ymax]`
+/// with `ymin < 0 < ymax` and `max(|ymin|, ymax) == 1`, so that
+/// Λ = β·wmax with wmax = max(|ωmin|, ωmax). Its SVE goes through the
+/// full-domain strategy, and its singular functions have no definite parity.
+#[derive(Debug, Clone, Copy)]
+pub struct LogisticKernelWindowed {
+    /// The kernel on the symmetric domain, whose formula this one shares
+    logistic: LogisticKernel,
+    ymin: f64,
+    ymax: f64,
+}
+
+impl LogisticKernelWindowed {
+    /// Create the kernel for inverse temperature `beta` and the frequency
+    /// window `[omega_min, omega_max]`, which must contain 0
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidParameter`] if `beta` is not positive and finite, or
+    /// `omega_min` and `omega_max` are not finite with
+    /// `omega_min < 0 < omega_max`
+    pub fn from_physical(beta: f64, omega_min: f64, omega_max: f64) -> Result<Self, Error> {
+        require_positive_finite("beta", beta)?;
+        require_positive_finite("omega_max", omega_max)?;
+        if !(omega_min.is_finite() && omega_min < 0.0) {
+            return Err(Error::InvalidParameter {
+                name: "omega_min",
+                value: format!("{omega_min:?}"),
+                reason: "must be finite and negative: the window must contain 0".to_string(),
+            });
+        }
+        let wmax = omega_max.max(-omega_min);
+        let lambda = beta * wmax;
+        require_positive_finite("beta * max(-omega_min, omega_max)", lambda)?;
+        Ok(Self {
+            logistic: LogisticKernel { lambda },
+            ymin: omega_min / wmax,
+            ymax: omega_max / wmax,
+        })
+    }
+
+    /// Get the cutoff parameter Λ = β·wmax with wmax = max(|ωmin|, ωmax)
+    pub fn lambda(&self) -> f64 {
+        self.logistic.lambda
+    }
+}
+
+impl KernelProperties for LogisticKernelWindowed {
+    type SVEHintsType<T>
+        = LogisticWindowedSVEHints<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.logistic.conv_radius()
+    }
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        self.ymax
+    }
+
+    fn ymin(&self) -> f64 {
+        self.ymin
+    }
+
+    /// The regularizer of [`LogisticKernel`], whose formula this kernel shares
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+        self.logistic.regularizer::<S>(beta, omega)
+    }
+
+    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        LogisticWindowedSVEHints {
+            inner: LogisticSVEHints::new(self.logistic, epsilon),
+            ymin: self.ymin,
+            ymax: self.ymax,
+        }
+    }
+}
+
+impl AbstractKernel for LogisticKernelWindowed {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        self.logistic.compute(x, y)
+    }
+}
+
+impl BasisKernel for LogisticKernelWindowed {
+    fn kernel_lambda(&self) -> f64 {
+        self.lambda()
+    }
+}
+
+/// SVE hints for [`LogisticKernelWindowed`] on its full domain
+///
+/// The segments of [`LogisticSVEHints`] on [0, 1] (x) and [0, 1] (y), mirrored
+/// onto [-1, 1] and scaled onto [ymin, ymax] respectively.
+#[derive(Debug, Clone)]
+pub struct LogisticWindowedSVEHints<T> {
+    inner: LogisticSVEHints<T>,
+    ymin: f64,
+    ymax: f64,
+}
+
+impl<T> SVEHints<T> for LogisticWindowedSVEHints<T>
+where
+    T: Copy + Debug + Send + Sync + CustomNumeric,
+{
+    fn segments_x(&self) -> Vec<T> {
+        crate::sve::utils::mirror_segments_to_full_domain(&self.inner.segments_x())
+    }
+
+    fn segments_y(&self) -> Vec<T> {
+        // [0, s1, ..., 1] -> [ymin, ..., ymin s1, 0, ymax s1, ..., ymax]
+        let half = self.inner.segments_y();
+        let (ymin, ymax) = (
+            T::from_f64_unchecked(self.ymin),
+            T::from_f64_unchecked(self.ymax),
+        );
+        let negative = half
+            .iter()
+            .rev()
+            .filter(|&&s| s > T::zero())
+            .map(|&s| s * ymin);
+        negative.chain(half.iter().map(|&s| s * ymax)).collect()
+    }
+
+    fn nsvals(&self) -> usize {
+        self.inner.nsvals()
+    }
+
+    fn ngauss(&self) -> usize {
+        self.inner.ngauss()
     }
 }
 

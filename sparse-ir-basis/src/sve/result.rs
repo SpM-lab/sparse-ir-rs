@@ -103,6 +103,8 @@ impl SVEResult {
     /// `segments_x` x `segments_y` and extended to `[-xmax, xmax]` and
     /// `[-ymax, ymax]`
     ///
+    /// `xmax` and `ymax` are unused: the domains follow from the segments.
+    ///
     /// A block of rank 0 (the odd part of a kernel that is even in y, say)
     /// contributes no singular function; only both blocks being empty is an
     /// error.
@@ -128,8 +130,8 @@ impl SVEResult {
         segments_x: &[f64],
         segments_y: &[f64],
         n_gauss: usize,
-        xmax: f64,
-        ymax: f64,
+        _xmax: f64,
+        _ymax: f64,
         epsilon: f64,
     ) -> Result<Self, Error> {
         use crate::kernel::SymmetryType;
@@ -141,17 +143,26 @@ impl SVEResult {
         }
 
         let gauss_rule_f64 = crate::gauss::legendre::<f64>(n_gauss);
+        // `svd_to_polynomials` takes the segments in the working precision; the
+        // public API keeps them f64, so widen them once here.
+        let segments_x_t: Vec<T> = segments_x
+            .iter()
+            .map(|&v| T::from_f64_unchecked(v))
+            .collect();
+        let segments_y_t: Vec<T> = segments_y
+            .iter()
+            .map(|&v| T::from_f64_unchecked(v))
+            .collect();
         let block = |matrix: &Mat<T>, symmetry: SymmetryType| {
             let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
             let u_unweighted = crate::sve::utils::remove_weights(&u, gauss_x.w.as_slice(), true);
             let v_unweighted = crate::sve::utils::remove_weights(&v, gauss_y.w.as_slice(), true);
-            // The singular vectors become polynomials in f64
-            let u_f64 = Mat::<f64>::from_fn(u_unweighted.dims(), |idx| u_unweighted[idx].to_f64());
-            let v_f64 = Mat::<f64>::from_fn(v_unweighted.dims(), |idx| v_unweighted[idx].to_f64());
-            let u_polys = svd_to_polynomials(&u_f64, segments_x, &gauss_rule_f64, n_gauss)?;
-            let v_polys = svd_to_polynomials(&v_f64, segments_y, &gauss_rule_f64, n_gauss)?;
-            let u_full = extend_to_full_domain(u_polys, symmetry, xmax)?;
-            let v_full = extend_to_full_domain(v_polys, symmetry, ymax)?;
+            let u_polys =
+                svd_to_polynomials(&u_unweighted, &segments_x_t, &gauss_rule_f64, n_gauss)?;
+            let v_polys =
+                svd_to_polynomials(&v_unweighted, &segments_y_t, &gauss_rule_f64, n_gauss)?;
+            let u_full = extend_to_full_domain(u_polys, symmetry)?;
+            let v_full = extend_to_full_domain(v_polys, symmetry)?;
             Ok::<_, Error>((
                 PiecewiseLegendrePolyVector::from_polys_unchecked(u_full),
                 s.iter().map(|sv| sv.to_f64()).collect::<Vec<f64>>(),

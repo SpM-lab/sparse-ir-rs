@@ -18,3 +18,15 @@ pub(crate) const DF64_PRODUCT_TERM: usize = 12;
 /// An SVE kernel entry (a few exponentials), counted in operations of its
 /// element type
 pub(crate) const KERNEL_ENTRY: usize = 64;
+
+/// A value `û_l(iν)` in a batch over many functions, which share the segment
+/// factors of each frequency (about 1.5–3 µs away from the asymptotic region).
+/// Set so that a batch of 64 values reaches the threshold: on an M1 Pro, the
+/// sampling matrices of the default points were never slower on the pool
+/// down to that size.
+pub(crate) const MATSUBARA_VALUE: usize = crate::parallel::PARALLEL_MIN_WORK >> 6;
+
+/// A value `û_l(iν)` of a lone function, which computes the segment factors
+/// of its frequency alone (about 40 µs), as in the sign-change search of the
+/// default Matsubara points
+pub(crate) const MATSUBARA_LONE_VALUE: usize = crate::parallel::PARALLEL_MIN_WORK >> 2;

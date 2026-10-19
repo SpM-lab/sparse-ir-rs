@@ -571,12 +571,15 @@ fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
     }
 }
 
-/// default_matsubara_sampling_points_impl, which the C API calls with a
-/// Matsubara-space spir_funcs, returns NotSupported for functions without a
-/// definite parity (#183) and EmptyInput for no functions (it panicked on
-/// `len() - 1`).
+/// default_matsubara_sampling_points_from_uhat, which the C API calls with a
+/// Matsubara-space spir_funcs, selects points for functions without a
+/// definite parity too (they were NotSupported, #183): a set symmetric in ±n
+/// of fermionic frequencies, `size()` of them rounded up to an even number,
+/// the non-negative half with `positive_only`, more with mitigate. No
+/// functions give EmptyInput (it panicked on `len() - 1`).
 #[test]
-fn test_default_matsubara_points_impl_errors() {
+fn test_default_matsubara_points_from_uhat() {
+    use crate::basis::default_matsubara_sampling_points_from_uhat;
     use crate::polyfourier::PiecewiseLegendreFTVector;
     use crate::sve::compute_sve_general;
 
@@ -585,23 +588,37 @@ fn test_default_matsubara_points_impl_errors() {
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();
-    for (fence, positive_only) in [(false, false), (true, true)] {
-        let err =
-            FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
-                basis.uhat_full(),
-                basis.size(),
-                fence,
-                positive_only,
-            )
-            .unwrap_err();
-        assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
-    }
+    assert!(
+        basis
+            .uhat_full()
+            .get_polys()
+            .iter()
+            .all(|u| u.poly.symm == 0)
+    );
+    let ns = |mitigate, positive_only| -> Vec<i64> {
+        default_matsubara_sampling_points_from_uhat(
+            basis.uhat_full(),
+            basis.size(),
+            mitigate,
+            positive_only,
+        )
+        .unwrap()
+        .into_iter()
+        .map(|f| f.n())
+        .collect()
+    };
+    let full = ns(false, false);
+    assert_eq!(full.len(), basis.size() + basis.size() % 2, "{full:?}");
+    assert!(full.iter().all(|n| n % 2 != 0), "{full:?}");
+    assert!(full.windows(2).all(|w| w[0] < w[1]), "{full:?}");
+    assert!(full.iter().all(|n| full.contains(&-n)), "{full:?}");
+    let positive: Vec<i64> = full.iter().copied().filter(|&n| n > 0).collect();
+    assert_eq!(ns(false, true), positive);
+    assert!(ns(true, false).len() > full.len());
+
     let empty = PiecewiseLegendreFTVector::<Fermionic>::new();
     assert_eq!(
-        FiniteTempBasis::<LogisticKernel, Fermionic>::default_matsubara_sampling_points_impl(
-            &empty, 4, false, false
-        )
-        .unwrap_err(),
+        default_matsubara_sampling_points_from_uhat(&empty, 4, false, false).unwrap_err(),
         Error::EmptyInput { name: "uhat_full" }
     );
 }
@@ -673,15 +690,63 @@ fn test_default_sampling_points_rejects_scaled_functions() {
     // β = 1 and Λ = 10: u is on [0, 1] and v on [-10, 10], neither on [-1, 1].
     let basis =
         FermionicBasis::new(LogisticKernel::new(10.0).unwrap(), 1.0, Some(1e-6), None).unwrap();
-    let err = default_sampling_points(basis.u(), "u", 3).unwrap_err();
+    let unit = (-1.0, 1.0);
+    let err = default_sampling_points(basis.u(), "u", unit, 3).unwrap_err();
     assert!(
         matches!(err, Error::InvalidParameter { name: "u", .. }),
         "{err:?}"
     );
-    let err = default_sampling_points(basis.v(), "v", 3).unwrap_err();
+    let err = default_sampling_points(basis.v(), "v", unit, 3).unwrap_err();
     assert!(
         matches!(err, Error::InvalidParameter { name: "v", .. }),
         "{err:?}"
     );
-    assert!(default_sampling_points(&basis.sve_result().u, "u", 3).is_ok());
+    assert!(default_sampling_points(&basis.sve_result().u, "u", unit, 3).is_ok());
+}
+
+/// The default Matsubara points are found once per basis and
+/// `positive_only`: they are exactly the points found directly (with and
+/// without parity, both statistics), also when asked for repeatedly.
+#[test]
+fn test_default_matsubara_points_are_reused() {
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::traits::StatisticsType;
+
+    fn check<K, S>(kernel: K, beta: f64)
+    where
+        K: crate::kernel::BasisKernel,
+        S: StatisticsType + 'static,
+    {
+        let basis = FiniteTempBasis::<K, S>::new(kernel, beta, Some(1e-10), None).unwrap();
+        let direct = |positive_only| {
+            crate::basis::default_matsubara_sampling_points_from_uhat(
+                basis.uhat_full(),
+                basis.size(),
+                false,
+                positive_only,
+            )
+            .unwrap()
+            .iter()
+            .map(|f| f.n())
+            .collect::<Vec<_>>()
+        };
+        for _ in 0..2 {
+            for positive_only in [false, true] {
+                assert_eq!(
+                    basis
+                        .default_matsubara_sampling_points_i64(positive_only)
+                        .unwrap(),
+                    direct(positive_only),
+                    "{:?}, positive_only = {positive_only}",
+                    S::STATISTICS
+                );
+            }
+        }
+    }
+    check::<_, Fermionic>(LogisticKernel::new(1e3).unwrap(), 1e3);
+    check::<_, Bosonic>(LogisticKernel::new(1e3).unwrap(), 1e3);
+    check::<_, Bosonic>(RegularizedBoseKernel::new(1e3).unwrap(), 1e3);
+    let windowed = LogisticKernelWindowed::from_physical(1e2, -0.3, 1.0).unwrap();
+    check::<_, Fermionic>(windowed, 1e2);
+    check::<_, Bosonic>(windowed, 1e2);
 }

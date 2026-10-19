@@ -1416,3 +1416,26 @@ fn test_new_rejects_symm_other_than_minus_one_zero_or_one() {
         "{err:?}"
     );
 }
+
+#[test]
+fn test_derivs_match_deriv_evaluate() {
+    // `derivs` differentiates only the segment containing x; it must agree
+    // bitwise with differentiating the whole polynomial.
+    let (polyorder, nseg) = (9, 4);
+    let data = Mat::<f64>::from_fn([polyorder, nseg], |idx| {
+        ((idx[0] * 7 + idx[1] * 3) % 11) as f64 - 5.0 + 0.1 * idx[1] as f64
+    });
+    let knots = vec![-1.0, -0.3, 0.2, 0.7, 1.0];
+    let poly = PiecewiseLegendrePoly::new(data, knots, 0, None, 0).unwrap();
+    for x in [-1.0, -0.3, 0.05, 0.7, 0.95, 1.0] {
+        let derivs = poly.derivs(x);
+        assert_eq!(derivs.len(), polyorder);
+        for (n, &d) in derivs.iter().enumerate() {
+            assert_eq!(
+                d.to_bits(),
+                poly.deriv(n).evaluate(x).to_bits(),
+                "x={x}, n={n}"
+            );
+        }
+    }
+}

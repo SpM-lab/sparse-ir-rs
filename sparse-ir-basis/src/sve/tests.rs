@@ -7,8 +7,8 @@ use super::utils::{extend_to_full_domain, merge_results, mirror_segments_to_full
 use super::{SVEResult, TworkType, compute_sve, compute_sve_general};
 use crate::error::Error;
 use crate::kernel::{
-    AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints,
-    RegularizedBoseKernel, SVEHints, SymmetryType,
+    AbstractKernel, BasisKernel, CentrosymmKernel, KernelProperties, LogisticKernel,
+    LogisticSVEHints, RegularizedBoseKernel, SVEHints, SymmetryType,
 };
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
@@ -41,7 +41,7 @@ fn create_poly_with_segments() -> PiecewiseLegendrePoly {
 fn test_extend_even_symmetry() {
     let poly_positive = create_simple_poly_on_positive_domain();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even).unwrap();
 
     // Test: f(-x) = f(x) for Even symmetry
     let poly = &polys_full[0];
@@ -63,7 +63,7 @@ fn test_extend_even_symmetry() {
 fn test_extend_odd_symmetry() {
     let poly_positive = create_simple_poly_on_positive_domain();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Odd, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Odd).unwrap();
 
     // Test: f(-x) = -f(x) for Odd symmetry
     let poly = &polys_full[0];
@@ -90,7 +90,7 @@ fn test_positive_domain_preserved() {
         .map(|i| poly_positive.evaluate(i as f64 * 0.1))
         .collect();
 
-    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly_positive], SymmetryType::Even).unwrap();
 
     // Check that positive domain values are preserved (with 1/sqrt(2) normalization)
     // The extended polynomial applies 1/sqrt(2) normalization to both parts
@@ -115,7 +115,7 @@ fn test_positive_domain_preserved() {
 fn test_segment_structure() {
     let poly = create_poly_with_segments();
 
-    let polys_full = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly], SymmetryType::Even).unwrap();
 
     // Extended from [0, 0.5, 1.0] to [-1.0, -0.5, 0.0, 0.5, 1.0]
     let expected_knots = [-1.0, -0.5, 0.0, 0.5, 1.0];
@@ -137,7 +137,7 @@ fn test_multiple_polynomials() {
     let poly1 = create_simple_poly_on_positive_domain();
     let poly2 = create_poly_with_segments();
 
-    let polys_full = extend_to_full_domain(vec![poly1, poly2], SymmetryType::Even, 1.0).unwrap();
+    let polys_full = extend_to_full_domain(vec![poly1, poly2], SymmetryType::Even).unwrap();
 
     // Should have extended both polynomials
     assert_eq!(polys_full.len(), 2);
@@ -181,11 +181,15 @@ where
     let x_knots = &u_polys[0].knots;
     let y_knots = &v_polys[0].knots;
 
-    for (name, knots, max) in [("x", x_knots, kernel.xmax()), ("y", y_knots, kernel.ymax())] {
+    for (name, knots, min, max) in [
+        ("x", x_knots, kernel.xmin(), kernel.xmax()),
+        ("y", y_knots, kernel.ymin(), kernel.ymax()),
+    ] {
         let (first, last) = (knots[0], knots[knots.len() - 1]);
+        let tol = f64::EPSILON * min.abs().max(max);
         assert!(
-            (first + max).abs() <= f64::EPSILON * max && (last - max).abs() <= f64::EPSILON * max,
-            "singular functions must cover the full {name} domain [-{max}, {max}], got [{first}, {last}]"
+            (first - min).abs() <= tol && (last - max).abs() <= tol,
+            "singular functions must cover the full {name} domain [{min}, {max}], got [{first}, {last}]"
         );
     }
 
@@ -252,7 +256,7 @@ where
 /// Test that the SVE computed by `compute_sve` reconstructs the kernel
 fn test_sve_decomposition_kernel_impl<K>(kernel: K, lambda: f64, epsilon: f64)
 where
-    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     // Tolerance for comparison (absolute error)
     // Note: We use absolute error only because kernel values can be very small.
@@ -269,7 +273,7 @@ fn test_sve_decomposition_kernel_impl_with_tolerance<K>(
     epsilon: f64,
     tolerance: f64,
 ) where
-    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let sve_result =
         compute_sve(kernel.clone(), Some(epsilon), None, None, TworkType::Auto).unwrap();
@@ -328,13 +332,11 @@ fn test_merge_results_assigns_global_index() {
     let even = extend_to_full_domain(
         vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
         SymmetryType::Even,
-        1.0,
     )
     .unwrap();
     let odd = extend_to_full_domain(
         vec![half_domain_poly(3.0, 0), half_domain_poly(4.0, 1)],
         SymmetryType::Odd,
-        1.0,
     )
     .unwrap();
     // Interlacing singular values, as for a totally positive kernel.
@@ -446,7 +448,7 @@ fn assert_general_path_matches_compute_sve<K>(
     twork: TworkType,
     expect_same_count: bool,
 ) where
-    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let u_work = working_machine_epsilon(epsilon, twork);
     // Explicit cutoff, so that this comparison does not depend on the
@@ -640,6 +642,95 @@ impl KernelProperties for TiltedLogisticKernel {
     }
 }
 
+impl BasisKernel for TiltedLogisticKernel {
+    fn kernel_lambda(&self) -> f64 {
+        self.0.lambda()
+    }
+}
+
+/// A logistic kernel cut to zero for x ≤ 0: non-centrosymmetric, with zero
+/// rows in its discretization (the first of which is ACA's first pivot)
+#[derive(Debug, Clone, Copy)]
+struct HalfLogisticKernel(LogisticKernel);
+
+impl AbstractKernel for HalfLogisticKernel {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        if x > T::from_f64_unchecked(0.0) {
+            self.0.compute(x, y)
+        } else {
+            T::from_f64_unchecked(0.0)
+        }
+    }
+}
+
+impl KernelProperties for HalfLogisticKernel {
+    type SVEHintsType<T>
+        = TiltedLogisticSVEHints<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.0.conv_radius()
+    }
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        1.0
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, _: f64, _: f64) -> f64 {
+        1.0
+    }
+
+    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        TiltedLogisticSVEHints(self.0.sve_hints::<T>(epsilon))
+    }
+}
+
+impl BasisKernel for HalfLogisticKernel {
+    fn kernel_lambda(&self) -> f64 {
+        self.0.lambda()
+    }
+}
+
+/// The SVE of a kernel with zero rows (ACA moves on to other pivot rows)
+/// reproduces the kernel
+#[test]
+fn test_sve_of_kernel_with_zero_rows() {
+    let kernel = HalfLogisticKernel(LogisticKernel::new(10.0).unwrap());
+    for (eps, twork) in [(1e-6, TworkType::Float64), (1e-10, TworkType::Float64X2)] {
+        let sve = compute_sve(kernel, Some(eps), None, None, twork).unwrap();
+        assert!(
+            sve.s.len() > 5,
+            "{twork:?}: {} singular values",
+            sve.s.len()
+        );
+        let mut err: f64 = 0.0;
+        for i in 0..=40 {
+            let x = -1.0 + 0.05 * i as f64;
+            for j in 0..=40 {
+                let y = -1.0 + 0.05 * j as f64;
+                let approx: f64 = (0..sve.s.len())
+                    .map(|l| sve.u[l].evaluate(x) * sve.s[l] * sve.v[l].evaluate(y))
+                    .sum();
+                let exact: f64 = kernel.compute(x, y);
+                err = err.max((approx - exact).abs());
+            }
+        }
+        assert!(err < 100.0 * eps, "{twork:?}: reconstruction error {err:e}");
+    }
+}
+
 /// `compute_sve_general` on a non-centrosymmetric kernel uses its full-domain
 /// hint segments as given, reconstructs the kernel, and fixes the SVD sign
 /// gauge by `u_l(xmax) >= 0` like `compute_sve`
@@ -666,6 +757,241 @@ fn test_compute_sve_general_non_centrosymmetric_kernel() {
     }
 }
 
+/// `compute_sve` dispatches on `is_centrosymmetric`: a non-centrosymmetric
+/// kernel goes through the full-domain strategy, exactly as with
+/// `compute_sve_general`
+#[test]
+fn test_compute_sve_of_non_centrosymmetric_kernel_uses_full_domain() {
+    let kernel = TiltedLogisticKernel(LogisticKernel::new(10.0).unwrap());
+    let general = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
+    let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
+    assert_eq!(sve.s, general.s);
+    assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
+    assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6 * 200.0);
+}
+
+/// A logistic kernel that claims centrosymmetry on the asymmetric domain
+/// y ∈ [-0.5, 1]
+#[derive(Debug, Clone, Copy)]
+struct AsymmetricDomainLogisticKernel(LogisticKernel);
+
+impl AbstractKernel for AsymmetricDomainLogisticKernel {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        self.0.compute(x, y)
+    }
+
+    fn is_centrosymmetric(&self) -> bool {
+        true
+    }
+}
+
+impl KernelProperties for AsymmetricDomainLogisticKernel {
+    type SVEHintsType<T>
+        = TiltedLogisticSVEHints<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.0.conv_radius()
+    }
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymin(&self) -> f64 {
+        -0.5
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, _: f64, _: f64) -> f64 {
+        1.0
+    }
+
+    fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        TiltedLogisticSVEHints(self.0.sve_hints::<T>(epsilon))
+    }
+}
+
+impl CentrosymmKernel for AsymmetricDomainLogisticKernel {
+    fn compute_reduced<T: CustomNumeric + Copy + Debug>(
+        &self,
+        x: T,
+        y: T,
+        symmetry: SymmetryType,
+    ) -> T {
+        self.0.compute_reduced(x, y, symmetry)
+    }
+
+    fn lambda(&self) -> f64 {
+        self.0.lambda()
+    }
+}
+
+/// The even/odd strategy, and so `compute_sve`, rejects a centrosymmetric
+/// kernel whose domain is not symmetric instead of returning the SVE of its
+/// symmetric part
+#[test]
+fn test_centrosymm_sve_rejects_asymmetric_domain() {
+    use super::CentrosymmSVE;
+
+    let kernel = AsymmetricDomainLogisticKernel(LogisticKernel::new(10.0).unwrap());
+    let expected = Error::InvalidParameter {
+        name: "kernel domain [ymin, ymax]",
+        value: "[-0.5, 1.0]".to_string(),
+        reason: "must be symmetric about 0 for a centrosymmetric kernel".to_string(),
+    };
+    let err = CentrosymmSVE::<f64, _>::new(kernel, 1e-6).err().unwrap();
+    assert_eq!(err, expected);
+    let err = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap_err();
+    assert_eq!(err, expected);
+}
+
+// A non-centrosymmetric kernel with an analytically known SVE: a finite sum of
+// products of L2[-1,1]-orthonormal normalized Legendre polynomials
+// P̃_n(x) = sqrt((2n+1)/2) P_n(x),
+//
+//   K(x, y) = s0 P̃_0(x) P̃_1(y) + s1 P̃_1(x) P̃_0(y) + s2 P̃_2(x) P̃_2(y).
+//
+// The left family {P̃_0, P̃_1, P̃_2} and the right family {P̃_1, P̃_0, P̃_2} are
+// each orthonormal, so this is the SVE: the singular values are exactly
+// {s0, s1, s2}. Under (x, y) -> (-x, -y) the first two terms flip sign and the
+// third does not, so K is not centrosymmetric.
+
+fn norm_legendre_p0<T: CustomNumeric>() -> T {
+    T::from_f64_unchecked(0.5_f64.sqrt())
+}
+
+fn norm_legendre_p1<T: CustomNumeric + Copy>(x: T) -> T {
+    T::from_f64_unchecked(1.5_f64.sqrt()) * x
+}
+
+fn norm_legendre_p2<T: CustomNumeric + Copy>(x: T) -> T {
+    let c = T::from_f64_unchecked(2.5_f64.sqrt());
+    c * T::from_f64_unchecked(0.5)
+        * (T::from_f64_unchecked(3.0) * x * x - T::from_f64_unchecked(1.0))
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SeparableNonsymmKernel {
+    s: [f64; 3],
+}
+
+impl AbstractKernel for SeparableNonsymmKernel {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        let [s0, s1, s2] = self.s.map(T::from_f64_unchecked);
+        s0 * norm_legendre_p0::<T>() * norm_legendre_p1(y)
+            + s1 * norm_legendre_p1(x) * norm_legendre_p0::<T>()
+            + s2 * norm_legendre_p2(x) * norm_legendre_p2(y)
+    }
+}
+
+/// Full-domain hints: one segment per half of [-1, 1], with enough Gauss
+/// points to integrate the degree-4 products of the degree-2 functions
+#[derive(Debug, Clone)]
+struct SeparableNonsymmSVEHints<T>(std::marker::PhantomData<T>);
+
+impl<T> SVEHints<T> for SeparableNonsymmSVEHints<T>
+where
+    T: Copy + Debug + Send + Sync + CustomNumeric,
+{
+    fn segments_x(&self) -> Vec<T> {
+        [-1.0, 0.0, 1.0].map(T::from_f64_unchecked).to_vec()
+    }
+
+    fn segments_y(&self) -> Vec<T> {
+        [-1.0, 0.0, 1.0].map(T::from_f64_unchecked).to_vec()
+    }
+
+    fn nsvals(&self) -> usize {
+        6
+    }
+
+    fn ngauss(&self) -> usize {
+        16
+    }
+}
+
+impl KernelProperties for SeparableNonsymmKernel {
+    type SVEHintsType<T>
+        = SeparableNonsymmSVEHints<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn ypower(&self) -> i32 {
+        0
+    }
+
+    fn conv_radius(&self) -> f64 {
+        f64::INFINITY
+    }
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        1.0
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, _beta: f64, _omega: f64) -> f64 {
+        1.0
+    }
+
+    fn sve_hints<T>(&self, _epsilon: f64) -> Self::SVEHintsType<T>
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        SeparableNonsymmSVEHints(std::marker::PhantomData)
+    }
+}
+
+impl BasisKernel for SeparableNonsymmKernel {
+    fn kernel_lambda(&self) -> f64 {
+        // No physical cutoff; only used if a basis is built from the kernel
+        1.0
+    }
+}
+
+/// `compute_sve` of the separable kernel recovers its exact singular values,
+/// reconstructs the kernel and returns functions without parity (symm == 0),
+/// which keeps the Matsubara transforms from assuming one
+#[test]
+fn test_compute_sve_recovers_analytic_sve_of_non_centrosymmetric_kernel() {
+    let kernel = SeparableNonsymmKernel { s: [1.0, 0.6, 0.3] };
+    let k_pos: f64 = kernel.compute(0.4, 0.7);
+    let k_neg: f64 = kernel.compute(-0.4, -0.7);
+    assert!((k_pos - k_neg).abs() > 1e-6);
+
+    for twork in [TworkType::Float64, TworkType::Float64X2] {
+        let sve = compute_sve(kernel, Some(1e-10), None, None, twork).unwrap();
+        // Rank 3 by construction: further singular values are SVD noise.
+        assert!(sve.s.len() >= 3, "{twork:?}: {:?}", sve.s);
+        for (l, (&got, want)) in sve.s.iter().zip([1.0, 0.6, 0.3]).enumerate() {
+            assert!(
+                (got - want).abs() < 1e-12,
+                "{twork:?}: s[{l}] = {got:.15e}, expected {want}"
+            );
+        }
+        if let Some(&s3) = sve.s.get(3) {
+            assert!(s3 < 1e-12, "{twork:?}: s[3] = {s3:e}");
+        }
+        let polys = sve.u.get_polys().iter().chain(sve.v.get_polys());
+        assert!(polys.into_iter().all(|p| p.symm == 0), "{twork:?}");
+        assert_sve_reconstructs_kernel(&kernel, &sve, 1e-12);
+    }
+}
+
 /// Pin the default truncation cutoff of both SVE paths to `2 * u_work`
 /// (issue #249), `u_work` being the machine epsilon of the working precision,
 /// as in libsparseir
@@ -684,7 +1010,7 @@ fn test_compute_sve_general_non_centrosymmetric_kernel() {
 /// equals an explicit `2 * u_work` and keeps as many values as `compute_sve`.
 fn assert_default_cutoff_is_two_machine_epsilon<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
-    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let u_work = working_machine_epsilon(epsilon, twork);
 
@@ -806,7 +1132,7 @@ fn assert_leading_part_of(truncated: &SVEResult, full: &SVEResult, n: usize) {
 /// `cutoff = Some(1.0)`.
 fn check_sve_truncated_to_one<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
-    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     let full = compute_sve(kernel.clone(), Some(epsilon), None, None, twork).unwrap();
     assert!(full.s.len() >= 4, "SVE too small: {}", full.s.len());
@@ -882,11 +1208,9 @@ fn test_merge_results_with_an_empty_block() {
     let even = extend_to_full_domain(
         vec![half_domain_poly(1.0, 0), half_domain_poly(2.0, 1)],
         SymmetryType::Even,
-        1.0,
     )
     .unwrap();
-    let odd =
-        extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd, 1.0).unwrap();
+    let odd = extend_to_full_domain(vec![half_domain_poly(3.0, 0)], SymmetryType::Odd).unwrap();
     let empty = || PiecewiseLegendrePolyVector::from_polys_unchecked(vec![]);
     let block = |polys: &Vec<PiecewiseLegendrePoly>, s: Vec<f64>| {
         (
@@ -1089,7 +1413,7 @@ fn test_extend_to_full_domain_requires_the_half_domain() {
     for start in [-0.5, 0.25] {
         let data = Mat::<f64>::from_elem([1, 1], 1.0);
         let poly = PiecewiseLegendrePoly::new(data, vec![start, 1.0], 0, None, 0).unwrap();
-        let err = extend_to_full_domain(vec![poly], SymmetryType::Even, 1.0).unwrap_err();
+        let err = extend_to_full_domain(vec![poly], SymmetryType::Even).unwrap_err();
         assert!(
             matches!(err, Error::InvalidParameter { name: "polys", .. }),
             "{err:?}"
@@ -1131,11 +1455,45 @@ fn test_svd_to_polynomials_needs_a_segment() {
     );
 }
 
-/// The SVE runs its blocks on the current rayon pool, but each block is
-/// decomposed by the same operations whatever the threading: the result on
-/// four threads is bitwise that on one, in f64 and Df64 (the blocks, the
-/// ACA steps and the double-double products), with and without
-/// centrosymmetry.
+/// `compute_sve_for_basis` truncates at max(2·ε_work, BASIS_CUTOFF_FACTOR·ε),
+/// dropping the singular values far below ε, but everything a basis built
+/// for ε uses agrees with the full spectrum (`compute_sve`)
+#[test]
+fn test_compute_sve_for_basis_keeps_what_a_basis_uses() {
+    use super::{BASIS_CUTOFF_FACTOR, compute_sve_for_basis};
+
+    for (twork, eps) in [(TworkType::Float64, 1e-6), (TworkType::Float64X2, 1e-10)] {
+        let full_cutoff = 2.0 * working_machine_epsilon(eps, twork);
+        let kernel = LogisticKernel::new(100.0).unwrap();
+        let full = compute_sve(kernel, Some(eps), None, None, twork).unwrap();
+        let part = compute_sve_for_basis(kernel, eps, None, twork).unwrap();
+        let s0 = full.s[0];
+        let cutoff = BASIS_CUTOFF_FACTOR * eps;
+        if cutoff > full_cutoff {
+            assert!(part.s.len() < full.s.len(), "{twork:?}: nothing truncated");
+            assert!(*part.s.last().unwrap() >= cutoff * s0 * 0.99);
+            assert!(full.s[part.s.len()] < cutoff * s0 * 1.01);
+        } else {
+            // The cutoff is floored at 2·ε_work: the full spectrum.
+            assert_eq!(part.s, full.s, "{twork:?}");
+        }
+        // The values a basis for ε uses (those >= ε·s₀ plus one more)
+        let l = full.s.iter().take_while(|&&s| s >= eps * s0).count() + 1;
+        for i in 0..l {
+            assert!(
+                (part.s[i] - full.s[i]).abs() < 1e-5 * eps * s0,
+                "{twork:?}: s[{i}] = {} vs {}",
+                part.s[i],
+                full.s[i]
+            );
+        }
+    }
+}
+
+/// The SVE runs on the current rayon pool (its blocks, the ACA steps and the
+/// double-double products), but each value is computed by the same
+/// operations whatever the threading: the result on four threads is bitwise
+/// that on one, in f64 and Df64, with and without centrosymmetry.
 #[cfg(feature = "parallel")]
 #[test]
 fn test_sve_does_not_depend_on_the_number_of_threads() {
@@ -1205,35 +1563,36 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
     (ds, df)
 }
 
-/// Checks the SVE of `compute_sve` (`centrosymmetric`) or
-/// `compute_sve_general` against the SVE by the dense CPQR-based SVD of the
+/// Checks the SVE of `compute_sve` (or, with `full_domain`,
+/// `compute_sve_general`) against the SVE by the dense CPQR-based SVD of the
 /// fully formed blocks, the method of both before the ACA
 ///
-/// In f64, and in `compute_sve_general`, they use that method: the SVEs are
-/// identical. In Df64 `compute_sve` takes the block SVDs by ACA. The CPQR
-/// SVE is accurate only to the working precision ε_w relative to s₀, so the
-/// singular values are compared to 64·ε_w·s₀ (measured: under ε_w·s₀).
-/// Neither method resolves the values near the cutoff 2·ε_w·s₀, so their
-/// number can differ there (by one, in values at 2.0–2.5·ε_w·s₀, for Λ =
-/// 3e5 and 1e6): the values only one SVE has must be below 8·ε_w·s₀.
-/// Relative to each singular
-/// value, and for the functions, the comparison is over the values a basis
-/// for ε uses (s_l ≥ ε·s₀, plus one more), where they agree to 1e-15 and
-/// 1e-14 (measured: 1.4e-16 and 1.2e-15).
-fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType, centrosymmetric: bool)
+/// In f64, and in `compute_sve_general` of a centrosymmetric kernel, they use
+/// that method: the SVEs are identical. Otherwise, in Df64, they take the
+/// block SVDs by ACA. The CPQR SVE is accurate only to the working precision
+/// ε_w relative to s₀, so the singular values are compared to 64·ε_w·s₀
+/// (measured: under ε_w·s₀). Neither method resolves the values near the
+/// cutoff 2·ε_w·s₀, so their number can differ there (by one, in values at
+/// 2.0–2.5·ε_w·s₀, for Λ = 3e5 and 1e6): the values only one SVE has must be
+/// below 8·ε_w·s₀. Relative to each singular value, and for the functions,
+/// the comparison is over the values a basis for ε uses (s_l ≥ ε·s₀, plus
+/// one more), where they agree to 1e-15 and 1e-14 (measured: 1.4e-16 and
+/// 1.2e-15).
+fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType, full_domain: bool)
 where
-    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+    K: BasisKernel,
 {
     use super::compute::compute_sve_dense;
 
-    let sve = if centrosymmetric {
-        compute_sve(kernel.clone(), Some(eps), None, None, twork).unwrap()
-    } else {
+    let sve = if full_domain {
         compute_sve_general(kernel.clone(), Some(eps), None, None, twork).unwrap()
+    } else {
+        compute_sve(kernel.clone(), Some(eps), None, None, twork).unwrap()
     };
-    let dense = compute_sve_dense(kernel, eps, twork, centrosymmetric).unwrap();
-    let case = format!("{twork:?}, centrosymmetric = {centrosymmetric}");
-    if twork == TworkType::Float64 || !centrosymmetric {
+    let identical = twork == TworkType::Float64 || (full_domain && kernel.is_centrosymmetric());
+    let dense = compute_sve_dense(kernel, Some(eps), twork, full_domain).unwrap();
+    let case = format!("{twork:?}, full_domain = {full_domain}");
+    if identical {
         assert_eq!(sve.s, dense.s, "{case}");
         for (a, b) in [(&sve.u, &dense.u), (&sve.v, &dense.v)] {
             for (p, q) in a.get_polys().iter().zip(b.get_polys()) {
@@ -1266,23 +1625,32 @@ where
     assert!(df <= 1e-14, "{case}: u_l, v_l error {df:e}");
 }
 
-/// The cases of [`check_sve_against_dense_cpqr`] at one Λ: f64 and Df64,
-/// even/odd blocks and full domain, logistic and regularized Bose kernels
+/// The cases of [`check_sve_against_dense_cpqr`] at one Λ: f64 and Df64;
+/// logistic (even/odd blocks and full domain), regularized Bose and
+/// windowed kernels
 fn check_sve_against_dense_cpqr_at(lambda: f64) {
+    use crate::kernel::LogisticKernelWindowed;
+
     for (eps, twork) in [(1e-6, TworkType::Float64), (1e-15, TworkType::Float64X2)] {
-        for centrosymmetric in [true, false] {
+        for full_domain in [false, true] {
             check_sve_against_dense_cpqr(
                 LogisticKernel::new(lambda).unwrap(),
                 eps,
                 twork,
-                centrosymmetric,
+                full_domain,
             );
         }
         check_sve_against_dense_cpqr(
             RegularizedBoseKernel::new(lambda).unwrap(),
             eps,
             twork,
-            true,
+            false,
+        );
+        check_sve_against_dense_cpqr(
+            LogisticKernelWindowed::from_physical(1.0, -0.3 * lambda, lambda).unwrap(),
+            eps,
+            twork,
+            false,
         );
     }
 }
@@ -1297,10 +1665,10 @@ fn test_sve_matches_dense_cpqr_lambda_1e4() {
     check_sve_against_dense_cpqr_at(1e4);
 }
 
-/// Λ = 1e6: the dense Df64 SVEs take about a minute (release), so this runs
+/// Λ = 1e6: the dense Df64 SVEs take a few minutes (release), so this runs
 /// on request: `cargo test --release -- --ignored`
 #[test]
-#[ignore = "slow: dense Df64 SVE at Λ = 1e6 (about a minute in release)"]
+#[ignore = "slow: dense Df64 SVE at Λ = 1e6 (a few minutes in release)"]
 fn test_sve_matches_dense_cpqr_lambda_1e6() {
     check_sve_against_dense_cpqr_at(1e6);
 }

@@ -3,12 +3,12 @@
 //! Complex coefficients map to complex values with a native complex GEMM.
 //! Real coefficients (`dz`) use the stacked real matrix `[Re A; Im A]`, which
 //! halves the arithmetic compared with promoting the coefficients to complex.
-//! Fitting to real coefficients (`zd`) takes the real part of the complex
-//! least-squares solution.
+//! Fitting to real coefficients (`zd`) is the least-squares solution over
+//! real coefficients, by the pseudo-inverse of the same stacked matrix.
 
 use super::common::{
-    AxisSplit, InplaceFitter, PinvFactors, compute_pinv, condition_number_from_singular_values,
-    run_alloc, run_to, stacked_to_complex,
+    AxisSplit, InplaceFitter, PinvFactors, complex_to_stacked, compute_pinv, compute_pinv_of,
+    condition_number_from_singular_values, run_alloc, run_to, stacked_to_complex,
 };
 use super::real::check_vec_len;
 use crate::Matrix;
@@ -21,18 +21,97 @@ use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
 
 type C64 = Complex<f64>;
 
-/// Stack a column-major complex `n x m` matrix as the real `2n x m` matrix
-/// `[Re A; Im A]` (column-major).
-pub(crate) fn stack_complex_matrix(a: &[C64], n: usize, m: usize) -> Vec<f64> {
-    let mut s = vec![0.0; 2 * n * m];
-    for j in 0..m {
-        for i in 0..n {
-            let z = a[i + n * j];
-            s[i + 2 * n * j] = z.re;
-            s[n + i + 2 * n * j] = z.im;
+/// The real `2n x m` matrix `[Re A; Im A]` of a complex `n x m` matrix `A`,
+/// which maps real coefficients to complex values
+///
+/// Least squares over real coefficients is the real problem
+/// `min_x ||[Re A; Im A] x - [Re y; Im y]||`, solved with the pseudo-inverse
+/// of the stacked matrix (computed on first use, then cached).
+pub(crate) struct StackedMatrix {
+    /// Column-major `2n x m`.
+    a: Vec<f64>,
+    n: usize,
+    m: usize,
+    pinv: OnceLock<Result<PinvFactors<f64>>>,
+}
+
+impl StackedMatrix {
+    /// Stack the column-major complex `n x m` matrix `a`.
+    pub fn new(a: &[C64], n: usize, m: usize) -> Self {
+        let mut s = vec![0.0; 2 * n * m];
+        for j in 0..m {
+            for i in 0..n {
+                let z = a[i + n * j];
+                s[i + 2 * n * j] = z.re;
+                s[n + i + 2 * n * j] = z.im;
+            }
+        }
+        Self {
+            a: s,
+            n,
+            m,
+            pinv: OnceLock::new(),
         }
     }
-    s
+
+    /// Pseudo-inverse of the stacked matrix
+    pub fn pinv(&self) -> Result<&PinvFactors<f64>> {
+        self.pinv
+            .get_or_init(|| {
+                compute_pinv_of(&self.a, 2 * self.n, self.m, || {
+                    format!(
+                        "{} x {cols} real matrix stacked from the {} x {cols} \
+                         complex sampling matrix",
+                        2 * self.n,
+                        self.n,
+                        cols = self.m,
+                    )
+                })
+            })
+            .as_ref()
+            .map_err(Clone::clone)
+    }
+
+    /// `[pre, m, post]` real coefficients to `[pre, n, post]` complex values
+    pub fn evaluate_slab(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        coeffs: &[f64],
+        pre: usize,
+        post: usize,
+        out: &mut [C64],
+    ) -> Result<()> {
+        check_slab_len("out", out.len(), pre, self.n, post)?;
+        let mut t = vec![0.0; 2 * out.len()];
+        apply_along_axis(
+            backend,
+            &self.a,
+            2 * self.n,
+            self.m,
+            coeffs,
+            pre,
+            post,
+            &mut t,
+        )?;
+        stacked_to_complex(&t, pre, self.n, post, out);
+        Ok(())
+    }
+
+    /// `[pre, n, post]` complex values to the `[pre, m, post]` real
+    /// coefficients that fit them in the least-squares sense
+    pub fn fit_slab(
+        &self,
+        backend: Option<&GemmBackendHandle>,
+        values: &[C64],
+        pre: usize,
+        post: usize,
+        out: &mut [f64],
+    ) -> Result<()> {
+        check_slab_len("values", values.len(), pre, self.n, post)?;
+        check_slab_len("out", out.len(), pre, self.m, post)?;
+        let stacked = complex_to_stacked(values, pre, self.n, post);
+        self.pinv()?.solve(backend, &stacked, pre, post, out)
+    }
 }
 
 /// Check that a `[pre, rows, post]` slab has `len` elements; `name` is
@@ -108,8 +187,8 @@ pub(crate) struct ComplexMatrixFitter {
     matrix: Matrix<C64>,
     /// Column-major copy of `matrix` for GEMM.
     a: Vec<C64>,
-    /// `[Re A; Im A]`, column-major `2 n_points x basis_size`.
-    a_stacked: Vec<f64>,
+    /// `[Re A; Im A]`, for real coefficients
+    stacked: StackedMatrix,
     n_points: usize,
     basis_size: usize,
     pinv: OnceLock<Result<PinvFactors<C64>>>,
@@ -122,11 +201,11 @@ impl ComplexMatrixFitter {
     pub fn new(matrix: Mat<C64>) -> Self {
         let (n_points, basis_size) = *matrix.shape();
         let a = matrix.as_slice().to_vec();
-        let a_stacked = stack_complex_matrix(&a, n_points, basis_size);
+        let stacked = StackedMatrix::new(&a, n_points, basis_size);
         Self {
             matrix: matrix.into_typed(),
             a,
-            a_stacked,
+            stacked,
             n_points,
             basis_size,
             pinv: OnceLock::new(),
@@ -196,16 +275,7 @@ impl ComplexMatrixFitter {
         post: usize,
         out: &mut [C64],
     ) -> Result<()> {
-        evaluate_stacked(
-            backend,
-            &self.a_stacked,
-            self.n_points,
-            self.basis_size,
-            coeffs,
-            pre,
-            post,
-            out,
-        )
+        self.stacked.evaluate_slab(backend, coeffs, pre, post, out)
     }
 
     /// Complex values to complex coefficients (least squares).
@@ -220,8 +290,14 @@ impl ComplexMatrixFitter {
         self.pinv()?.solve(backend, values, pre, post, out)
     }
 
-    /// Complex values to real coefficients: real part of the complex
-    /// least-squares solution.
+    /// Complex values to real coefficients: the least-squares solution over
+    /// real coefficients, `[Re A; Im A]⁺ [Re y; Im y]`
+    ///
+    /// For data that real coefficients reproduce exactly, this is the real
+    /// part of the complex solution. Otherwise it differs: that real part is
+    /// a left inverse of the stacked matrix too, and the pseudo-inverse is
+    /// the one of least norm, so this fit amplifies noise less. It is one
+    /// real GEMM over the `2n` stacked values.
     pub fn fit_slab_zd(
         &self,
         backend: Option<&GemmBackendHandle>,
@@ -230,13 +306,7 @@ impl ComplexMatrixFitter {
         post: usize,
         out: &mut [f64],
     ) -> Result<()> {
-        check_slab_len("out", out.len(), pre, self.basis_size, post)?;
-        let mut tmp = vec![C64::new(0.0, 0.0); out.len()];
-        self.fit_slab_zz(backend, values, pre, post, &mut tmp)?;
-        for (o, z) in out.iter_mut().zip(&tmp) {
-            *o = z.re;
-        }
-        Ok(())
+        self.stacked.fit_slab(backend, values, pre, post, out)
     }
 
     // ------------------------------------------------------------------
@@ -334,26 +404,6 @@ impl ComplexMatrixFitter {
             self.fit_slab_zd(backend, x, s.pre, s.post, y)
         })
     }
-}
-
-/// `[pre, m, post]` real coefficients to `[pre, n, post]` complex values
-/// through the stacked real matrix `[Re A; Im A]` (`2n x m`).
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn evaluate_stacked(
-    backend: Option<&GemmBackendHandle>,
-    a_stacked: &[f64],
-    n: usize,
-    m: usize,
-    coeffs: &[f64],
-    pre: usize,
-    post: usize,
-    out: &mut [C64],
-) -> Result<()> {
-    check_slab_len("out", out.len(), pre, n, post)?;
-    let mut t = vec![0.0; 2 * out.len()];
-    apply_along_axis(backend, a_stacked, 2 * n, m, coeffs, pre, post, &mut t)?;
-    stacked_to_complex(&t, pre, n, post, out);
-    Ok(())
 }
 
 impl InplaceFitter for ComplexMatrixFitter {
