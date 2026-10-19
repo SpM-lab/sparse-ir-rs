@@ -977,7 +977,7 @@ TEST_CASE("Status: a sampling matrix with a NaN entry", "[status]")
     REQUIRE(matsu_sampling == nullptr);
 }
 
-TEST_CASE("Status: default Matsubara points need a definite parity", "[status]")
+TEST_CASE("Status: default Matsubara points without a definite parity", "[status]")
 {
     const double segs[3] = {-1.0, 0.0, 1.0};
     int status = SPIR_COMPUTATION_SUCCESS;
@@ -991,10 +991,12 @@ TEST_CASE("Status: default Matsubara points need a definite parity", "[status]")
     REQUIRE(status == SPIR_COMPUTATION_SUCCESS);
     REQUIRE(basis != nullptr);
 
+    // Functions without parity have default Matsubara points too (they were
+    // SPIR_NOT_SUPPORTED): selected as a set symmetric in +-n
     int n_points = -12345;
     REQUIRE(spir_basis_get_n_default_matsus(basis, false, &n_points) ==
-            SPIR_NOT_SUPPORTED);
-    REQUIRE(n_points == -12345);
+            SPIR_COMPUTATION_SUCCESS);
+    REQUIRE(n_points > 0);
 
     spir_basis_release(basis);
     spir_kernel_release(kernel);
