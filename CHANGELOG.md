@@ -20,10 +20,12 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 - The double-double SVE of `compute_sve` (ε below about 1e-8) computes the
   SVDs of its even and odd blocks by adaptive cross approximation (ACA),
   evaluating the kernel lazily: 7–11× faster on one thread (logistic
-  kernel, Λ = 10⁴ to 10⁶, ε = 10⁻¹⁵), with the same number of singular
-  values as the dense column-pivoted QR in every case tested, the values
-  agreeing to the working precision relative to s₀ and to 1e-15 relative
-  over those a basis uses. The f64 SVE and `compute_sve_general` are
+  kernel, Λ = 10⁴ to 10⁶, ε = 10⁻¹⁵). Against the dense column-pivoted
+  QR, the singular values agree to the working precision relative to s₀
+  and to 1e-15 relative over those a basis uses; their number can differ
+  by one at the noise floor (a value near 2·ε_work·s₀, about 5e-32·s₀,
+  e.g. for Λ = 3·10⁵ and 10⁶), so the length of the `SVEResult` can
+  differ, but not the bases. The f64 SVE and `compute_sve_general` are
   unchanged (bitwise those of the previous release).
 - Requires xprec 0.2.3.
 
