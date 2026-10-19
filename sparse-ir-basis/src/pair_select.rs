@@ -24,6 +24,13 @@
 //! (D-optimal) left the condition number of the Matsubara sampling matrices
 //! unchanged (ratio 0.99 for 12% more points, over 63 bases of the
 //! comparison in the review of #342), while the A-optimal choice halved it.
+//!
+//! Choices of this implementation, not taken from the references: the
+//! selection in pairs of rows (the ±n symmetry); the candidates, the grid
+//! of the sign-change search
+//! ([`crate::polyfourier::pair_sampling_points`]); the rank tolerance
+//! `RANK_TOL`; and, with `mitigate`, about 10% more frequencies chosen by
+//! the A-optimal criterion.
 
 use nalgebra::{DMatrix, DMatrixView, DVector, Matrix2};
 
