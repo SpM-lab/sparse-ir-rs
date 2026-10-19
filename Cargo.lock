@@ -1519,6 +1519,7 @@ dependencies = [
 name = "sparse-ir-basis"
 version = "0.13.0"
 dependencies = [
+ "approx",
  "dashu-base",
  "dashu-float",
  "libm",

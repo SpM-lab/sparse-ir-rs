@@ -71,9 +71,7 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   degenerate pairs of singular values).
 - `FiniteTempBasis::from_sve_result` accepts an SVE without parity for a
   `LogisticKernel` (it was `NotSupported`).
-- With the `parallel` feature, batched Matsubara evaluations and the
-  sign-change search of the default Matsubara points run on the rayon pool
-  as well; the default Matsubara points are computed once per basis.
+- The default Matsubara points are computed once per basis.
 - The default sampling points of bases of centrosymmetric kernels are
   unchanged (Matsubara exactly, tau to rounding).
 - Real-coefficient fits of `MatsubaraSampling` (`fit_real`, `fit_nd_real`,
