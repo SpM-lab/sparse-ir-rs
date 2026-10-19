@@ -6,7 +6,6 @@
 use num_complex::Complex64;
 use std::f64::consts::PI;
 
-use crate::cost::{MATSUBARA_LONE_VALUE, MATSUBARA_VALUE};
 use crate::error::Error;
 use crate::freq::MatsubaraFreq;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
@@ -512,14 +511,8 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
     }
 
     /// Evaluate all polynomials at multiple Matsubara frequencies
-    ///
-    /// Large batches are evaluated on the rayon pool, one job per frequency
-    /// (so cheap asymptotic and costly frequencies balance out). Each value
-    /// is computed exactly as in the serial case (under the caller's FPU
-    /// state), so the result does not depend on the number of threads.
     pub fn evaluate_at_many(&self, omegas: &[MatsubaraFreq<S>]) -> Vec<Vec<Complex64>> {
-        let work = omegas.len() * self.polyvec.len() * MATSUBARA_VALUE;
-        crate::parallel::map_on_pool(omegas.len(), work, |i| self.evaluate_at(&omegas[i]))
+        omegas.iter().map(|omega| self.evaluate_at(omega)).collect()
     }
 }
 
@@ -767,38 +760,26 @@ fn bisect_discr_extremum(f: &dyn Fn(i64) -> f64, a: i64, b: i64) -> i64 {
 /// Find all sign changes of a function on a grid, using bisection to locate
 /// the precise integer position within each grid interval.
 /// Matches Julia's `find_all` with `bisect`.
-///
-/// The grid values and the bisections run on the thread pool: each value is
-/// computed by the same operations whatever the threading, so the result
-/// does not depend on the number of threads.
-fn find_all(f: &(dyn Fn(i64) -> f64 + Sync), xgrid: &[i64]) -> Vec<i64> {
-    use crate::parallel::map_on_pool;
+fn find_all(f: &dyn Fn(i64) -> f64, xgrid: &[i64]) -> Vec<i64> {
+    if xgrid.is_empty() {
+        return Vec::new();
+    }
 
-    let fx = map_on_pool(xgrid.len(), xgrid.len() * MATSUBARA_LONE_VALUE, |i| {
-        f(xgrid[i])
-    });
-    // Intervals with a sign change (both values must be nonzero)
-    let brackets: Vec<usize> = (1..xgrid.len())
-        .filter(|&i| fx[i - 1].signum() != fx[i].signum() && fx[i - 1] != 0.0 && fx[i] != 0.0)
-        .collect();
-    // A bisection over a gap of g evaluates f ⌈log₂ g⌉ times
-    let evaluations: u32 = brackets
-        .iter()
-        .map(|&i| {
-            (xgrid[i] - xgrid[i - 1])
-                .unsigned_abs()
-                .next_power_of_two()
-                .trailing_zeros()
-        })
-        .sum();
-    map_on_pool(
-        brackets.len(),
-        evaluations as usize * MATSUBARA_LONE_VALUE,
-        |k| {
-            let i = brackets[k];
-            bisect(f, xgrid[i - 1], xgrid[i], fx[i - 1])
-        },
-    )
+    let mut results = Vec::new();
+    let mut prev_val = f(xgrid[0]);
+
+    for i in 1..xgrid.len() {
+        let val = f(xgrid[i]);
+        // Detect sign change (both values must be nonzero)
+        if prev_val.signum() != val.signum() && prev_val != 0.0 && val != 0.0 {
+            // Bisect to find precise integer location of the zero
+            let root = bisect(f, xgrid[i - 1], xgrid[i], prev_val);
+            results.push(root);
+        }
+        prev_val = val;
+    }
+
+    results
 }
 
 /// Find discrete extrema of a function on a grid, using bisection to locate
