@@ -980,3 +980,190 @@ fn test_evaluate_at_many_on_the_pool_matches_serial() {
         assert_eq!(pooled[i], uhat.evaluate_at(freq), "frequency {i}");
     }
 }
+
+/// A bosonic pair selection always has n = 0, a fermionic one never, and as
+/// many rows as requested functions rounded up to the parity of the
+/// statistics, also when `uhat` has no next function to round up with
+/// (review of #342: β = 100, window (-0.3, 1), ε = 1e-8, L = 22). Requesting
+/// more points than functions is an error, not a smaller set.
+#[test]
+fn test_pair_selection_keeps_n0_and_the_requested_size() {
+    use crate::error::Error;
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::polyfourier::{PiecewiseLegendreFTVector, pair_sampling_points};
+
+    fn check<S: StatisticsType + 'static>() {
+        let kernel = LogisticKernelWindowed::from_physical(100.0, -0.3, 1.0).unwrap();
+        let basis = FiniteTempBasis::<_, S>::new(kernel, 100.0, Some(1e-8), None).unwrap();
+        let l = basis.size();
+        let bosonic = S::STATISTICS == Statistics::Bosonic;
+        for n_funcs in [l, l + 1, l + 2] {
+            let uhat = PiecewiseLegendreFTVector::from_vector(
+                basis.uhat_full().polyvec[..n_funcs].to_vec(),
+            );
+            for n_points in [l - 1, l, n_funcs] {
+                for (positive_only, mitigate) in [(false, false), (true, false), (false, true)] {
+                    let ns: Vec<i64> =
+                        pair_sampling_points(&uhat, n_points, positive_only, mitigate)
+                            .unwrap()
+                            .iter()
+                            .map(|f| f.n())
+                            .collect();
+                    let case = format!(
+                        "{:?}, {n_funcs} functions, {n_points} points, positive_only = \
+                         {positive_only}, mitigate = {mitigate}: {ns:?}",
+                        S::STATISTICS
+                    );
+                    let positive = ns.iter().filter(|&&n| n > 0).count();
+                    let rows = 2 * positive + usize::from(bosonic);
+                    assert_eq!(ns.contains(&0), bosonic, "{case}");
+                    if !positive_only {
+                        assert_eq!(ns.len(), rows, "{case}");
+                    }
+                    if !mitigate {
+                        // n_points rounded up to the parity of the statistics
+                        assert!(rows >= n_points && rows <= n_points + 1, "{case}");
+                        assert_eq!(rows % 2 == 1, bosonic, "{case}");
+                    }
+                }
+            }
+            assert!(matches!(
+                pair_sampling_points(&uhat, n_funcs + 1, false, false),
+                Err(Error::InvalidParameter {
+                    name: "n_points",
+                    ..
+                })
+            ));
+        }
+    }
+    check::<Bosonic>();
+    check::<Fermionic>();
+}
+
+/// `mitigate` adds frequencies that lower the condition number of the
+/// sampling matrix (by about half, measured over the bases of the comparison
+/// in the review of #342); oversampling with the opposite choice would raise
+/// it.
+#[test]
+fn test_pair_selection_mitigate_improves_conditioning() {
+    use crate::basis::MatsubaraPointMethod;
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
+
+    fn check<K: BasisKernel, S: StatisticsType + 'static>(kernel: K, name: &str) {
+        let basis = FiniteTempBasis::<_, S>::new(kernel, 1e3, Some(1e-8), None).unwrap();
+        for positive_only in [false, true] {
+            let cond = |mitigate| {
+                let points = basis
+                    .matsubara_sampling_points(
+                        positive_only,
+                        mitigate,
+                        MatsubaraPointMethod::PairSelection,
+                    )
+                    .unwrap();
+                if positive_only {
+                    MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points)
+                        .unwrap()
+                        .condition_number()
+                        .unwrap()
+                } else {
+                    MatsubaraSampling::with_sampling_points(&basis, points)
+                        .unwrap()
+                        .condition_number()
+                        .unwrap()
+                }
+            };
+            let (plain, mitigated) = (cond(false), cond(true));
+            assert!(
+                mitigated < 0.8 * plain,
+                "{name} {:?}, positive_only = {positive_only}: condition number {mitigated:e} \
+                 with mitigate, {plain:e} without",
+                S::STATISTICS
+            );
+        }
+    }
+    check::<_, Fermionic>(LogisticKernel::new(1e3).unwrap(), "logistic");
+    check::<_, Bosonic>(LogisticKernel::new(1e3).unwrap(), "logistic");
+    let windowed = LogisticKernelWindowed::from_physical(1e3, -0.3, 1.0).unwrap();
+    check::<_, Fermionic>(windowed.clone(), "windowed");
+    check::<_, Bosonic>(windowed, "windowed");
+}
+
+/// The default Matsubara points of a basis come from the sign changes when
+/// its functions have a parity and from the pair selection when they do not,
+/// and the pair selection of a small windowed basis is pinned (a change of
+/// the method or of its candidate grid shows here; the centrosymmetric
+/// bases are pinned to main in sparse-ir/tests/default_points_main.rs).
+#[test]
+fn test_default_matsubara_points_branch_and_pinned_pair_selection() {
+    use crate::basis::MatsubaraPointMethod;
+    use crate::kernel::LogisticKernelWindowed;
+
+    fn points<K: BasisKernel, S: StatisticsType + 'static>(
+        basis: &FiniteTempBasis<K, S>,
+        positive_only: bool,
+        mitigate: bool,
+        method: Option<MatsubaraPointMethod>,
+    ) -> Vec<i64> {
+        match method {
+            Some(m) => basis
+                .matsubara_sampling_points(positive_only, mitigate, m)
+                .unwrap()
+                .iter()
+                .map(|f| f.n())
+                .collect(),
+            None => basis
+                .default_matsubara_sampling_points_i64_with_mitigate(
+                    positive_only,
+                    mitigate,
+                    basis.size(),
+                )
+                .unwrap(),
+        }
+    }
+    fn check<S: StatisticsType + 'static>(pinned: &[&[i64]; 3]) {
+        let logistic = FiniteTempBasis::<_, S>::new(
+            LogisticKernel::new(10.0).unwrap(),
+            10.0,
+            Some(1e-6),
+            None,
+        )
+        .unwrap();
+        let kernel = LogisticKernelWindowed::from_physical(10.0, -0.3, 1.0).unwrap();
+        let windowed = FiniteTempBasis::<_, S>::new(kernel, 10.0, Some(1e-6), None).unwrap();
+        for (k, (positive_only, mitigate)) in [(false, false), (true, false), (false, true)]
+            .into_iter()
+            .enumerate()
+        {
+            let sign = Some(MatsubaraPointMethod::SignChanges);
+            let pair = Some(MatsubaraPointMethod::PairSelection);
+            assert_eq!(
+                points(&logistic, positive_only, mitigate, None),
+                points(&logistic, positive_only, mitigate, sign)
+            );
+            let default = points(&windowed, positive_only, mitigate, None);
+            assert_eq!(default, points(&windowed, positive_only, mitigate, pair));
+            assert_eq!(
+                default,
+                pinned[k],
+                "{:?}, positive_only = {positive_only}, mitigate = {mitigate}",
+                S::STATISTICS
+            );
+        }
+    }
+    check::<Fermionic>(&PINNED_FERMIONIC);
+    check::<Bosonic>(&PINNED_BOSONIC);
+}
+
+/// Default Matsubara points of the windowed basis (β = 10, window (-0.3, 1),
+/// ε = 1e-6): all, positive_only, mitigate
+const PINNED_FERMIONIC: [&[i64]; 3] = [
+    &[-13, -7, -5, -3, -1, 1, 3, 5, 7, 13],
+    &[1, 3, 5, 7, 13],
+    &[-15, -13, -7, -5, -3, -1, 1, 3, 5, 7, 13, 15],
+];
+const PINNED_BOSONIC: [&[i64]; 3] = [
+    &[-10, -6, -4, -2, 0, 2, 4, 6, 10],
+    &[0, 2, 4, 6, 10],
+    &[-12, -10, -6, -4, -2, 0, 2, 4, 6, 10, 12],
+];
