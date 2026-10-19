@@ -42,19 +42,20 @@ pub mod ir_dlr; // DLR built from an IR basis, and the IR <-> DLR transform
 pub mod kernel;
 pub mod kernelmatrix;
 pub mod numeric;
+pub(crate) mod pair_select; // Matsubara sampling-point selection by pairs of rows
 pub mod poly;
 pub mod polyfourier;
 pub mod special_functions;
 pub mod sve;
 pub mod tsvd; // High-precision truncated SVD using nalgebra
 
-pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis};
+pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis, MatsubaraPointMethod};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
 pub use ir_dlr::{DlrFromIr, IrBasis};
 pub use kernel::{
-    AbstractKernel, CentrosymmKernel, KernelProperties, LogisticKernel, LogisticSVEHints,
-    RegularizedBoseKernel, RegularizedBoseSVEHints, SVEHints, SymmetryType,
-    compute_logistic_kernel,
+    AbstractKernel, BasisKernel, CentrosymmKernel, KernelProperties, LogisticKernel,
+    LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints, RegularizedBoseKernel,
+    RegularizedBoseSVEHints, SVEHints, SymmetryType, compute_logistic_kernel,
 };
 pub use kernelmatrix::{
     DiscretizedKernel, matrix_from_gauss, matrix_from_gauss_noncentrosymmetric,

@@ -103,6 +103,8 @@ impl SVEResult {
     /// `segments_x` x `segments_y` and extended to `[-xmax, xmax]` and
     /// `[-ymax, ymax]`
     ///
+    /// `xmax` and `ymax` are unused: the domains follow from the segments.
+    ///
     /// A block of rank 0 (the odd part of a kernel that is even in y, say)
     /// contributes no singular function; only both blocks being empty is an
     /// error.
@@ -123,8 +125,8 @@ impl SVEResult {
         segments_x: &[f64],
         segments_y: &[f64],
         n_gauss: usize,
-        xmax: f64,
-        ymax: f64,
+        _xmax: f64,
+        _ymax: f64,
         epsilon: f64,
     ) -> Result<Self, Error> {
         use crate::kernel::SymmetryType;
@@ -142,8 +144,8 @@ impl SVEResult {
             let v_unweighted = crate::sve::utils::remove_weights(&v, gauss_y.w.as_slice(), true);
             let u_polys = svd_to_polynomials(&u_unweighted, segments_x, &gauss_rule_f64, n_gauss)?;
             let v_polys = svd_to_polynomials(&v_unweighted, segments_y, &gauss_rule_f64, n_gauss)?;
-            let u_full = extend_to_full_domain(u_polys, symmetry, xmax)?;
-            let v_full = extend_to_full_domain(v_polys, symmetry, ymax)?;
+            let u_full = extend_to_full_domain(u_polys, symmetry)?;
+            let v_full = extend_to_full_domain(v_polys, symmetry)?;
             Ok::<_, Error>((
                 PiecewiseLegendrePolyVector::from_polys_unchecked(u_full),
                 s,

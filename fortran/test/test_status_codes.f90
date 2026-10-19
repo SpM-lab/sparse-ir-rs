@@ -19,7 +19,7 @@ program test_status_codes
    call test_dlr_poles()                    ! S6
    call test_gauss_segments()               ! S7
    call test_sampling_matrix_nan()          ! S8
-   call test_default_matsus_need_parity()   ! S9
+   call test_default_matsus_without_parity()   ! S9
    call test_dlr2ir_target_extent()         ! S10
    call test_regularizer_domain()           ! S11
    call test_dlr_default_points_are_nodes()    ! S12
@@ -239,7 +239,7 @@ contains
       call check_null(sampling, "a Matsubara sampling matrix with a NaN entry")
    end subroutine test_sampling_matrix_nan
 
-   subroutine test_default_matsus_need_parity()
+   subroutine test_default_matsus_without_parity()
       real(c_double), target :: segs(3) = [-1.0_c_double, 0.0_c_double, 1.0_c_double]
       real(c_double), target :: k(16)
       integer(c_int), target :: status, n_points
@@ -257,18 +257,20 @@ contains
          1.0e-6_c_double, kernel, sve, -1_c_int, c_loc(status))
       call check(status, SUCCESS, "a basis on an SVE from a matrix")
 
+      ! Functions without parity have default Matsubara points too (they were
+      ! NOT_SUPPORTED): selected as a set symmetric in +-n
       n_points = -12345_c_int
       call check(c_spir_basis_get_n_default_matsus(basis, .false._c_bool, c_loc(n_points)), &
-         NOT_SUPPORTED, "the default Matsubara points of a basis without parity")
-      if (n_points /= -12345_c_int) then
-         print *, "FAILED: the number of points was written: ", n_points
+         SUCCESS, "the default Matsubara points of a basis without parity")
+      if (n_points <= 0_c_int) then
+         print *, "FAILED: no default Matsubara points: ", n_points
          stop 1
       end if
 
       call c_spir_basis_release(basis)
       call c_spir_kernel_release(kernel)
       call c_spir_sve_result_release(sve)
-   end subroutine test_default_matsus_need_parity
+   end subroutine test_default_matsus_without_parity
 
    subroutine test_dlr2ir_target_extent()
       type(c_ptr) :: basis, dlr

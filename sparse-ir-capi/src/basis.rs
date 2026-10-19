@@ -662,10 +662,6 @@ pub extern "C" fn spir_basis_get_default_taus(
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
-/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
-///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
-///   centrosymmetric): the default Matsubara sampling points are chosen by the
-///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_n_default_matsus(
@@ -714,10 +710,6 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 /// # Returns
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
-/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
-///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
-///   centrosymmetric): the default Matsubara sampling points are chosen by the
-///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_basis_get_default_matsus(
@@ -1216,7 +1208,8 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 /// # Arguments
 /// * `b` - Basis object
 /// * `positive_only` - If true, return only non-negative frequencies
-/// * `fence` - If true, add fencing points to improve conditioning
+/// * `fence` - If true, add fencing points to improve conditioning (for a
+///   basis without definite parity, about 10% more frequencies)
 /// * `basis_size` - Size of the basis the points are chosen for. When sampling
 ///   an augmented basis, pass the augmented size; it may differ from the size
 ///   of `b`.
@@ -1229,10 +1222,6 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
 ///   `basis_size < 0`
-/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
-///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
-///   centrosymmetric): the default Matsubara sampling points are chosen by the
-///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
@@ -1281,7 +1270,8 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// # Arguments
 /// * `b` - Basis object
 /// * `positive_only` - If true, return only non-negative frequencies
-/// * `fence` - If true, add fencing points to improve conditioning
+/// * `fence` - If true, add fencing points to improve conditioning (for a
+///   basis without definite parity, about 10% more frequencies)
 /// * `basis_size` - Size of the basis the points are chosen for. When sampling
 ///   an augmented basis, pass the augmented size; it may differ from the size
 ///   of `b`.
@@ -1301,10 +1291,6 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// * `SPIR_INVALID_ARGUMENT` (-6) if `points_capacity` is smaller than the
 ///   number of points; `points` is left untouched and `*n_points_total` is
 ///   set to the required number
-/// * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
-///   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
-///   centrosymmetric): the default Matsubara sampling points are chosen by the
-///   parity of a basis function and are not defined then. Nothing is written.
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note

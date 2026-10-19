@@ -28,10 +28,7 @@ pub struct PiecewiseLegendrePoly {
     ///
     /// SVE results set it to the position of the function in the result, and
     /// `PiecewiseLegendrePolyVector::from_3d_data` to the position in the
-    /// vector. `PiecewiseLegendreFT` takes the parity `(-1)^l` of the function
-    /// from it for the asymptotic expansion used at |n| >= n_asymp. For the
-    /// centrosymmetric kernels of this crate the even and odd singular
-    /// functions interlace, so that parity equals `symm`.
+    /// vector.
     pub(crate) l: i32,
     /// Segment midpoints
     pub(crate) xm: Vec<f64>,
@@ -427,43 +424,12 @@ impl PiecewiseLegendrePoly {
 
     /// Compute derivative coefficients using the same algorithm as C++ legder function
     fn compute_derivative_coefficients(&self, coeffs: &Mat<f64>) -> Mat<f64> {
-        let mut c = coeffs.clone();
-        let c_shape = *c.shape();
-        let mut n = c_shape.0;
-
-        // Single derivative step (equivalent to C++ legder with cnt=1)
-        if n <= 1 {
-            return Mat::<f64>::from_elem([1, c.shape().1], 0.0);
-        }
-
-        n -= 1;
-        let mut der = Mat::<f64>::from_elem([n, c.shape().1], 0.0);
-
-        // C++ implementation: for (int j = n; j >= 2; --j)
-        for j in (2..=n).rev() {
-            // C++: der.row(j - 1) = (2 * j - 1) * c.row(j);
-            for col in 0..c_shape.1 {
-                der[[j - 1, col]] = (2.0 * (j as f64) - 1.0) * c[[j, col]];
-            }
-            // C++: c.row(j - 2) += c.row(j);
-            for col in 0..c_shape.1 {
-                c[[j - 2, col]] += c[[j, col]];
-            }
-        }
-
-        // C++: if (n > 1) der.row(1) = 3 * c.row(2);
-        if n > 1 {
-            for col in 0..c_shape.1 {
-                der[[1, col]] = 3.0 * c[[2, col]];
-            }
-        }
-
-        // C++: der.row(0) = c.row(1);
-        for col in 0..c_shape.1 {
-            der[[0, col]] = c[[1, col]];
-        }
-
-        der
+        let (nrows, ncols) = *coeffs.shape();
+        let ders: Vec<Vec<f64>> = (0..ncols)
+            .map(|col| legder(&(0..nrows).map(|row| coeffs[[row, col]]).collect::<Vec<_>>()))
+            .collect();
+        let der_rows = nrows.saturating_sub(1).max(1);
+        Mat::<f64>::from_fn([der_rows, ncols], |idx| ders[idx[1]][idx[0]])
     }
 
     /// Compute derivatives at a point x
@@ -483,16 +449,21 @@ impl PiecewiseLegendrePoly {
     ///
     /// [`Error::OutOfDomain`] if `x` is outside [xmin, xmax] or NaN
     pub fn try_derivs(&self, x: f64) -> Result<Vec<f64>, Error> {
-        self.check_in_domain("x", x)?;
-        let mut results = Vec::new();
-
-        // Compute up to polyorder derivatives
-        // The derivatives have the knots of self, so x lies in their domain.
+        let (i, x_tilde) = self.try_split(x)?;
+        // Differentiate only the segment containing x, one order at a time,
+        // and scale the coefficients (not the sum) as `deriv` does.
+        let mut coeffs: Vec<f64> = (0..self.data.shape().0)
+            .map(|row| self.data[[row, i]])
+            .collect();
+        let mut results = Vec::with_capacity(self.polyorder);
         for n in 0..self.polyorder {
-            let deriv_poly = self.deriv(n);
-            results.push(deriv_poly.evaluate_in_domain(x));
+            if n > 0 {
+                coeffs = legder(&coeffs);
+            }
+            let inv_x_power = self.inv_xs[i].powi(n as i32);
+            let scaled: Vec<f64> = coeffs.iter().map(|&c| c * inv_x_power).collect();
+            results.push(self.evaluate_legendre_polynomial(x_tilde, &scaled) * self.norms[i]);
         }
-
         Ok(results)
     }
 
@@ -740,6 +711,26 @@ impl PiecewiseLegendrePoly {
     pub fn get_polyorder(&self) -> usize {
         self.polyorder
     }
+}
+
+/// Coefficients of the derivative of the Legendre series `c`
+/// (the same algorithm as the C++ legder function with cnt = 1)
+fn legder(c: &[f64]) -> Vec<f64> {
+    if c.len() <= 1 {
+        return vec![0.0];
+    }
+    let mut c = c.to_vec();
+    let n = c.len() - 1;
+    let mut der = vec![0.0; n];
+    for j in (2..=n).rev() {
+        der[j - 1] = (2.0 * (j as f64) - 1.0) * c[j];
+        c[j - 2] += c[j];
+    }
+    if n > 1 {
+        der[1] = 3.0 * c[2];
+    }
+    der[0] = c[1];
+    der
 }
 
 /// Vector of piecewise Legendre polynomials
@@ -1203,26 +1194,33 @@ impl std::ops::Index<usize> for PiecewiseLegendrePolyVector {
 /// which is sensible due to the strong interleaving property of these
 /// functions' roots.
 ///
-/// `name` names `u` in the errors (`"u"` or `"v"`).
+/// `name` names `u` in the errors (`"u"` or `"v"`), and `domain` is the
+/// domain of the kernel the SVE expanded (`[xmin, xmax]` for `u`,
+/// `[ymin, ymax]` for `v`; [-1, 1] for a symmetric kernel).
 ///
 /// # Errors
 ///
-/// * [`Error::InvalidParameter`] named `name` if `u` is not on [-1, 1]
+/// * [`Error::InvalidParameter`] named `name` if `u` is not on `domain`
 ///   (1e-10), i.e. not the unscaled functions of an SVE
 /// * [`Error::NotSupported`] if the extrema are needed and the last function
 ///   has none (e.g. an SVE truncated to 2 functions, whose u_1 is monotonic)
 pub(crate) fn default_sampling_points(
     u: &PiecewiseLegendrePolyVector,
     name: &'static str,
+    domain: (f64, f64),
     l: usize,
 ) -> Result<Vec<f64>, Error> {
     // C++: if (u.xmin() != -1.0 || u.xmax() != 1.0)
     //          throw std::runtime_error("Expecting unscaled functions here.");
-    if (u.xmin() - (-1.0)).abs() > 1e-10 || (u.xmax() - 1.0).abs() > 1e-10 {
+    // (here generalized to the domain of an asymmetric kernel)
+    if (u.xmin() - domain.0).abs() > 1e-10 || (u.xmax() - domain.1).abs() > 1e-10 {
         return Err(Error::InvalidParameter {
             name,
             value: format!("functions on [{:?}, {:?}]", u.xmin(), u.xmax()),
-            reason: "must be the unscaled functions of an SVE, on [-1, 1]".to_string(),
+            reason: format!(
+                "must be the unscaled functions of an SVE, on [{:?}, {:?}]",
+                domain.0, domain.1
+            ),
         });
     }
 
@@ -1278,12 +1276,6 @@ pub(crate) fn default_sampling_points(
 
     Ok(x0)
 }
-
-// IndexMut implementation removed - PiecewiseLegendrePolyVector is designed to be immutable
-// If modification is needed, create a new instance instead
-
-// Note: FnOnce implementation removed due to experimental nature
-// Use evaluate_at() and evaluate_at_many() methods directly
 
 #[cfg(test)]
 #[path = "poly_tests.rs"]

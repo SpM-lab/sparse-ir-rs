@@ -514,8 +514,12 @@ pub(crate) fn complex_to_stacked(
 /// Factors of the pseudo-inverse `A^+ = V diag(1/s) U^H` of an `n x m`
 /// matrix, stored for axis contractions.
 ///
-/// Rank is `r = min(n, m)` without truncation: sampling matrices are well
-/// conditioned by construction.
+/// The rank `r` counts the singular values above `max(n, m)·ε·s_0`, as
+/// LAPACK's least squares do (or above `rtol·s_0` for
+/// [`compute_pinv_truncated`]): a rank-deficient matrix, such as one with a
+/// repeated sampling point, then gives the minimum-norm least-squares
+/// solution instead of inf/NaN. Sampling matrices of full numerical rank keep
+/// all `min(n, m)` singular values.
 #[doc(hidden)]
 pub struct PinvFactors<T> {
     /// `U^H`, contiguous `r x n`.
@@ -628,24 +632,18 @@ fn svd_failed(matrix: String, err: impl std::fmt::Display) -> Error {
     }
 }
 
-/// Number of the descending singular values `s` kept in the pseudo-inverse:
-/// those with `s_l > rtol * s_0`, or all of them without `rtol`
+/// Number of the descending singular values `s` with `s_l > rtol * s_0`
 ///
 /// # Errors
 /// A message naming the first non-finite value: with a NaN s_0 every
 /// comparison is false, so the rank would be 0 and fits would silently return
 /// zeros.
-pub(super) fn pinv_rank(s: &[f64], rtol: Option<f64>) -> std::result::Result<usize, String> {
+pub(super) fn pinv_rank(s: &[f64], rtol: f64) -> std::result::Result<usize, String> {
     if let Some(l) = s.iter().position(|v| !v.is_finite()) {
         return Err(format!("non-finite singular value s[{l}] = {}", s[l]));
     }
-    Ok(match rtol {
-        Some(rtol) => {
-            let s0 = s.first().copied().unwrap_or(0.0);
-            s.iter().take_while(|&&v| v > rtol * s0).count()
-        }
-        None => s.len(),
-    })
+    let s0 = s.first().copied().unwrap_or(0.0);
+    Ok(s.iter().take_while(|&&v| v > rtol * s0).count())
 }
 
 /// [`compute_pinv`] of a matrix that `name` names in the error
@@ -704,6 +702,7 @@ fn compute_pinv_impl<T: SvdScalar>(
     }
     let (ldu, ldvt) = (u_shape[0], vt_shape[0]);
     let singular_values: Vec<f64> = s[..rank].iter().map(|&v| T::real_part(v)).collect();
+    let rtol = rtol.unwrap_or(n.max(m) as f64 * f64::EPSILON);
     let rank = pinv_rank(&singular_values, rtol).map_err(|err| svd_failed(name(), err))?;
 
     // U^H: uh[l + r*i] = conj(U[i, l])

@@ -200,14 +200,14 @@ pub fn generate_test_data_tau_and_matsubara<T, S, K>(
 where
     T: RandomGenerate + ConvertFromReal + Clone + std::ops::Mul<f64, Output = T>,
     S: crate::traits::StatisticsType,
-    K: crate::kernel::KernelProperties + crate::kernel::CentrosymmKernel + Clone + 'static,
+    K: crate::kernel::BasisKernel,
 {
     use crate::giwn_single_pole;
 
     let mut rng = SimpleRng::new(seed);
     let basis_size = basis.size();
     let beta = basis.beta();
-    let wmax = basis.kernel().lambda() / beta;
+    let wmax = basis.kernel().kernel_lambda() / beta;
 
     // Choose a pole position (arbitrary choice within reasonable range)
     let omega = wmax * 0.5; // Pole at half of wmax
@@ -279,13 +279,13 @@ where
         + std::ops::Sub<Output = T>
         + std::ops::Mul<Output = T>,
     S: crate::traits::StatisticsType,
-    K: crate::kernel::KernelProperties + crate::kernel::CentrosymmKernel + Clone + 'static,
+    K: crate::kernel::BasisKernel,
 {
     use crate::{giwn_single_pole, gtau_single_pole};
 
     let mut rng = SimpleRng::new(seed);
     let beta = basis.beta();
-    let wmax = basis.kernel().lambda() / beta;
+    let wmax = basis.kernel().kernel_lambda() / beta;
     let basis_size = basis.size();
 
     // Calculate total number of extra elements
