@@ -88,9 +88,10 @@ fn release_unused_memory() {
 /// Chooses the SVE strategy from the kernel's symmetry and the working
 /// precision from epsilon. A centrosymmetric kernel
 /// ([`AbstractKernel::is_centrosymmetric`]) is block-diagonalized into its
-/// even and odd reduced kernels ([`CentrosymmSVE`]), whose singular
-/// functions have definite parity; any other kernel is expanded over its full
-/// domain `[xmin, xmax] × [ymin, ymax]` ([`NonCentrosymmSVE`]).
+/// even and odd reduced kernels
+/// ([`CentrosymmSVE`](crate::sve::CentrosymmSVE)), whose singular functions
+/// have definite parity; any other kernel is expanded over its full domain
+/// `[xmin, xmax] × [ymin, ymax]` ([`NonCentrosymmSVE`]).
 ///
 /// # Arguments
 ///

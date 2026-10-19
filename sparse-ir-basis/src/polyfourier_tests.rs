@@ -1085,7 +1085,7 @@ fn test_pair_selection_mitigate_improves_conditioning() {
     check::<_, Fermionic>(LogisticKernel::new(1e3).unwrap(), "logistic");
     check::<_, Bosonic>(LogisticKernel::new(1e3).unwrap(), "logistic");
     let windowed = LogisticKernelWindowed::from_physical(1e3, -0.3, 1.0).unwrap();
-    check::<_, Fermionic>(windowed.clone(), "windowed");
+    check::<_, Fermionic>(windowed, "windowed");
     check::<_, Bosonic>(windowed, "windowed");
 }
 
