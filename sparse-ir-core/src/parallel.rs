@@ -1,12 +1,12 @@
 //! Parallel execution on the rayon thread pool.
 //!
 //! The threaded work of the library (the SVE) goes through the functions
-//! here. With the `parallel` feature (on by default only in the sparse-ir
-//! crate, off in the C API) it runs on the current rayon pool (the global
-//! one unless the caller runs inside `ThreadPool::install`), whose size
+//! here. Without the `parallel` feature (the default; never enabled by the
+//! C API), and inside [`sequential`], everything runs on the calling thread.
+//! With the feature it runs on the current rayon pool (the global one unless
+//! the caller runs inside `ThreadPool::install`), whose size
 //! (`RAYON_NUM_THREADS`) therefore bounds the number of threads the library
-//! uses. Without the feature, and inside
-//! [`sequential`], everything runs on the calling thread.
+//! uses.
 //!
 //! Every job handed out here runs under the FPU state of the thread that
 //! hands it out (`crate::fpu_check::FpuContext`), so the threaded paths

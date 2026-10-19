@@ -30,9 +30,7 @@ crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 # Main SparseIR library (version from workspace.dependencies, overridden locally via [patch.crates-io])
-# (without its default `parallel` feature: no rayon thread pool in the C
-# library, see src/lib.rs)
-sparse-ir = { workspace = true, default-features = false }
+sparse-ir.workspace = true
 
 # Error code type
 libc.workspace = true

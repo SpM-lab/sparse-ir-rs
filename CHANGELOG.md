@@ -7,11 +7,12 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ### Added
 
-- The `parallel` feature (on by default in the `sparse-ir` crate only): the
-  SVE decomposes its blocks on the current rayon pool (`RAYON_NUM_THREADS`
-  or `ThreadPool::install` bound it). The results do not depend on the
-  number of threads. The C API is built without it and runs every call on
-  the calling thread.
+- The `parallel` feature (opt-in, off by default): the SVE decomposes its
+  blocks on the current rayon pool (`RAYON_NUM_THREADS` or
+  `ThreadPool::install` bound it). The results do not depend on the number
+  of threads. Without it, as before, the library runs on the calling
+  thread; the C API never enables it and runs every call on the calling
+  thread.
 - `SVEStrategy::blocks` (provided method) and `KernelBlock`: the weighted
   kernel blocks of an SVE strategy, evaluated on demand.
 

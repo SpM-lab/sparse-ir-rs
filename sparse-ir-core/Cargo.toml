@@ -38,9 +38,7 @@ libc.workspace = true
 # System BLAS for tests only (not used in library code)
 blas-sys.workspace = true
 # The doc examples use the whole library
-# (without its default `parallel` feature, which would otherwise always be
-# on in the tests of this crate)
-sparse-ir = { path = "../sparse-ir", default-features = false }
+sparse-ir = { path = "../sparse-ir" }
 
 [build-dependencies]
 pkg-config = "0.3"
@@ -50,6 +48,6 @@ default = []
 # Use system BLAS (LP64) for GEMM backend by default
 system-blas = ["blas-sys"]
 # Run the threaded work of the library (the SVE) on the rayon thread pool;
-# without it everything runs on the calling thread. On by default only in
-# the sparse-ir crate.
+# without it everything runs on the calling thread. Off by default (opt-in,
+# e.g. through the `parallel` feature of sparse-ir).
 parallel = ["dep:rayon"]

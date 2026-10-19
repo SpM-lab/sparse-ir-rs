@@ -38,8 +38,9 @@ pub use utils::*;
 /// The C library is built without the `parallel` feature of sparse-ir, so
 /// there is no rayon pool of its own (fork-after-pool deadlocks with Python
 /// `multiprocessing`, oversubscription inside OpenMP regions). Should the
-/// feature be enabled anyway (`cargo build --workspace` unifies the features
-/// of the workspace), this keeps the calls sequential.
+/// feature be enabled anyway (Cargo unifies the features of a build, so
+/// another crate of the same build can enable it), this keeps the calls
+/// sequential.
 #[doc(hidden)] // public only for the expansion of `impl_opaque_type_common`
 pub fn ffi_call<R>(f: impl FnOnce() -> R + std::panic::UnwindSafe) -> std::thread::Result<R> {
     sparse_ir::parallel::sequential(|| std::panic::catch_unwind(f))

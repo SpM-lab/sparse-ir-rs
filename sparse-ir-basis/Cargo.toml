@@ -37,9 +37,7 @@ approx.workspace = true
 dashu-float.workspace = true
 dashu-base.workspace = true
 # The doc examples use the whole library
-# (without its default `parallel` feature, which would otherwise always be
-# on in the tests of this crate)
-sparse-ir = { path = "../sparse-ir", default-features = false }
+sparse-ir = { path = "../sparse-ir" }
 
 [features]
 # Run the threaded work (the SVE) on the rayon thread pool; see
