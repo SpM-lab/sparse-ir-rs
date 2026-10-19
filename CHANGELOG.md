@@ -24,6 +24,34 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   finds `spir_build_uses_fma() && !spir_cpu_has_fma()` can raise a clear
   error at import instead of the process dying with SIGILL on the first FMA
   instruction. `pylibsparseir` does so (#332).
+- `LogisticKernelWindowed`: the logistic kernel on an asymmetric frequency
+  window `[omega_min, omega_max]` containing 0, the first built-in kernel
+  that is not centrosymmetric. Its SVE is taken over the full domain, and
+  `FiniteTempBasis` works on the kernel's domain (`omega_min()`; the DLR
+  rejects poles outside the window). Not yet available through the C API.
+- Default Matsubara sampling points for bases whose functions have no
+  definite parity (`LogisticKernelWindowed`, `compute_sve_general`,
+  `spir_sve_result_from_matrix`): a set symmetric in ±n selected in pairs
+  by an interpolative decomposition (pivoted QR of the rows, as Kaye, Chen
+  and Parcollet do for the DLR); with `mitigate`, about 10% more
+  frequencies that minimize the noise variance of the fit. They were
+  `NotSupported` (#183).
+- `MatsubaraPointMethod` (`SignChanges`, `PairSelection`) with
+  `FiniteTempBasis::matsubara_sampling_points` and
+  `matsubara_sampling_points_from_uhat`, to choose the method of the
+  Matsubara points explicitly, e.g. the pair selection for a basis of a
+  centrosymmetric kernel.
+- `BasisKernel`: the kernels `compute_sve`, `FiniteTempBasis` and `IrBasis`
+  accept. It is implemented for every `CentrosymmKernel` (plus
+  `KernelProperties + Clone + 'static`), so every kernel accepted before
+  still is, and for `LogisticKernelWindowed`.
+- `KernelProperties::xmin()` and `ymin()`, defaulting to the symmetric
+  domain.
+- `compute_sve_for_basis` and `BASIS_CUTOFF_FACTOR`: an SVE that resolves
+  only the singular values a basis for ε uses, down to
+  `max(2·ε_work, 1e-10·ε)`; in double-double 1.5–2.3× faster than
+  `compute_sve`, with about 20% fewer singular values. Opt-in: the default
+  SVE is unchanged.
 
 ### Changed
 
@@ -35,12 +63,35 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   and to 1e-15 relative over those a basis uses; their number can differ
   by one at the noise floor (a value near 2·ε_work·s₀, about 5e-32·s₀,
   e.g. for Λ = 3·10⁵ and 10⁶), so the length of the `SVEResult` can
-  differ, but not the bases. The f64 SVE and `compute_sve_general` are
-  unchanged (bitwise those of the previous release).
+  differ, but not the bases. The f64 SVE is unchanged (bitwise that of
+  the previous release).
+- `compute_sve_general` computes the double-double SVE of a kernel that is
+  not centrosymmetric by ACA as well (for a centrosymmetric kernel it
+  keeps the dense column-pivoted QR, whose single block holds nearly
+  degenerate pairs of singular values).
+- `FiniteTempBasis::from_sve_result` accepts an SVE without parity for a
+  `LogisticKernel` (it was `NotSupported`).
+- With the `parallel` feature, batched Matsubara evaluations and the
+  sign-change search of the default Matsubara points run on the rayon pool
+  as well; the default Matsubara points are computed once per basis.
+- The default sampling points of bases of centrosymmetric kernels are
+  unchanged (Matsubara exactly, tau to rounding).
+- Real-coefficient fits of `MatsubaraSampling` (`fit_real`, `fit_nd_real`,
+  `spir_sampling_fit_zd`) solve the real least-squares problem; for points
+  symmetric in ±n, such as the default ones, the result is the same up to
+  rounding.
+- The pseudo-inverse of the fitters drops singular values below
+  `max(n_rows, n_cols)·ε·s₀` (the minimum-norm least-squares solution), so
+  rank-deficient sampling matrices give finite coefficients.
 - Requires xprec 0.2.3.
 
 ### Changed in the C API
 
+- `spir_basis_get_n_default_matsus`, `spir_basis_get_default_matsus` (and
+  their `_ext` variants) and `spir_uhat_get_default_matsus` now return
+  `SPIR_COMPUTATION_SUCCESS` with the pair-selected points for bases whose
+  functions have no definite parity (from `spir_sve_result_from_matrix`),
+  instead of `SPIR_NOT_SUPPORTED`.
 - `spir_sve_result_from_matrix` and
   `spir_sve_result_from_matrix_centrosymmetric` normalize the double-double
   pairs `(K_high, K_low)` passed in, and return `SPIR_INVALID_ARGUMENT` if
@@ -53,6 +104,11 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ### Fixed
 
+- The asymptotic Matsubara model of functions without definite parity
+  (wrong values at |n| ≥ n_asymp).
+- `CentrosymmSVE::new` (and so `compute_sve`) rejects a centrosymmetric
+  kernel whose domain is not symmetric, instead of returning the SVE of
+  another kernel.
 - The fitters return an error, not zeros or NaN, if the SVD of the sampling
   matrix has non-finite singular values.
 - C API: `spir_sve_result_from_matrix` and
