@@ -719,7 +719,9 @@ impl IrDlrTransform {
     #[doc(hidden)]
     pub fn from_matrix(matrix: Mat<f64>) -> Self {
         Self {
-            fitter: RealMatrixFitter::new(matrix),
+            // T has a condition number of about 1/ε: keep every singular
+            // value (the cut of the sampling fitters would lose digits)
+            fitter: RealMatrixFitter::untruncated(matrix),
         }
     }
 

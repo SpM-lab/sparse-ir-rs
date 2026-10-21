@@ -7,8 +7,8 @@
 //! a real `[2 pre, n, post]` tensor).
 
 use super::common::{
-    FitScalar, InplaceFitter, PinvFactors, compute_pinv, condition_number_from_singular_values,
-    run_alloc, run_to,
+    FitScalar, InplaceFitter, PinvFactors, compute_pinv, compute_pinv_truncated,
+    condition_number_from_singular_values, run_alloc, run_to,
 };
 use crate::Matrix;
 use crate::error::Result;
@@ -60,14 +60,31 @@ pub struct RealMatrixFitter {
     a: Vec<f64>,
     n_points: usize,
     basis_size: usize,
+    /// Relative cut of the pseudo-inverse: `None` for the default of
+    /// [`compute_pinv`], `Some(0.0)` to keep every nonzero singular value
+    rtol: Option<f64>,
     pinv: OnceLock<Result<PinvFactors<f64>>>,
 }
 
 impl RealMatrixFitter {
-    /// Create a fitter for `matrix` (`n_points x basis_size`).
+    /// Create a fitter for `matrix` (`n_points x basis_size`), a sampling
+    /// matrix: the pseudo-inverse drops the singular values below
+    /// `max(n_points, basis_size)·ε·s₀` (see [`compute_pinv`]).
     ///
     /// The SVD is computed lazily on the first fit.
     pub fn new(matrix: Mat<f64>) -> Self {
+        Self::with_rtol(matrix, None)
+    }
+
+    /// Create a fitter for `matrix` whose pseudo-inverse keeps every nonzero
+    /// singular value, for a matrix that is ill-conditioned by construction
+    /// but has to be inverted to full precision, such as the IR ← DLR
+    /// transform (condition number about 1/ε of the basis).
+    pub fn untruncated(matrix: Mat<f64>) -> Self {
+        Self::with_rtol(matrix, Some(0.0))
+    }
+
+    fn with_rtol(matrix: Mat<f64>, rtol: Option<f64>) -> Self {
         let (n_points, basis_size) = *matrix.shape();
         let a = matrix.as_slice().to_vec();
         Self {
@@ -75,6 +92,7 @@ impl RealMatrixFitter {
             a,
             n_points,
             basis_size,
+            rtol,
             pinv: OnceLock::new(),
         }
     }
@@ -106,7 +124,10 @@ impl RealMatrixFitter {
 
     fn pinv(&self) -> Result<&PinvFactors<f64>> {
         self.pinv
-            .get_or_init(|| compute_pinv(&self.a, self.n_points, self.basis_size))
+            .get_or_init(|| match self.rtol {
+                None => compute_pinv(&self.a, self.n_points, self.basis_size),
+                Some(rtol) => compute_pinv_truncated(&self.a, self.n_points, self.basis_size, rtol),
+            })
             .as_ref()
             .map_err(Clone::clone)
     }
