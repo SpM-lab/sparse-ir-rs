@@ -695,7 +695,7 @@ impl Part {
 /// sign changes (see [`part_with_the_sign_changes`])
 fn func_for_part<S: StatisticsType + 'static>(
     poly_ft: &PiecewiseLegendreFT<S>,
-) -> Result<Box<dyn Fn(i64) -> f64 + Sync>, Error> {
+) -> Result<Box<dyn Fn(i64) -> f64>, Error> {
     let part = part_with_the_sign_changes::<S>(poly_ft.poly.symm())?;
     let zeta = poly_ft.zeta();
     let poly_ft_clone = poly_ft.clone();

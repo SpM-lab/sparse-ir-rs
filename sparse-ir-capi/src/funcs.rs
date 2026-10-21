@@ -816,8 +816,8 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// bosonic sets always include n = 0. Functions without a definite parity, as
 /// those of a basis built on an SVE from `spir_sve_result_from_matrix` (not
 /// centrosymmetric), have no such sign changes; their points are selected as
-/// a set symmetric in ±n that keeps the noise amplification and the aliasing
-/// of the next functions small.
+/// a set symmetric in ±n by an interpolative decomposition (pivoted QR) of
+/// the rows Re û(n), Im û(n).
 ///
 /// # Arguments
 /// * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
@@ -839,6 +839,9 @@ pub extern "C" fn spir_funcs_batch_eval_matsu(
 /// - SPIR_INVALID_ARGUMENT if points_capacity is smaller than the number of
 ///   points; `points` is left untouched and `*n_points_total` is set to the
 ///   required number
+/// - SPIR_INVALID_ARGUMENT for functions without definite parity if
+///   basis_size exceeds the number of functions in uhat (the selection fits
+///   at most those); nothing is written
 /// - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function. Nothing is
 ///   written.
 ///

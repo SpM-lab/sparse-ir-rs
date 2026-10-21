@@ -99,6 +99,14 @@ fn check_kernel_domain<K: KernelProperties>(
         (kernel.xmin(), kernel.xmax()),
         (kernel.ymin(), kernel.ymax()),
     );
+    // The basis maps x ∈ [-1, 1] to τ = β (x + 1) / 2 ∈ [0, β]
+    if x != (-1.0, 1.0) {
+        return Err(Error::InvalidParameter {
+            name: "kernel",
+            value: format!("x domain [{:?}, {:?}]", x.0, x.1),
+            reason: "a basis needs the x domain [-1, 1], mapped to tau in [0, beta]".to_string(),
+        });
+    }
     let matches = |(lo, hi): (f64, f64), (min, max): (f64, f64)| {
         (lo - min).abs() <= 1e-12 && (hi - max).abs() <= 1e-12
     };
@@ -245,12 +253,17 @@ where
     where
         S: 'static,
     {
-        let freqs = default_matsubara_sampling_points_from_uhat(
-            &self.uhat_full,
-            n_points,
-            mitigate,
-            positive_only,
-        )?;
+        // The points of the basis itself are cached (computed once per basis)
+        let freqs = if !mitigate && n_points == self.size() {
+            self.default_matsubara_sampling_points(positive_only)?
+        } else {
+            default_matsubara_sampling_points_from_uhat(
+                &self.uhat_full,
+                n_points,
+                mitigate,
+                positive_only,
+            )?
+        };
         Ok(freqs.into_iter().map(|f| f.n()).collect())
     }
 
