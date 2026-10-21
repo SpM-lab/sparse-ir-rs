@@ -740,6 +740,17 @@ fn test_default_matsubara_points_are_reused() {
                     "{:?}, positive_only = {positive_only}",
                     S::STATISTICS
                 );
+                // The C API getter takes the cached points too
+                assert_eq!(
+                    basis
+                        .default_matsubara_sampling_points_i64_with_mitigate(
+                            positive_only,
+                            false,
+                            basis.size(),
+                        )
+                        .unwrap(),
+                    direct(positive_only)
+                );
             }
         }
     }
@@ -749,4 +760,79 @@ fn test_default_matsubara_points_are_reused() {
     let windowed = LogisticKernelWindowed::from_physical(1e2, -0.3, 1.0).unwrap();
     check::<_, Fermionic>(windowed, 1e2);
     check::<_, Bosonic>(windowed, 1e2);
+}
+
+/// A kernel whose x domain is not [-1, 1] is rejected: the basis maps x to
+/// τ = β (x + 1) / 2, which would leave [0, β] (found by a code review).
+#[test]
+fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
+    use crate::kernel::{AbstractKernel, BasisKernel, KernelProperties, LogisticSVEHints};
+    use crate::numeric::CustomNumeric;
+    use crate::traits::StatisticsType;
+    use std::fmt::Debug;
+
+    /// The logistic kernel claiming the x domain [-2, 2]
+    #[derive(Debug, Clone, Copy)]
+    struct WideX(LogisticKernel);
+
+    impl AbstractKernel for WideX {
+        fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+            self.0.compute(x, y)
+        }
+    }
+
+    impl KernelProperties for WideX {
+        type SVEHintsType<T>
+            = LogisticSVEHints<T>
+        where
+            T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+        fn ypower(&self) -> i32 {
+            self.0.ypower()
+        }
+
+        fn conv_radius(&self) -> f64 {
+            self.0.conv_radius()
+        }
+
+        fn xmax(&self) -> f64 {
+            2.0
+        }
+
+        fn ymax(&self) -> f64 {
+            self.0.ymax()
+        }
+
+        fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+            self.0.regularizer::<S>(beta, omega)
+        }
+
+        fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
+        where
+            T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+        {
+            self.0.sve_hints::<T>(epsilon)
+        }
+    }
+
+    impl BasisKernel for WideX {
+        fn kernel_lambda(&self) -> f64 {
+            self.0.lambda()
+        }
+    }
+
+    let logistic = LogisticKernel::new(10.0).unwrap();
+    let sve = compute_sve(logistic, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let result = FiniteTempBasis::<_, Fermionic>::from_sve_result(
+        WideX(logistic),
+        10.0,
+        sve,
+        Some(1e-6),
+        None,
+    );
+    assert!(
+        matches!(result, Err(Error::InvalidParameter { name: "kernel", .. })),
+        "{:?}",
+        result.err()
+    );
 }

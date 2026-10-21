@@ -1222,6 +1222,9 @@ pub extern "C" fn spir_basis_get_default_taus_ext(
 /// * `SPIR_COMPUTATION_SUCCESS` (0) on success
 /// * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
 ///   `basis_size < 0`
+/// * `SPIR_INVALID_ARGUMENT` (-6) for a basis without definite parity if
+///   `basis_size` exceeds the number of singular functions of its SVE (the
+///   selection fits at most those)
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
@@ -1291,6 +1294,9 @@ pub extern "C" fn spir_basis_get_n_default_matsus_ext(
 /// * `SPIR_INVALID_ARGUMENT` (-6) if `points_capacity` is smaller than the
 ///   number of points; `points` is left untouched and `*n_points_total` is
 ///   set to the required number
+/// * `SPIR_INVALID_ARGUMENT` (-6) for a basis without definite parity if
+///   `basis_size` exceeds the number of singular functions of its SVE (the
+///   selection fits at most those); nothing is written
 /// * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
 ///
 /// # Note
