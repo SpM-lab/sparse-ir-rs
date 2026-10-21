@@ -36,11 +36,13 @@ pub use utils::*;
 /// region it reaches on the calling thread
 ///
 /// The C library is built without the `parallel` feature of sparse-ir, so
-/// there is no rayon pool of its own (fork-after-pool deadlocks with Python
-/// `multiprocessing`, oversubscription inside OpenMP regions). Should the
-/// feature be enabled anyway (Cargo unifies the features of a build, so
-/// another crate of the same build can enable it), this keeps the calls
-/// sequential.
+/// the parallel regions of sparse-ir (the SVE) use no rayon pool
+/// (fork-after-pool deadlocks with Python `multiprocessing`,
+/// oversubscription inside OpenMP regions). Should the feature be enabled
+/// anyway (Cargo unifies the features of a build, so another crate of the
+/// same build can enable it), this keeps them on the calling thread. It does
+/// not reach the SVDs that the fitters and MiniPole take through tenferro's
+/// `CpuBackend`, which builds a pool of its own (#344).
 #[doc(hidden)] // public only for the expansion of `impl_opaque_type_common`
 pub fn ffi_call<R>(f: impl FnOnce() -> R + std::panic::UnwindSafe) -> std::thread::Result<R> {
     sparse_ir::parallel::sequential(|| std::panic::catch_unwind(f))
