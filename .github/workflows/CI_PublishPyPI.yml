@@ -102,6 +102,7 @@ jobs:
           path: dist/*
 
   publish-testpypi:
+    if: github.event_name != 'pull_request'
     needs: build-wheels
     runs-on: ubuntu-latest
     environment:
