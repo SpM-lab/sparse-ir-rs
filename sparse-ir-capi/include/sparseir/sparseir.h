@@ -2450,11 +2450,11 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
  *   a size is less than 1, `epsilon` is not positive and finite or is 1 or
- *   more, an entry of `K_high` or `K_low` is NaN or infinite, the segments
- *   are not finite and strictly increasing, a segment length is not finite
- *   or is subnormal, the sum of the ends of a segment overflows, `nx` is
- *   not `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`,
- *   or the matrix has rank 0
+ *   more, an entry of `K_high` or `K_low` is NaN or infinite or their sum
+ *   overflows, the segments are not finite and strictly increasing, a
+ *   segment length is not finite or is subnormal, the sum of the ends of a
+ *   segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is not
+ *   `n_segments_y * n_gauss`, or the matrix has rank 0
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
  *   overflows) or an internal error occurs
@@ -2517,11 +2517,11 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
  *   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
  *   and finite or is 1 or more, an entry of a matrix that is read is NaN or
- *   infinite, the segments are not finite and strictly increasing, the
- *   segments do not start at 0, a segment length is not finite or is
- *   subnormal, the sum of the ends of a segment overflows, `nx` is not
- *   `n_segments_x * n_gauss` or `ny` is not `n_segments_y * n_gauss`, or
- *   both matrices have rank 0
+ *   infinite or the sum of a high and a low entry overflows, the segments
+ *   are not finite and strictly increasing, the segments do not start at 0,
+ *   a segment length is not finite or is subnormal, the sum of the ends of
+ *   a segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is
+ *   not `n_segments_y * n_gauss`, or both matrices have rank 0
  * - SPIR_INVALID_DIMENSION if the matrices are too large to be addressed
  * - SPIR_INTERNAL_ERROR if an SVD fails (e.g. the QR of a matrix overflows)
  *   or an internal error occurs

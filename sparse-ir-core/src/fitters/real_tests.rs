@@ -111,3 +111,41 @@ fn unsupported_combination_is_reported() {
         Err(Error::NotSupported { .. })
     ));
 }
+
+/// The rank cut `s_l > rtol * s_0` is false for every l when s_0 is NaN; it
+/// must fail instead of giving a rank-0 pseudo-inverse whose fits are zeros.
+/// (The SVD backend reports non-convergence for a non-finite matrix before
+/// this check, so it is tested directly.)
+#[test]
+fn pinv_rank_rejects_non_finite_singular_values() {
+    use crate::fitters::common::pinv_rank;
+    assert_eq!(pinv_rank(&[2.0, 1.0, 1e-20], Some(1e-15)), Ok(2));
+    assert_eq!(pinv_rank(&[2.0, 1.0, 1e-20], None), Ok(3));
+    assert_eq!(pinv_rank(&[], Some(1e-15)), Ok(0));
+    for bad in [f64::NAN, f64::INFINITY] {
+        for rtol in [Some(1e-15), None] {
+            assert_eq!(
+                pinv_rank(&[bad, 1.0], rtol).unwrap_err(),
+                format!("non-finite singular value s[0] = {bad}")
+            );
+            assert!(pinv_rank(&[2.0, bad], rtol).is_err());
+        }
+    }
+}
+
+/// A fit with a non-finite matrix fails instead of returning zeros or NaN.
+#[test]
+fn fit_non_finite_matrix_is_error() {
+    for bad in [f64::NAN, f64::INFINITY] {
+        let mut a = real_matrix(N, M);
+        a[[2, 1]] = bad;
+        let fitter = RealMatrixFitter::new(a);
+        assert!(
+            matches!(
+                fitter.fit(None, &real_data(N, 0)),
+                Err(Error::DecompositionFailed { .. })
+            ),
+            "{bad}"
+        );
+    }
+}
