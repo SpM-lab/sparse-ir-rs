@@ -78,9 +78,6 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `spir_sampling_fit_zd`) solve the real least-squares problem; for points
   symmetric in ±n, such as the default ones, the result is the same up to
   rounding.
-- The pseudo-inverse of the fitters drops singular values below
-  `max(n_rows, n_cols)·ε·s₀` (the minimum-norm least-squares solution), so
-  rank-deficient sampling matrices give finite coefficients.
 - Requires xprec 0.2.3.
 
 ### Changed in the C API

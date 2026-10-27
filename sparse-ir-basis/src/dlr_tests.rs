@@ -1725,12 +1725,11 @@ fn test_with_poles_rejects_a_bosonic_zero_pole_of_other_ypower() {
 }
 
 /// IR -> DLR -> IR keeps the precision of a basis for ε = 1e-15: the
-/// transform keeps every singular value of T (whose condition number is
-/// about 1/ε), unlike the sampling fitters. With the rank cut of the
-/// sampling fitters, max(n, m)·ε·s₀, the round trip lost digits (measured on
-/// aarch64 macOS: physical G at Λ = 1e4, 2.2e-15 relative kept against
-/// 1.1e-14 cut; decaying coefficients 1/(l+1)² at Λ = 1e2, 3.7e-5 against
-/// 6.6e-4).
+/// pseudo-inverse keeps every singular value of T (whose condition number is
+/// about 1/ε). A rank cut at max(n, m)·ε·s₀, which #342 had added to the
+/// fitters, lost digits here (measured on aarch64 macOS: physical G at
+/// Λ = 1e4, 2.2e-15 relative kept against 1.1e-14 cut; decaying coefficients
+/// 1/(l+1)² at Λ = 1e2, 3.7e-5 against 6.6e-4).
 #[test]
 fn test_ir_dlr_round_trip_keeps_full_precision() {
     let round_trip = |lambda: f64, coeffs: &dyn Fn(usize, usize) -> f64| {
@@ -1783,4 +1782,31 @@ fn test_ir_dlr_round_trip_keeps_full_precision() {
     let decaying = |i: usize, _: usize| ((i + 1) as f64).powi(-2);
     let (_, max) = round_trip(1e2, &decaying);
     assert!(max < 2e-4, "decaying coefficients: max error {max:e}");
+}
+
+/// A DLR fitted at its own Matsubara nodes keeps the sum rule
+/// G(0⁺) + G(β⁻) = -1 of the semicircle to 1e-11 (β = 1e4, ε = 1e-14), as
+/// the tutorial checks: the sampling matrix at the nodes is ill-conditioned
+/// by construction, and the rank cut that #342 had added to the fitters
+/// spoiled it (-1.0000000000124).
+#[test]
+fn test_dlr_fit_at_its_nodes_keeps_the_sum_rule() {
+    use crate::matsubara_sampling::MatsubaraSampling;
+    use num_complex::Complex64;
+
+    let (beta, eps) = (1e4, 1e-14);
+    let dlr = DiscreteLehmannRepresentation::<Fermionic>::new(beta, 1.0, eps).unwrap();
+    let g_exact = |nu: f64| Complex64::new(0.0, -2.0 * nu.signum() / (nu.abs() + nu.hypot(1.0)));
+    let sampling = MatsubaraSampling::<Fermionic>::new(&dlr).unwrap();
+    let g_iv: Vec<Complex64> = sampling
+        .sampling_points()
+        .iter()
+        .map(|freq| g_exact(freq.value(beta)))
+        .collect();
+    let c_p = sampling.fit_real(&g_iv).unwrap();
+    let ends = dlr.evaluate_tau(&[0.0, beta]).unwrap();
+    let sum_rule: f64 = (0..dlr.poles().len())
+        .map(|p| (ends.get(&[0, p]).unwrap() + ends.get(&[1, p]).unwrap()) * c_p[p])
+        .sum();
+    assert!((sum_rule + 1.0).abs() < 1e-11, "G(0) + G(β) = {sum_rule}");
 }
