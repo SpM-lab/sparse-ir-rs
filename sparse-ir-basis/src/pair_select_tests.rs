@@ -42,22 +42,25 @@ fn greedy_takes_the_largest_projected_area() {
     let a = smooth(40, 8);
     let pairs = greedy_pairs(&a.as_view(), &no_fixed(8).as_view(), 8);
     assert_eq!(pairs.len(), 4);
-    for k in 0..pairs.len() {
-        let mut res = Residuals::new(&a.as_view());
-        for &p in &pairs[..k] {
-            for r in 0..2 {
-                res.add(a.row(2 * p + r).transpose());
-            }
+    // Area of the rows of pair p projected onto the complement of the rows
+    // of `taken`, computed afresh by a QR of those rows
+    let area = |taken: &[usize], p: usize| {
+        let mut res = a.rows(2 * p, 2).transpose();
+        if !taken.is_empty() {
+            let sel = selected_rows(&a.as_view(), &no_fixed(8).as_view(), taken);
+            let q = sel.transpose().qr().q();
+            res -= &q * (q.transpose() * &res);
         }
-        let grams = pair_grams(&res.res);
-        let best = grams[pairs[k]].determinant();
-        for (p, g) in grams.iter().enumerate() {
-            if !pairs[..k].contains(&p) {
-                assert!(
-                    g.determinant() <= best,
-                    "step {k}: pair {p} has a larger area"
-                );
-            }
+        (res.transpose() * res).determinant()
+    };
+    for k in 0..pairs.len() {
+        let best = area(&pairs[..k], pairs[k]);
+        for p in (0..40).filter(|p| !pairs[..k].contains(p)) {
+            let other = area(&pairs[..k], p);
+            assert!(
+                other <= best * (1.0 + 1e-9) + 1e-14,
+                "step {k}: pair {p} has a larger area {other:e} > {best:e}"
+            );
         }
     }
 }

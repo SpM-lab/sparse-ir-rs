@@ -14,7 +14,9 @@
 //! and Parcollet (Phys. Rev. B 105, 235115 (2022), Secs. IV E and V B) choose
 //! the sampling points of the DLR. Here the pivots are pairs of rows, the
 //! one with the largest projected area, so that the frequencies come in
-//! `±n` pairs; this block form is our choice.
+//! `±n` pairs; this block form is our choice. The pivoted Gram–Schmidt is
+//! that of the DLR construction (`sparse_ir_dlr::dlr_id`), which takes
+//! single rows for the nodes of the DLR and pairs here.
 //!
 //! Oversampling adds pairs one at a time, each the one that most decreases
 //! `trace((F_SᵀF_S)⁻¹)`, the variance of the fitted coefficients under
@@ -32,10 +34,10 @@
 //! `RANK_TOL`; and, with `mitigate`, about 10% more frequencies chosen by
 //! the A-optimal criterion.
 
-use nalgebra::{DMatrix, DMatrixView, DVector, Matrix2};
+use nalgebra::{DMatrix, DMatrixView, Matrix2};
 
-/// Rows whose residual norm (relative to the largest row norm) is below this
-/// are linearly dependent on those already selected.
+/// Pairs whose residual rows are below this times the largest row norm are
+/// linearly dependent on those already selected.
 const RANK_TOL: f64 = 1e-12;
 
 /// Select pairs of rows of `a` (pair `i` = rows `2i`, `2i + 1`).
@@ -73,102 +75,22 @@ fn selected_rows(a: &DMatrixView<f64>, fixed: &DMatrixView<f64>, pairs: &[usize]
     })
 }
 
-/// Residuals of the rows of a matrix after projecting out a growing set of
-/// rows, kept with an orthonormal basis of that set.
-struct Residuals {
-    res: DMatrix<f64>,
-    basis: Vec<DVector<f64>>,
-    tol: f64,
-}
-
-impl Residuals {
-    fn new(a: &DMatrixView<f64>) -> Self {
-        let scale = a.row_iter().map(|r| r.norm()).fold(0.0, f64::max);
-        Self {
-            res: a.clone_owned(),
-            basis: Vec::new(),
-            tol: RANK_TOL * scale,
-        }
-    }
-
-    /// Project `row` out of the residuals (no-op if it is in the span already)
-    fn add(&mut self, row: DVector<f64>) {
-        let mut v = row;
-        for _ in 0..2 {
-            for q in &self.basis {
-                let c = q.dot(&v);
-                v.axpy(-c, q, 1.0);
-            }
-        }
-        let norm = v.norm();
-        if norm <= self.tol {
-            return;
-        }
-        let q = v / norm;
-        let coef = &self.res * &q;
-        self.res.ger(-1.0, &coef, &q, 1.0);
-        self.basis.push(q);
-    }
-}
-
-/// Gram matrix `X[I, :] X[I, :]ᵀ` of each pair of rows `I` of `x`
-fn pair_grams(x: &DMatrix<f64>) -> Vec<Matrix2<f64>> {
-    let mut grams = vec![Matrix2::zeros(); x.nrows() / 2];
-    for col in x.column_iter() {
-        for (g, v) in grams.iter_mut().zip(col.as_slice().as_chunks::<2>().0) {
-            g[(0, 0)] += v[0] * v[0];
-            g[(0, 1)] += v[0] * v[1];
-            g[(1, 1)] += v[1] * v[1];
-        }
-    }
-    for g in &mut grams {
-        g[(1, 0)] = g[(0, 1)];
-    }
-    grams
-}
-
-/// Greedy selection by volume (the ID): repeatedly add the pair whose rows,
-/// projected onto the complement of the rows already selected, span the
-/// largest area, until at least `n_rows` rows are selected or the rank is
-/// exhausted. When a single row is still needed, the projected rows of a
-/// pair span only one more dimension, and the pair whose projection is the
-/// longest (largest eigenvalue of its Gram matrix) is added: the pivot of
-/// the pivoted QR, with its partner.
+/// Greedy selection by volume (the ID): the pivoted QR of the rows in pairs,
+/// [`sparse_ir_dlr::dlr_id::pivoted_pair_gram_schmidt`] (the pivoted
+/// Gram–Schmidt that also chooses the Matsubara nodes of the DLR), after the
+/// `fixed` rows, until at least `n_rows` rows are selected or the rank is
+/// exhausted (residual rows below `RANK_TOL` times the largest row norm)
 fn greedy_pairs(a: &DMatrixView<f64>, fixed: &DMatrixView<f64>, n_rows: usize) -> Vec<usize> {
-    let n_pairs = a.nrows() / 2;
-    let mut res = Residuals::new(a);
-    for i in 0..fixed.nrows() {
-        res.add(fixed.row(i).transpose());
+    let (nf, n_pairs, m) = (fixed.nrows(), a.nrows() / 2, a.ncols());
+    // The rows as contiguous vectors: fixed rows, then the pairs
+    let mut rows = Vec::with_capacity((nf + 2 * n_pairs) * m);
+    for i in 0..nf {
+        rows.extend(fixed.row(i).iter());
     }
-    let mut selected = vec![false; n_pairs];
-    let mut pairs = Vec::new();
-    while fixed.nrows() + 2 * pairs.len() < n_rows {
-        let grams = pair_grams(&res.res);
-        let one_row = fixed.nrows() + 2 * pairs.len() + 1 == n_rows;
-        let score = |g: &Matrix2<f64>| {
-            if one_row {
-                let (half, det) = (g.trace() / 2.0, g.determinant());
-                half + (half * half - det).max(0.0).sqrt()
-            } else {
-                g.determinant()
-            }
-        };
-        let Some(best) = (0..n_pairs)
-            .filter(|&p| !selected[p])
-            .max_by(|&p, &q| score(&grams[p]).total_cmp(&score(&grams[q])))
-        else {
-            break;
-        };
-        if grams[best].diagonal().max() <= res.tol * res.tol {
-            break; // rank exhausted
-        }
-        selected[best] = true;
-        pairs.push(best);
-        for k in 0..2 {
-            res.add(a.row(2 * best + k).transpose());
-        }
+    for i in 0..2 * n_pairs {
+        rows.extend(a.row(i).iter());
     }
-    pairs
+    sparse_ir_dlr::dlr_id::pivoted_pair_gram_schmidt(&mut rows, m, nf, n_pairs, RANK_TOL, n_rows)
 }
 
 /// Add `n_extra` pairs, each the one that most decreases
