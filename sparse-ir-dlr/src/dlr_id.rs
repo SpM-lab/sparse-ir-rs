@@ -214,47 +214,166 @@ pub(crate) fn pivoted_gram_schmidt<T: GsScalar>(
     rtol: f64,
     max_rank: usize,
 ) -> Vec<usize> {
-    assert_eq!(a.len(), m * n);
-    let col_norm2 = |a: &[T], j: usize| a[j * m..(j + 1) * m].iter().map(|v| v.norm_sqr()).sum();
-    let mut norms2: Vec<f64> = (0..n).map(|j| col_norm2(a, j)).collect();
-    let nrm0 = norms2.iter().cloned().fold(0.0, f64::max).sqrt();
-    let mut active = vec![true; n];
-    let mut q: Vec<Vec<T>> = Vec::new();
-    let mut piv = Vec::new();
+    let mut gs = BlockGramSchmidt::new(a, m, n);
     let max_rank = max_rank.min(m).min(n);
+    let mut piv = Vec::new();
     while piv.len() < max_rank {
-        let Some((jstar, &best)) = norms2
-            .iter()
-            .enumerate()
-            .filter(|(j, _)| active[*j])
-            .max_by(|x, y| x.1.total_cmp(y.1))
-        else {
+        let Some((jstar, best)) = gs.best(|j| gs.norms2[j]) else {
             break;
         };
-        if nrm0 == 0.0 || best.sqrt() <= rtol * nrm0 {
+        if gs.nrm0 == 0.0 || best.sqrt() <= rtol * gs.nrm0 {
             break;
         }
-        active[jstar] = false;
-        let mut v = a[jstar * m..(jstar + 1) * m].to_vec();
-        for qk in &q {
+        if !gs.take(jstar) {
+            break;
+        }
+        piv.push(jstar);
+    }
+    piv
+}
+
+/// Residuals of the columns of a column-major `m × n` matrix after
+/// orthogonalizing them against a growing set of taken columns, the state of
+/// the pivoted Gram–Schmidt of [`pivoted_gram_schmidt`] and
+/// [`pivoted_pair_gram_schmidt`]
+struct BlockGramSchmidt<'a, T> {
+    a: &'a mut [T],
+    m: usize,
+    n: usize,
+    /// Squared residual norm of each column
+    norms2: Vec<f64>,
+    /// Largest initial column norm
+    nrm0: f64,
+    active: Vec<bool>,
+    q: Vec<Vec<T>>,
+}
+
+impl<'a, T: GsScalar> BlockGramSchmidt<'a, T> {
+    fn new(a: &'a mut [T], m: usize, n: usize) -> Self {
+        assert_eq!(a.len(), m * n);
+        let norms2: Vec<f64> = (0..n)
+            .map(|j| a[j * m..(j + 1) * m].iter().map(|v| v.norm_sqr()).sum())
+            .collect();
+        let nrm0 = norms2.iter().cloned().fold(0.0, f64::max).sqrt();
+        Self {
+            a,
+            m,
+            n,
+            norms2,
+            nrm0,
+            active: vec![true; n],
+            q: Vec::new(),
+        }
+    }
+
+    fn col(&self, j: usize) -> &[T] {
+        &self.a[j * self.m..(j + 1) * self.m]
+    }
+
+    /// The active column with the largest `score`, and the score
+    fn best(&self, score: impl Fn(usize) -> f64) -> Option<(usize, f64)> {
+        (0..self.n)
+            .filter(|&j| self.active[j])
+            .map(|j| (j, score(j)))
+            .max_by(|x, y| x.1.total_cmp(&y.1))
+    }
+
+    /// Take column `j`: orthogonalize it against the taken columns,
+    /// normalize it and orthogonalize the active columns against it. `false`
+    /// (and nothing taken) if its residual vanishes.
+    fn take(&mut self, j: usize) -> bool {
+        self.active[j] = false;
+        let mut v = self.col(j).to_vec();
+        for qk in &self.q {
             let c = dot(qk, &v);
             axpy_neg(c, qk, &mut v);
         }
         let nv = v.iter().map(|x| x.norm_sqr()).sum::<f64>().sqrt();
         if nv == 0.0 {
-            break;
+            return false;
         }
         v.iter_mut().for_each(|x| *x = x.scale(1.0 / nv));
-        for j in (0..n).filter(|&j| active[j]) {
-            let col = &mut a[j * m..(j + 1) * m];
+        let m = self.m;
+        for k in (0..self.n).filter(|&k| self.active[k]) {
+            let col = &mut self.a[k * m..(k + 1) * m];
             let c = dot(&v, col);
             axpy_neg(c, &v, col);
-            norms2[j] = col.iter().map(|x| x.norm_sqr()).sum();
+            self.norms2[k] = col.iter().map(|x| x.norm_sqr()).sum();
         }
-        q.push(v);
-        piv.push(jstar);
+        self.q.push(v);
+        true
     }
-    piv
+}
+
+/// The pivoted Gram–Schmidt of the DLR construction, taking the columns in
+/// pairs `(2p, 2p + 1)` of the `n_pairs` pairs that follow `n_fixed` leading
+/// columns, which are taken first: each step takes the pair whose residual
+/// columns span the largest area (determinant of their Gram matrix), the
+/// pivoted QR in blocks of two. When a single vector is still needed, it
+/// takes the pair with the longest residual combination (largest eigenvalue
+/// of the Gram matrix) instead. Used for the Matsubara points of bases
+/// without parity (pairs `(Re û(n), Im û(n))`, i.e. `±n`).
+///
+/// Taking stops after `max_rank` vectors (the fixed columns and two per
+/// pair), or once a pair's residual columns are both below `rtol` times the
+/// largest initial column norm (rank exhausted). A pair column whose residual
+/// vanishes is skipped. Returns the taken pairs (0-based, after the fixed
+/// columns) in order.
+pub fn pivoted_pair_gram_schmidt(
+    a: &mut [f64],
+    m: usize,
+    n_fixed: usize,
+    n_pairs: usize,
+    rtol: f64,
+    max_rank: usize,
+) -> Vec<usize> {
+    let mut gs = BlockGramSchmidt::new(a, m, n_fixed + 2 * n_pairs);
+    for j in 0..n_fixed {
+        gs.take(j);
+    }
+    let mut taken = n_fixed;
+    let mut pairs = Vec::new();
+    while taken < max_rank {
+        let one_vector = taken + 1 == max_rank;
+        let gram = |gs: &BlockGramSchmidt<f64>, p: usize| {
+            let (i, j) = (n_fixed + 2 * p, n_fixed + 2 * p + 1);
+            let g01 = dot(gs.col(i), gs.col(j));
+            (gs.norms2[i], g01, gs.norms2[j])
+        };
+        let score = |p: usize| {
+            let (g00, g01, g11) = gram(&gs, p);
+            let det = g00 * g11 - g01 * g01;
+            if one_vector {
+                let half = (g00 + g11) / 2.0;
+                half + (half * half - det).max(0.0).sqrt()
+            } else {
+                det
+            }
+        };
+        // Pairs are tracked by their first column
+        let Some((first, _)) = gs.best(|j| {
+            if j >= n_fixed && (j - n_fixed).is_multiple_of(2) {
+                score((j - n_fixed) / 2)
+            } else {
+                f64::NEG_INFINITY
+            }
+        }) else {
+            break;
+        };
+        if first < n_fixed || !(first - n_fixed).is_multiple_of(2) {
+            break; // no pair left
+        }
+        let p = (first - n_fixed) / 2;
+        let (g00, _, g11) = gram(&gs, p);
+        if gs.nrm0 == 0.0 || g00.max(g11).sqrt() <= rtol * gs.nrm0 {
+            break; // rank exhausted
+        }
+        gs.take(first);
+        gs.take(first + 1);
+        taken += 2;
+        pairs.push(p);
+    }
+    pairs
 }
 
 /// Select dimensionless DLR poles `ω ∈ [-Λ, Λ]` for accuracy `eps`
