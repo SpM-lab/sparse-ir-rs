@@ -144,6 +144,11 @@ if(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
     # Tests confirm that calculations succeed without it (warnings may be emitted).
     # target_compile_options(sparseir_fortran PRIVATE -fp-model precise)
     # set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} -fp-model precise")
+    # Intel Fortran represents .TRUE. as -1 by default, so a LOGICAL(c_bool)
+    # passed to the C API carries the byte 0xFF, which is not a valid C or
+    # Rust bool (Rust may use it as an index). -fpscomp logicals makes .TRUE.
+    # be 1. The tests set it too, as they call the C API directly.
+    target_compile_options(sparseir_fortran PRIVATE "SHELL:-fpscomp logicals")
 endif()
 
 # Add include directory
