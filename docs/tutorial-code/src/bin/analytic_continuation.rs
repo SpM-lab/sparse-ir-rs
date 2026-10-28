@@ -2,7 +2,7 @@
 //! buys you.
 //!
 //! Ported from the Python notebook `analytic_continuation_py.ipynb` of
-//! sparse-ir-tutorial-v2 (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
+//! sparse-ir-tutorial (<https://spm-lab.github.io/sparse-ir-tutorial/>).
 //!
 //! `G(τ) = −∫dω K(τ, ω) ρ(ω)` inverts, formally, to
 //! `ρ(ω) = −Σ_l v_l(ω) G_l / s_l`. The singular values are all positive, so

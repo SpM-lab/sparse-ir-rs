@@ -1,8 +1,8 @@
 # Second-order perturbation
 
 *Ported from the Python notebook
-[`second_order_perturbation_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/second_order_perturbation_py.html)
-of [sparse-ir-tutorial-v2](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+[`second_order_perturbation_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/second_order_perturbation_py.html)
+of [sparse-ir-tutorial](https://spm-lab.github.io/sparse-ir-tutorial/).
 The program that produced every number and figure on this page is
 `docs/tutorial-code/src/bin/second_order_perturbation.rs`; the code below is
 included from it.*

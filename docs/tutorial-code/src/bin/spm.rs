@@ -1,7 +1,7 @@
 //! Sparse modeling: recovering a spectral function from noisy `G(τ)`.
 //!
-//! Ported from the Python notebook `spm_py.ipynb` of sparse-ir-tutorial-v2
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
+//! Ported from the Python notebook `spm_py.ipynb` of sparse-ir-tutorial
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/>).
 //!
 //! Analytic continuation is the hard direction. Going from a spectral function
 //! to `G(τ)` is a smoothing integral; going back amplifies whatever noise the

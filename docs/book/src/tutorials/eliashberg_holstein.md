@@ -1,8 +1,8 @@
 # Eliashberg theory
 
 *Ported from the Python notebook
-[`eliashberg_holstein_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/eliashberg_holstein_py.html)
-of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/),
+[`eliashberg_holstein_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/eliashberg_holstein_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial/),
 whose authors are Shintaro Hoshino and Hiroshi Shinaoka. The programs that
 produced every number and figure on this page are
 `docs/tutorial-code/src/bin/eliashberg_holstein.rs` and

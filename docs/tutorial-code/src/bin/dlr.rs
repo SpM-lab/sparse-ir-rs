@@ -2,7 +2,7 @@
 //! poles.
 //!
 //! Adapted from the Python notebook `DLR_py.ipynb` of the sparse-ir tutorials
-//! (<https://spm-lab.github.io/sparse-ir-tutorial-v2/>).
+//! (<https://spm-lab.github.io/sparse-ir-tutorial/>).
 //!
 //! The DLR models the spectral function as `ρ(ω) = Σₚ cₚ δ(ω − ωₚ)`. Two
 //! constructions are shown:

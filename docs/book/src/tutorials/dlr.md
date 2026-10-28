@@ -1,8 +1,8 @@
 # Discrete Lehmann representation
 
 *Ported from the Python notebook
-[`DLR_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial-v2/src/DLR_py.html)
-of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial-v2/).
+[`DLR_py.ipynb`](https://spm-lab.github.io/sparse-ir-tutorial/src/DLR_py.html)
+of the [sparse-ir tutorials](https://spm-lab.github.io/sparse-ir-tutorial/).
 The program that produced every number and figure on this page is
 `docs/tutorial-code/src/bin/dlr.rs`.*
 
