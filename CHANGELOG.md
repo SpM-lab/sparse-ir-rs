@@ -68,6 +68,22 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `sparse_ir_sve::Error`, which converts into `sparse_ir::Error` (`?`,
   `From`).
 
+### Removed
+
+- The duplicate names of the Gauss–Legendre rule and of the methods of
+  `Rule` are removed, with no deprecated alias. Breaking, for the next
+  minor release; use the name on the right:
+  - `legendre_custom::<T>(n)`, `legendre_generic::<f64>(n)` →
+    `legendre::<T>(n)` (the same rule)
+  - `legendre_twofloat(n)`, `legendre_generic::<Df64>(n)` →
+    `legendre::<Df64>(n)`, which is Newton's method, not xprec's rule: the
+    points and weights differ by up to 3e-28 relative
+  - `Rule::from_vectors`, `Rule::new_custom`, `Rule::from_vectors_custom`,
+    `Rule::new_twofloat`, `Rule::from_vectors_twofloat` → `Rule::new`
+  - `Rule::reseat_custom`, `Rule::reseat_twofloat` → `Rule::reseat`
+  - `Rule::scale_custom`, `Rule::scale_twofloat` → `Rule::scale`
+  - `Rule::validate_custom`, `Rule::validate_twofloat` → `Rule::validate`
+
 ## [0.15.0] - 2026-10-31
 
 ### Added

@@ -485,7 +485,7 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
 
         // Generate base rule with DDouble precision, then convert to double
         let rule_dd = legendre::<sparse_ir::Df64>(n as usize);
-        let rule = sparse_ir::gauss::Rule::from_vectors(
+        let rule = sparse_ir::gauss::Rule::new(
             rule_dd.x().iter().map(|&x| x.to_f64()).collect(),
             rule_dd.w().iter().map(|&w| w.to_f64()).collect(),
             rule_dd.a().to_f64(),

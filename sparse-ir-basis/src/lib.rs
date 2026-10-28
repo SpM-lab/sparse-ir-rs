@@ -51,7 +51,7 @@ pub mod sve {
 }
 
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis, MatsubaraPointMethod};
-pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
+pub use gauss::{Rule, legendre};
 pub use ir_dlr::{DlrFromIr, IrBasis};
 pub use kernel::{
     AbstractKernel, BasisKernel, CentrosymmKernel, ExpandableKernel, KernelProperties,

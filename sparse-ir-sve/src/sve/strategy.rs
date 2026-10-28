@@ -1,7 +1,7 @@
 //! SVE computation strategies
 
 use crate::error::Error;
-use crate::gauss::{Rule, legendre_generic};
+use crate::gauss::{Rule, sve_legendre};
 use crate::kernel::{AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SymmetryType};
 use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
 use crate::matrix::Mat;
@@ -191,7 +191,7 @@ where
         let v_unweighted = remove_weights(v, self.gauss_y.w.as_slice(), true);
 
         // 2. Convert to polynomials
-        let gauss_rule_f64 = legendre_generic::<f64>(self.n_gauss);
+        let gauss_rule_f64 = sve_legendre::<f64>(self.n_gauss);
         let u_polys = svd_to_polynomials(
             &u_unweighted,
             &self.segments_x,
@@ -275,7 +275,7 @@ where
         let n_gauss = hints.ngauss();
 
         // Create composite Gauss rules
-        let rule = legendre_generic::<T>(n_gauss);
+        let rule = sve_legendre::<T>(n_gauss);
         let gauss_x = rule.piecewise(&segments_x)?;
         let gauss_y = rule.piecewise(&segments_y)?;
 
@@ -446,7 +446,7 @@ where
         let n_gauss = hints.ngauss();
 
         // Create composite Gauss rules for full domain
-        let rule = legendre_generic::<T>(n_gauss);
+        let rule = sve_legendre::<T>(n_gauss);
         let gauss_x = rule.piecewise(&segments_x)?;
         let gauss_y = rule.piecewise(&segments_y)?;
 

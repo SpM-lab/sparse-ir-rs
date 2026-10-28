@@ -113,14 +113,6 @@ where
         })
     }
 
-    /// Create a new quadrature rule from vectors.
-    ///
-    /// # Errors
-    /// The errors of [`Self::new`].
-    pub fn from_vectors(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Result<Self, Error> {
-        Self::new(x, w, a, b)
-    }
-
     /// Create a default rule with empty arrays.
     pub fn empty() -> Self {
         Self {
@@ -390,252 +382,6 @@ where
     }
 }
 
-/// CustomNumeric-based implementation for f64 and Df64 support
-impl<T> Rule<T>
-where
-    T: CustomNumeric,
-{
-    /// Create a new quadrature rule from points and weights (CustomNumeric version).
-    ///
-    /// # Errors
-    /// [`Error::InvalidParameter`] if x and w have different lengths.
-    pub fn new_custom(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Result<Self, Error> {
-        check_weights(&x, &w)?;
-
-        let x_forward: Vec<T> = x.iter().map(|&xi| xi - a).collect();
-        let x_backward: Vec<T> = x.iter().map(|&xi| b - xi).collect();
-
-        Ok(Self {
-            x,
-            w,
-            x_forward,
-            x_backward,
-            a,
-            b,
-        })
-    }
-
-    /// Create a new quadrature rule from vectors (CustomNumeric version).
-    ///
-    /// # Errors
-    /// The errors of [`Self::new_custom`].
-    pub fn from_vectors_custom(x: Vec<T>, w: Vec<T>, a: T, b: T) -> Result<Self, Error> {
-        Self::new_custom(x, w, a, b)
-    }
-
-    /// Reseat the rule to a new interval [a, b] (CustomNumeric version).
-    pub fn reseat_custom(&self, a: T, b: T) -> Self {
-        let scaling = (b - a) / (self.b - self.a);
-        let midpoint_old = (self.b + self.a) * <T as CustomNumeric>::from_f64_unchecked(0.5);
-        let midpoint_new = (b + a) * <T as CustomNumeric>::from_f64_unchecked(0.5);
-
-        // Transform x: scaling * (xi - midpoint_old) + midpoint_new
-        let new_x: Vec<T> = self
-            .x
-            .iter()
-            .map(|&xi| scaling * (xi - midpoint_old) + midpoint_new)
-            .collect();
-        let new_w: Vec<T> = self.w.iter().map(|&wi| wi * scaling).collect();
-        let new_x_forward: Vec<T> = self.x_forward.iter().map(|&xi| xi * scaling).collect();
-        let new_x_backward: Vec<T> = self.x_backward.iter().map(|&xi| xi * scaling).collect();
-
-        Self {
-            x: new_x,
-            w: new_w,
-            x_forward: new_x_forward,
-            x_backward: new_x_backward,
-            a,
-            b,
-        }
-    }
-
-    /// Scale the weights by a factor (CustomNumeric version).
-    pub fn scale_custom(&self, factor: T) -> Self {
-        Self {
-            x: self.x.clone(),
-            w: self.w.iter().map(|&wi| wi * factor).collect(),
-            x_forward: self.x_forward.clone(),
-            x_backward: self.x_backward.clone(),
-            a: self.a,
-            b: self.b,
-        }
-    }
-
-    /// Validate the rule for consistency (CustomNumeric version).
-    pub fn validate_custom(&self) -> bool {
-        // Check interval validity
-        if self.a >= self.b {
-            return false;
-        }
-
-        // Check array lengths
-        if self.x.len() != self.w.len() {
-            return false;
-        }
-
-        if self.x.len() != self.x_forward.len() || self.x.len() != self.x_backward.len() {
-            return false;
-        }
-
-        // Check that all points are within [a, b]
-        for &xi in self.x.iter() {
-            if xi < self.a || xi > self.b {
-                return false;
-            }
-        }
-
-        // Check that points are sorted
-        for i in 1..self.x.len() {
-            if self.x[i] <= self.x[i - 1] {
-                return false;
-            }
-        }
-
-        // Check x_forward and x_backward consistency
-        for i in 0..self.x.len() {
-            let expected_forward = self.x[i] - self.a;
-            let expected_backward = self.b - self.x[i];
-
-            if (self.x_forward[i] - expected_forward).abs_as_same_type() > T::epsilon() {
-                return false;
-            }
-            if (self.x_backward[i] - expected_backward).abs_as_same_type() > T::epsilon() {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
-/// Df64-specific implementation without ScalarOperand requirement
-impl Rule<crate::Df64> {
-    /// Create a new quadrature rule from points and weights (Df64 version).
-    ///
-    /// # Errors
-    /// [`Error::InvalidParameter`] if x and w have different lengths.
-    pub fn new_twofloat(
-        x: Vec<crate::Df64>,
-        w: Vec<crate::Df64>,
-        a: crate::Df64,
-        b: crate::Df64,
-    ) -> Result<Self, Error> {
-        check_weights(&x, &w)?;
-
-        let x_forward: Vec<crate::Df64> = x.iter().map(|&xi| xi - a).collect();
-        let x_backward: Vec<crate::Df64> = x.iter().map(|&xi| b - xi).collect();
-
-        Ok(Self {
-            x,
-            w,
-            x_forward,
-            x_backward,
-            a,
-            b,
-        })
-    }
-
-    /// Create a new quadrature rule from vectors (Df64 version).
-    ///
-    /// # Errors
-    /// The errors of [`Self::new_twofloat`].
-    pub fn from_vectors_twofloat(
-        x: Vec<crate::Df64>,
-        w: Vec<crate::Df64>,
-        a: crate::Df64,
-        b: crate::Df64,
-    ) -> Result<Self, Error> {
-        Self::new_twofloat(x, w, a, b)
-    }
-
-    /// Reseat the rule to a new interval [a, b] (Df64 version).
-    pub fn reseat_twofloat(&self, a: crate::Df64, b: crate::Df64) -> Self {
-        let scaling = (b - a) / (self.b - self.a);
-        let midpoint_old =
-            (self.b + self.a) * <crate::Df64 as CustomNumeric>::from_f64_unchecked(0.5);
-        let midpoint_new = (b + a) * <crate::Df64 as CustomNumeric>::from_f64_unchecked(0.5);
-
-        // Transform x: scaling * (xi - midpoint_old) + midpoint_new
-        let new_x: Vec<crate::Df64> = self
-            .x
-            .iter()
-            .map(|&xi| scaling * (xi - midpoint_old) + midpoint_new)
-            .collect();
-        let new_w: Vec<crate::Df64> = self.w.iter().map(|&wi| wi * scaling).collect();
-        let new_x_forward: Vec<crate::Df64> =
-            self.x_forward.iter().map(|&xi| xi * scaling).collect();
-        let new_x_backward: Vec<crate::Df64> =
-            self.x_backward.iter().map(|&xi| xi * scaling).collect();
-
-        Self {
-            x: new_x,
-            w: new_w,
-            x_forward: new_x_forward,
-            x_backward: new_x_backward,
-            a,
-            b,
-        }
-    }
-
-    /// Scale the weights by a factor (Df64 version).
-    pub fn scale_twofloat(&self, factor: crate::Df64) -> Self {
-        Self {
-            x: self.x.clone(),
-            w: self.w.iter().map(|&wi| wi * factor).collect(),
-            x_forward: self.x_forward.clone(),
-            x_backward: self.x_backward.clone(),
-            a: self.a,
-            b: self.b,
-        }
-    }
-
-    /// Validate the rule for consistency (Df64 version).
-    pub fn validate_twofloat(&self) -> bool {
-        // Check interval validity
-        if self.a >= self.b {
-            return false;
-        }
-
-        // Check array lengths
-        if self.x.len() != self.w.len() {
-            return false;
-        }
-
-        if self.x.len() != self.x_forward.len() || self.x.len() != self.x_backward.len() {
-            return false;
-        }
-
-        // Check that all points are within [a, b]
-        for &xi in self.x.iter() {
-            if xi < self.a || xi > self.b {
-                return false;
-            }
-        }
-
-        // Check that points are sorted
-        for i in 1..self.x.len() {
-            if self.x[i] <= self.x[i - 1] {
-                return false;
-            }
-        }
-
-        // Check x_forward and x_backward consistency
-        for i in 0..self.x.len() {
-            let expected_forward = self.x[i] - self.a;
-            let expected_backward = self.b - self.x[i];
-
-            if (self.x_forward[i] - expected_forward).abs() > crate::Df64::epsilon() {
-                return false;
-            }
-            if (self.x_backward[i] - expected_backward).abs() > crate::Df64::epsilon() {
-                return false;
-            }
-        }
-
-        true
-    }
-}
-
 /// Compute Gauss-Legendre quadrature nodes and weights using Newton's method.
 fn gauss_legendre_nodes_weights<T>(n: usize) -> (Vec<T>, Vec<T>)
 where
@@ -752,24 +498,18 @@ where
     (p1, dp1)
 }
 
-/// Create a Gauss-Legendre quadrature rule with n points on [-1, 1].
+/// The Gauss-Legendre rule with `n` points on [-1, 1], in `T`, by Newton's
+/// method on the Legendre polynomial
 ///
-/// # Arguments
-/// * `n` - Number of quadrature points
-///
-/// # Returns
-/// A Gauss-Legendre quadrature rule
-pub fn legendre<T>(n: usize) -> Rule<T>
-where
-    T: CustomNumeric + Copy + Debug + std::fmt::Display + 'static,
-{
+/// `n = 0` gives the empty rule on [-1, 1].
+pub fn legendre<T: CustomNumeric + 'static>(n: usize) -> Rule<T> {
     if n == 0 {
         return Rule::empty();
     }
 
     let (x, w) = gauss_legendre_nodes_weights(n);
 
-    Rule::from_vectors(
+    Rule::new(
         x,
         w,
         <T as CustomNumeric>::from_f64_unchecked(-1.0),
@@ -778,159 +518,29 @@ where
     .expect("the Gauss-Legendre nodes and weights have the same length")
 }
 
-/// Compute Gauss-Legendre quadrature nodes and weights using CustomNumeric
-fn gauss_legendre_nodes_weights_custom<T>(n: usize) -> (Vec<T>, Vec<T>)
-where
-    T: CustomNumeric,
-{
-    if n == 0 {
-        return (Vec::new(), Vec::new());
-    }
-
-    if n == 1 {
-        return (
-            vec![<T as CustomNumeric>::from_f64_unchecked(0.0)],
-            vec![<T as CustomNumeric>::from_f64_unchecked(2.0)],
-        );
-    }
-
-    let mut x = Vec::with_capacity(n);
-    let mut w = Vec::with_capacity(n);
-
-    // Use Newton's method to find roots of Legendre polynomial
-    let m = n.div_ceil(2);
-    let pi = <T as CustomNumeric>::from_f64_unchecked(std::f64::consts::PI);
-
-    for i in 0..m {
-        // Initial guess using Chebyshev nodes
-        // Note: Df64's cos() has only f64-level precision (~15-16 digits), not the full
-        // theoretical 30-digit precision. This limits Df64 interpolation accuracy to ~1e-16,
-        // not the 1e-30 that might be theoretically possible with perfect double-double arithmetic.
-        let mut z = (pi * <T as CustomNumeric>::from_f64_unchecked(i as f64 + 0.75)
-            / <T as CustomNumeric>::from_f64_unchecked(n as f64 + 0.5))
-        .cos();
-
-        // Newton's method to refine the root
-        for _ in 0..10 {
-            let (p0, p1) = legendre_polynomial_and_derivative_custom(n, z);
-            if p0.abs_as_same_type() < T::epsilon() {
-                break;
-            }
-            z = z - p0 / p1;
-        }
-
-        // Compute weight
-        let (_, p1) = legendre_polynomial_and_derivative_custom(n, z);
-        let weight = <T as CustomNumeric>::from_f64_unchecked(2.0)
-            / ((<T as CustomNumeric>::from_f64_unchecked(1.0) - z * z) * p1 * p1);
-
-        x.push(-z);
-        w.push(weight);
-
-        if i != n - 1 - i {
-            x.push(z);
-            w.push(weight);
-        }
-    }
-
-    // Sort by x values
-    let mut indices: Vec<usize> = (0..n).collect();
-    indices.sort_by(|&a, &b| x[a].partial_cmp(&x[b]).unwrap());
-
-    let sorted_x: Vec<T> = indices.iter().map(|&i| x[i]).collect();
-    let sorted_w: Vec<T> = indices.iter().map(|&i| w[i]).collect();
-
-    (sorted_x, sorted_w)
-}
-
-/// Compute Legendre polynomial P_n(x) and its derivative using CustomNumeric
-fn legendre_polynomial_and_derivative_custom<T>(n: usize, x: T) -> (T, T)
-where
-    T: CustomNumeric,
-{
-    if n == 0 {
-        return (
-            <T as CustomNumeric>::from_f64_unchecked(1.0),
-            <T as CustomNumeric>::from_f64_unchecked(0.0),
-        );
-    }
-
-    if n == 1 {
-        return (x, <T as CustomNumeric>::from_f64_unchecked(1.0));
-    }
-
-    let mut p0 = <T as CustomNumeric>::from_f64_unchecked(1.0);
-    let mut p1 = x;
-    let mut dp0 = <T as CustomNumeric>::from_f64_unchecked(0.0);
-    let mut dp1 = <T as CustomNumeric>::from_f64_unchecked(1.0);
-
-    for k in 2..=n {
-        let k_f = <T as CustomNumeric>::from_f64_unchecked(k as f64);
-        let k1_f = <T as CustomNumeric>::from_f64_unchecked((k - 1) as f64);
-        let _k2_f = <T as CustomNumeric>::from_f64_unchecked((k - 2) as f64);
-
-        let two = <T as CustomNumeric>::from_f64_unchecked(2.0);
-        let one = <T as CustomNumeric>::from_f64_unchecked(1.0);
-
-        let p2 = ((two * k1_f + one) * x * p1 - k1_f * p0) / k_f;
-        let dp2 = ((two * k1_f + one) * (p1 + x * dp1) - k1_f * dp0) / k_f;
-
-        p0 = p1;
-        p1 = p2;
-        dp0 = dp1;
-        dp1 = dp2;
-    }
-
-    (p1, dp1)
-}
-
-/// Create a Gauss-Legendre quadrature rule with n points on [-1, 1] (CustomNumeric version).
-pub fn legendre_custom<T>(n: usize) -> Rule<T>
-where
-    T: CustomNumeric,
-{
-    if n == 0 {
-        return Rule::new_custom(
-            vec![],
-            vec![],
-            <T as CustomNumeric>::from_f64_unchecked(-1.0),
-            <T as CustomNumeric>::from_f64_unchecked(1.0),
+/// The Gauss-Legendre rule the SVE discretizes with: [`legendre`] in `f64`,
+/// xprec's rule in `Df64`
+pub(crate) fn sve_legendre<T: CustomNumeric + 'static>(n: usize) -> Rule<T> {
+    let convert = |v: &[crate::Df64]| v.iter().map(|&x| T::convert_from(x)).collect();
+    let (x, w) = if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+        let (x, w) = gauss_legendre_nodes_weights::<f64>(n);
+        (
+            x.into_iter().map(T::from_f64_unchecked).collect(),
+            w.into_iter().map(T::from_f64_unchecked).collect(),
         )
-        .expect("the Gauss-Legendre nodes and weights have the same length");
-    }
-
-    let (x, w) = gauss_legendre_nodes_weights_custom(n);
-
-    Rule::from_vectors_custom(
+    } else {
+        let mut x = vec![crate::Df64::ZERO; n];
+        let mut w = vec![crate::Df64::ZERO; n];
+        if n > 0 {
+            xprec::gauss::gauss_legendre(&mut x, &mut w);
+        }
+        (convert(&x), convert(&w))
+    };
+    Rule::new(
         x,
         w,
-        <T as CustomNumeric>::from_f64_unchecked(-1.0),
-        <T as CustomNumeric>::from_f64_unchecked(1.0),
-    )
-    .expect("the Gauss-Legendre nodes and weights have the same length")
-}
-
-/// Create a Gauss-Legendre quadrature rule with n points on [-1, 1] (Df64 version).
-pub fn legendre_twofloat(n: usize) -> Rule<crate::Df64> {
-    if n == 0 {
-        return Rule::new_twofloat(
-            vec![],
-            vec![],
-            <crate::Df64 as CustomNumeric>::from_f64_unchecked(-1.0),
-            <crate::Df64 as CustomNumeric>::from_f64_unchecked(1.0),
-        )
-        .expect("the Gauss-Legendre nodes and weights have the same length");
-    }
-
-    let mut x: Vec<crate::Df64> = vec![crate::Df64::ZERO; n];
-    let mut w: Vec<crate::Df64> = vec![crate::Df64::ZERO; n];
-    xprec::gauss::gauss_legendre(&mut x, &mut w);
-
-    Rule::from_vectors_twofloat(
-        x,
-        w,
-        <crate::Df64 as CustomNumeric>::from_f64_unchecked(-1.0),
-        <crate::Df64 as CustomNumeric>::from_f64_unchecked(1.0),
+        T::from_f64_unchecked(-1.0),
+        T::from_f64_unchecked(1.0),
     )
     .expect("the Gauss-Legendre nodes and weights have the same length")
 }
@@ -970,39 +580,6 @@ pub fn legendre_vandermonde<T: CustomNumeric>(x: &[T], degree: usize) -> Mat<T> 
     }
 
     v
-}
-
-/// Generic Legendre Gauss quadrature rule for CustomNumeric types
-pub fn legendre_generic<T: CustomNumeric + 'static>(n: usize) -> Rule<T> {
-    if std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
-        // For f64, use the existing legendre function
-        let rule_f64 = legendre::<f64>(n);
-        Rule::new(
-            rule_f64
-                .x
-                .iter()
-                .map(|&x| T::from_f64_unchecked(x))
-                .collect(),
-            rule_f64
-                .w
-                .iter()
-                .map(|&w| T::from_f64_unchecked(w))
-                .collect(),
-            T::from_f64_unchecked(rule_f64.a),
-            T::from_f64_unchecked(rule_f64.b),
-        )
-        .expect("the Gauss-Legendre nodes and weights have the same length")
-    } else {
-        // For Df64, use legendre_twofloat
-        let rule_tf = legendre_twofloat(n);
-        Rule::new(
-            rule_tf.x.iter().map(|&x| T::convert_from(x)).collect(),
-            rule_tf.w.iter().map(|&w| T::convert_from(w)).collect(),
-            T::from_f64_unchecked(rule_tf.a.into()),
-            T::from_f64_unchecked(rule_tf.b.into()),
-        )
-        .expect("the Gauss-Legendre nodes and weights have the same length")
-    }
 }
 
 #[cfg(test)]
