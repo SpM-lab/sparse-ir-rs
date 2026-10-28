@@ -36,6 +36,9 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `BASIS_CUTOFF_FACTOR` are deprecated in favor of
   `SVEOptions::full_domain`, `SVEOptions::cutoff_from_epsilon` and
   `ACCURACY_CUTOFF_FACTOR`.
+- `SVEResult::truncate`: the expansion truncated at a relative threshold
+  (its accuracy) and a maximum size, as an `SVEResult`. `SVEResult::part`,
+  which returned the parts as a tuple, is deprecated.
 
 ### Changed
 

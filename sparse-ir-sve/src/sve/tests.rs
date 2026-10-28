@@ -967,11 +967,12 @@ fn test_sve_result_new_checks_its_invariants() {
     );
 }
 
-/// `part` rejects a threshold of 1 or more and max_size = 0 (both emptied
-/// the result and panicked, except eps = 1, which kept one value). A
-/// threshold of 0 keeps every singular value.
+/// `truncate` rejects a threshold of 1 or more and max_size = 0 (both
+/// emptied the result and panicked, except eps = 1, which kept one value). A
+/// threshold of 0 keeps every singular value; the threshold is the accuracy
+/// of the result.
 #[test]
-fn test_sve_result_part_checks_its_parameters() {
+fn test_sve_result_truncate_checks_its_parameters() {
     let sve = compute_sve(
         ExpKernel::new(10.0),
         Some(1e-6),
@@ -980,20 +981,31 @@ fn test_sve_result_part_checks_its_parameters() {
         TworkType::Auto,
     )
     .unwrap();
-    assert_eq!(sve.part(Some(0.0), None).unwrap().1.len(), sve.s.len());
+    assert_eq!(sve.truncate(Some(0.0), None).unwrap().s(), sve.s());
     assert_eq!(
-        sve.part(Some(1.0), None).unwrap_err(),
+        sve.truncate(Some(1.0), None).unwrap_err(),
         invalid("eps", "1.0", "must be in [0, 1)")
     );
     assert_eq!(
-        sve.part(Some(f64::NAN), None).unwrap_err(),
+        sve.truncate(Some(f64::NAN), None).unwrap_err(),
         invalid("eps", "NaN", "must be in [0, 1)")
     );
     assert_eq!(
-        sve.part(None, Some(0)).unwrap_err(),
+        sve.truncate(None, Some(0)).unwrap_err(),
         invalid("max_size", "0", "must be positive")
     );
-    assert_eq!(sve.part(None, Some(3)).unwrap().1, sve.s[..3].to_vec());
+    let part = sve.truncate(None, Some(3)).unwrap();
+    assert_eq!((part.s(), part.epsilon()), (&sve.s[..3], sve.epsilon()));
+    assert_eq!(part.u().size(), 3);
+    let part = sve.truncate(Some(1e-3), None).unwrap();
+    assert_eq!(part.epsilon(), 1e-3);
+    assert!(part.s().iter().all(|&s| s >= 1e-3 * sve.s[0]));
+    assert!(sve.s[part.s().len()] < 1e-3 * sve.s[0]);
+
+    // The deprecated `part` gives the same parts
+    #[allow(deprecated)]
+    let (u, s, _) = sve.part(None, Some(3)).unwrap();
+    assert_eq!((u.size(), s), (3, sve.s[..3].to_vec()));
 }
 
 /// `extend_to_full_domain` needs functions on [0, xmax]. Before the change a

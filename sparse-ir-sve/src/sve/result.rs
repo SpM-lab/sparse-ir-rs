@@ -196,8 +196,7 @@ impl SVEResult {
         Ok(result)
     }
 
-    /// Check the invariants that [`Self::new`] guarantees. The fields are
-    /// public, so [`Self::part`] checks them again.
+    /// Check the invariants that [`Self::new`] guarantees
     fn check(&self) -> Result<(), Error> {
         let n = self.s.len();
         if n == 0 {
@@ -239,24 +238,45 @@ impl SVEResult {
         require_threshold("epsilon", Some(self.epsilon))
     }
 
-    /// Extract a subset of the SVE result based on epsilon and max_size
+    /// The expansion truncated to the singular values ≥ `eps` times the
+    /// largest one, at most `max_size` of them
     ///
-    /// # Arguments
-    ///
-    /// * `eps` - Relative threshold for singular values (default: self.epsilon)
-    /// * `max_size` - Maximum number of singular values to keep
-    ///
-    /// # Returns
-    ///
-    /// Tuple of (u_subset, s_subset, v_subset)
+    /// `eps` is [`Self::epsilon`] by default, and is the accuracy of the
+    /// result. At least the largest singular value is kept, since `eps` < 1.
     ///
     /// # Errors
     ///
     /// * [`Error::InvalidParameter`] if `eps` is not in [0, 1) (0 keeps every
     ///   singular value) or `max_size` is `Some(0)`
-    /// * The errors of [`Self::new`] and [`PiecewiseLegendrePolyVector::new`]
-    ///   if the (public) fields break their invariants
+    pub fn truncate(&self, eps: Option<f64>, max_size: Option<usize>) -> Result<Self, Error> {
+        let (u, s, v) = self.part_impl(eps, max_size)?;
+        Self::new(u, s, v, eps.unwrap_or(self.epsilon))
+    }
+
+    /// The parts of [`Self::truncate`]
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::truncate`]
+    #[deprecated(note = "use truncate, which returns an SVEResult")]
+    #[doc(hidden)]
     pub fn part(
+        &self,
+        eps: Option<f64>,
+        max_size: Option<usize>,
+    ) -> Result<
+        (
+            PiecewiseLegendrePolyVector,
+            Vec<f64>,
+            PiecewiseLegendrePolyVector,
+        ),
+        Error,
+    > {
+        self.part_impl(eps, max_size)
+    }
+
+    /// The singular functions and values of [`Self::truncate`]
+    fn part_impl(
         &self,
         eps: Option<f64>,
         max_size: Option<usize>,

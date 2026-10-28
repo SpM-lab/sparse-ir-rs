@@ -397,7 +397,8 @@ where
         check_kernel_domain(&kernel, &sve_result)?;
 
         // Get truncated u, s, v from SVE result
-        let (u_sve, s_sve, v_sve) = sve_result.part(epsilon, max_size)?;
+        let part = sve_result.truncate(epsilon, max_size)?;
+        let (u_sve, s_sve, v_sve) = (part.u().clone(), part.s(), part.v().clone());
 
         // Calculate accuracy
         let accuracy = if sve_result.s().len() > s_sve.len() {

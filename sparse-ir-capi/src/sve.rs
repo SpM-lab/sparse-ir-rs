@@ -293,17 +293,11 @@ pub extern "C" fn spir_sve_result_truncate(
             Some(max_size as usize)
         };
 
-        // Extract truncated parts using SVEResult::part
-        let (u_part, s_part, v_part) = sve_ref
+        // The truncated expansion, whose accuracy is the given epsilon
+        let sve_truncated = sve_ref
             .inner()
-            .part(Some(epsilon), max_size_opt)
+            .truncate(Some(epsilon), max_size_opt)
             .map_err(|e| status_from(&e))?;
-
-        // Create new SVE result with truncated data
-        let sve_truncated = sparse_ir::sve::SVEResult::new(
-            u_part, s_part, v_part, epsilon, // Use provided epsilon for new result
-        )
-        .map_err(|e| status_from(&e))?;
 
         // Wrap in C-API type
         let sve_wrapper = spir_sve_result::new(sve_truncated);
