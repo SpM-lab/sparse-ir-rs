@@ -499,7 +499,7 @@ fn test_default_matsubara_points_of_functions_without_parity() {
             .full_domain(true),
     )
     .unwrap();
-    assert!(sve.u().get_polys().iter().all(|u| u.get_symm() == 0));
+    assert!(sve.u().polys().iter().all(|u| u.symm() == 0));
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();
@@ -673,12 +673,12 @@ fn test_ft_vector_set_rejects_index_past_the_end() {
         );
     }
     assert_eq!(ft_vector.size(), 2);
-    assert_eq!(ft_vector.get(0).unwrap().poly.get_l(), 0);
-    assert_eq!(ft_vector.get(1).unwrap().poly.get_l(), 1);
+    assert_eq!(ft_vector.get(0).unwrap().poly.l(), 0);
+    assert_eq!(ft_vector.get(1).unwrap().poly.l(), 1);
 
     // A valid index replaces the element.
     ft_vector.set(0, ft1).unwrap();
-    assert_eq!(ft_vector.get(0).unwrap().poly.get_l(), 1);
+    assert_eq!(ft_vector.get(0).unwrap().poly.l(), 1);
 }
 
 /// `new` checks the domain and n_asymp with typed errors (before: a panic for
@@ -722,7 +722,7 @@ fn test_ft_new_checks_its_arguments() {
 
     let near = poly_on(-1.0, 1.0 - 1e-13);
     let ft = FermionicPiecewiseLegendreFT::new(near.clone(), Fermionic, None).unwrap();
-    assert_eq!(ft.model.moments.len(), near.get_polyorder());
+    assert_eq!(ft.model.moments.len(), near.polyorder());
 }
 
 /// `evaluate_at_n` rejects an index of the wrong parity; before it returned 0.
@@ -813,7 +813,7 @@ fn test_uhat_asymptotic_branch_logistic_windowed() {
     let (beta, omega_min, omega_max) = (10.0, -0.3, 1.0);
     let kernel = LogisticKernelWindowed::from_physical(beta, omega_min, omega_max).unwrap();
     let fermionic = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(1e-10), None).unwrap();
-    assert!(fermionic.uhat()[0].poly.get_symm() == 0);
+    assert!(fermionic.uhat()[0].poly.symm() == 0);
     check_asymptotic_branch_matches_exact(&fermionic);
     let bosonic = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(1e-10), None).unwrap();
     check_asymptotic_branch_matches_exact(&bosonic);
@@ -886,7 +886,7 @@ fn test_default_matsubara_points_symmetric() {
             .unwrap();
         assert!(over.len() > full_n.len());
         assert!(full_n.iter().all(|n| over.contains(n)));
-        if basis.uhat()[0].poly.get_symm() == 0 {
+        if basis.uhat()[0].poly.symm() == 0 {
             assert!(over.iter().all(|n| over.contains(&-n)));
         }
     }
@@ -918,13 +918,13 @@ fn test_inner_transform_matches_term_by_term_sum() {
             let wred = std::f64::consts::PI / 4.0 * n as f64;
             let phase = FermionicPiecewiseLegendreFT::phase_stable(poly, n);
             let mut naive = Complex64::new(0.0, 0.0);
-            for order in 0..poly.get_polyorder() {
+            for order in 0..poly.polyorder() {
                 for (j, ph) in phase.iter().enumerate() {
                     let tnl = FermionicPiecewiseLegendreFT::get_tnl(
                         order as i32,
-                        wred * poly.get_delta_x()[j],
+                        wred * poly.delta_x()[j],
                     );
-                    naive += poly.get_data()[[order, j]] * tnl * ph / poly.get_norms()[j];
+                    naive += poly.data()[[order, j]] * tnl * ph / poly.norms()[j];
                 }
             }
             naive /= 2.0_f64.sqrt();

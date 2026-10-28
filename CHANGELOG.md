@@ -64,6 +64,11 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   is deprecated: the SVE uses the symmetry of the kernels that implement
   `ReducedKernel`. `spir_kernel_get_sve_hints_segments_x` and `_y` of the
   C API are unchanged.
+- The accessors of `PiecewiseLegendrePoly` and
+  `PiecewiseLegendrePolyVector` drop their `get_` prefix (`knots()`,
+  `delta_x()`, `data()`, `norms()`, `polyorder()`, `domain()`, `l()`,
+  `polys()`, ...), and `PiecewiseLegendrePolyVector::size` is `len` (with
+  `is_empty`). The former names are deprecated.
 - The functions of the SVE, the quadrature and the polynomials return
   `sparse_ir_sve::Error`, which converts into `sparse_ir::Error` (`?`,
   `From`).

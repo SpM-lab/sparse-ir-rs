@@ -242,7 +242,7 @@ fn test_sve_singular_functions_lambda_5() {
         let mut max_error: f64 = 0.0;
 
         for (j, &x) in x_test.iter().enumerate() {
-            let u_rust = result.u().get_polys()[i].evaluate(x);
+            let u_rust = result.u().polys()[i].evaluate(x);
             let u_julia = u_ref[j][i];
             let abs_error = (u_rust - u_julia).abs();
             max_error = max_error.max(abs_error);
@@ -268,7 +268,7 @@ fn test_sve_singular_functions_lambda_5() {
         let mut max_error: f64 = 0.0;
 
         for (j, &x) in x_test.iter().enumerate() {
-            let v_rust = result.v().get_polys()[i].evaluate(x);
+            let v_rust = result.v().polys()[i].evaluate(x);
             let v_julia = v_ref[j][i];
             let abs_error = (v_rust - v_julia).abs();
             max_error = max_error.max(abs_error);

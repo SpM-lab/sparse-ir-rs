@@ -193,8 +193,8 @@ where
     // Evaluating at midpoints between knots is more representative of how the
     // piecewise Legendre polynomials approximate the kernel between collocation
     // points, and avoids testing exactly at the knots used during SVE.
-    let u_polys = sve_result.u.get_polys();
-    let v_polys = sve_result.v.get_polys();
+    let u_polys = sve_result.u.polys();
+    let v_polys = sve_result.v.polys();
     let x_knots = &u_polys[0].knots;
     let y_knots = &v_polys[0].knots;
 
@@ -312,13 +312,7 @@ fn test_merge_results_assigns_global_index() {
     // The extension divides by sqrt(2), so f(1) = c + 1 identifies the source
     // polynomial: even 0, odd 0, even 1, odd 1.
     let expected_value_at_1 = [2.0, 4.0, 3.0, 5.0];
-    for (i, (u, v)) in merged
-        .u
-        .get_polys()
-        .iter()
-        .zip(merged.v.get_polys())
-        .enumerate()
-    {
+    for (i, (u, v)) in merged.u.polys().iter().zip(merged.v.polys()).enumerate() {
         let parity = if i % 2 == 0 { 1 } else { -1 };
         assert_eq!(u.l, i as i32, "u[{i}].l");
         assert_eq!(v.l, i as i32, "v[{i}].l");
@@ -490,7 +484,7 @@ fn test_full_domain_sve_non_centrosymmetric_kernel() {
         sve.s
     );
     assert_sve_reconstructs_kernel(&kernel, &sve, epsilon * 200.0);
-    for (l, u) in sve.u.get_polys().iter().enumerate() {
+    for (l, u) in sve.u.polys().iter().enumerate() {
         let u_at_xmax = u.evaluate(kernel.xmax());
         assert!(
             u_at_xmax >= 0.0,
@@ -509,7 +503,7 @@ fn test_compute_sve_of_non_centrosymmetric_kernel_uses_full_domain() {
         compute_sve_full_domain(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
     let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
     assert_eq!(sve.s, general.s);
-    assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
+    assert!(sve.u.polys().iter().all(|u| u.symm == 0));
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6 * 200.0);
 }
 
@@ -644,7 +638,7 @@ fn test_compute_sve_recovers_analytic_sve_of_non_centrosymmetric_kernel() {
         if let Some(&s3) = sve.s.get(3) {
             assert!(s3 < 1e-12, "{twork:?}: s[3] = {s3:e}");
         }
-        let polys = sve.u.get_polys().iter().chain(sve.v.get_polys());
+        let polys = sve.u.polys().iter().chain(sve.v.polys());
         assert!(polys.into_iter().all(|p| p.symm == 0), "{twork:?}");
         assert_sve_reconstructs_kernel(&kernel, &sve, 1e-12);
     }
@@ -746,11 +740,11 @@ fn test_compute_sve_reports_a_non_finite_kernel_matrix() {
 /// exactly.
 fn assert_leading_part_of(truncated: &SVEResult, full: &SVEResult, n: usize) {
     assert_eq!(truncated.s, full.s[..n].to_vec());
-    assert_eq!(truncated.u.get_polys().len(), n);
-    assert_eq!(truncated.v.get_polys().len(), n);
+    assert_eq!(truncated.u.polys().len(), n);
+    assert_eq!(truncated.v.polys().len(), n);
     for l in 0..n {
-        let (u, u_full) = (&truncated.u.get_polys()[l], &full.u.get_polys()[l]);
-        let (v, v_full) = (&truncated.v.get_polys()[l], &full.v.get_polys()[l]);
+        let (u, u_full) = (&truncated.u.polys()[l], &full.u.polys()[l]);
+        let (v, v_full) = (&truncated.v.polys()[l], &full.v.polys()[l]);
         assert_eq!((u.l, u.symm), (u_full.l, u_full.symm));
         for x in [-1.0, -0.3, 0.0, 0.7, 1.0] {
             assert_eq!(u.evaluate(x), u_full.evaluate(x), "u[{l}]({x})");
@@ -775,7 +769,7 @@ where
         let sve = compute_sve(kernel.clone(), Some(epsilon), cutoff, max_num_svals, twork).unwrap();
         assert_leading_part_of(&sve, &full, 1);
         assert_eq!(
-            sve.u.get_polys()[0].symm,
+            sve.u.polys()[0].symm,
             1,
             "the largest singular value is even"
         );
@@ -820,8 +814,8 @@ fn test_merge_results_with_an_empty_block() {
     assert_eq!(merged.s, vec![1.0, 0.1]);
     let merged = merge_results((empty(), vec![], empty()), block(&odd, vec![0.5]), 1e-10).unwrap();
     assert_eq!(merged.s, vec![0.5]);
-    assert_eq!(merged.u.get_polys()[0].symm, -1);
-    for (i, u) in merged.u.get_polys().iter().enumerate() {
+    assert_eq!(merged.u.polys()[0].symm, -1);
+    for (i, u) in merged.u.polys().iter().enumerate() {
         assert_eq!(u.l, i as i32);
     }
 }
@@ -996,7 +990,7 @@ fn test_sve_result_truncate_checks_its_parameters() {
     );
     let part = sve.truncate(None, Some(3)).unwrap();
     assert_eq!((part.s(), part.epsilon()), (&sve.s[..3], sve.epsilon()));
-    assert_eq!(part.u().size(), 3);
+    assert_eq!(part.u().len(), 3);
     let part = sve.truncate(Some(1e-3), None).unwrap();
     assert_eq!(part.epsilon(), 1e-3);
     assert!(part.s().iter().all(|&s| s >= 1e-3 * sve.s[0]));
@@ -1005,7 +999,7 @@ fn test_sve_result_truncate_checks_its_parameters() {
     // The deprecated `part` gives the same parts
     #[allow(deprecated)]
     let (u, s, _) = sve.part(None, Some(3)).unwrap();
-    assert_eq!((u.size(), s), (3, sve.s[..3].to_vec()));
+    assert_eq!((u.len(), s), (3, sve.s[..3].to_vec()));
 }
 
 /// `extend_to_full_domain` needs functions on [0, xmax]. Before the change a
@@ -1129,7 +1123,7 @@ fn test_sve_does_not_depend_on_the_number_of_threads() {
     ] {
         let (a, b) = run(eps, twork, general);
         assert_eq!(a.s, b.s, "{twork:?}, general = {general}");
-        for (p, q) in a.u.get_polys().iter().zip(b.u.get_polys()) {
+        for (p, q) in a.u.polys().iter().zip(b.u.polys()) {
             assert_eq!(
                 p.data.as_slice(),
                 q.data.as_slice(),
@@ -1148,10 +1142,7 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
             .map(|i| lo + (hi - lo) * i as f64 / 2000.0)
             .collect()
     };
-    let (u_knots, v_knots) = (
-        &reference.u.get_polys()[0].knots,
-        &reference.v.get_polys()[0].knots,
-    );
+    let (u_knots, v_knots) = (&reference.u.polys()[0].knots, &reference.v.polys()[0].knots);
     let xs = grid(u_knots[0], *u_knots.last().unwrap());
     let ys = grid(v_knots[0], *v_knots.last().unwrap());
     let mut ds: f64 = 0.0;
@@ -1159,7 +1150,7 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
     for l in ls {
         ds = ds.max((sve.s[l] - reference.s[l]).abs() / reference.s[l]);
         for (a, b, pts) in [(&sve.u, &reference.u, &xs), (&sve.v, &reference.v, &ys)] {
-            let (p, q) = (&a.get_polys()[l], &b.get_polys()[l]);
+            let (p, q) = (&a.polys()[l], &b.polys()[l]);
             let scale = pts.iter().fold(0.0f64, |m, &x| m.max(q.evaluate(x).abs()));
             let err = pts
                 .iter()
@@ -1203,7 +1194,7 @@ where
     if identical {
         assert_eq!(sve.s, dense.s, "{case}");
         for (a, b) in [(&sve.u, &dense.u), (&sve.v, &dense.v)] {
-            for (p, q) in a.get_polys().iter().zip(b.get_polys()) {
+            for (p, q) in a.polys().iter().zip(b.polys()) {
                 assert_eq!(p.data.as_slice(), q.data.as_slice(), "{case}");
             }
         }

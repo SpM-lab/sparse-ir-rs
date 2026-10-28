@@ -263,11 +263,8 @@ fn windowed_basis_maps_to_physical_window() {
         );
 
         // v lives on the asymmetric window, not on [-wmax, wmax].
-        let v0 = &b.v().get_polys()[0];
-        assert_eq!(
-            (v0.get_xmin(), v0.get_xmax()),
-            (b.omega_min(), b.omega_max())
-        );
+        let v0 = &b.v().polys()[0];
+        assert_eq!((v0.xmin(), v0.xmax()), (b.omega_min(), b.omega_max()));
 
         // The default omega points (the DLR poles) lie inside the window.
         let omegas = b.default_omega_sampling_points().unwrap();

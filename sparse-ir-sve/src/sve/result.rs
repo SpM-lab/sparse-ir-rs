@@ -203,7 +203,7 @@ impl SVEResult {
             return Err(Error::EmptyInput { name: "s" });
         }
         for (name, funcs) in [("u", &self.u), ("v", &self.v)] {
-            let len = funcs.get_polys().len();
+            let len = funcs.polys().len();
             if len != n {
                 return Err(Error::InvalidParameter {
                     name,
@@ -308,9 +308,9 @@ impl SVEResult {
         }
 
         // Extract subsets
-        let u_part = PiecewiseLegendrePolyVector::new(self.u.get_polys()[..cut].to_vec())?;
+        let u_part = PiecewiseLegendrePolyVector::new(self.u.polys()[..cut].to_vec())?;
         let s_part = self.s[..cut].to_vec();
-        let v_part = PiecewiseLegendrePolyVector::new(self.v.get_polys()[..cut].to_vec())?;
+        let v_part = PiecewiseLegendrePolyVector::new(self.v.polys()[..cut].to_vec())?;
 
         Ok((u_part, s_part, v_part))
     }

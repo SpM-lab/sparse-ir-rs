@@ -460,18 +460,18 @@ fn test_accessor_methods() {
     let poly = PiecewiseLegendrePoly::new(data.clone(), knots.clone(), l, None, symm).unwrap();
 
     // Test all accessor methods
-    assert_eq!(poly.get_xmin(), knots[0]);
-    assert_eq!(poly.get_xmax(), knots[knots.len() - 1]);
-    assert_eq!(poly.get_l(), l);
-    assert_eq!(poly.get_symm(), symm);
-    assert_eq!(poly.get_polyorder(), data.shape().0);
-    assert_eq!(poly.get_domain(), (knots[0], knots[knots.len() - 1]));
-    assert_eq!(poly.get_knots(), knots.as_slice());
-    assert_eq!(poly.get_data(), &data);
+    assert_eq!(poly.xmin(), knots[0]);
+    assert_eq!(poly.xmax(), knots[knots.len() - 1]);
+    assert_eq!(poly.l(), l);
+    assert_eq!(poly.symm(), symm);
+    assert_eq!(poly.polyorder(), data.shape().0);
+    assert_eq!(poly.domain(), (knots[0], knots[knots.len() - 1]));
+    assert_eq!(poly.knots(), knots.as_slice());
+    assert_eq!(poly.data(), &data);
 
     // Test delta_x and norms
-    let delta_x = poly.get_delta_x();
-    let norms = poly.get_norms();
+    let delta_x = poly.delta_x();
+    let norms = poly.norms();
     assert_eq!(delta_x.len(), knots.len() - 1);
     assert_eq!(norms.len(), knots.len() - 1);
 
@@ -492,8 +492,8 @@ fn test_polynomial_vector_creation() {
 
     let vector = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
-    assert_eq!(vector.size(), 2);
-    assert_eq!(vector.get_polyorder(), 2);
+    assert_eq!(vector.len(), 2);
+    assert_eq!(vector.polyorder(), 2);
 }
 
 #[test]
@@ -540,9 +540,9 @@ fn test_vector_3d_construction() {
 
     let vector = PiecewiseLegendrePolyVector::from_3d_data(data3d, knots, Some(symm)).unwrap();
 
-    assert_eq!(vector.size(), 2);
-    assert_eq!(vector.get_polyorder(), 3);
-    assert_eq!(vector.get_symm(), vec![0, 1]);
+    assert_eq!(vector.len(), 2);
+    assert_eq!(vector.polyorder(), 3);
+    assert_eq!(vector.symm(), vec![0, 1]);
 
     // Test evaluation
     let results = vector.evaluate_at(0.5);
@@ -566,11 +566,11 @@ fn test_vector_slicing() {
     // Test single slice
     let single_slice = vector.slice_single(1);
     assert!(single_slice.is_some());
-    assert_eq!(single_slice.unwrap().size(), 1);
+    assert_eq!(single_slice.unwrap().len(), 1);
 
     // Test multi slice
     let multi_slice = vector.slice_multi(&[0, 2]).unwrap();
-    assert_eq!(multi_slice.size(), 2);
+    assert_eq!(multi_slice.len(), 2);
 
     // Test evaluation of slice
     let slice_results = multi_slice.evaluate_at(0.5);
@@ -592,12 +592,12 @@ fn test_vector_accessors() {
     // Test accessor methods
     assert_eq!(vector.xmin(), 0.0);
     assert_eq!(vector.xmax(), 2.0);
-    assert_eq!(vector.get_knots(None), knots);
-    assert_eq!(vector.get_polyorder(), 2);
-    assert_eq!(vector.get_symm(), vec![0, 0]);
+    assert_eq!(vector.knots(None), knots);
+    assert_eq!(vector.polyorder(), 2);
+    assert_eq!(vector.symm(), vec![0, 0]);
 
     // Test 3D data conversion
-    let data3d = vector.get_data();
+    let data3d = vector.data();
     assert_eq!(*data3d.shape(), (2, 2, 2)); // 2 segments, 2 degrees, 2 polynomials
     println!("3D data shape: {:?}", data3d.shape());
 }
@@ -645,22 +645,22 @@ fn test_julia_random_data() {
     let poly = PiecewiseLegendrePoly::new(data.clone(), knots.clone(), l, None, 0).unwrap();
 
     // Test that the object is initialized correctly
-    let poly_data = poly.get_data();
+    let poly_data = poly.data();
     for i in 0..data.shape().0 {
         for j in 0..data.shape().1 {
             assert!((poly_data[[i, j]] - data[[i, j]]).abs() < 1e-15);
         }
     }
-    assert_eq!(poly.get_xmin(), knots[0]);
-    assert_eq!(poly.get_xmax(), knots[knots.len() - 1]);
+    assert_eq!(poly.xmin(), knots[0]);
+    assert_eq!(poly.xmax(), knots[knots.len() - 1]);
     assert!(
-        poly.get_knots()
+        poly.knots()
             .iter()
             .zip(knots.iter())
             .all(|(a, b)| (a - b).abs() < 1e-15)
     );
-    assert_eq!(poly.get_polyorder(), data.shape().0);
-    assert_eq!(poly.get_symm(), 0);
+    assert_eq!(poly.polyorder(), data.shape().0);
+    assert_eq!(poly.symm(), 0);
 
     // Test evaluation at specific point
     let x = 0.5328437345518631;
@@ -830,10 +830,10 @@ fn test_high_order_polynomial_vector() {
             .unwrap();
 
     // Test basic properties
-    assert_eq!(vector.size(), 3);
+    assert_eq!(vector.len(), 3);
     assert_eq!(vector.xmin(), -1.0);
     assert_eq!(vector.xmax(), 1.0);
-    assert_eq!(vector.get_polyorder(), 16);
+    assert_eq!(vector.polyorder(), 16);
 
     // Test evaluation at a point
     let x = 0.5;
@@ -963,14 +963,14 @@ fn test_rescale_domain_vector() {
         .unwrap();
 
     // Check all polynomials have new domain
-    for poly in polyvec_rescaled.get_polys() {
+    for poly in polyvec_rescaled.polys() {
         assert_eq!(poly.xmin, 0.0);
         assert_eq!(poly.xmax, beta);
     }
 
     // Check symmetry preserved
-    assert_eq!(polyvec_rescaled.get_polys()[0].symm, 1);
-    assert_eq!(polyvec_rescaled.get_polys()[1].symm, -1);
+    assert_eq!(polyvec_rescaled.polys()[0].symm, 1);
+    assert_eq!(polyvec_rescaled.polys()[1].symm, -1);
 }
 
 #[test]
@@ -986,16 +986,16 @@ fn test_scale_data_vector() {
     let polyvec = PiecewiseLegendrePolyVector::new(vec![poly1, poly2]).unwrap();
 
     // Evaluate before scaling
-    let val1_before = polyvec.get_polys()[0].evaluate(0.0);
-    let val2_before = polyvec.get_polys()[1].evaluate(0.0);
+    let val1_before = polyvec.polys()[0].evaluate(0.0);
+    let val2_before = polyvec.polys()[1].evaluate(0.0);
 
     // Scale by sqrt(2.0)
     let factor = 2.0_f64.sqrt();
     let polyvec_scaled = polyvec.scale_data(factor);
 
     // Evaluate after scaling
-    let val1_after = polyvec_scaled.get_polys()[0].evaluate(0.0);
-    let val2_after = polyvec_scaled.get_polys()[1].evaluate(0.0);
+    let val1_after = polyvec_scaled.polys()[0].evaluate(0.0);
+    let val2_after = polyvec_scaled.polys()[1].evaluate(0.0);
 
     // Check scaling
     assert!((val1_after - factor * val1_before).abs() < 1e-14);
@@ -1171,7 +1171,7 @@ fn test_deriv_updates_polyorder() {
     assert_eq!(poly.derivs(0.5).len(), 3);
 
     let vector = PiecewiseLegendrePolyVector::new(vec![d1.clone(), d1]).unwrap();
-    let shape = *vector.get_data().shape();
+    let shape = *vector.data().shape();
     assert_eq!((shape.0, shape.1, shape.2), (2, 2, 2));
 }
 
@@ -1293,7 +1293,7 @@ fn test_vector_constructors_check_their_input() {
         vector.slice_multi(&[2, 0, 2]).unwrap_err(),
         indices("2", "must not repeat")
     );
-    assert_eq!(vector.slice_multi(&[2, 0]).unwrap().size(), 2);
+    assert_eq!(vector.slice_multi(&[2, 0]).unwrap().len(), 2);
 }
 
 /// The try_ variants return OutOfDomain for a point outside [xmin, xmax],
@@ -1438,4 +1438,34 @@ fn test_derivs_match_deriv_evaluate() {
             );
         }
     }
+}
+
+/// The former names of the accessors return what the new ones do
+#[test]
+#[allow(deprecated)]
+fn test_former_accessor_names() {
+    let data = mat![[1.0, 0.5], [0.25, -0.5]];
+    let p = PiecewiseLegendrePoly::new(data, vec![-1.0, 0.0, 1.0], 3, None, 1).unwrap();
+    assert_eq!(
+        (p.get_xmin(), p.get_xmax(), p.get_l()),
+        (p.xmin(), p.xmax(), p.l())
+    );
+    assert_eq!((p.get_domain(), p.get_symm()), (p.domain(), p.symm()));
+    assert_eq!((p.get_knots(), p.get_delta_x()), (p.knots(), p.delta_x()));
+    assert_eq!(
+        (p.get_norms(), p.get_polyorder()),
+        (p.norms(), p.polyorder())
+    );
+    assert_eq!(p.get_data().as_slice(), p.data().as_slice());
+
+    let v = PiecewiseLegendrePolyVector::new(vec![p.clone(), p]).unwrap();
+    assert_eq!((v.size(), v.get_polys().len()), (v.len(), v.polys().len()));
+    assert_eq!(v.get_knots(None), v.knots(None));
+    assert_eq!(
+        (v.get_delta_x(), v.get_polyorder()),
+        (v.delta_x(), v.polyorder())
+    );
+    assert_eq!((v.get_norms(), v.get_symm()), (v.norms(), v.symm()));
+    assert_eq!(v.get_data().as_slice(), v.data().as_slice());
+    assert!(!v.is_empty());
 }

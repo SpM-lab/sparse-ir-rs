@@ -56,9 +56,9 @@ fn residual_points(knots: &[f64]) -> Vec<f64> {
 /// 0.06 to 0.12 times on one (it runs on the calling thread).
 pub fn sve_residual<K: AbstractKernel>(kernel: &K, sve: &SVEResult) -> f64 {
     let s = sve.s();
-    let (u, v) = (sve.u().get_polys(), sve.v().get_polys());
-    let xs = residual_points(u[0].get_knots());
-    let ys = residual_points(v[0].get_knots());
+    let (u, v) = (sve.u().polys(), sve.v().polys());
+    let xs = residual_points(u[0].knots());
+    let ys = residual_points(v[0].knots());
     // s_l u_l(x_i) and v_l(y_j), so that their product is the expansion
     let mut us = DMatrix::<f64>::zeros(xs.len(), s.len());
     let mut vs = DMatrix::<f64>::zeros(ys.len(), s.len());

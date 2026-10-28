@@ -518,7 +518,7 @@ impl PolyVectorFuncs {
     pub fn evaluate_at(&self, x: f64, beta: f64) -> Result<Vec<f64>, sparse_ir::Error> {
         let (x_reg, sign) = self.normalize(x, beta)?;
         self.poly
-            .get_polys()
+            .polys()
             .iter()
             .map(|p| Ok(sign * p.try_evaluate(x_reg)?))
             .collect()
@@ -541,7 +541,7 @@ impl PolyVectorFuncs {
             .collect::<Result<Vec<(f64, f64)>, sparse_ir::Error>>()?;
         let xs_reg: Vec<f64> = normalized.iter().map(|&(x, _)| x).collect();
         self.poly
-            .get_polys()
+            .polys()
             .iter()
             .map(|p| {
                 let values = p.try_evaluate_many(&xs_reg)?;
@@ -838,7 +838,7 @@ impl spir_funcs {
     /// Get the number of basis functions
     pub(crate) fn size(&self) -> usize {
         match self.inner_type() {
-            FuncsType::PolyVector(pv) => pv.poly.get_polys().len(),
+            FuncsType::PolyVector(pv) => pv.poly.polys().len(),
             FuncsType::FTVector(ftv) => {
                 if let Some(ft) = &ftv.ft_fermionic {
                     ft.get_polys().len()
@@ -859,8 +859,8 @@ impl spir_funcs {
             FuncsType::PolyVector(pv) => {
                 // Get unique knots from all polynomials
                 let mut all_knots = Vec::new();
-                for p in pv.poly.get_polys() {
-                    for &knot in p.get_knots() {
+                for p in pv.poly.polys() {
+                    for &knot in p.knots() {
                         if !all_knots.iter().any(|&k: &f64| (k - knot).abs() < 1e-14) {
                             all_knots.push(knot);
                         }
@@ -1032,10 +1032,10 @@ impl spir_funcs {
             FuncsType::PolyVector(pv) => {
                 let mut new_polys = Vec::with_capacity(indices.len());
                 for &idx in indices {
-                    if idx >= pv.poly.get_polys().len() {
+                    if idx >= pv.poly.polys().len() {
                         return None;
                     }
-                    new_polys.push(pv.poly.get_polys()[idx].clone());
+                    new_polys.push(pv.poly.polys()[idx].clone());
                 }
                 // The C API rejects an empty selection and invalid indices
                 // before this call; a failure here is an internal

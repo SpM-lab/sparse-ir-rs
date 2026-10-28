@@ -90,12 +90,8 @@ fn check_kernel_domain<K: KernelProperties>(
     kernel: &K,
     sve_result: &SVEResult,
 ) -> Result<(), Error> {
-    let domain = |funcs: &PiecewiseLegendrePolyVector| {
-        funcs
-            .get_polys()
-            .first()
-            .map(|p| (p.get_xmin(), p.get_xmax()))
-    };
+    let domain =
+        |funcs: &PiecewiseLegendrePolyVector| funcs.polys().first().map(|p| (p.xmin(), p.xmax()));
     let (Some(u), Some(v)) = (domain(sve_result.u()), domain(sve_result.v())) else {
         return Err(Error::EmptyInput { name: "sve_result" });
     };
@@ -142,8 +138,8 @@ fn snapped_knots_and_widths(
     min: f64,
     max: f64,
 ) -> (Vec<f64>, Vec<f64>) {
-    let mut knots = poly.get_knots().to_vec();
-    let mut widths = poly.get_delta_x().to_vec();
+    let mut knots = poly.knots().to_vec();
+    let mut widths = poly.delta_x().to_vec();
     let last = knots.len() - 1;
     if knots[0] != min {
         knots[0] = min;
@@ -417,19 +413,19 @@ where
 
         // Transform u: x ∈ [-1, 1] → τ ∈ [0, β]
         let (x_knots, x_widths) =
-            snapped_knots_and_widths(&u_sve.get_polys()[0], kernel.xmin(), kernel.xmax());
+            snapped_knots_and_widths(&u_sve.polys()[0], kernel.xmin(), kernel.xmax());
         let u_knots: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
         let u_delta_x: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
-        let u_symm: Vec<i32> = u_sve.get_polys().iter().map(|p| p.get_symm()).collect();
+        let u_symm: Vec<i32> = u_sve.polys().iter().map(|p| p.symm()).collect();
 
         let u = u_sve.rescale_domain(u_knots, Some(u_delta_x), Some(u_symm))?;
 
         // Transform v: y ∈ [ymin, ymax] → ω ∈ [ωmin, ωmax]
         let (y_knots, y_widths) =
-            snapped_knots_and_widths(&v_sve.get_polys()[0], kernel.ymin(), kernel.ymax());
+            snapped_knots_and_widths(&v_sve.polys()[0], kernel.ymin(), kernel.ymax());
         let v_knots: Vec<f64> = y_knots.iter().map(|&y| wmax * y).collect();
         let v_delta_x: Vec<f64> = y_widths.iter().map(|&dy| wmax * dy).collect();
-        let v_symm: Vec<i32> = v_sve.get_polys().iter().map(|p| p.get_symm()).collect();
+        let v_symm: Vec<i32> = v_sve.polys().iter().map(|p| p.symm()).collect();
 
         let v = v_sve.rescale_domain(v_knots, Some(v_delta_x), Some(v_symm))?;
 
@@ -1085,7 +1081,7 @@ pub(crate) fn default_sampling_points(
         });
     }
 
-    let x0 = if l < u.size() {
+    let x0 = if l < u.len() {
         // C++: return u.polyvec[L].roots();
         u[l].roots()
     } else {
@@ -1103,16 +1099,16 @@ pub(crate) fn default_sampling_points(
                     "default sampling points for {l} basis functions: the last singular \
                      function (l = {}) has no extrema to stand in for the roots of the \
                      missing function l = {l} (an SVE truncated to too few functions)",
-                    poly.get_l()
+                    poly.l()
                 ),
             });
         };
 
         // C++: double left = (maxima[0] + poly.xmin) / 2.0;
-        let left = (first + poly.get_xmin()) / 2.0;
+        let left = (first + poly.xmin()) / 2.0;
 
         // C++: double right = (maxima[maxima.size() - 1] + poly.xmax) / 2.0;
-        let right = (last + poly.get_xmax()) / 2.0;
+        let right = (last + poly.xmax()) / 2.0;
 
         // C++: Eigen::VectorXd x0(maxima.size() + 2);
         //      x0[0] = left;

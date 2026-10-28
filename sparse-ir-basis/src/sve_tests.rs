@@ -35,10 +35,10 @@ where
     // Evaluating at midpoints between knots is more representative of how the
     // piecewise Legendre polynomials approximate the kernel between collocation
     // points, and avoids testing exactly at the knots used during SVE.
-    let u_polys = sve_result.u().get_polys();
-    let v_polys = sve_result.v().get_polys();
-    let x_knots = u_polys[0].get_knots();
-    let y_knots = v_polys[0].get_knots();
+    let u_polys = sve_result.u().polys();
+    let v_polys = sve_result.v().polys();
+    let x_knots = u_polys[0].knots();
+    let y_knots = v_polys[0].knots();
 
     for (name, knots, min, max) in [
         ("x", x_knots, kernel.xmin(), kernel.xmax()),
@@ -201,18 +201,12 @@ fn test_compute_sve_global_index_matches_parity() {
     ];
     for sve in &results {
         assert!(sve.s().len() >= 8, "SVE too small: {}", sve.s().len());
-        for (i, (u, v)) in sve
-            .u()
-            .get_polys()
-            .iter()
-            .zip(sve.v().get_polys())
-            .enumerate()
-        {
+        for (i, (u, v)) in sve.u().polys().iter().zip(sve.v().polys()).enumerate() {
             let parity = if i % 2 == 0 { 1 } else { -1 };
-            assert_eq!(u.get_l(), i as i32, "u[{i}].l");
-            assert_eq!(v.get_l(), i as i32, "v[{i}].l");
-            assert_eq!(u.get_symm(), parity, "u[{i}].symm");
-            assert_eq!(v.get_symm(), parity, "v[{i}].symm");
+            assert_eq!(u.l(), i as i32, "u[{i}].l");
+            assert_eq!(v.l(), i as i32, "v[{i}].l");
+            assert_eq!(u.symm(), parity, "u[{i}].symm");
+            assert_eq!(v.symm(), parity, "v[{i}].symm");
         }
     }
 }
@@ -267,8 +261,8 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
             .collect()
     };
     let (u_knots, v_knots) = (
-        reference.u().get_polys()[0].get_knots(),
-        reference.v().get_polys()[0].get_knots(),
+        reference.u().polys()[0].knots(),
+        reference.v().polys()[0].knots(),
     );
     let xs = grid(u_knots[0], *u_knots.last().unwrap());
     let ys = grid(v_knots[0], *v_knots.last().unwrap());
@@ -277,7 +271,7 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
     for l in ls {
         ds = ds.max((sve.s()[l] - reference.s()[l]).abs() / reference.s()[l]);
         for (a, b, pts) in [(sve.u(), reference.u(), &xs), (sve.v(), reference.v(), &ys)] {
-            let (p, q) = (&a.get_polys()[l], &b.get_polys()[l]);
+            let (p, q) = (&a.polys()[l], &b.polys()[l]);
             let scale = pts.iter().fold(0.0f64, |m, &x| m.max(q.evaluate(x).abs()));
             let err = pts
                 .iter()
@@ -336,8 +330,8 @@ where
     if identical {
         assert_eq!(sve.s(), dense.s(), "{case}");
         for (a, b) in [(sve.u(), dense.u()), (sve.v(), dense.v())] {
-            for (p, q) in a.get_polys().iter().zip(b.get_polys()) {
-                assert_eq!(p.get_data().as_slice(), q.get_data().as_slice(), "{case}");
+            for (p, q) in a.polys().iter().zip(b.polys()) {
+                assert_eq!(p.data().as_slice(), q.data().as_slice(), "{case}");
             }
         }
         return;

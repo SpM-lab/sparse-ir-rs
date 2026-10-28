@@ -681,35 +681,42 @@ impl PiecewiseLegendrePoly {
         (a - b).abs() <= eps
     }
 
-    // Accessor methods to match C++ interface
-    pub fn get_xmin(&self) -> f64 {
+    /// Lower end of the domain
+    pub fn xmin(&self) -> f64 {
         self.xmin
     }
-    pub fn get_xmax(&self) -> f64 {
+    /// Upper end of the domain
+    pub fn xmax(&self) -> f64 {
         self.xmax
     }
-    pub fn get_l(&self) -> i32 {
+    /// Index of the function in its sequence of singular functions
+    /// (0-based, in order of non-increasing singular value)
+    pub fn l(&self) -> i32 {
         self.l
     }
-    pub fn get_domain(&self) -> (f64, f64) {
+    /// The domain `(xmin, xmax)`
+    pub fn domain(&self) -> (f64, f64) {
         (self.xmin, self.xmax)
     }
-    pub fn get_knots(&self) -> &[f64] {
+    /// Segment boundaries, strictly increasing from `xmin` to `xmax`
+    pub fn knots(&self) -> &[f64] {
         &self.knots
     }
-    pub fn get_delta_x(&self) -> &[f64] {
+    /// Segment lengths
+    pub fn delta_x(&self) -> &[f64] {
         &self.delta_x
     }
-    pub fn get_symm(&self) -> i32 {
-        self.symm
-    }
-    pub fn get_data(&self) -> &Mat<f64> {
+    /// Legendre coefficients, `polyorder × nsegments` (one column per
+    /// segment)
+    pub fn data(&self) -> &Mat<f64> {
         &self.data
     }
-    pub fn get_norms(&self) -> &[f64] {
+    /// Normalization of the Legendre polynomials on each segment
+    pub fn norms(&self) -> &[f64] {
         &self.norms
     }
-    pub fn get_polyorder(&self) -> usize {
+    /// Number of Legendre coefficients per segment (degree + 1)
+    pub fn polyorder(&self) -> usize {
         self.polyorder
     }
 }
@@ -732,6 +739,79 @@ fn legder(c: &[f64]) -> Vec<f64> {
     }
     der[0] = c[1];
     der
+}
+
+/// Former names of the accessors
+impl PiecewiseLegendrePoly {
+    /// [`Self::xmin`]
+    #[deprecated(note = "renamed xmin")]
+    #[doc(hidden)]
+    pub fn get_xmin(&self) -> f64 {
+        self.xmin()
+    }
+
+    /// [`Self::xmax`]
+    #[deprecated(note = "renamed xmax")]
+    #[doc(hidden)]
+    pub fn get_xmax(&self) -> f64 {
+        self.xmax()
+    }
+
+    /// [`Self::l`]
+    #[deprecated(note = "renamed l")]
+    #[doc(hidden)]
+    pub fn get_l(&self) -> i32 {
+        self.l()
+    }
+
+    /// [`Self::domain`]
+    #[deprecated(note = "renamed domain")]
+    #[doc(hidden)]
+    pub fn get_domain(&self) -> (f64, f64) {
+        self.domain()
+    }
+
+    /// [`Self::knots`]
+    #[deprecated(note = "renamed knots")]
+    #[doc(hidden)]
+    pub fn get_knots(&self) -> &[f64] {
+        self.knots()
+    }
+
+    /// [`Self::delta_x`]
+    #[deprecated(note = "renamed delta_x")]
+    #[doc(hidden)]
+    pub fn get_delta_x(&self) -> &[f64] {
+        self.delta_x()
+    }
+
+    /// [`Self::symm`]
+    #[deprecated(note = "renamed symm")]
+    #[doc(hidden)]
+    pub fn get_symm(&self) -> i32 {
+        self.symm()
+    }
+
+    /// [`Self::data`]
+    #[deprecated(note = "renamed data")]
+    #[doc(hidden)]
+    pub fn get_data(&self) -> &Mat<f64> {
+        self.data()
+    }
+
+    /// [`Self::norms`]
+    #[deprecated(note = "renamed norms")]
+    #[doc(hidden)]
+    pub fn get_norms(&self) -> &[f64] {
+        self.norms()
+    }
+
+    /// [`Self::polyorder`]
+    #[deprecated(note = "renamed polyorder")]
+    #[doc(hidden)]
+    pub fn get_polyorder(&self) -> usize {
+        self.polyorder()
+    }
 }
 
 /// Vector of piecewise Legendre polynomials
@@ -777,8 +857,8 @@ impl PiecewiseLegendrePolyVector {
         Self { polyvec }
     }
 
-    /// Get the polynomials
-    pub fn get_polys(&self) -> &[PiecewiseLegendrePoly] {
+    /// The polynomials
+    pub fn polys(&self) -> &[PiecewiseLegendrePoly] {
         &self.polyvec
     }
 
@@ -841,9 +921,14 @@ impl PiecewiseLegendrePolyVector {
         Ok(Self { polyvec })
     }
 
-    /// Get the size of the vector
-    pub fn size(&self) -> usize {
+    /// Number of polynomials
+    pub fn len(&self) -> usize {
         self.polyvec.len()
+    }
+
+    /// Whether there is no polynomial
+    pub fn is_empty(&self) -> bool {
+        self.polyvec.is_empty()
     }
 
     /// Rescale domain for all polynomials in the vector
@@ -1042,7 +1127,6 @@ impl PiecewiseLegendrePolyVector {
         Ok(results)
     }
 
-    // Accessor methods to match C++ interface
     pub fn xmin(&self) -> f64 {
         if self.polyvec.is_empty() {
             panic!("Cannot get xmin from empty PiecewiseLegendrePolyVector");
@@ -1057,7 +1141,9 @@ impl PiecewiseLegendrePolyVector {
         self.polyvec[0].xmax
     }
 
-    pub fn get_knots(&self, tolerance: Option<f64>) -> Vec<f64> {
+    /// The knots of all the polynomials, merged where closer than
+    /// `tolerance` (1e-10 by default)
+    pub fn knots(&self, tolerance: Option<f64>) -> Vec<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get knots from empty PiecewiseLegendrePolyVector");
         }
@@ -1080,36 +1166,40 @@ impl PiecewiseLegendrePolyVector {
         all_knots
     }
 
-    pub fn get_delta_x(&self) -> Vec<f64> {
+    /// Segment lengths of the first polynomial
+    pub fn delta_x(&self) -> Vec<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get delta_x from empty PiecewiseLegendrePolyVector");
         }
         self.polyvec[0].delta_x.clone()
     }
 
-    pub fn get_polyorder(&self) -> usize {
+    /// Number of Legendre coefficients per segment (degree + 1)
+    pub fn polyorder(&self) -> usize {
         if self.polyvec.is_empty() {
             panic!("Cannot get polyorder from empty PiecewiseLegendrePolyVector");
         }
         self.polyvec[0].polyorder
     }
 
-    pub fn get_norms(&self) -> &[f64] {
+    /// Normalization of the Legendre polynomials on each segment
+    pub fn norms(&self) -> &[f64] {
         if self.polyvec.is_empty() {
             panic!("Cannot get norms from empty PiecewiseLegendrePolyVector");
         }
         &self.polyvec[0].norms
     }
 
-    pub fn get_symm(&self) -> Vec<i32> {
+    /// Parity of each polynomial: 1 even, -1 odd, 0 none
+    pub fn symm(&self) -> Vec<i32> {
         if self.polyvec.is_empty() {
             panic!("Cannot get symm from empty PiecewiseLegendrePolyVector");
         }
         self.polyvec.iter().map(|poly| poly.symm).collect()
     }
 
-    /// Get data as 3D tensor: [segment][degree][polynomial]
-    pub fn get_data(&self) -> Mat3<f64> {
+    /// Legendre coefficients as a `polyorder × nsegments × npolys` array
+    pub fn data(&self) -> Mat3<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get data from empty PiecewiseLegendrePolyVector");
         }
@@ -1170,6 +1260,65 @@ impl PiecewiseLegendrePolyVector {
             panic!("Cannot get nroots from empty PiecewiseLegendrePolyVector");
         }
         self.roots(tolerance).len()
+    }
+}
+
+/// Former names of the accessors
+impl PiecewiseLegendrePolyVector {
+    /// [`Self::len`]
+    #[deprecated(note = "renamed len")]
+    #[doc(hidden)]
+    pub fn size(&self) -> usize {
+        self.len()
+    }
+
+    /// [`Self::polys`]
+    #[deprecated(note = "renamed polys")]
+    #[doc(hidden)]
+    pub fn get_polys(&self) -> &[PiecewiseLegendrePoly] {
+        self.polys()
+    }
+
+    /// [`Self::knots`]
+    #[deprecated(note = "renamed knots")]
+    #[doc(hidden)]
+    pub fn get_knots(&self, tolerance: Option<f64>) -> Vec<f64> {
+        self.knots(tolerance)
+    }
+
+    /// [`Self::delta_x`]
+    #[deprecated(note = "renamed delta_x")]
+    #[doc(hidden)]
+    pub fn get_delta_x(&self) -> Vec<f64> {
+        self.delta_x()
+    }
+
+    /// [`Self::polyorder`]
+    #[deprecated(note = "renamed polyorder")]
+    #[doc(hidden)]
+    pub fn get_polyorder(&self) -> usize {
+        self.polyorder()
+    }
+
+    /// [`Self::norms`]
+    #[deprecated(note = "renamed norms")]
+    #[doc(hidden)]
+    pub fn get_norms(&self) -> &[f64] {
+        self.norms()
+    }
+
+    /// [`Self::symm`]
+    #[deprecated(note = "renamed symm")]
+    #[doc(hidden)]
+    pub fn get_symm(&self) -> Vec<i32> {
+        self.symm()
+    }
+
+    /// [`Self::data`]
+    #[deprecated(note = "renamed data")]
+    #[doc(hidden)]
+    pub fn get_data(&self) -> Mat3<f64> {
+        self.data()
     }
 }
 

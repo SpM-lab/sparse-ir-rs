@@ -149,11 +149,7 @@ fn test_basis_from_sve_result_checks_its_parameters() {
 fn test_basis_from_sve_result_rejects_an_sve_on_another_domain() {
     let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
-    let knots: Vec<f64> = sve.u().get_polys()[0]
-        .get_knots()
-        .iter()
-        .map(|x| 2.0 * x)
-        .collect();
+    let knots: Vec<f64> = sve.u().polys()[0].knots().iter().map(|x| 2.0 * x).collect();
     let u = sve.u().rescale_domain(knots, None, None).unwrap();
     let sve = SVEResult::new(u, sve.s().to_vec(), sve.v().clone(), sve.epsilon()).unwrap();
     let err = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
@@ -186,7 +182,7 @@ fn test_basis_from_an_sve_just_inside_the_unit_domain() {
     let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
     let shrink = |funcs: &PiecewiseLegendrePolyVector| {
-        let mut knots = funcs.get_polys()[0].get_knots().to_vec();
+        let mut knots = funcs.polys()[0].knots().to_vec();
         let last = knots.len() - 1;
         knots[0] = -1.0 + 1e-13;
         knots[last] = 1.0 - 1e-13;
@@ -199,13 +195,13 @@ fn test_basis_from_an_sve_just_inside_the_unit_domain() {
         kernel, beta, sve, None, None,
     )
     .unwrap();
-    for u in basis.u().get_polys() {
-        assert_eq!((u.get_xmin(), u.get_xmax()), (0.0, beta));
+    for u in basis.u().polys() {
+        assert_eq!((u.xmin(), u.xmax()), (0.0, beta));
         assert!(u.evaluate(0.0).is_finite() && u.evaluate(beta).is_finite());
     }
     let wmax = basis.omega_max();
-    for v in basis.v().get_polys() {
-        assert_eq!((v.get_xmin(), v.get_xmax()), (-wmax, wmax));
+    for v in basis.v().polys() {
+        assert_eq!((v.xmin(), v.xmax()), (-wmax, wmax));
     }
 }
 
@@ -216,17 +212,17 @@ fn test_basis_knots_of_a_kernel_sve_are_the_scaled_knots() {
     let beta = 10.0;
     let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
-    let x_knots = sve.u().get_polys()[0].get_knots().to_vec();
-    let x_widths = sve.u().get_polys()[0].get_delta_x().to_vec();
+    let x_knots = sve.u().polys()[0].knots().to_vec();
+    let x_widths = sve.u().polys()[0].delta_x().to_vec();
     let basis = FiniteTempBasis::<LogisticKernel, Fermionic>::from_sve_result(
         kernel, beta, sve, None, None,
     )
     .unwrap();
-    let u = &basis.u().get_polys()[0];
+    let u = &basis.u().polys()[0];
     let scaled: Vec<f64> = x_knots.iter().map(|&x| beta / 2.0 * (x + 1.0)).collect();
     let widths: Vec<f64> = x_widths.iter().map(|&dx| beta / 2.0 * dx).collect();
-    assert_eq!(u.get_knots(), scaled);
-    assert_eq!(u.get_delta_x(), widths);
+    assert_eq!(u.knots(), scaled);
+    assert_eq!(u.delta_x(), widths);
 }
 
 #[test]
@@ -568,8 +564,8 @@ fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
         let kernel = LogisticKernel::new(beta * omega_max).unwrap();
         let basis = FermionicBasis::new(kernel, beta, Some(1e-6), None)
             .unwrap_or_else(|e| panic!("beta = {beta}: {e}"));
-        let u = &basis.u().get_polys()[0];
-        assert_eq!(u.get_xmax(), beta);
+        let u = &basis.u().polys()[0];
+        assert_eq!(u.xmax(), beta);
         for tau in [0.0, 0.5 * beta, beta] {
             assert!(u.evaluate(tau).is_finite(), "beta = {beta}, tau = {tau}");
         }
@@ -605,7 +601,7 @@ fn test_default_matsubara_points_from_uhat() {
             .uhat_full()
             .get_polys()
             .iter()
-            .all(|u| u.poly.get_symm() == 0)
+            .all(|u| u.poly.symm() == 0)
     );
     let ns = |mitigate, positive_only| -> Vec<i64> {
         default_matsubara_sampling_points_from_uhat(
