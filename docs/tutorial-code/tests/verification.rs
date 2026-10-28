@@ -1330,10 +1330,14 @@ fn tpsc_matches_the_python_reference() {
     );
     // At half filling the peak would sit exactly on M = (π, π); this is a
     // doped system, so it is pushed off M along the zone boundary — here by
-    // a single grid step, 2π/24.
+    // a single grid step, 2π/24. The lattice is symmetric under kx <-> ky, so
+    // the four points next to M carry the same χ_sp up to rounding, and which
+    // of them is the maximum is not fixed.
     let step = 2.0 / summary.expect_column("nk_lin")[0];
+    let off_m_by_a_step =
+        |a: f64, b: f64| (a - 1.0).abs() < 1e-12 && (b - 1.0).abs() <= step + 1e-12;
     assert!(
-        (kx - 1.0).abs() < 1e-12 && (ky - 1.0).abs() <= step + 1e-12,
+        off_m_by_a_step(kx, ky) || off_m_by_a_step(ky, kx),
         "the spin susceptibility must peak on the zone boundary near M, \
          got ({kx}π, {ky}π)"
     );
