@@ -125,7 +125,7 @@ pub mod unstable; // Items for the other sparse-ir crates, outside semver
 #[cfg(test)]
 mod test_kernels;
 
-pub use error::{Error, Result};
+pub use error::{Error, ErrorKind, Result};
 pub use gauss::{Rule, legendre};
 pub use hints::SegmentHints;
 pub use kernel::{

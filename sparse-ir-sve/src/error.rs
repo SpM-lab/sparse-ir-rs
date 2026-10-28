@@ -66,5 +66,87 @@ pub enum Error {
     },
 }
 
+/// Category of an [`Error`]: what the caller can do about it
+///
+/// More categories may be added without a major version bump.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum ErrorKind {
+    /// An argument is invalid: a parameter outside its range, a point
+    /// outside the domain, an empty input or a non-finite entry
+    InvalidArgument,
+    /// The operation is not defined for this input
+    NotSupported,
+    /// A failure that invalid input does not explain, e.g. an SVD iteration
+    /// that did not converge
+    Internal,
+}
+
+impl Error {
+    /// Category of the error
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            Error::InvalidParameter { .. }
+            | Error::OutOfDomain { .. }
+            | Error::EmptyInput { .. }
+            | Error::NonFiniteInput { .. } => ErrorKind::InvalidArgument,
+            Error::NotSupported { .. } => ErrorKind::NotSupported,
+            Error::DecompositionFailed { .. } => ErrorKind::Internal,
+        }
+    }
+}
+
 /// Result type of the fallible public functions of this crate
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every variant has its category
+    #[test]
+    fn test_kind_of_each_variant() {
+        let cases = [
+            (
+                Error::InvalidParameter {
+                    name: "epsilon",
+                    value: "2.0".to_string(),
+                    reason: "must be in (0, 1)".to_string(),
+                },
+                ErrorKind::InvalidArgument,
+            ),
+            (
+                Error::OutOfDomain {
+                    name: "x",
+                    value: 2.0,
+                    domain: (-1.0, 1.0),
+                },
+                ErrorKind::InvalidArgument,
+            ),
+            (Error::EmptyInput { name: "s" }, ErrorKind::InvalidArgument),
+            (
+                Error::NonFiniteInput {
+                    name: "matrix",
+                    index: vec![0, 1],
+                    value: f64::NAN,
+                },
+                ErrorKind::InvalidArgument,
+            ),
+            (
+                Error::NotSupported {
+                    what: "parity".to_string(),
+                },
+                ErrorKind::NotSupported,
+            ),
+            (
+                Error::DecompositionFailed {
+                    reason: "SVD".to_string(),
+                },
+                ErrorKind::Internal,
+            ),
+        ];
+        for (error, kind) in cases {
+            assert_eq!(error.kind(), kind, "{error}");
+        }
+    }
+}
