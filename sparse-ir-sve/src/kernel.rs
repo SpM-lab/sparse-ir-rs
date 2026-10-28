@@ -172,6 +172,13 @@ pub trait ExpandableKernel: SVEKernel + Clone + 'static {
     {
         Ok(Box::new(NonCentrosymmSVE::new(self.clone(), epsilon)?))
     }
+
+    /// Whether the kernel implements [`ReducedKernel`], i.e. is
+    /// centrosymmetric
+    #[doc(hidden)]
+    fn implements_reduced_kernel(&self) -> bool {
+        false
+    }
 }
 
 impl<K> ExpandableKernel for K
@@ -183,6 +190,10 @@ where
         T: CustomNumeric + Send + Sync + Clone + 'static,
     {
         Ok(Box::new(CentrosymmSVE::new(self.clone(), epsilon)?))
+    }
+
+    fn implements_reduced_kernel(&self) -> bool {
+        true
     }
 }
 

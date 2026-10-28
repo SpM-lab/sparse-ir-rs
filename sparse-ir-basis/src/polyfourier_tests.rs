@@ -479,7 +479,7 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
     check_uhat_high_frequency_tail(&basis);
 }
 
-/// Functions without a parity (symm = 0, as from `compute_sve_general`) have
+/// Functions without a parity (symm = 0, as from the full-domain SVE) have
 /// default Matsubara sampling points (they were NotSupported, #183): every
 /// entry point returns the same symmetric set, and the samplings built from
 /// it, through the Basis trait, recover the coefficients.
@@ -487,11 +487,18 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
 fn test_default_matsubara_points_of_functions_without_parity() {
     use crate::basis_trait::Basis;
     use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
-    use crate::sve::{TworkType, compute_sve_general};
+    use crate::sve::{SVEOptions, TworkType, compute_sve_with};
     use num_complex::Complex64;
 
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let sve = compute_sve_with(
+        kernel,
+        &SVEOptions::new()
+            .epsilon(1e-6)
+            .twork(TworkType::Auto)
+            .full_domain(true),
+    )
+    .unwrap();
     assert!(sve.u().get_polys().iter().all(|u| u.get_symm() == 0));
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)

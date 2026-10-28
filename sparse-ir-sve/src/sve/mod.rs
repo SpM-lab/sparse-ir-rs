@@ -21,7 +21,11 @@ mod types;
 pub(crate) mod utils;
 
 // Re-export public API
-pub use compute::{BASIS_CUTOFF_FACTOR, compute_sve, compute_sve_for_basis, compute_sve_general};
+#[allow(deprecated)]
+pub use compute::{
+    ACCURACY_CUTOFF_FACTOR, BASIS_CUTOFF_FACTOR, SVEOptions, compute_sve, compute_sve_for_basis,
+    compute_sve_general, compute_sve_with,
+};
 pub use residual::sve_residual;
 pub use result::SVEResult;
 pub use types::TworkType;

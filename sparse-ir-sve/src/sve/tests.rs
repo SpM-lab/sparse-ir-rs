@@ -2,7 +2,29 @@
 
 use super::types::safe_epsilon;
 use super::utils::{extend_to_full_domain, merge_results};
-use super::{SVEResult, TworkType, compute_sve, compute_sve_general, sve_residual};
+use super::{SVEOptions, SVEResult, TworkType, compute_sve, compute_sve_with, sve_residual};
+
+/// [`compute_sve_with`] over the full domain, with the arguments of
+/// [`compute_sve`]
+fn compute_sve_full_domain<K: ExpandableKernel>(
+    kernel: K,
+    epsilon: Option<f64>,
+    cutoff: Option<f64>,
+    max_num_svals: Option<usize>,
+    twork: TworkType,
+) -> Result<SVEResult, crate::error::Error> {
+    let mut options = SVEOptions::new().twork(twork).full_domain(true);
+    if let Some(epsilon) = epsilon {
+        options = options.epsilon(epsilon);
+    }
+    if let Some(cutoff) = cutoff {
+        options = options.cutoff(cutoff);
+    }
+    if let Some(max_num_svals) = max_num_svals {
+        options = options.max_num_svals(max_num_svals);
+    }
+    compute_sve_with(kernel, &options)
+}
 use crate::error::Error;
 use crate::kernel::{AbstractKernel, ExpandableKernel, SVEHints, SVEKernel, SymmetryType};
 use crate::matrix::Mat;
@@ -317,9 +339,9 @@ fn working_machine_epsilon(epsilon: f64, twork: TworkType) -> f64 {
     }
 }
 
-/// Compare `compute_sve_general` with `compute_sve` for a centrosymmetric kernel
+/// Compare the full-domain SVE with `compute_sve` for a centrosymmetric kernel
 ///
-/// Regression test for issue #246: `compute_sve_general` handed the
+/// Regression test for issue #246: the full-domain SVE handed the
 /// half-domain `SVEHints` segments of centrosymmetric kernels to the
 /// full-domain strategy, so it expanded only the restriction of the kernel to
 /// `[0, 1] x [0, 1]`, with fewer and wrong singular values.
@@ -350,7 +372,8 @@ fn assert_general_path_matches_compute_sve<K>(
     // default-cutoff policy of either path.
     let cutoff = 2.0 * u_work;
     let reference = compute_sve(kernel.clone(), Some(epsilon), Some(cutoff), None, twork).unwrap();
-    let general = compute_sve_general(kernel, Some(epsilon), Some(cutoff), None, twork).unwrap();
+    let general =
+        compute_sve_full_domain(kernel, Some(epsilon), Some(cutoff), None, twork).unwrap();
 
     let s0 = reference.s[0];
     let tol = |s: f64| 1000.0 * u_work * s0 + 2.0 * f64::EPSILON * s;
@@ -392,10 +415,10 @@ fn assert_general_path_matches_compute_sve<K>(
     );
 }
 
-/// `compute_sve_general` reproduces `compute_sve` for a centrosymmetric
+/// the full-domain SVE reproduces `compute_sve` for a centrosymmetric
 /// kernel, singular values and functions (issue #246)
 #[test]
-fn test_compute_sve_general_matches_compute_sve() {
+fn test_full_domain_sve_matches_compute_sve() {
     // Equal counts are asserted at a = 10, where the smallest kept singular
     // value is well above the cutoff 2 u_work s_0 (about 6.2 u s_0 in Float64
     // and 4.3 u s_0 in Float64X2); at a = 20 it is about 2.04 u s_0, i.e.
@@ -417,7 +440,8 @@ fn test_compute_sve_general_matches_compute_sve() {
     // TworkType::Auto selects Float64X2 for 1e-10.
     for epsilon in [1e-6, 1e-10] {
         let kernel = ExpKernel::new(10.0);
-        let sve = compute_sve_general(kernel, Some(epsilon), None, None, TworkType::Auto).unwrap();
+        let sve =
+            compute_sve_full_domain(kernel, Some(epsilon), None, None, TworkType::Auto).unwrap();
         assert_sve_reconstructs_kernel(&kernel, &sve, epsilon * 200.0);
     }
 }
@@ -450,14 +474,15 @@ fn test_sve_of_kernel_with_zero_rows() {
     }
 }
 
-/// `compute_sve_general` on a non-centrosymmetric kernel uses its full-domain
+/// the full-domain SVE on a non-centrosymmetric kernel uses its full-domain
 /// hint segments as given, reconstructs the kernel, and fixes the SVD sign
 /// gauge by `u_l(xmax) >= 0` like `compute_sve`
 #[test]
-fn test_compute_sve_general_non_centrosymmetric_kernel() {
+fn test_full_domain_sve_non_centrosymmetric_kernel() {
     let kernel = TiltedExpKernel(ExpKernel::new(10.0));
     let epsilon = 1e-6;
-    let sve = compute_sve_general(kernel, Some(epsilon), None, None, TworkType::Float64).unwrap();
+    let sve =
+        compute_sve_full_domain(kernel, Some(epsilon), None, None, TworkType::Float64).unwrap();
 
     assert!(
         sve.s.windows(2).all(|w| w[0] >= w[1]) && sve.s[sve.s.len() - 1] > 0.0,
@@ -476,11 +501,12 @@ fn test_compute_sve_general_non_centrosymmetric_kernel() {
 
 /// `compute_sve` dispatches on the kernel: one that is not a
 /// `ReducedKernel` goes through the full-domain strategy, exactly as with
-/// `compute_sve_general`
+/// the full-domain SVE
 #[test]
 fn test_compute_sve_of_non_centrosymmetric_kernel_uses_full_domain() {
     let kernel = TiltedExpKernel(ExpKernel::new(10.0));
-    let general = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
+    let general =
+        compute_sve_full_domain(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
     let sve = compute_sve(kernel, Some(1e-6), None, None, TworkType::Float64).unwrap();
     assert_eq!(sve.s, general.s);
     assert!(sve.u.get_polys().iter().all(|u| u.symm == 0));
@@ -636,7 +662,7 @@ fn test_compute_sve_recovers_analytic_sve_of_non_centrosymmetric_kernel() {
 /// times the largest odd-sector singular value, well above the accuracy floor
 /// of its SVD block, so its position is stable across platforms.
 ///
-/// `compute_sve_general` computes a single SVD block whose truncated SVD
+/// the full-domain SVE computes a single SVD block whose truncated SVD
 /// already drops singular values below `2 * u_work * s_0`, so a smaller default
 /// cutoff would not be observable there; the test still pins that its default
 /// equals an explicit `2 * u_work` and keeps as many values as `compute_sve`.
@@ -668,7 +694,7 @@ where
         "compute_sve default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
     );
 
-    let general_2u = compute_sve_general(
+    let general_2u = compute_sve_full_domain(
         kernel.clone(),
         Some(epsilon),
         Some(2.0 * u_work),
@@ -676,7 +702,8 @@ where
         twork,
     )
     .unwrap();
-    let general_default = compute_sve_general(kernel, Some(epsilon), None, None, twork).unwrap();
+    let general_default =
+        compute_sve_full_domain(kernel, Some(epsilon), None, None, twork).unwrap();
     assert_eq!(
         general_default.s, general_2u.s,
         "compute_sve_general default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
@@ -883,7 +910,7 @@ fn test_compute_sve_rejects_invalid_parameters() {
     for (epsilon, cutoff, max_num_svals, expected) in cases {
         let err = compute_sve(kernel, epsilon, cutoff, max_num_svals, TworkType::Auto).unwrap_err();
         assert_eq!(err, expected);
-        let err = compute_sve_general(kernel, epsilon, cutoff, max_num_svals, TworkType::Auto)
+        let err = compute_sve_full_domain(kernel, epsilon, cutoff, max_num_svals, TworkType::Auto)
             .unwrap_err();
         assert_eq!(err, expected);
     }
@@ -1019,20 +1046,24 @@ fn test_svd_to_polynomials_needs_a_segment() {
     );
 }
 
-/// `compute_sve_for_basis` truncates at max(2·ε_work, BASIS_CUTOFF_FACTOR·ε),
+/// `SVEOptions::cutoff_from_epsilon` truncates at max(2·ε_work, ACCURACY_CUTOFF_FACTOR·ε),
 /// dropping the singular values far below ε, but everything a basis built
 /// for ε uses agrees with the full spectrum (`compute_sve`)
 #[test]
-fn test_compute_sve_for_basis_keeps_what_a_basis_uses() {
-    use super::{BASIS_CUTOFF_FACTOR, compute_sve_for_basis};
+fn test_cutoff_from_epsilon_keeps_what_an_expansion_uses() {
+    use super::ACCURACY_CUTOFF_FACTOR;
 
     for (twork, eps) in [(TworkType::Float64, 1e-6), (TworkType::Float64X2, 1e-10)] {
         let full_cutoff = 2.0 * working_machine_epsilon(eps, twork);
         let kernel = ExpKernel::new(20.0);
         let full = compute_sve(kernel, Some(eps), None, None, twork).unwrap();
-        let part = compute_sve_for_basis(kernel, eps, None, twork).unwrap();
+        let options = SVEOptions::new()
+            .epsilon(eps)
+            .twork(twork)
+            .cutoff_from_epsilon();
+        let part = compute_sve_with(kernel, &options).unwrap();
         let s0 = full.s[0];
-        let cutoff = BASIS_CUTOFF_FACTOR * eps;
+        let cutoff = ACCURACY_CUTOFF_FACTOR * eps;
         if cutoff > full_cutoff {
             assert!(part.s.len() < full.s.len(), "{twork:?}: nothing truncated");
             assert!(*part.s.last().unwrap() >= cutoff * s0 * 0.99);
@@ -1072,7 +1103,7 @@ fn test_sve_does_not_depend_on_the_number_of_threads() {
         let kernel = ExpKernel { a: 30.0, nseg: 8 };
         let sve = || {
             if general {
-                compute_sve_general(kernel, Some(eps), None, None, twork).unwrap()
+                compute_sve_full_domain(kernel, Some(eps), None, None, twork).unwrap()
             } else {
                 compute_sve(kernel, Some(eps), None, None, twork).unwrap()
             }
@@ -1127,11 +1158,11 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
     (ds, df)
 }
 
-/// Checks the SVE of `compute_sve` (or, with `full_domain`,
-/// `compute_sve_general`) against the SVE by the dense CPQR-based SVD of the
+/// Checks the SVE of `compute_sve` (or, with `full_domain`, that over the
+/// full domain) against the SVE by the dense CPQR-based SVD of the
 /// fully formed blocks, the method of both before the ACA
 ///
-/// In f64, and in `compute_sve_general` of a centrosymmetric kernel, they use
+/// In f64, and over the full domain of a centrosymmetric kernel, they use
 /// that method: the SVEs are identical. Otherwise, in Df64, they take the
 /// block SVDs by ACA. The CPQR SVE is accurate only to the working precision
 /// ε_w relative to s₀, so the singular values are compared to 64·ε_w·s₀
@@ -1142,7 +1173,6 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
 /// the comparison is over the values a basis for ε uses (s_l ≥ ε·s₀, plus
 /// one more), where they agree to 1e-15 and 1e-14 (measured: 1.4e-16 and
 /// 1.2e-15).
-#[allow(deprecated)] // is_centrosymmetric, which compute_sve_general reads
 fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType, full_domain: bool)
 where
     K: ExpandableKernel,
@@ -1150,11 +1180,12 @@ where
     use crate::unstable::sve::compute_sve_dense;
 
     let sve = if full_domain {
-        compute_sve_general(kernel.clone(), Some(eps), None, None, twork).unwrap()
+        compute_sve_full_domain(kernel.clone(), Some(eps), None, None, twork).unwrap()
     } else {
         compute_sve(kernel.clone(), Some(eps), None, None, twork).unwrap()
     };
-    let identical = twork == TworkType::Float64 || (full_domain && kernel.is_centrosymmetric());
+    let identical =
+        twork == TworkType::Float64 || (full_domain && kernel.implements_reduced_kernel());
     let dense = compute_sve_dense(kernel, Some(eps), twork, full_domain).unwrap();
     let case = format!("{twork:?}, full_domain = {full_domain}");
     if identical {
@@ -1192,8 +1223,8 @@ where
 
 /// `compute_sve` agrees with the SVE by dense CPQR in f64 (bitwise) and in
 /// Df64 (by ACA, to the working precision), for a centrosymmetric kernel and
-/// one that is not; `compute_sve_general` of the centrosymmetric kernel, which
-/// does not use the ACA, agrees bitwise. The kernels of the bases built on
+/// one that is not; the SVE over the full domain of the centrosymmetric
+/// kernel, which does not use the ACA, agrees bitwise. The kernels of the bases built on
 /// this crate are checked the same way there, at larger sizes.
 #[test]
 fn test_sve_matches_dense_cpqr() {
@@ -1296,4 +1327,43 @@ fn test_sve_residual_of_a_kernel_discontinuous_at_a_knot() {
     let residual = sve_residual(&kernel, &sve);
     // Measured: 2.7e-14
     assert!(residual < 1e-11, "{residual:e}");
+}
+
+/// The deprecated `compute_sve_general` is `compute_sve_with` over the full
+/// domain, for a kernel that is not centrosymmetric (for a centrosymmetric
+/// one it reads the symmetry from `is_centrosymmetric` only)
+#[test]
+#[allow(deprecated)]
+fn test_compute_sve_general_is_compute_sve_with_full_domain() {
+    use super::compute_sve_general;
+    let kernel = TiltedExpKernel(ExpKernel::new(10.0));
+    let twork = TworkType::Float64X2;
+    let options = SVEOptions::new()
+        .epsilon(1e-10)
+        .twork(twork)
+        .full_domain(true);
+
+    let general = compute_sve_general(kernel, Some(1e-10), None, None, twork).unwrap();
+    let full = compute_sve_with(kernel, &options).unwrap();
+    assert_eq!(general.s(), full.s());
+}
+
+/// The deprecated `compute_sve_for_basis` and `BASIS_CUTOFF_FACTOR` are
+/// `compute_sve_with` with `SVEOptions::cutoff_from_epsilon` and
+/// `ACCURACY_CUTOFF_FACTOR`
+#[test]
+#[allow(deprecated)]
+fn test_compute_sve_for_basis_is_cutoff_from_epsilon() {
+    use super::{ACCURACY_CUTOFF_FACTOR, BASIS_CUTOFF_FACTOR, compute_sve_for_basis};
+    assert_eq!(BASIS_CUTOFF_FACTOR, ACCURACY_CUTOFF_FACTOR);
+    let kernel = ExpKernel::new(10.0);
+    let twork = TworkType::Float64X2;
+    let options = SVEOptions::new()
+        .epsilon(1e-10)
+        .twork(twork)
+        .cutoff_from_epsilon();
+
+    let for_basis = compute_sve_for_basis(kernel, 1e-10, None, twork).unwrap();
+    let with = compute_sve_with(kernel, &options).unwrap();
+    assert_eq!(for_basis.s(), with.s());
 }

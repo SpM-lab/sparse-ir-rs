@@ -71,7 +71,8 @@ pub use polyfourier::{
 };
 pub use sparse_ir_sve::Df64;
 pub use sve::{
-    CentrosymmSVE, KernelBlock, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,
+    CentrosymmSVE, KernelBlock, SVEOptions, SVEResult, SVEStrategy, SamplingSVE, TworkType,
+    compute_sve, compute_sve_with,
 };
 pub use tsvd::{SVDResult, TSVDConfig, svd_decompose, tsvd_df64, tsvd_df64_from_f64, tsvd_f64};
 

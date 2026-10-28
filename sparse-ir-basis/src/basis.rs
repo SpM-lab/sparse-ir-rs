@@ -572,7 +572,7 @@ where
     /// is not available), as in SparseIR.jl; bosonic sets always include n = 0.
     /// Basis functions without a definite parity (an SVE that is not
     /// centrosymmetric, e.g. of [`LogisticKernelWindowed`] or from
-    /// `compute_sve_general`) have no such sign changes; their points are
+    /// the full-domain SVE (`SVEOptions::full_domain`)) have no such sign changes; their points are
     /// selected as a set symmetric in ±n instead (see
     /// [`default_matsubara_sampling_points_from_uhat`]).
     ///

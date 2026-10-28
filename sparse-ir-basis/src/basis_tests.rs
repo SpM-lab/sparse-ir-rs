@@ -586,10 +586,17 @@ fn test_basis_with_a_large_beta_and_a_moderate_lambda() {
 fn test_default_matsubara_points_from_uhat() {
     use crate::basis::default_matsubara_sampling_points_from_uhat;
     use crate::polyfourier::PiecewiseLegendreFTVector;
-    use crate::sve::compute_sve_general;
+    use crate::sve::{SVEOptions, compute_sve_with};
 
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let sve = compute_sve_with(
+        kernel,
+        &SVEOptions::new()
+            .epsilon(1e-6)
+            .twork(TworkType::Auto)
+            .full_domain(true),
+    )
+    .unwrap();
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();

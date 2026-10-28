@@ -29,6 +29,13 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   the ends and at the midpoint of every segment, which shows whether the
   segments of the hints resolve the kernel (`compute_sve` does not check
   it). Limited from below by the rounding of the evaluation in f64.
+- `compute_sve_with` and `SVEOptions`: the SVE with options set by name
+  (accuracy, cutoff, maximum number of singular values, working precision,
+  full-domain expansion of a centrosymmetric kernel). `compute_sve` is
+  unchanged. `compute_sve_general`, `compute_sve_for_basis` and
+  `BASIS_CUTOFF_FACTOR` are deprecated in favor of
+  `SVEOptions::full_domain`, `SVEOptions::cutoff_from_epsilon` and
+  `ACCURACY_CUTOFF_FACTOR`.
 
 ### Changed
 

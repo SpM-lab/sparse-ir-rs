@@ -164,7 +164,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// `M_m = -( statsign · (-1)^(m+1) · u^(m)(+1) + (-1)^m · u^(m)(-1) ) / sqrt(2)`,
     /// where `deriv_p[m]` / `deriv_m[m]` is the order-m derivative at x = +1 / -1.
     /// No parity is assumed, so this holds for functions without definite
-    /// parity (`symm == 0`, e.g. from `compute_sve_general`); for a function
+    /// parity (`symm == 0`, e.g. from the full-domain SVE (`SVEOptions::full_domain`)); for a function
     /// of parity `(-1)^l` it reduces to the one-sided form with
     /// `u^(m)(-1) = (-1)^(l+m) u^(m)(+1)`.
     fn power_moments(deriv_p: &[f64], deriv_m: &[f64]) -> Vec<f64> {

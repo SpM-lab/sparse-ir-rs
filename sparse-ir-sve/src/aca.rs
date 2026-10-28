@@ -337,8 +337,8 @@ fn next_pivot_row<T: ComplexField>(used: &[bool], u: Option<&Vec<T>>) -> Option<
 /// can underestimate the residual, so singular values close to `rtol` are not
 /// reliable: callers must take `rtol` well below the accuracy they need, as
 /// the SVE does with its default `2ε` and, in
-/// [`crate::sve::compute_sve_for_basis`], through
-/// [`crate::sve::BASIS_CUTOFF_FACTOR`], whose value was validated with this
+/// [`crate::sve::SVEOptions::cutoff_from_epsilon`], through
+/// [`crate::sve::ACCURACY_CUTOFF_FACTOR`], whose value was validated with this
 /// stopping rule; changing either (the norm estimate, the redo check,
 /// `OVERSAMPLE`) requires checking the SVE accuracy again.
 ///

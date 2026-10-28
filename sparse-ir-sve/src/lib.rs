@@ -134,5 +134,5 @@ pub use kernel::{
 pub use matrix::{Mat, Mat3};
 pub use numeric::CustomNumeric;
 pub use poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
-pub use sve::{SVEResult, TworkType, compute_sve, sve_residual};
+pub use sve::{SVEOptions, SVEResult, TworkType, compute_sve, compute_sve_with, sve_residual};
 pub use xprec::Df64;

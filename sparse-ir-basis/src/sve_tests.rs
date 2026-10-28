@@ -8,7 +8,9 @@ use crate::kernel::{
     AbstractKernel, BasisKernel, LogisticKernel, LogisticKernelWindowed, RegularizedBoseKernel,
     SVEKernel,
 };
-use crate::sve::{SVEResult, TworkType, compute_sve, compute_sve_dense, compute_sve_general};
+use crate::sve::{
+    SVEOptions, SVEResult, TworkType, compute_sve, compute_sve_dense, compute_sve_with,
+};
 
 /// Assert that an SVE satisfies k(x, y) = sum_l s_l u_l(x) v_l(y)
 ///
@@ -215,22 +217,43 @@ fn test_compute_sve_global_index_matches_parity() {
     }
 }
 
-/// `compute_sve_general` reconstructs centrosymmetric kernels on the full
+/// the full-domain SVE reconstructs centrosymmetric kernels on the full
 /// domain `[-1, 1] x [-1, 1]` to the same tolerances as the `compute_sve`
 /// decomposition tests above (issue #246)
 #[test]
-fn test_compute_sve_general_reconstructs_centrosymmetric_kernels() {
+fn test_full_domain_sve_reconstructs_centrosymmetric_kernels() {
     let kernel = LogisticKernel::new(100.0).unwrap();
-    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let sve = compute_sve_with(
+        kernel,
+        &SVEOptions::new()
+            .epsilon(1e-6)
+            .twork(TworkType::Auto)
+            .full_domain(true),
+    )
+    .unwrap();
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6 * 200.0);
 
     // TworkType::Auto selects Float64X2 for this epsilon.
     let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve_general(kernel, Some(1e-10), None, None, TworkType::Auto).unwrap();
+    let sve = compute_sve_with(
+        kernel,
+        &SVEOptions::new()
+            .epsilon(1e-10)
+            .twork(TworkType::Auto)
+            .full_domain(true),
+    )
+    .unwrap();
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-10 * 200.0);
 
     let kernel = RegularizedBoseKernel::new(100.0).unwrap();
-    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
+    let sve = compute_sve_with(
+        kernel,
+        &SVEOptions::new()
+            .epsilon(1e-6)
+            .twork(TworkType::Auto)
+            .full_domain(true),
+    )
+    .unwrap();
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6);
 }
 
@@ -277,12 +300,12 @@ fn working_machine_epsilon(twork: TworkType) -> f64 {
     }
 }
 
-/// Checks the SVE of `compute_sve` (or, with `full_domain`,
-/// `compute_sve_general`) against the SVE by the dense CPQR-based SVD of the
+/// Checks the SVE of `compute_sve` (or, with `full_domain`, that over the
+/// full domain) against the SVE by the dense CPQR-based SVD of the
 /// fully formed blocks (`compute_sve_dense`), the method of both before the
 /// ACA
 ///
-/// In f64, and in `compute_sve_general` of a centrosymmetric kernel, they use
+/// In f64, and over the full domain of a centrosymmetric kernel, they use
 /// that method: the SVEs are identical. Otherwise, in Df64, they take the
 /// block SVDs by ACA. The CPQR SVE is accurate only to the working precision
 /// ε_w relative to s₀, so the singular values are compared to 64·ε_w·s₀
@@ -298,11 +321,16 @@ where
     K: BasisKernel,
 {
     let sve = if full_domain {
-        compute_sve_general(kernel.clone(), Some(eps), None, None, twork).unwrap()
+        let options = SVEOptions::new()
+            .epsilon(eps)
+            .twork(twork)
+            .full_domain(true);
+        compute_sve_with(kernel.clone(), &options).unwrap()
     } else {
         compute_sve(kernel.clone(), Some(eps), None, None, twork).unwrap()
     };
-    let identical = twork == TworkType::Float64 || (full_domain && kernel.is_centrosymmetric());
+    let identical =
+        twork == TworkType::Float64 || (full_domain && kernel.implements_reduced_kernel());
     let dense = compute_sve_dense(kernel, Some(eps), twork, full_domain).unwrap();
     let case = format!("{twork:?}, full_domain = {full_domain}");
     if identical {
