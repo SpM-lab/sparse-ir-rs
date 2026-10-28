@@ -13,7 +13,7 @@ pub mod sve {
     pub use crate::sve::strategy::{
         CentrosymmSVE, KernelBlock, NonCentrosymmSVE, SVEStrategy, SamplingSVE,
     };
-    pub use crate::sve::utils::mirror_segments_to_full_domain;
+    pub use crate::sve::utils::{half_domain_segments, mirror_segments_to_full_domain};
 }
 
 /// Kernel matrices on the Gauss points of the SVE

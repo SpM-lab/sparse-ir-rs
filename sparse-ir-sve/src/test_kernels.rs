@@ -35,10 +35,6 @@ impl AbstractKernel for ExpKernel {
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
         (T::from_f64_unchecked(self.a) * x * y).exp()
     }
-
-    fn is_centrosymmetric(&self) -> bool {
-        true
-    }
 }
 
 impl ReducedKernel for ExpKernel {
@@ -163,10 +159,6 @@ pub(crate) struct AsymmetricDomainExpKernel(pub(crate) ExpKernel);
 impl AbstractKernel for AsymmetricDomainExpKernel {
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
         self.0.compute(x, y)
-    }
-
-    fn is_centrosymmetric(&self) -> bool {
-        true
     }
 }
 

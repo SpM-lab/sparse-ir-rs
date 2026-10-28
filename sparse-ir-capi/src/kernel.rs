@@ -295,17 +295,17 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_x(
     let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
 
-        // Get SVE hints based on kernel type
+        // The half [0, 1] of the hints of these centrosymmetric kernels
         let segs = match kernel.inner() {
             crate::types::KernelType::Logistic(k) => {
                 use sparse_ir::kernel::SVEKernel;
                 let hints = k.sve_hints::<f64>(epsilon);
-                hints.segments_x()
+                sparse_ir::sve::half_domain_segments(&hints.segments_x())
             }
             crate::types::KernelType::RegularizedBose(k) => {
                 use sparse_ir::kernel::SVEKernel;
                 let hints = k.sve_hints::<f64>(epsilon);
-                hints.segments_x()
+                sparse_ir::sve::half_domain_segments(&hints.segments_x())
             }
         };
 
@@ -371,17 +371,17 @@ pub extern "C" fn spir_kernel_get_sve_hints_segments_y(
     let result = crate::ffi_call(|| unsafe {
         let kernel = &*k;
 
-        // Get SVE hints based on kernel type
+        // The half [0, 1] of the hints of these centrosymmetric kernels
         let segs = match kernel.inner() {
             crate::types::KernelType::Logistic(k) => {
                 use sparse_ir::kernel::SVEKernel;
                 let hints = k.sve_hints::<f64>(epsilon);
-                hints.segments_y()
+                sparse_ir::sve::half_domain_segments(&hints.segments_y())
             }
             crate::types::KernelType::RegularizedBose(k) => {
                 use sparse_ir::kernel::SVEKernel;
                 let hints = k.sve_hints::<f64>(epsilon);
-                hints.segments_y()
+                sparse_ir::sve::half_domain_segments(&hints.segments_y())
             }
         };
 

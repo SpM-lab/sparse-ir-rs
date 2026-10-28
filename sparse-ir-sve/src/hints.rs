@@ -15,8 +15,8 @@ use std::fmt::Debug;
 /// The boundaries are given on the full domain `[xmin, xmax] × [ymin, ymax]`
 /// of the kernel, whether it is centrosymmetric or not. A centrosymmetric
 /// kernel is discretized on `[0, xmax] × [0, ymax]` and the mirror images of
-/// its segments ([`SVEHints`]): its hints keep the boundaries in `[0, xmax]`
-/// (`[0, ymax]`), with 0 added if it is not one of them.
+/// its segments ([`SVEHints`]): the boundaries in `(0, xmax]` (`(0, ymax]`),
+/// with 0 added if it is not one of them.
 ///
 /// The accuracy of the SVE depends on the segments: on each of them, the
 /// kernel must be resolved by polynomials of degree `ngauss - 1` in each
@@ -71,9 +71,9 @@ use std::fmt::Debug;
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct SegmentHints {
-    /// Boundaries on x, on `[0, xmax]` for a centrosymmetric kernel
+    /// Boundaries on x
     segments_x: Vec<f64>,
-    /// Boundaries on y, on `[0, ymax]` for a centrosymmetric kernel
+    /// Boundaries on y
     segments_y: Vec<f64>,
     /// Gauss points per segment
     ngauss: usize,
@@ -104,10 +104,9 @@ impl SegmentHints {
         }
         check_segments("segments_x", segments_x, kernel.xmin(), kernel.xmax())?;
         check_segments("segments_y", segments_y, kernel.ymin(), kernel.ymax())?;
-        let half = kernel.is_centrosymmetric();
         Ok(Self {
-            segments_x: discretized_part(segments_x, half),
-            segments_y: discretized_part(segments_y, half),
+            segments_x: segments_x.to_vec(),
+            segments_y: segments_y.to_vec(),
             ngauss,
         })
     }
@@ -191,17 +190,6 @@ fn check_segments(name: &'static str, segments: &[f64], min: f64, max: f64) -> R
     Ok(())
 }
 
-/// The boundaries the SVE discretizes: all of them, or those in `[0, max]`
-/// with 0 first for the half domain of a centrosymmetric kernel
-fn discretized_part(segments: &[f64], half: bool) -> Vec<f64> {
-    if !half {
-        return segments.to_vec();
-    }
-    std::iter::once(0.0)
-        .chain(segments.iter().copied().filter(|&s| s > 0.0))
-        .collect()
-}
-
 impl<T> SVEHints<T> for SegmentHints
 where
     T: Copy + Debug + Send + Sync + CustomNumeric,
@@ -220,9 +208,9 @@ where
             .collect()
     }
 
-    /// The number of singular values the discretization can resolve (per
-    /// even or odd block of a centrosymmetric kernel), at most `ngauss` per
-    /// segment on the axis with fewer segments; the SVE does not use it
+    /// The number of singular values the discretization can resolve, at
+    /// most `ngauss` per segment on the axis with fewer segments; the SVE
+    /// does not use it
     fn nsvals(&self) -> usize {
         let segments = (self.segments_x.len()).min(self.segments_y.len()) - 1;
         self.ngauss * segments

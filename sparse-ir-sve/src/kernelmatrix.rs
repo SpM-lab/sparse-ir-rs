@@ -148,8 +148,9 @@ pub fn matrix_from_gauss_with_segments<
     symmetry: SymmetryType,
     hints: &H,
 ) -> DiscretizedKernel<T> {
-    let segments_x = hints.segments_x();
-    let segments_y = hints.segments_y();
+    // The reduced kernel lives on [0, xmax] x [0, ymax]
+    let segments_x = crate::sve::utils::half_domain_segments(&hints.segments_x());
+    let segments_y = crate::sve::utils::half_domain_segments(&hints.segments_y());
 
     // TODO: Fix range checking for composite Gauss rules
     // For now, skip range checking to allow testing

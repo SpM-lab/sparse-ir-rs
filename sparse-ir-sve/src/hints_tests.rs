@@ -51,19 +51,29 @@ fn segments(hints: &SegmentHints) -> (Vec<f64>, Vec<f64>) {
     )
 }
 
-/// A centrosymmetric kernel is discretized on the boundaries in [0, xmax],
-/// with 0 added where it is not one of them
+/// The hints keep the boundaries of the full domain; the SVE of a
+/// centrosymmetric kernel discretizes those in (0, xmax], with 0 added where
+/// it is not one of them
 #[test]
-fn test_centrosymmetric_kernel_keeps_the_half_domain() {
+fn test_centrosymmetric_kernel_discretizes_the_half_domain() {
+    use crate::sve::utils::half_domain_segments;
+    let half = |s: &[f64]| half_domain_segments(s);
+
     let kernel = ExpKernel::new(1.0);
     let hints = SegmentHints::uniform(&kernel, 4, 2, 16).unwrap();
-    assert_eq!(segments(&hints), (vec![0.0, 0.5, 1.0], vec![0.0, 1.0]));
+    let (x, y) = segments(&hints);
+    assert_eq!(
+        (x.clone(), y.clone()),
+        (vec![-1.0, -0.5, 0.0, 0.5, 1.0], vec![-1.0, 0.0, 1.0])
+    );
+    assert_eq!((half(&x), half(&y)), (vec![0.0, 0.5, 1.0], vec![0.0, 1.0]));
 
     let hints = SegmentHints::uniform(&kernel, 3, 3, 16).unwrap();
-    assert_eq!(segments(&hints).0, vec![0.0, 1.0 / 3.0, 1.0]);
+    assert_eq!(half(&segments(&hints).0), vec![0.0, 1.0 / 3.0, 1.0]);
 
     let hints = SegmentHints::new(&kernel, &[-1.0, -0.2, 0.7, 1.0], &[-1.0, 1.0], 8).unwrap();
-    assert_eq!(segments(&hints), (vec![0.0, 0.7, 1.0], vec![0.0, 1.0]));
+    assert_eq!(segments(&hints).0, vec![-1.0, -0.2, 0.7, 1.0]);
+    assert_eq!(half(&segments(&hints).0), vec![0.0, 0.7, 1.0]);
 }
 
 /// Other kernels are discretized on all the boundaries

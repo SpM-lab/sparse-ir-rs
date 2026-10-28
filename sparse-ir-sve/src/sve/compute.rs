@@ -330,7 +330,9 @@ where
     /// Not for a centrosymmetric kernel: its full-domain block holds the
     /// even and odd spectra interleaved in nearly degenerate pairs, where
     /// the ACA missed up to 5 singular values near the cutoff (logistic,
-    /// Λ = 1e5 and 1e6, ε = 1e-15)
+    /// Λ = 1e5 and 1e6, ε = 1e-15). A kernel of any type tells its symmetry
+    /// only by `is_centrosymmetric`.
+    #[allow(deprecated)]
     fn aca(&self) -> bool {
         !self.0.is_centrosymmetric()
     }

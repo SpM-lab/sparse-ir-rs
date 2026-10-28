@@ -41,24 +41,17 @@ pub trait SVEHints<T>: Debug + Send + Sync
 where
     T: Copy + Debug + Send + Sync,
 {
-    /// Get the x-axis segments for discretization
+    /// Segment boundaries on x: strictly increasing from `xmin` to `xmax`
     ///
-    /// For centrosymmetric kernels, returns only positive values (x >= 0) including the endpoints.
-    /// The returned vector contains segments from [0, xmax] where xmax is the
-    /// upper bound of the x domain.
-    ///
-    /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [xmin, xmax].
+    /// The SVE of a centrosymmetric kernel ([`ReducedKernel`]) discretizes
+    /// the half `[0, xmax]`: the boundaries in `(0, xmax]` with 0 added. The
+    /// mirror images of these are its boundaries on `[-xmax, 0]`.
     fn segments_x(&self) -> Vec<T>;
 
-    /// Get the y-axis segments for discretization
+    /// Segment boundaries on y: strictly increasing from `ymin` to `ymax`
     ///
-    /// For centrosymmetric kernels, returns only positive values (y >= 0) including the endpoints.
-    /// The returned vector contains segments from [0, ymax] where ymax is the
-    /// upper bound of the y domain.
-    ///
-    /// For non-centrosymmetric kernels, returns segments covering the full domain
-    /// [ymin, ymax].
+    /// The SVE of a centrosymmetric kernel ([`ReducedKernel`]) discretizes
+    /// the half `[0, ymax]`, as for [`Self::segments_x`].
     fn segments_y(&self) -> Vec<T>;
 
     /// Get the number of singular values hint
@@ -125,16 +118,14 @@ pub trait AbstractKernel: Send + Sync {
     /// The kernel value K(x, y)
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T;
 
-    /// Check if the kernel is centrosymmetric
+    /// Whether the kernel is centrosymmetric
     ///
-    /// Returns true if and only if the domain is symmetric and
-    /// K(x, y) == K(-x, -y) for all values of x and y. This allows the kernel
-    /// to be block-diagonalized, speeding up the singular value expansion by a
-    /// factor of 4.
-    ///
-    /// # Returns
-    ///
-    /// True if the kernel is centrosymmetric, false otherwise.
+    /// The SVE exploits the symmetry of the kernels that implement
+    /// [`ReducedKernel`]. Only `compute_sve_general`, which takes any kernel,
+    /// reads this, to keep the dense decomposition for a centrosymmetric
+    /// kernel.
+    #[deprecated(note = "a kernel is centrosymmetric when it implements ReducedKernel")]
+    #[doc(hidden)]
     fn is_centrosymmetric(&self) -> bool {
         false
     }
@@ -144,7 +135,7 @@ pub trait AbstractKernel: Send + Sync {
 ///
 /// Centrosymmetric kernels satisfy K(x, y) = K(-x, -y) on a symmetric domain
 /// and can be decomposed into even and odd components for efficient
-/// computation. Their [`AbstractKernel::is_centrosymmetric`] returns true.
+/// computation.
 pub trait ReducedKernel: AbstractKernel {
     /// Compute the reduced kernel value
     ///
@@ -219,12 +210,6 @@ mod tests {
         fn is_centrosymmetric(&self) -> bool {
             false
         }
-    }
-
-    #[test]
-    fn test_noncentrosymm_kernel_is_centrosymmetric() {
-        let kernel = SimpleNonCentrosymmKernel::new(10.0);
-        assert!(!kernel.is_centrosymmetric());
     }
 
     #[test]

@@ -45,10 +45,6 @@
 //!     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
 //!         (x * y).exp()
 //!     }
-//!
-//!     fn is_centrosymmetric(&self) -> bool {
-//!         true
-//!     }
 //! }
 //!
 //! impl ReducedKernel for ExpKernel {

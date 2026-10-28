@@ -456,7 +456,6 @@ fn test_sve_of_kernel_with_zero_rows() {
 #[test]
 fn test_compute_sve_general_non_centrosymmetric_kernel() {
     let kernel = TiltedExpKernel(ExpKernel::new(10.0));
-    assert!(!kernel.is_centrosymmetric());
     let epsilon = 1e-6;
     let sve = compute_sve_general(kernel, Some(epsilon), None, None, TworkType::Float64).unwrap();
 
@@ -1143,6 +1142,7 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
 /// the comparison is over the values a basis for ε uses (s_l ≥ ε·s₀, plus
 /// one more), where they agree to 1e-15 and 1e-14 (measured: 1.4e-16 and
 /// 1.2e-15).
+#[allow(deprecated)] // is_centrosymmetric, which compute_sve_general reads
 fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType, full_domain: bool)
 where
     K: SVEStrategyKernel,

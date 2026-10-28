@@ -29,7 +29,6 @@ fn windowed_kernel_dimensionless_params() {
     assert_eq!(k.ymax(), 1.0);
     assert_eq!(k.ymin(), -0.2);
     assert_eq!((k.xmin(), k.xmax()), (-1.0, 1.0));
-    assert!(!k.is_centrosymmetric());
 
     // omega_min-dominant window: wmax = |omega_min|
     let k = windowed(20.0, -1.0, 0.3);

@@ -1578,8 +1578,8 @@ mod tests {
 
         // Get SVE hints
         let hints = kernel.sve_hints::<f64>(epsilon);
-        let segments_x = hints.segments_x();
-        let segments_y = hints.segments_y();
+        let segments_x = sparse_ir::sve::half_domain_segments(&hints.segments_x());
+        let segments_y = sparse_ir::sve::half_domain_segments(&hints.segments_y());
         let n_gauss = hints.ngauss();
 
         // Create Gauss rules for reduced domain [0, xmax] x [0, ymax]
@@ -1797,7 +1797,8 @@ mod tests {
 
         let kernel = LogisticKernel::new(MATRICES_LAMBDA).unwrap();
         let hints = kernel.sve_hints::<f64>(MATRICES_EPSILON);
-        let (segs_x, segs_y) = (hints.segments_x(), hints.segments_y());
+        let half = sparse_ir::sve::half_domain_segments::<f64>;
+        let (segs_x, segs_y) = (half(&hints.segments_x()), half(&hints.segments_y()));
         let rule = legendre::<f64>(hints.ngauss());
         let (gauss_x, gauss_y) = (
             rule.piecewise(&segs_x).unwrap(),

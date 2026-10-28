@@ -7,12 +7,11 @@ use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gaus
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use crate::poly::PiecewiseLegendrePolyVector;
-use std::fmt::Debug;
 
 use super::result::SVEResult;
 use super::utils::{
-    SvdBlock, canonicalize_signs, extend_to_full_domain, merge_blocks,
-    mirror_segments_to_full_domain, remove_weights, svd_to_polynomials,
+    SvdBlock, canonicalize_signs, extend_to_full_domain, half_domain_segments, merge_blocks,
+    remove_weights, svd_to_polynomials,
 };
 
 /// A discretized, weighted kernel matrix `A[i, j] = K(x_i, y_j) √w_i √w'_j`
@@ -269,9 +268,10 @@ where
         }
         let hints = kernel.sve_hints::<T>(epsilon);
 
-        // Get segments for positive domain [0, xmax]
-        let segments_x = hints.segments_x();
-        let segments_y = hints.segments_y();
+        // The half [0, xmax] x [0, ymax] of the segments; the even and odd
+        // blocks hold their mirror images
+        let segments_x = half_domain_segments(&hints.segments_x());
+        let segments_y = half_domain_segments(&hints.segments_y());
         let n_gauss = hints.ngauss();
 
         // Create composite Gauss rules
@@ -387,62 +387,14 @@ where
     }
 }
 
-/// SVE hints of a kernel expressed on its full domain `[xmin, xmax] × [ymin, ymax]`
-///
-/// [`SVEHints`] reports the segments of a centrosymmetric kernel on the
-/// half-domain `[0, xmax] × [0, ymax]` only, which is what [`CentrosymmSVE`]
-/// discretizes. [`NonCentrosymmSVE`] discretizes the full domain, so for a
-/// centrosymmetric kernel this wrapper mirrors the half-domain segments onto
-/// the full domain; the segments of other kernels already cover the full
-/// domain and are passed through unchanged.
-#[derive(Debug, Clone)]
-struct FullDomainHints<H> {
-    inner: H,
-    /// Whether `inner` reports half-domain segments (centrosymmetric kernel)
-    half_domain: bool,
-}
-
-impl<H> FullDomainHints<H> {
-    fn full_domain<T: CustomNumeric>(&self, segments: Vec<T>) -> Vec<T> {
-        if self.half_domain {
-            mirror_segments_to_full_domain(&segments)
-        } else {
-            segments
-        }
-    }
-}
-
-impl<T, H> SVEHints<T> for FullDomainHints<H>
-where
-    T: Copy + Debug + Send + Sync + CustomNumeric,
-    H: SVEHints<T>,
-{
-    fn segments_x(&self) -> Vec<T> {
-        self.full_domain(self.inner.segments_x())
-    }
-
-    fn segments_y(&self) -> Vec<T> {
-        self.full_domain(self.inner.segments_y())
-    }
-
-    fn nsvals(&self) -> usize {
-        self.inner.nsvals()
-    }
-
-    fn ngauss(&self) -> usize {
-        self.inner.ngauss()
-    }
-}
-
 /// Non-centrosymmetric SVE computation
 ///
 /// This strategy computes the kernel matrix directly over the full domain
 /// [xmin, xmax] × [ymin, ymax] given by the kernel's [`SVEHints`]. No symmetry
 /// exploitation is performed, so it works for any kernel.
 ///
-/// Centrosymmetric kernels are also expanded correctly: their [`SVEHints`]
-/// segments cover only the half-domain `[0, xmax]` and are mirrored onto the
-/// full domain before discretization. The singular values then agree with
+/// Centrosymmetric kernels are also expanded correctly, on the same
+/// segments of the full domain. The singular values then agree with
 /// [`CentrosymmSVE`] up to rounding, but the SVD is taken of a single matrix
 /// with twice as many rows and columns as each even/odd block, and the
 /// singular functions carry no parity tag.
@@ -460,7 +412,7 @@ where
 {
     kernel: K,
     epsilon: f64,
-    hints: FullDomainHints<K::SVEHintsType<T>>,
+    hints: K::SVEHintsType<T>,
     n_gauss: usize,
 
     // Geometric information (full domain [-xmax, xmax])
@@ -486,12 +438,7 @@ where
     /// [`Error::InvalidParameter`] if the SVE hints of the kernel give
     /// segments that are not finite and strictly increasing
     pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
-        // SVEHints are half-domain for centrosymmetric kernels; this strategy
-        // needs the full domain (issue #246).
-        let hints = FullDomainHints {
-            inner: kernel.sve_hints::<T>(epsilon),
-            half_domain: kernel.is_centrosymmetric(),
-        };
+        let hints = kernel.sve_hints::<T>(epsilon);
 
         // Get segments for full domain [xmin, xmax], [ymin, ymax]
         let segments_x = hints.segments_x();

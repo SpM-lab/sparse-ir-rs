@@ -450,8 +450,9 @@ fn test_regularized_bose_kernel_discretized_matrix_y0() {
 
     // Get SVE hints to obtain segments and Gauss rules
     let hints = kernel.sve_hints::<f64>(epsilon);
-    let segments_x = hints.segments_x();
-    let segments_y = hints.segments_y();
+    // The half domain [0, 1] x [0, 1] of the reduced kernel
+    let segments_x = crate::sve::half_domain_segments(&hints.segments_x());
+    let segments_y = crate::sve::half_domain_segments(&hints.segments_y());
     let n_gauss = hints.ngauss();
 
     // Create composite Gauss rules

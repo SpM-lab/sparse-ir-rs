@@ -45,6 +45,14 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `KernelProperties`, `ReducedKernel` next to `CentrosymmKernel`, and, if it
   is not centrosymmetric, `SVEStrategyKernel` next to `BasisKernel`. Calling
   `xmax()` or `sve_hints()` on a concrete kernel needs `SVEKernel` in scope.
+- `SVEHints::segments_x` and `segments_y` return the segment boundaries of
+  the full domain `[xmin, xmax]` for every kernel, the centrosymmetric ones
+  included (`LogisticSVEHints` and `RegularizedBoseSVEHints` returned those
+  of `[0, 1]`); the SVE of a centrosymmetric kernel takes their half itself
+  (`sparse_ir::sve::half_domain_segments`). `AbstractKernel::is_centrosymmetric`
+  is deprecated: the SVE uses the symmetry of the kernels that implement
+  `ReducedKernel`. `spir_kernel_get_sve_hints_segments_x` and `_y` of the
+  C API are unchanged.
 - The functions of the SVE, the quadrature and the polynomials return
   `sparse_ir_sve::Error`, which converts into `sparse_ir::Error` (`?`,
   `From`).
