@@ -15,7 +15,7 @@
 
 use crate::error::Error;
 use crate::numeric::CustomNumeric;
-use crate::sve::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
+use crate::sve::strategy::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use std::fmt::Debug;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

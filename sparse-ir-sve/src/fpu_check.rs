@@ -15,7 +15,7 @@
 //! The [`FpuGuard`] RAII guard automatically saves, corrects, and restores FPU state:
 //!
 //! ```
-//! use sparse_ir_sve::fpu_check::FpuGuard;
+//! use sparse_ir_sve::unstable::fpu_check::FpuGuard;
 //!
 //! let _guard = FpuGuard::new_protect_computation();
 //! // Computation here - FZ/DAZ are disabled
@@ -220,7 +220,7 @@ impl FpuContext {
 /// # Example
 ///
 /// ```
-/// use sparse_ir_sve::fpu_check::{FpuGuard, get_fpu_state};
+/// use sparse_ir_sve::unstable::fpu_check::{FpuGuard, get_fpu_state};
 ///
 /// let before = get_fpu_state();
 /// {

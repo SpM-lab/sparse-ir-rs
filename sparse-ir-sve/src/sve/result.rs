@@ -1,6 +1,7 @@
 //! SVE result container
 
-use crate::error::{Error, require_nonzero_size, require_threshold};
+use crate::checks::{require_nonzero_size, require_threshold};
+use crate::error::Error;
 use crate::matrix::Mat;
 use crate::poly::PiecewiseLegendrePolyVector;
 

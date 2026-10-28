@@ -493,7 +493,7 @@ fn test_compute_sve_of_non_centrosymmetric_kernel_uses_full_domain() {
 /// symmetric part
 #[test]
 fn test_centrosymm_sve_rejects_asymmetric_domain() {
-    use super::CentrosymmSVE;
+    use crate::unstable::sve::CentrosymmSVE;
 
     let kernel = AsymmetricDomainExpKernel(ExpKernel::new(10.0));
     let expected = Error::InvalidParameter {
@@ -1147,7 +1147,7 @@ fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType, full_d
 where
     K: SVEStrategyKernel,
 {
-    use super::compute_sve_dense;
+    use crate::unstable::sve::compute_sve_dense;
 
     let sve = if full_domain {
         compute_sve_general(kernel.clone(), Some(eps), None, None, twork).unwrap()

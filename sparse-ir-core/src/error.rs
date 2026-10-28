@@ -273,33 +273,35 @@ fn invalid_matsubara_index_message(n: &i64, statistics: &Statistics) -> String {
 /// `Ok` if `value` is positive and finite
 #[doc(hidden)]
 pub fn require_positive_finite(name: &'static str, value: f64) -> Result<(), Error> {
-    Ok(sparse_ir_sve::error::require_positive_finite(name, value)?)
+    Ok(sparse_ir_sve::unstable::require_positive_finite(
+        name, value,
+    )?)
 }
 
 /// `Ok` if `value` is finite
 #[doc(hidden)]
 pub fn require_finite(name: &'static str, value: f64) -> Result<(), Error> {
-    Ok(sparse_ir_sve::error::require_finite(name, value)?)
+    Ok(sparse_ir_sve::unstable::require_finite(name, value)?)
 }
 
 /// `Ok` for an accuracy that selects the SVE: `None` (automatic) or a value
 /// in (0, 1)
 #[doc(hidden)]
 pub fn require_accuracy(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
-    Ok(sparse_ir_sve::error::require_accuracy(name, epsilon)?)
+    Ok(sparse_ir_sve::unstable::require_accuracy(name, epsilon)?)
 }
 
 /// `Ok` for a relative truncation threshold: `None` or a value in [0, 1),
 /// where 0 keeps every singular value
 #[doc(hidden)]
 pub fn require_threshold(name: &'static str, epsilon: Option<f64>) -> Result<(), Error> {
-    Ok(sparse_ir_sve::error::require_threshold(name, epsilon)?)
+    Ok(sparse_ir_sve::unstable::require_threshold(name, epsilon)?)
 }
 
 /// `Ok` unless `size` is `Some(0)`
 #[doc(hidden)]
 pub fn require_nonzero_size(name: &'static str, size: Option<usize>) -> Result<(), Error> {
-    Ok(sparse_ir_sve::error::require_nonzero_size(name, size)?)
+    Ok(sparse_ir_sve::unstable::require_nonzero_size(name, size)?)
 }
 
 /// Result type of the fallible public functions of this crate

@@ -41,7 +41,14 @@ pub mod polyfourier;
 pub mod special_functions;
 
 // The SVE and the numerics it is built on, under the paths of this crate
-pub use sparse_ir_sve::{gauss, kernelmatrix, numeric, poly, sve, tsvd};
+pub use sparse_ir_sve::unstable::{kernelmatrix, tsvd};
+pub use sparse_ir_sve::{gauss, numeric, poly};
+
+/// Singular value expansion (SVE) of the kernels, from `sparse-ir-sve`
+pub mod sve {
+    pub use sparse_ir_sve::sve::*;
+    pub use sparse_ir_sve::unstable::sve::*;
+}
 
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis, MatsubaraPointMethod};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};

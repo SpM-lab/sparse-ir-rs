@@ -13,22 +13,18 @@
 //!    via even/odd decomposition
 //! 4. **Composability**: Modular design allowing easy extension and testing
 
-mod compute;
+pub(crate) mod compute;
 mod residual;
 mod result;
-mod strategy;
+pub(crate) mod strategy;
 mod types;
 pub(crate) mod utils;
 
 // Re-export public API
-pub use compute::{
-    BASIS_CUTOFF_FACTOR, compute_sve, compute_sve_dense, compute_sve_for_basis, compute_sve_general,
-};
+pub use compute::{BASIS_CUTOFF_FACTOR, compute_sve, compute_sve_for_basis, compute_sve_general};
 pub use residual::sve_residual;
 pub use result::SVEResult;
-pub use strategy::{CentrosymmSVE, KernelBlock, NonCentrosymmSVE, SVEStrategy, SamplingSVE};
 pub use types::TworkType;
-pub use utils::mirror_segments_to_full_domain;
 
 #[cfg(test)]
 mod tests;

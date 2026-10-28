@@ -33,7 +33,12 @@ paths (`sparse_ir::basis`, `sparse_ir::dlr`, ...):
   which the one of `sparse-ir-core` turns on). Mathematics only: it defines
   no concrete kernel and knows nothing of statistics or Matsubara
   frequencies; its tests use kernels of their own (`test_kernels.rs`).
-  Depends on no other crate of the workspace.
+  Depends on no other crate of the workspace. What the other crates build
+  on but a user of the SVE does not need (the SVE strategies, kernel
+  matrices, truncated SVD, FPU guard, thread pool, parameter checks) is
+  public only under `sparse_ir_sve::unstable` (`unstable.rs`), outside its
+  semver guarantees; `sparse-ir-basis` and `sparse-ir-core` re-export it
+  under the previous paths.
 - **`sparse-ir-core/`** — statistics and Matsubara frequencies (`traits.rs`,
   `freq.rs`, `taufuncs.rs`), the error type (`error.rs`, which converts the
   errors of `sparse-ir-sve`), the GEMM dispatch layer (`gemm.rs`), the

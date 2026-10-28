@@ -1,6 +1,7 @@
 //! Main SVE computation functions
 
-use crate::error::{Error, require_accuracy, require_nonzero_size};
+use crate::checks::{require_accuracy, require_nonzero_size};
+use crate::error::Error;
 use crate::fpu_check::FpuGuard;
 use crate::kernel::{AbstractKernel, SVEKernel, SVEStrategyKernel};
 use crate::matrix::Mat;
@@ -95,7 +96,7 @@ fn release_unused_memory() {
 /// `[xmin, xmax] × [ymin, ymax]` ([`NonCentrosymmSVE`]).
 ///
 /// [`ReducedKernel`]: crate::kernel::ReducedKernel
-/// [`CentrosymmSVE`]: super::CentrosymmSVE
+/// [`CentrosymmSVE`]: crate::unstable::sve::CentrosymmSVE
 ///
 /// # Arguments
 ///

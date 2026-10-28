@@ -722,8 +722,8 @@ mod tests {
     /// singular vectors. In `f64` it declines.
     #[test]
     fn cholesky_recompression_matches_householder_df64() {
-        use crate::sve::{CentrosymmSVE, SVEStrategy};
         use crate::test_kernels::ExpKernel;
+        use crate::unstable::sve::{CentrosymmSVE, SVEStrategy};
 
         let kernel = ExpKernel { a: 10.0, nseg: 8 };
         let sve = CentrosymmSVE::<Df64, _>::new(kernel, 1e-12).unwrap();
@@ -827,8 +827,8 @@ mod tests {
     /// kernel here is one for which it holds.
     #[test]
     fn sum_of_squares_stop_matches_exact_norm() {
-        use crate::sve::{CentrosymmSVE, SVEStrategy};
         use crate::test_kernels::ExpKernel;
+        use crate::unstable::sve::{CentrosymmSVE, SVEStrategy};
 
         let kernel = ExpKernel { a: 20.0, nseg: 8 };
         let sve = CentrosymmSVE::<Df64, _>::new(kernel, 1e-12).unwrap();

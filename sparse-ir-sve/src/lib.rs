@@ -16,7 +16,7 @@
 //! In `f64`, [`compute_sve`] decomposes the discretized kernel by a dense
 //! column-pivoted QR; in double-double (`Df64`), where that is costly, by
 //! adaptive cross approximation (ACA), which reads only a few rows and
-//! columns of it. [`sve::compute_sve_dense`] takes the dense path in both,
+//! columns of it. [`unstable::sve::compute_sve_dense`] takes the dense path in both,
 //! to check the result on a new kernel.
 //!
 //! The crate is mathematics only: it defines no concrete kernel. The
@@ -106,23 +106,24 @@
 //! ```
 
 pub(crate) mod aca; // ACA-accelerated truncated SVD for the SVE kernel blocks
+mod checks; // Parameter checks, re-exported from `unstable`
 pub(crate) mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
 pub(crate) mod cost; // Work estimates for the threading decisions
 pub(crate) mod ddgemm; // Double-double matrix products
 pub mod error; // Error type of the public API
-pub mod fpu_check; // FPU state checking for Intel Fortran compatibility
+mod fpu_check; // FPU state checking for Intel Fortran compatibility
 pub mod gauss;
 pub mod hints;
 pub(crate) mod interpolation1d;
 pub mod kernel;
-pub mod kernelmatrix;
+mod kernelmatrix; // Kernel matrices on Gauss points
 pub mod matrix; // Column-major dense containers for internal numerics
 pub mod numeric;
-#[doc(hidden)]
-pub mod parallel; // Parallel execution on the rayon pool (internal)
+mod parallel; // Parallel execution on the rayon pool
 pub mod poly;
 pub mod sve;
-pub mod tsvd; // High-precision truncated SVD using nalgebra
+mod tsvd; // High-precision truncated SVD using nalgebra
+pub mod unstable; // Items for the other sparse-ir crates, outside semver
 
 // Kernels for the tests of this crate
 #[cfg(test)]
@@ -134,18 +135,8 @@ pub use hints::SegmentHints;
 pub use kernel::{
     AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType,
 };
-pub use kernelmatrix::{
-    DiscretizedKernel, matrix_from_gauss, matrix_from_gauss_noncentrosymmetric,
-    matrix_from_gauss_with_segments,
-};
 pub use matrix::{Mat, Mat3};
 pub use numeric::CustomNumeric;
 pub use poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
-pub use sve::{
-    CentrosymmSVE, KernelBlock, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,
-    sve_residual,
-};
-pub use tsvd::{
-    SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
-};
+pub use sve::{SVEResult, TworkType, compute_sve, sve_residual};
 pub use xprec::Df64;
