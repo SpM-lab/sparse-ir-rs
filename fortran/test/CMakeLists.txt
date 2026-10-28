@@ -30,6 +30,11 @@ foreach(TEST ${TEST_FILES})
 
     target_link_libraries(${TEST} PRIVATE sparseir_fortran)
 
+    # .TRUE. must be 1 in a LOGICAL(c_bool); see ../CMakeLists.txt
+    if(CMAKE_Fortran_COMPILER_ID MATCHES "Intel")
+        target_compile_options(${TEST} PRIVATE "SHELL:-fpscomp logicals")
+    endif()
+
     set_target_properties(${TEST} PROPERTIES
         Fortran_MODULE_DIRECTORY ${SPARSEIR_FORTRAN_MODDIR}
         BUILD_WITH_INSTALL_RPATH ON
