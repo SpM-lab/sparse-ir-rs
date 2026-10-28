@@ -1,5 +1,5 @@
 use super::*;
-use crate::kernel::{AbstractKernel, SVEStrategyKernel};
+use crate::kernel::{AbstractKernel, ExpandableKernel};
 use crate::sve::{TworkType, compute_sve};
 use crate::test_kernels::{ExpKernel, TiltedExpKernel};
 
@@ -42,7 +42,7 @@ impl SVEKernel for GaussianKernel {
     }
 }
 
-impl SVEStrategyKernel for GaussianKernel {}
+impl ExpandableKernel for GaussianKernel {}
 
 fn segments(hints: &SegmentHints) -> (Vec<f64>, Vec<f64>) {
     (

@@ -9,7 +9,7 @@
 //! [`AbstractKernel`] (its values) and [`SVEKernel`] (its domain and the
 //! discretization hints of its SVE). A centrosymmetric kernel implements
 //! [`ReducedKernel`] as well, whose SVE is block-diagonalized into the even
-//! and odd reduced kernels; any other kernel implements [`SVEStrategyKernel`]
+//! and odd reduced kernels; any other kernel implements [`ExpandableKernel`]
 //! (no methods), whose SVE is taken over the full domain. Either is what
 //! [`compute_sve`](crate::sve::compute_sve) accepts.
 
@@ -64,7 +64,7 @@ where
 /// The domain of a kernel and the discretization hints of its SVE
 ///
 /// This is what [`crate::sve::compute_sve`] needs of a kernel besides its
-/// values ([`AbstractKernel`]) and its strategy ([`SVEStrategyKernel`]).
+/// values ([`AbstractKernel`]) and its strategy ([`ExpandableKernel`]).
 pub trait SVEKernel: AbstractKernel {
     /// Associated type for SVE hints
     type SVEHintsType<T>: SVEHints<T> + Clone
@@ -149,15 +149,16 @@ pub trait ReducedKernel: AbstractKernel {
     ) -> T;
 }
 
-/// The kernels that [`compute_sve`](crate::sve::compute_sve) accepts, by the
-/// SVE strategy they choose
+/// The kernels whose SVE [`compute_sve`](crate::sve::compute_sve) computes
 ///
 /// Implemented for every [`ReducedKernel`], whose SVE is block-diagonalized
 /// into the even and odd reduced kernels. Other kernels implement it with
-/// no methods; their SVE is taken over the full domain
+/// no methods (`impl ExpandableKernel for MyKernel {}`; Rust cannot provide
+/// it for every kernel that is not a [`ReducedKernel`]); their SVE is taken
+/// over the full domain
 /// `[xmin, xmax] × [ymin, ymax]` and their singular functions have no
 /// definite parity.
-pub trait SVEStrategyKernel: SVEKernel + Clone + 'static {
+pub trait ExpandableKernel: SVEKernel + Clone + 'static {
     /// The SVE strategy of the kernel: the even/odd blocks for a
     /// [`ReducedKernel`], otherwise the full domain
     ///
@@ -173,7 +174,7 @@ pub trait SVEStrategyKernel: SVEKernel + Clone + 'static {
     }
 }
 
-impl<K> SVEStrategyKernel for K
+impl<K> ExpandableKernel for K
 where
     K: ReducedKernel + SVEKernel + Clone + 'static,
 {

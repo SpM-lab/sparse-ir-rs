@@ -36,14 +36,15 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `sparse-ir-sve`, and the physics of the basis. `AbstractKernel` (values),
   `SVEKernel` (domain and SVE hints, taken out of `KernelProperties`),
   `ReducedKernel` (`compute_reduced`, taken out of `CentrosymmKernel`) and
-  `SVEStrategyKernel` (the SVE strategy, taken out of `BasisKernel`) come
+  `ExpandableKernel` (the kernels `compute_sve` expands, by their symmetry,
+  taken out of `BasisKernel`) come
   from `sparse-ir-sve`; `KernelProperties` (`ypower`, `conv_radius`,
   `regularizer`), `CentrosymmKernel` (`lambda`) and `BasisKernel`
   (`kernel_lambda`) stay in `sparse-ir-basis`, each extending the trait it
   was split from. Code that bounds on these traits is unchanged; a kernel
   defined outside the crates implements `SVEKernel` next to
   `KernelProperties`, `ReducedKernel` next to `CentrosymmKernel`, and, if it
-  is not centrosymmetric, `SVEStrategyKernel` next to `BasisKernel`. Calling
+  is not centrosymmetric, `ExpandableKernel` next to `BasisKernel`. Calling
   `xmax()` or `sve_hints()` on a concrete kernel needs `SVEKernel` in scope.
 - `SVEHints::segments_x` and `segments_y` return the segment boundaries of
   the full domain `[xmin, xmax]` for every kernel, the centrosymmetric ones

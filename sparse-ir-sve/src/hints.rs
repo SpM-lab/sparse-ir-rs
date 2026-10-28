@@ -26,7 +26,7 @@ use std::fmt::Debug;
 /// # Example
 ///
 /// ```
-/// use sparse_ir_sve::{AbstractKernel, CustomNumeric, SVEKernel, SVEStrategyKernel, SegmentHints};
+/// use sparse_ir_sve::{AbstractKernel, CustomNumeric, SVEKernel, ExpandableKernel, SegmentHints};
 /// use std::fmt::Debug;
 ///
 /// /// K(x, y) = exp(-(x - y)²) on [-1, 1] × [0, 2]
@@ -67,7 +67,7 @@ use std::fmt::Debug;
 /// }
 ///
 /// // Not centrosymmetric: the SVE is taken over the full domain
-/// impl SVEStrategyKernel for Gaussian {}
+/// impl ExpandableKernel for Gaussian {}
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct SegmentHints {

@@ -772,8 +772,8 @@ fn test_default_matsubara_points_are_reused() {
 #[test]
 fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
     use crate::kernel::{
-        AbstractKernel, BasisKernel, KernelProperties, LogisticSVEHints, SVEKernel,
-        SVEStrategyKernel,
+        AbstractKernel, BasisKernel, ExpandableKernel, KernelProperties, LogisticSVEHints,
+        SVEKernel,
     };
     use crate::numeric::CustomNumeric;
     use crate::traits::StatisticsType;
@@ -825,7 +825,7 @@ fn test_basis_rejects_a_kernel_x_domain_other_than_unit() {
         }
     }
 
-    impl SVEStrategyKernel for WideX {}
+    impl ExpandableKernel for WideX {}
 
     impl BasisKernel for WideX {
         fn kernel_lambda(&self) -> f64 {

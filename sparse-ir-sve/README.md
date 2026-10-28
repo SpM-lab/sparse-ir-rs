@@ -8,7 +8,7 @@ on statistics or Matsubara frequencies, so it can expand other kernels as well.
 - `compute_sve` expands a kernel that implements `AbstractKernel` (its values
   K(x, y)), `SVEKernel` (its domain and the quadrature segments of its SVE)
   and either `ReducedKernel` (a centrosymmetric kernel, expanded in even and
-  odd blocks) or `SVEStrategyKernel` (any other kernel, expanded over its
+  odd blocks) or `ExpandableKernel` (any other kernel, expanded over its
   full domain).
 - `SegmentHints` discretizes a kernel on given segments (or segments of equal
   length) of its domain, so that a kernel needs no hints type of its own.

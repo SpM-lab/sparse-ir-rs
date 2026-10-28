@@ -3,7 +3,7 @@
 use crate::checks::{require_accuracy, require_nonzero_size};
 use crate::error::Error;
 use crate::fpu_check::FpuGuard;
-use crate::kernel::{AbstractKernel, SVEKernel, SVEStrategyKernel};
+use crate::kernel::{AbstractKernel, ExpandableKernel, SVEKernel};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 
@@ -88,7 +88,7 @@ fn release_unused_memory() {
 
 /// Main SVE computation function
 ///
-/// Chooses the SVE strategy from the kernel ([`SVEStrategyKernel`]) and the
+/// Chooses the SVE strategy from the kernel ([`ExpandableKernel`]) and the
 /// working precision from epsilon. A centrosymmetric kernel
 /// ([`ReducedKernel`]) is block-diagonalized into its even and odd reduced
 /// kernels ([`CentrosymmSVE`]), whose singular functions have definite
@@ -139,7 +139,7 @@ pub fn compute_sve<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     compute_sve_impl(
         KernelDomain(kernel),
@@ -185,7 +185,7 @@ pub fn compute_sve_for_basis<K>(
     twork: TworkType,
 ) -> Result<SVEResult, Error>
 where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     compute_sve_impl(
         KernelDomain(kernel),
@@ -296,11 +296,11 @@ trait StrategyOf {
     fn aca(&self) -> bool;
 }
 
-/// The strategy of the kernel ([`SVEStrategyKernel::sve_strategy`]): the
+/// The strategy of the kernel ([`ExpandableKernel::sve_strategy`]): the
 /// even/odd blocks of a centrosymmetric kernel, otherwise the full domain
 struct KernelDomain<K>(K);
 
-impl<K: SVEStrategyKernel> StrategyOf for KernelDomain<K> {
+impl<K: ExpandableKernel> StrategyOf for KernelDomain<K> {
     fn strategy<T>(self, epsilon: f64) -> Result<Box<dyn SVEStrategy<T>>, Error>
     where
         T: CustomNumeric + Send + Sync + Clone + 'static,
@@ -491,12 +491,12 @@ pub fn compute_sve_dense<K>(
     full_domain: bool,
 ) -> Result<SVEResult, Error>
 where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     fn run<T, K>(kernel: K, epsilon: f64, full_domain: bool) -> Result<SVEResult, Error>
     where
         T: CustomNumeric + Send + Sync + Clone + 'static,
-        K: SVEStrategyKernel,
+        K: ExpandableKernel,
     {
         let sve = if full_domain {
             FullDomain(kernel).strategy::<T>(epsilon)?

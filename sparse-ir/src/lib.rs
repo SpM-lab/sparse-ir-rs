@@ -36,14 +36,14 @@ pub use sparse_ir_minipole::{esprit, minipole};
 pub use sparse_ir_basis::{
     AbstractKernel, BasisKernel, BosonicBasis, BosonicPiecewiseLegendreFT,
     BosonicPiecewiseLegendreFTVector, CentrosymmKernel, CentrosymmSVE, CustomNumeric, Df64,
-    DiscretizedKernel, DlrFromIr, FermionicBasis, FermionicPiecewiseLegendreFT,
+    DiscretizedKernel, DlrFromIr, ExpandableKernel, FermionicBasis, FermionicPiecewiseLegendreFT,
     FermionicPiecewiseLegendreFTVector, FiniteTempBasis, IrBasis, KernelBlock, KernelProperties,
     LogisticKernel, LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints,
     MatsubaraPointMethod, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PiecewiseLegendrePoly,
     PiecewiseLegendrePolyVector, PowerModel, ReducedKernel, RegularizedBoseKernel,
     RegularizedBoseSVEHints, Rule, SVDResult, SVEHints, SVEKernel, SVEResult, SVEStrategy,
-    SVEStrategyKernel, SamplingSVE, SymmetryType, TSVDConfig, TworkType, compute_logistic_kernel,
-    compute_sve, legendre, legendre_custom, legendre_twofloat, matrix_from_gauss,
+    SamplingSVE, SymmetryType, TSVDConfig, TworkType, compute_logistic_kernel, compute_sve,
+    legendre, legendre_custom, legendre_twofloat, matrix_from_gauss,
     matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments, svd_decompose,
     tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
 };

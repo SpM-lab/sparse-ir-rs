@@ -9,7 +9,7 @@
 //! A kernel implements [`AbstractKernel`] (its values) and [`SVEKernel`] (its
 //! domain and the discretization hints of its SVE), and either
 //! [`ReducedKernel`] (a centrosymmetric kernel, through its even and odd
-//! reduced kernels) or [`SVEStrategyKernel`] (any other kernel, no methods);
+//! reduced kernels) or [`ExpandableKernel`] (any other kernel, no methods);
 //! [`compute_sve`] then returns its singular values and singular functions
 //! ([`SVEResult`]).
 //!
@@ -129,7 +129,7 @@ pub use error::{Error, Result};
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
 pub use hints::SegmentHints;
 pub use kernel::{
-    AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType,
+    AbstractKernel, ExpandableKernel, ReducedKernel, SVEHints, SVEKernel, SymmetryType,
 };
 pub use matrix::{Mat, Mat3};
 pub use numeric::CustomNumeric;

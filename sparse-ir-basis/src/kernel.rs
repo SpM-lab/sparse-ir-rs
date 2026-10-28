@@ -25,7 +25,7 @@ use crate::traits::{Statistics, StatisticsType};
 use std::fmt::Debug;
 
 pub use sparse_ir_sve::kernel::{
-    AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType,
+    AbstractKernel, ExpandableKernel, ReducedKernel, SVEHints, SVEKernel, SymmetryType,
 };
 
 /// Trait for centrosymmetric kernels
@@ -44,12 +44,12 @@ pub trait CentrosymmKernel: ReducedKernel {
 /// Implemented for every [`CentrosymmKernel`], whose SVE is
 /// block-diagonalized into the even and odd reduced kernels, and for
 /// [`LogisticKernelWindowed`]. Other kernels implement
-/// [`BasisKernel::kernel_lambda`] and [`SVEStrategyKernel`] (no methods);
+/// [`BasisKernel::kernel_lambda`] and [`ExpandableKernel`] (no methods);
 /// their SVE is taken over the full domain `[xmin, xmax] × [ymin, ymax]` and
 /// their singular functions have no definite parity.
 ///
 /// [`FiniteTempBasis`]: crate::basis::FiniteTempBasis
-pub trait BasisKernel: SVEStrategyKernel + KernelProperties {
+pub trait BasisKernel: ExpandableKernel + KernelProperties {
     /// The cutoff parameter Λ = β·wmax ([`CentrosymmKernel::lambda`] for a
     /// centrosymmetric kernel; named apart from it so that both traits can
     /// be in scope)
@@ -269,7 +269,7 @@ impl AbstractKernel for LogisticKernelWindowed {
     }
 }
 
-impl SVEStrategyKernel for LogisticKernelWindowed {}
+impl ExpandableKernel for LogisticKernelWindowed {}
 
 impl BasisKernel for LogisticKernelWindowed {
     fn kernel_lambda(&self) -> f64 {

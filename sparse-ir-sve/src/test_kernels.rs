@@ -11,7 +11,7 @@
 //! discretization.
 
 use crate::hints::SegmentHints;
-use crate::kernel::{AbstractKernel, ReducedKernel, SVEKernel, SVEStrategyKernel, SymmetryType};
+use crate::kernel::{AbstractKernel, ExpandableKernel, ReducedKernel, SVEKernel, SymmetryType};
 use crate::numeric::CustomNumeric;
 use std::fmt::Debug;
 
@@ -110,7 +110,7 @@ impl SVEKernel for TiltedExpKernel {
     }
 }
 
-impl SVEStrategyKernel for TiltedExpKernel {}
+impl ExpandableKernel for TiltedExpKernel {}
 
 /// [`ExpKernel`] cut to zero for x ≤ 0: not centrosymmetric, with zero rows
 /// in its discretization (the first of which is ACA's first pivot)
@@ -149,7 +149,7 @@ impl SVEKernel for HalfExpKernel {
     }
 }
 
-impl SVEStrategyKernel for HalfExpKernel {}
+impl ExpandableKernel for HalfExpKernel {}
 
 /// [`ExpKernel`] claiming centrosymmetry on the asymmetric domain
 /// y ∈ [-0.5, 1]

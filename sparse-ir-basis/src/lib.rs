@@ -54,9 +54,9 @@ pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis, MatsubaraPointMet
 pub use gauss::{Rule, legendre, legendre_custom, legendre_twofloat};
 pub use ir_dlr::{DlrFromIr, IrBasis};
 pub use kernel::{
-    AbstractKernel, BasisKernel, CentrosymmKernel, KernelProperties, LogisticKernel,
-    LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints, ReducedKernel,
-    RegularizedBoseKernel, RegularizedBoseSVEHints, SVEHints, SVEKernel, SVEStrategyKernel,
+    AbstractKernel, BasisKernel, CentrosymmKernel, ExpandableKernel, KernelProperties,
+    LogisticKernel, LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints,
+    ReducedKernel, RegularizedBoseKernel, RegularizedBoseSVEHints, SVEHints, SVEKernel,
     SymmetryType, compute_logistic_kernel,
 };
 pub use kernelmatrix::{

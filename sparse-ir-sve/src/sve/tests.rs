@@ -4,7 +4,7 @@ use super::types::safe_epsilon;
 use super::utils::{extend_to_full_domain, merge_results};
 use super::{SVEResult, TworkType, compute_sve, compute_sve_general, sve_residual};
 use crate::error::Error;
-use crate::kernel::{AbstractKernel, SVEHints, SVEKernel, SVEStrategyKernel, SymmetryType};
+use crate::kernel::{AbstractKernel, ExpandableKernel, SVEHints, SVEKernel, SymmetryType};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
@@ -343,7 +343,7 @@ fn assert_general_path_matches_compute_sve<K>(
     twork: TworkType,
     expect_same_count: bool,
 ) where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     let u_work = working_machine_epsilon(epsilon, twork);
     // Explicit cutoff, so that this comparison does not depend on the
@@ -593,7 +593,7 @@ impl SVEKernel for SeparableNonsymmKernel {
     }
 }
 
-impl SVEStrategyKernel for SeparableNonsymmKernel {}
+impl ExpandableKernel for SeparableNonsymmKernel {}
 
 /// `compute_sve` of the separable kernel recovers its exact singular values,
 /// reconstructs the kernel and returns functions without parity (symm == 0),
@@ -642,7 +642,7 @@ fn test_compute_sve_recovers_analytic_sve_of_non_centrosymmetric_kernel() {
 /// equals an explicit `2 * u_work` and keeps as many values as `compute_sve`.
 fn assert_default_cutoff_is_two_machine_epsilon<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     let u_work = working_machine_epsilon(epsilon, twork);
 
@@ -740,7 +740,7 @@ fn assert_leading_part_of(truncated: &SVEResult, full: &SVEResult, n: usize) {
 /// `cutoff = Some(1.0)`.
 fn check_sve_truncated_to_one<K>(kernel: K, epsilon: f64, twork: TworkType)
 where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     let full = compute_sve(kernel.clone(), Some(epsilon), None, None, twork).unwrap();
     assert!(full.s.len() >= 4, "SVE too small: {}", full.s.len());
@@ -1145,7 +1145,7 @@ fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usi
 #[allow(deprecated)] // is_centrosymmetric, which compute_sve_general reads
 fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType, full_domain: bool)
 where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     use crate::unstable::sve::compute_sve_dense;
 
@@ -1274,7 +1274,7 @@ fn test_sve_residual_measures_the_discretization() {
 /// sve_residual and residual_on_grid of the SVE of `kernel` to 1e-12
 fn coarse_residuals<K>(kernel: &K) -> (f64, f64)
 where
-    K: SVEStrategyKernel,
+    K: ExpandableKernel,
 {
     let sve = compute_sve(
         kernel.clone(),
