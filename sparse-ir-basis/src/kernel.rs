@@ -125,7 +125,7 @@ pub fn compute_logistic_kernel<T: CustomNumeric>(lambda: f64, x: T, y: T) -> T {
     let u_minus: T = T::from_f64_unchecked(0.5) * x_minus;
     let v: T = T::from_f64_unchecked(lambda) * y;
 
-    let mabs_v: T = -v.abs_as_same_type();
+    let mabs_v: T = -v.abs();
     let numerator: T = if v >= T::from_f64_unchecked(0.0) {
         (u_plus * mabs_v).exp()
     } else {
@@ -464,7 +464,7 @@ where
             segments.push(<T as CustomNumeric>::from_f64_unchecked(abs_val));
         }
 
-        if segments[segments.len() - 1].abs_as_same_type() > T::epsilon() {
+        if segments[segments.len() - 1].abs() > T::epsilon() {
             segments.push(<T as CustomNumeric>::from_f64_unchecked(0.0));
         }
 
@@ -591,7 +591,7 @@ impl RegularizedBoseKernel {
             .unwrap_or_else(|| half * (T::from_f64_unchecked(1.0) - x));
 
         let v = lambda_t * y;
-        let absv = v.abs_as_same_type();
+        let absv = v.abs();
 
         // Handle y ≈ 0 using Taylor expansion
         // K(x,y) = 1/Λ - xy/2 + (1/24)Λ(3x² - 1)y² + O(y³)

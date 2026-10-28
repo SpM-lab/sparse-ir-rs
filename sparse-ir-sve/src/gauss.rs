@@ -246,7 +246,7 @@ where
 
         // Check that rules are contiguous
         for i in 1..rules.len() {
-            if (rules[i].a - rules[i - 1].b).abs_as_same_type() > T::epsilon() {
+            if (rules[i].a - rules[i - 1].b).abs() > T::epsilon() {
                 panic!("rules must be contiguous");
             }
         }
@@ -370,10 +370,10 @@ where
             let expected_forward = self.x[i] - self.a;
             let expected_backward = self.b - self.x[i];
 
-            if (self.x_forward[i] - expected_forward).abs_as_same_type() > T::epsilon() {
+            if (self.x_forward[i] - expected_forward).abs() > T::epsilon() {
                 return false;
             }
-            if (self.x_backward[i] - expected_backward).abs_as_same_type() > T::epsilon() {
+            if (self.x_backward[i] - expected_backward).abs() > T::epsilon() {
                 return false;
             }
         }
@@ -420,7 +420,7 @@ where
         // Newton's method to refine the root
         for _ in 0..10 {
             let (p0, p1) = legendre_polynomial_and_derivative(n, z);
-            if p0.abs_as_same_type() < T::epsilon() {
+            if p0.abs() < T::epsilon() {
                 break;
             }
             z = z - p0 / p1;

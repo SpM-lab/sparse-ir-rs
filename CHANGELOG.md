@@ -69,6 +69,10 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `delta_x()`, `data()`, `norms()`, `polyorder()`, `domain()`, `l()`,
   `polys()`, ...), and `PiecewiseLegendrePolyVector::size` is `len` (with
   `is_empty`). The former names are deprecated.
+- `CustomNumeric` is sealed (implemented for `f64` and `Df64` only) and
+  requires `ComplexField<RealField = Self>`, so `abs()` returns `Self`;
+  `abs_as_same_type` and `is_valid` (use `abs` and `is_finite`) are
+  deprecated.
 - The functions of the SVE, the quadrature and the polynomials return
   `sparse_ir_sve::Error`, which converts into `sparse_ir::Error` (`?`,
   `From`).
