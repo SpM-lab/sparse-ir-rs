@@ -37,6 +37,15 @@ diff include/sparseir/sparseir.h assets/sparse_ir_capi.h
 A status-code or doc change must leave a comment-only diff here. Regenerate and
 commit both headers whenever the diff is non-empty.
 
+The same CI job regenerates the Fortran and Python declarations from the header
+and fails on a diff (#294):
+
+```bash
+(cd fortran && uv run script/generate_c_binding.py ../sparse-ir-capi/include/sparseir/sparseir.h)
+uv run --no-project --with libclang python python/tools/gen_ctypes.py
+git diff --exit-code -- fortran/src/_cbinding.inc fortran/src/_cbinding_public.inc python/pylibsparseir/ctypes_autogen.py
+```
+
 ## Iterating
 
 Both wrapper scripts take an incremental mode; use it while iterating and a

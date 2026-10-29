@@ -10,6 +10,7 @@
 mod macros;
 
 mod basis;
+mod cpu;
 mod dlr;
 mod funcs;
 mod gemm;
@@ -22,6 +23,7 @@ mod types;
 mod utils;
 
 pub use basis::*;
+pub use cpu::*;
 pub use dlr::*;
 pub use funcs::*;
 pub use gemm::*;

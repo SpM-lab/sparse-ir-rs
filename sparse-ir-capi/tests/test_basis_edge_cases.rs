@@ -556,3 +556,93 @@ fn sve_result_from_matrix_rejects_epsilon_of_one_or_more_before_the_svd() {
         assert!(sve.is_null());
     }
 }
+
+/// Positive-only Matsubara sampling on a basis without parity (#298).
+///
+/// The functions u_l(τ) are real whether or not they have a parity, so
+/// û_l(-iν) = conj(û_l(iν)) and a real G(τ) has real coefficients: the
+/// positive-only fit, which solves for real coefficients, is exact for it.
+/// Parity only makes each û_l purely real or imaginary. The round trip
+/// coefficients → G(iν) → coefficients must recover real coefficients.
+#[test]
+fn positive_only_matsubara_sampling_of_a_basis_without_parity_is_exact() {
+    let mut status = SPIR_INTERNAL_ERROR;
+    let kernel = spir_logistic_kernel_new(BETA * WMAX, &mut status);
+    assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+    let sve = sve_without_parity();
+
+    for statistics in STATISTICS {
+        let basis = spir_basis_new(statistics, BETA, WMAX, EPS, kernel, sve, -1, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let mut size = 0;
+        assert_eq!(
+            spir_basis_get_size(basis, &mut size),
+            SPIR_COMPUTATION_SUCCESS
+        );
+
+        // Non-negative frequencies of the matching kind, twice as many as
+        // the basis size so that the real fit is overdetermined
+        let first = if statistics == SPIR_STATISTICS_FERMIONIC {
+            1
+        } else {
+            0
+        };
+        let points: Vec<i64> = (0..2 * i64::from(size))
+            .map(|k| first + 2 * k * k)
+            .collect();
+        let sampling = spir_matsu_sampling_new(
+            basis,
+            true,
+            points.len() as i32,
+            points.as_ptr(),
+            &mut status,
+        );
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+
+        let coeffs: Vec<f64> = (0..size)
+            .map(|l| (0.7 * f64::from(l) + 0.3).sin() * 0.9_f64.powi(l))
+            .collect();
+        let mut giv = vec![num_complex::Complex64::new(0.0, 0.0); points.len()];
+        let dims = [size];
+        assert_eq!(
+            spir_sampling_eval_dz(
+                sampling,
+                ptr::null(),
+                SPIR_ORDER_COLUMN_MAJOR,
+                1,
+                dims.as_ptr(),
+                0,
+                coeffs.as_ptr(),
+                giv.as_mut_ptr(),
+            ),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        let mut fitted = vec![0.0; coeffs.len()];
+        let dims = [points.len() as i32];
+        assert_eq!(
+            spir_sampling_fit_zd(
+                sampling,
+                ptr::null(),
+                SPIR_ORDER_COLUMN_MAJOR,
+                1,
+                dims.as_ptr(),
+                0,
+                giv.as_ptr(),
+                fitted.as_mut_ptr(),
+            ),
+            SPIR_COMPUTATION_SUCCESS
+        );
+        let err = coeffs
+            .iter()
+            .zip(&fitted)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0.0, f64::max);
+        eprintln!("statistics {statistics}: size {size}, max |Δc| = {err:e}");
+        assert!(err < 1e-8, "statistics {statistics}: max |Δc| = {err:e}");
+
+        spir_sampling_release(sampling);
+        spir_basis_release(basis);
+    }
+    spir_sve_result_release(sve);
+    spir_kernel_release(kernel);
+}

@@ -1,5 +1,7 @@
 //! Type definitions for SVE computation
 
+use crate::error::{Error, require_accuracy};
+
 /// Working precision type for SVE computations
 ///
 /// Values match the C-API constants defined in sparseir.h
@@ -11,6 +13,34 @@ pub enum TworkType {
     Float64X2 = 1, // SPIR_TWORK_FLOAT64X2
     /// Automatically choose precision based on epsilon
     Auto = -1, // SPIR_TWORK_AUTO
+}
+
+/// Smallest epsilon for which `TworkType::Auto` selects `Float64`
+const AUTO_FLOAT64_MIN_EPSILON: f64 = 1e-8;
+
+impl TworkType {
+    /// The working precision that [`TworkType::Auto`] selects for `epsilon`
+    ///
+    /// This is the single owner of the automatic selection: the SVE and the
+    /// C API helper `spir_choose_working_type` both use it.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::InvalidParameter`] if `epsilon` is not in (0, 1), the range
+    /// every SVE accepts.
+    pub fn auto_for(epsilon: f64) -> Result<Self, Error> {
+        require_accuracy("epsilon", Some(epsilon))?;
+        Ok(auto_twork(Some(epsilon)))
+    }
+}
+
+/// `TworkType::Auto` for a validated epsilon; `None` asks for the best
+/// accuracy and so the extended precision
+fn auto_twork(epsilon: Option<f64>) -> TworkType {
+    match epsilon {
+        Some(eps) if eps >= AUTO_FLOAT64_MIN_EPSILON => TworkType::Float64,
+        _ => TworkType::Float64X2, // MAX_DTYPE equivalent
+    }
 }
 
 /// Determine safe epsilon and working precision
@@ -41,10 +71,7 @@ pub(crate) fn safe_epsilon(epsilon: Option<f64>, twork: TworkType) -> (f64, Twor
 
     // First, choose the working dtype based on the eps required
     let twork_actual = match twork {
-        TworkType::Auto => match epsilon {
-            Some(eps) if eps >= 1e-8 => TworkType::Float64,
-            _ => TworkType::Float64X2, // MAX_DTYPE equivalent
-        },
+        TworkType::Auto => auto_twork(epsilon),
         other => other,
     };
 
@@ -98,6 +125,29 @@ mod tests {
         let (safe_eps, twork) = safe_epsilon(Some(1e-7), TworkType::Float64X2);
         assert_eq!(twork, TworkType::Float64X2);
         assert_eq!(safe_eps, 1e-7);
+    }
+
+    /// `auto_for` splits at 1e-8 like the SVE and rejects every epsilon the
+    /// SVE rejects (#345)
+    #[test]
+    fn test_auto_for_matches_sve_policy() {
+        assert_eq!(TworkType::auto_for(1e-6).unwrap(), TworkType::Float64);
+        assert_eq!(TworkType::auto_for(1e-8).unwrap(), TworkType::Float64);
+        assert_eq!(TworkType::auto_for(0.99e-8).unwrap(), TworkType::Float64X2);
+        assert_eq!(TworkType::auto_for(1e-15).unwrap(), TworkType::Float64X2);
+        for eps in [1e-6, 1e-8, 0.99e-8, 1e-15] {
+            let (_, twork) = safe_epsilon(Some(eps), TworkType::Auto);
+            assert_eq!(TworkType::auto_for(eps).unwrap(), twork);
+        }
+        for eps in [0.0, -1.0, f64::NAN, f64::INFINITY, 1.0, 2.0] {
+            assert!(
+                matches!(
+                    TworkType::auto_for(eps),
+                    Err(Error::InvalidParameter { .. })
+                ),
+                "epsilon {eps:?} must be rejected"
+            );
+        }
     }
 
     #[test]

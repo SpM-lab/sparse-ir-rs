@@ -478,9 +478,10 @@ fn df64_from_parts(hi: f64, lo: f64) -> Result<sparse_ir::Df64, StatusCode> {
 /// - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
 ///   a size is less than 1, `epsilon` is not positive and finite or is 1 or
 ///   more, an entry of `K_high` or `K_low` is NaN or infinite or their sum
-///   overflows, the segments are not finite and strictly increasing, a
-///   segment length is not finite or is subnormal, the sum of the ends of a
-///   segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is not
+///   overflows, `order` is not SPIR_ORDER_ROW_MAJOR or
+///   SPIR_ORDER_COLUMN_MAJOR, the segments are not finite and strictly
+///   increasing, a segment length is not finite or is subnormal, the sum of
+///   the ends of a segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is not
 ///   `n_segments_y * n_gauss`, or the matrix has rank 0
 /// - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
 /// - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
@@ -531,6 +532,14 @@ pub extern "C" fn spir_sve_result_from_matrix(
         }
         return std::ptr::null_mut();
     }
+
+    // An unknown memory order is rejected, not read as row-major (#325)
+    let Ok(memory_order) = MemoryOrder::from_c_int(order) else {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    };
 
     // Read and validate every array before computing anything: the SVD never
     // converges on a NaN or an infinity (it iterated forever before the TSVD
@@ -597,7 +606,6 @@ pub extern "C" fn spir_sve_result_from_matrix(
                 .map_err(|e| status_from(&e))?;
 
             // Convert matrix from C array to a Mat
-            let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
             let mut matrix = sparse_ir::matrix::Mat::<Df64>::from_elem(
                 [nx as usize, ny as usize],
                 Df64::new(0.0),
@@ -638,7 +646,6 @@ pub extern "C" fn spir_sve_result_from_matrix(
         } else {
             // Double precision path
             // Convert matrix from C array to a Mat
-            let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
             let mut matrix = sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
 
             match memory_order {
@@ -748,8 +755,9 @@ pub extern "C" fn spir_sve_result_from_matrix(
 /// - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
 ///   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
 ///   and finite or is 1 or more, an entry of a matrix that is read is NaN or
-///   infinite or the sum of a high and a low entry overflows, the segments
-///   are not finite and strictly increasing, the segments do not start at 0,
+///   infinite or the sum of a high and a low entry overflows, `order` is not
+///   SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR, the segments are not
+///   finite and strictly increasing, the segments do not start at 0,
 ///   a segment length is not finite or is subnormal, the sum of the ends of
 ///   a segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is
 ///   not `n_segments_y * n_gauss`, or both matrices have rank 0
@@ -806,6 +814,14 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         }
         return std::ptr::null_mut();
     }
+
+    // An unknown memory order is rejected, not read as row-major (#325)
+    let Ok(memory_order) = MemoryOrder::from_c_int(order) else {
+        unsafe {
+            *status = SPIR_INVALID_ARGUMENT;
+        }
+        return std::ptr::null_mut();
+    };
 
     // Determine if using DDouble precision
     let use_ddouble = !K_even_low.is_null() && !K_odd_low.is_null();
@@ -889,7 +905,6 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
         // Assemble one symmetry block of the kernel matrix
         let matrix_of =
             |k_high_slice: &[f64], k_low_slice: Option<&[f64]>| -> Result<_, StatusCode> {
-                let memory_order = MemoryOrder::from_c_int(order).unwrap_or(MemoryOrder::RowMajor);
                 if let Some(k_low_slice) = k_low_slice {
                     use sparse_ir::Df64;
                     use sparse_ir::numeric::CustomNumeric;
