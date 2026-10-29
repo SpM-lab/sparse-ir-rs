@@ -69,7 +69,7 @@ jobs:
       - name: Test the FMA detection in a build without FMA
         env:
           RUSTFLAGS: -C target-feature=-fma
-        run: cargo test -p sparse-ir-capi --lib --locked --target-dir target/no-fma cpu::
+        run: cargo test -p sparse-ir-capi --lib --locked --target-dir target/no-fma 'cpu::'
 
   rust-system-blas:
     runs-on: ubuntu-latest
