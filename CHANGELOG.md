@@ -5,6 +5,8 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-29
+
 ### Added
 
 - The `parallel` feature (opt-in, off by default): the SVE decomposes its

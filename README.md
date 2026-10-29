@@ -57,7 +57,7 @@ uv run --project docs/plotting python docs/plotting/minipole_plot.py
 
   ```toml
   [dependencies]
-  sparse-ir = "0.13.0"
+  sparse-ir = "0.14.0"
   ```
 
   The [installation guide](https://spm-lab.github.io/sparse-ir-rs/getting-started/installation.html) covers the optional `system-blas` feature and the Git dependency on `main`; the [`sparse-ir` README](sparse-ir/README.md) has fit/evaluate and DLR examples.
