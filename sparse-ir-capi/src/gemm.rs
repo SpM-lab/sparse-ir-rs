@@ -99,7 +99,7 @@ impl Clone for spir_gemm_backend {
 /// - Be thread-safe (will be called from multiple threads)
 /// - Remain valid for the entire lifetime of the backend handle
 ///
-/// The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
+/// The returned pointer must be released with `spir_gemm_backend_release` when no longer needed.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_gemm_backend_new_from_fblas_lp64(
     dgemm: *const libc::c_void,
@@ -146,7 +146,7 @@ pub extern "C" fn spir_gemm_backend_new_from_fblas_lp64(
 /// - Be thread-safe (will be called from multiple threads)
 /// - Remain valid for the entire lifetime of the backend handle
 ///
-/// The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
+/// The returned pointer must be released with `spir_gemm_backend_release` when no longer needed.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_gemm_backend_new_from_fblas_ilp64(
     dgemm64: *const libc::c_void,

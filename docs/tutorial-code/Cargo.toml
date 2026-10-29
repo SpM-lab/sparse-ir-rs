@@ -26,3 +26,10 @@ inherits = "release"
 lto = false
 incremental = false
 strip = "symbols"
+
+# This workspace is outside the root one, so the root profiles do not reach it.
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0

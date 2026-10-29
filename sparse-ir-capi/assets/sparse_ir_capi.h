@@ -1317,7 +1317,7 @@ StatusCode spir_uhat_get_default_matsus(const struct spir_funcs *uhat,
  * - Be thread-safe (will be called from multiple threads)
  * - Remain valid for the entire lifetime of the backend handle
  *
- * The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
+ * The returned pointer must be released with `spir_gemm_backend_release` when no longer needed.
  */
 
 struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_lp64(const void *dgemm,
@@ -1343,7 +1343,7 @@ struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_lp64(const void *dgem
  * - Be thread-safe (will be called from multiple threads)
  * - Remain valid for the entire lifetime of the backend handle
  *
- * The returned pointer must be freed with `spir_gemm_backend_free` when no longer needed.
+ * The returned pointer must be released with `spir_gemm_backend_release` when no longer needed.
  */
 
 struct spir_gemm_backend *spir_gemm_backend_new_from_fblas_ilp64(const void *dgemm64,
@@ -2063,6 +2063,13 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  * - [`spir_sampling_eval_zz`]
  * # Note
  * Supports both row-major and column-major order. Zero-copy implementation.
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed; the sampling transforms are well conditioned,
+ * so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
  */
 
 StatusCode spir_sampling_eval_dd(const struct spir_sampling *s,
@@ -2092,6 +2099,13 @@ StatusCode spir_sampling_eval_dd(const struct spir_sampling *s,
  * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * All shape arguments are validated before `input` or `out` is accessed.
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed; the sampling transforms are well conditioned,
+ * so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
  */
 
 StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
@@ -2121,6 +2135,13 @@ StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
  * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * All shape arguments are validated before `input` or `out` is accessed.
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed; the sampling transforms are well conditioned,
+ * so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
  */
 
 StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
@@ -2177,6 +2198,13 @@ StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
  *
  * * [`spir_sampling_eval_dd`]
  * * [`spir_sampling_fit_zz`]
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed; the sampling transforms are well conditioned,
+ * so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
  */
 
 StatusCode spir_sampling_fit_dd(const struct spir_sampling *s,
@@ -2208,6 +2236,13 @@ StatusCode spir_sampling_fit_dd(const struct spir_sampling *s,
  * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * All shape arguments are validated before `input` or `out` is accessed.
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed; the sampling transforms are well conditioned,
+ * so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
  */
 
 StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
@@ -2268,6 +2303,13 @@ StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
  *
  * * [`spir_sampling_fit_zz`]
  * * [`spir_sampling_fit_dd`]
+ *
+ * The mathematical transform does not depend on the axis placement or the
+ * memory order of the arrays, but the floating-point result can: a different
+ * `target_dim` selects a different contraction geometry, and the GEMM backend
+ * decides how that geometry is blocked. Bitwise agreement across axis
+ * placements is not guaranteed; the sampling transforms are well conditioned,
+ * so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
  */
 
 StatusCode spir_sampling_fit_zd(const struct spir_sampling *s,

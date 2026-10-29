@@ -725,7 +725,8 @@ def basis_get_default_tau_sampling_points_ext(basis, n_points):
         basis, n_points, points.ctypes.data_as(POINTER(c_double)), byref(n_points_returned))
     if status != COMPUTATION_SUCCESS:
         raise RuntimeError(f"Failed to get default tau points: {status}")
-    return points
+    # The C API writes only n_points_returned = min(n_points, available) points.
+    return points[:n_points_returned.value]
 
 
 def basis_get_default_omega_sampling_points(basis):
