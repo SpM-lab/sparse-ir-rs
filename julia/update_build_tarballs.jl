@@ -12,14 +12,19 @@ Example:
 using Pkg
 
 function get_commit_hash(tag::String)
-    """Get the full commit hash for a given tag."""
-    result = read(`git rev-parse $tag`, String)
+    """Get the full hash of the commit the tag points to.
+
+    For an annotated tag `git rev-parse <tag>` gives the tag object, but
+    BinaryBuilder's `GitSource(...; tag=...)` check compares the peeled commit.
+    """
+    result = read(`git rev-parse $(tag * "^{commit}")`, String)
     return strip(result)
 end
 
 function parse_version(tag::String)
     """Parse version from tag (e.g., 'v0.8.0' -> '0.8.0')."""
-    m = match(r"^v?(.+)$", tag)
+    # The recipe names the tag as `tag = "v$(version)"`
+    m = match(r"^v(.+)$", tag)
     if m === nothing
         error("Invalid tag format: $tag")
     end
@@ -43,15 +48,13 @@ function update_build_tarballs(tag::String, build_file::String="build_tarballs.j
     # Update version line
     content = replace(content, r"version = v\"[^\"]+\"" => "version = v\"$version_str\"")
     
-    # Update git commit hash (the second argument of GitSource)
-    content = replace(content, 
-        r"(GitSource\(\s*\"[^\"]+\",\s*)\"[a-f0-9]+\"" => 
-        SubstitutionString("\\1\"$commit_hash\""))
-    
-    # Update comment with tag reference
-    content = replace(content,
-        r"# sparse-ir-rs v[^\n]+" =>
-        "# sparse-ir-rs $tag")
+    # Update git commit hash (the second argument of GitSource); the `tag`
+    # keyword follows the version, so it needs no update
+    pattern = r"(GitSource\(\s*\"[^\"]+\",\s*)\"[a-f0-9]+\""
+    occursin(pattern, content) || error("No GitSource hash found in $build_file")
+    content = replace(content, pattern => SubstitutionString("\\1\"$commit_hash\""))
+    occursin("tag = \"v\$(version)\"", content) ||
+        error("$build_file must pass tag = \"v\$(version)\" to GitSource")
     
     # Write back
     write(build_file, content)
