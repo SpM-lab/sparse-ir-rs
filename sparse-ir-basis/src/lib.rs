@@ -14,7 +14,7 @@ extern crate sparse_ir_core;
 #[allow(unused_imports)]
 use sparse_ir_core::{
     ArrayRole, Matrix, MatsubaraFreq, StatisticsType, TypedTensor, basis_trait, error, fitters,
-    fpu_check, freq, matrix, matsubara_sampling, sampling, taufuncs, traits,
+    fpu_check, freq, matrix, matsubara_sampling, parallel, sampling, taufuncs, traits,
 };
 #[allow(unused_imports)]
 use sparse_ir_dlr::{dlr, fermionic_single_pole, giwn_single_pole, gtau_single_pole};
@@ -31,8 +31,11 @@ use sparse_ir_dlr::{
     DiscreteLehmannRepresentation, DlrBuilder, IrDlrTransform, bosonic_single_pole,
 };
 
+pub(crate) mod aca; // ACA-accelerated truncated SVD for the SVE kernel blocks
 pub mod basis;
 pub(crate) mod col_piv_qr; // Column-pivoted QR decomposition using nalgebra
+pub(crate) mod cost; // Work estimates for the threading decisions
+pub(crate) mod ddgemm; // Double-double matrix products
 pub mod gauss;
 pub(crate) mod interpolation1d;
 pub mod ir_dlr; // DLR built from an IR basis, and the IR <-> DLR transform
@@ -63,7 +66,9 @@ pub use polyfourier::{
     BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector, FermionicPiecewiseLegendreFT,
     FermionicPiecewiseLegendreFTVector, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PowerModel,
 };
-pub use sve::{CentrosymmSVE, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve};
+pub use sve::{
+    CentrosymmSVE, KernelBlock, SVEResult, SVEStrategy, SamplingSVE, TworkType, compute_sve,
+};
 pub use tsvd::{
     SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
 };

@@ -2050,9 +2050,9 @@ checksum = "f17a85883d4e6d00e8a97c586de764dabcc06133f7f1d55dce5cdc070ad7fe59"
 
 [[package]]
 name = "xprec"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "39a30f7277acb4ef10faeec631c7fbb0ff92355bea37e1b01a63f3803c78e319"
+checksum = "6e736c2312fb577875c99665eae274f51a6b33489f00114602b69cf224f48a7c"
 dependencies = [
  "approx",
  "libm",

@@ -1130,3 +1130,177 @@ fn test_svd_to_polynomials_needs_a_segment() {
         "{err:?}"
     );
 }
+
+/// The SVE runs its blocks on the current rayon pool, but each block is
+/// decomposed by the same operations whatever the threading: the result on
+/// four threads is bitwise that on one, in f64 and Df64 (the blocks, the
+/// ACA steps and the double-double products), with and without
+/// centrosymmetry.
+#[cfg(feature = "parallel")]
+#[test]
+fn test_sve_does_not_depend_on_the_number_of_threads() {
+    let pool = |n| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(n)
+            .build()
+            .unwrap()
+    };
+    let (one, four) = (pool(1), pool(4));
+    let run = |eps: f64, twork: TworkType, general: bool| {
+        let kernel = LogisticKernel::new(1e3).unwrap();
+        let sve = || {
+            if general {
+                compute_sve_general(kernel, Some(eps), None, None, twork).unwrap()
+            } else {
+                compute_sve(kernel, Some(eps), None, None, twork).unwrap()
+            }
+        };
+        (one.install(sve), four.install(sve))
+    };
+    for (eps, twork, general) in [
+        (1e-6, TworkType::Float64, false),
+        (1e-10, TworkType::Float64X2, false),
+        (1e-6, TworkType::Float64, true),
+    ] {
+        let (a, b) = run(eps, twork, general);
+        assert_eq!(a.s, b.s, "{twork:?}, general = {general}");
+        for (p, q) in a.u.get_polys().iter().zip(b.u.get_polys()) {
+            assert_eq!(
+                p.data.as_slice(),
+                q.data.as_slice(),
+                "{twork:?}, general = {general}"
+            );
+        }
+    }
+}
+
+/// Deviations of an SVE from a reference: `(max relative error of s_l,
+/// max error of u_l and v_l relative to their maximum)`, over the singular
+/// values and functions `ls`
+fn sve_deviation(sve: &SVEResult, reference: &SVEResult, ls: std::ops::Range<usize>) -> (f64, f64) {
+    let grid = |lo: f64, hi: f64| -> Vec<f64> {
+        (0..=2000)
+            .map(|i| lo + (hi - lo) * i as f64 / 2000.0)
+            .collect()
+    };
+    let (u_knots, v_knots) = (
+        &reference.u.get_polys()[0].knots,
+        &reference.v.get_polys()[0].knots,
+    );
+    let xs = grid(u_knots[0], *u_knots.last().unwrap());
+    let ys = grid(v_knots[0], *v_knots.last().unwrap());
+    let mut ds: f64 = 0.0;
+    let mut df: f64 = 0.0;
+    for l in ls {
+        ds = ds.max((sve.s[l] - reference.s[l]).abs() / reference.s[l]);
+        for (a, b, pts) in [(&sve.u, &reference.u, &xs), (&sve.v, &reference.v, &ys)] {
+            let (p, q) = (&a.get_polys()[l], &b.get_polys()[l]);
+            let scale = pts.iter().fold(0.0f64, |m, &x| m.max(q.evaluate(x).abs()));
+            let err = pts
+                .iter()
+                .fold(0.0f64, |m, &x| m.max((p.evaluate(x) - q.evaluate(x)).abs()));
+            df = df.max(err / scale);
+        }
+    }
+    (ds, df)
+}
+
+/// Checks the SVE of `compute_sve` (`centrosymmetric`) or
+/// `compute_sve_general` against the SVE by the dense CPQR-based SVD of the
+/// fully formed blocks, the method of both before the ACA
+///
+/// In f64, and in `compute_sve_general`, they use that method: the SVEs are
+/// identical. In Df64 `compute_sve` takes the block SVDs by ACA. The CPQR
+/// SVE is accurate only to the working precision ε_w relative to s₀, so the
+/// singular values are compared to 64·ε_w·s₀ (measured: under ε_w·s₀).
+/// Neither method resolves the values near the cutoff 2·ε_w·s₀, so their
+/// number can differ there (by one, in values at 2.0–2.5·ε_w·s₀, for Λ =
+/// 3e5 and 1e6): the values only one SVE has must be below 8·ε_w·s₀.
+/// Relative to each singular
+/// value, and for the functions, the comparison is over the values a basis
+/// for ε uses (s_l ≥ ε·s₀, plus one more), where they agree to 1e-15 and
+/// 1e-14 (measured: 1.4e-16 and 1.2e-15).
+fn check_sve_against_dense_cpqr<K>(kernel: K, eps: f64, twork: TworkType, centrosymmetric: bool)
+where
+    K: CentrosymmKernel + KernelProperties + Clone + 'static,
+{
+    use super::compute::compute_sve_dense;
+
+    let sve = if centrosymmetric {
+        compute_sve(kernel.clone(), Some(eps), None, None, twork).unwrap()
+    } else {
+        compute_sve_general(kernel.clone(), Some(eps), None, None, twork).unwrap()
+    };
+    let dense = compute_sve_dense(kernel, eps, twork, centrosymmetric).unwrap();
+    let case = format!("{twork:?}, centrosymmetric = {centrosymmetric}");
+    if twork == TworkType::Float64 || !centrosymmetric {
+        assert_eq!(sve.s, dense.s, "{case}");
+        for (a, b) in [(&sve.u, &dense.u), (&sve.v, &dense.v)] {
+            for (p, q) in a.get_polys().iter().zip(b.get_polys()) {
+                assert_eq!(p.data.as_slice(), q.data.as_slice(), "{case}");
+            }
+        }
+        return;
+    }
+
+    let eps_w = working_machine_epsilon(eps, twork);
+    let s0 = dense.s[0];
+    let n = sve.s.len().min(dense.s.len());
+    for extra in sve.s[n..].iter().chain(&dense.s[n..]) {
+        assert!(
+            *extra < 8.0 * eps_w * s0,
+            "{case}: {} vs {} singular values, the last {extra:e}",
+            sve.s.len(),
+            dense.s.len()
+        );
+    }
+    for (l, (a, d)) in sve.s.iter().zip(&dense.s).enumerate() {
+        assert!(
+            (a - d).abs() <= 64.0 * eps_w * s0,
+            "{case}: s[{l}] = {a:e} vs {d:e}"
+        );
+    }
+    let l_basis = dense.s.iter().take_while(|&&s| s >= eps * s0).count() + 1;
+    let (ds, df) = sve_deviation(&sve, &dense, 0..l_basis);
+    assert!(ds <= 1e-15, "{case}: s_l relative error {ds:e}");
+    assert!(df <= 1e-14, "{case}: u_l, v_l error {df:e}");
+}
+
+/// The cases of [`check_sve_against_dense_cpqr`] at one Λ: f64 and Df64,
+/// even/odd blocks and full domain, logistic and regularized Bose kernels
+fn check_sve_against_dense_cpqr_at(lambda: f64) {
+    for (eps, twork) in [(1e-6, TworkType::Float64), (1e-15, TworkType::Float64X2)] {
+        for centrosymmetric in [true, false] {
+            check_sve_against_dense_cpqr(
+                LogisticKernel::new(lambda).unwrap(),
+                eps,
+                twork,
+                centrosymmetric,
+            );
+        }
+        check_sve_against_dense_cpqr(
+            RegularizedBoseKernel::new(lambda).unwrap(),
+            eps,
+            twork,
+            true,
+        );
+    }
+}
+
+#[test]
+fn test_sve_matches_dense_cpqr_lambda_1e2() {
+    check_sve_against_dense_cpqr_at(1e2);
+}
+
+#[test]
+fn test_sve_matches_dense_cpqr_lambda_1e4() {
+    check_sve_against_dense_cpqr_at(1e4);
+}
+
+/// Λ = 1e6: the dense Df64 SVEs take about a minute (release), so this runs
+/// on request: `cargo test --release -- --ignored`
+#[test]
+#[ignore = "slow: dense Df64 SVE at Λ = 1e6 (about a minute in release)"]
+fn test_sve_matches_dense_cpqr_lambda_1e6() {
+    check_sve_against_dense_cpqr_at(1e6);
+}

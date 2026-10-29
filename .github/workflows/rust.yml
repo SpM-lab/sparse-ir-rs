@@ -59,6 +59,11 @@ jobs:
       - name: Run doctests for sparse-ir (default features)
         run: cargo test --workspace --exclude sparse-ir-capi --doc --release --locked
 
+      # The `parallel` feature is off by default: test the threaded paths
+      # of the core and the basis crates with it as well.
+      - name: Run library tests with the parallel feature
+        run: cargo test -p sparse-ir-core -p sparse-ir-basis --lib --release --locked --features sparse-ir-core/parallel,sparse-ir-basis/parallel
+
   rust-system-blas:
     runs-on: ubuntu-latest
     name: Rust (system BLAS backend)
