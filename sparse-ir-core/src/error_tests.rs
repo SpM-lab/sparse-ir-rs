@@ -266,9 +266,15 @@ fn test_sve_errors_convert_variant_by_variant() {
     ];
     for (sve, expected) in pairs {
         let message = sve.to_string();
+        let kind = match sve.kind() {
+            sparse_ir_sve::ErrorKind::InvalidArgument => ErrorKind::InvalidArgument,
+            sparse_ir_sve::ErrorKind::NotSupported => ErrorKind::NotSupported,
+            _ => ErrorKind::Internal,
+        };
         let converted = Error::from(sve);
         assert_eq!(converted, expected);
         assert_eq!(converted.to_string(), message);
+        assert_eq!(converted.kind(), kind, "{message}");
     }
 }
 

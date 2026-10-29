@@ -188,9 +188,19 @@ impl From<sparse_ir_sve::Error> for Error {
             Sve::DecompositionFailed { reason } => Error::DecompositionFailed { reason },
             // sparse-ir-sve is released together with this crate, which maps
             // every variant it has; one added there without a counterpart
-            // here is a failure the caller cannot act on.
-            other => Error::DecompositionFailed {
-                reason: other.to_string(),
+            // here keeps its category (and so its C status code) and message.
+            other => match other.kind() {
+                sparse_ir_sve::ErrorKind::InvalidArgument => Error::InvalidParameter {
+                    name: "argument",
+                    value: "?".to_string(),
+                    reason: other.to_string(),
+                },
+                sparse_ir_sve::ErrorKind::NotSupported => Error::NotSupported {
+                    what: other.to_string(),
+                },
+                _ => Error::DecompositionFailed {
+                    reason: other.to_string(),
+                },
             },
         }
     }
