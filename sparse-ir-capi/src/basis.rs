@@ -697,7 +697,16 @@ pub extern "C" fn spir_basis_get_n_default_matsus(
 /// * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
 ///   sets include n = 0)
 /// * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
-///   (iν = iπn/β)
+///   (iν = iπn/β). It must hold at least as many elements as
+///   `spir_basis_get_n_default_matsus` reports for the same `b` and
+///   `positive_only`; this function takes no capacity and writes exactly that
+///   many elements.
+///
+/// Call `spir_basis_get_n_default_matsus` first and allocate the count it
+/// returns. Do not size `points` by `spir_basis_get_size`: the count can
+/// exceed it (a bosonic basis of even size L has L + 1 points when
+/// `positive_only` is false). `spir_basis_get_default_matsus_ext` takes an
+/// explicit capacity and checks it before writing.
 ///
 /// For a DLR the default points are its Matsubara interpolation nodes, one
 /// per pole (the DLR had none up to 0.10).
@@ -726,6 +735,9 @@ pub extern "C" fn spir_basis_get_default_matsus(
             Ok(points) => points,
             Err(e) => return status_from(&e),
         };
+        // SAFETY: `points` is non-null (checked above) and holds the
+        // `spir_basis_get_n_default_matsus` count, `matsu_points.len()`, by
+        // the documented caller contract (#347).
         std::ptr::copy_nonoverlapping(matsu_points.as_ptr(), points, matsu_points.len());
         SPIR_COMPUTATION_SUCCESS
     }));

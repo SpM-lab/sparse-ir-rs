@@ -1819,6 +1819,64 @@ fn sve_result_from_matrix_rejects_sizes_other_than_the_gauss_points() {
     }
 }
 
+/// An unknown memory order was read as row-major and a wrong SVE came back
+/// with success (#325). Both precisions of both constructors reject it.
+#[test]
+fn sve_result_from_matrix_rejects_unknown_memory_orders() {
+    let n_gauss = 2;
+    let full = [-1.0, 0.0, 1.0];
+    let half = [0.0, 0.5, 1.0];
+    let k = stand_in_kernel_matrix(4, 4);
+    let k_low = vec![0.0; k.len()];
+    for order in [-1, 2, 42] {
+        for low in [ptr::null(), k_low.as_ptr()] {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix(
+                k.as_ptr(),
+                low,
+                4,
+                4,
+                order,
+                full.as_ptr(),
+                2,
+                full.as_ptr(),
+                2,
+                n_gauss,
+                1e-8,
+                &mut status,
+            );
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "from_matrix, order = {order}"
+            );
+            assert!(sve.is_null());
+
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix_centrosymmetric(
+                k.as_ptr(),
+                low,
+                k.as_ptr(),
+                low,
+                4,
+                4,
+                order,
+                half.as_ptr(),
+                2,
+                half.as_ptr(),
+                2,
+                n_gauss,
+                1e-8,
+                &mut status,
+            );
+            assert_eq!(
+                status, SPIR_INVALID_ARGUMENT,
+                "centrosymmetric, order = {order}"
+            );
+            assert!(sve.is_null());
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // spir_basis_new_from_sve_and_regularizer
 // ---------------------------------------------------------------------------
@@ -1981,4 +2039,77 @@ fn constructor_scalars_checked_by_the_core_keep_their_statuses() {
             "ddouble, {segments:?}"
         );
     }
+}
+
+/// Call both piecewise Gauss-Legendre rules on `segments` and return their
+/// statuses; the outputs must be untouched unless both succeed
+fn gauss_rule_statuses(n: i32, segments: &[f64], n_segments: i32) -> (StatusCode, StatusCode) {
+    const UNTOUCHED: f64 = 7.0;
+    let mut status = SPIR_INTERNAL_ERROR;
+    let (mut x, mut w) = ([UNTOUCHED; 8], [UNTOUCHED; 8]);
+    let ret = spir_gauss_legendre_rule_piecewise_double(
+        n,
+        segments.as_ptr(),
+        n_segments,
+        x.as_mut_ptr(),
+        w.as_mut_ptr(),
+        &mut status,
+    );
+    assert_eq!(ret, status);
+    let double = status;
+    if double != SPIR_COMPUTATION_SUCCESS {
+        assert!(x.iter().chain(&w).all(|&v| v == UNTOUCHED));
+    }
+
+    let mut outs = [[UNTOUCHED; 8]; 4];
+    let [xh, xl, wh, wl] = &mut outs;
+    let ret = spir_gauss_legendre_rule_piecewise_ddouble(
+        n,
+        segments.as_ptr(),
+        n_segments,
+        xh.as_mut_ptr(),
+        xl.as_mut_ptr(),
+        wh.as_mut_ptr(),
+        wl.as_mut_ptr(),
+        &mut status,
+    );
+    assert_eq!(ret, status);
+    if status != SPIR_COMPUTATION_SUCCESS {
+        assert!(outs.iter().flatten().all(|&v| v == UNTOUCHED));
+    }
+    (double, status)
+}
+
+/// Non-finite boundaries are invalid arguments, and sizes whose boundary or
+/// point count overflows are invalid dimensions, with no output written
+/// (#292). The size checks come before `segments` is read, so a two-element
+/// array is enough for them.
+#[test]
+fn gauss_legendre_rule_piecewise_rejects_bad_segments_and_sizes() {
+    for segments in [
+        [0.0, f64::NAN, 1.0],
+        [f64::NAN, 0.0, 1.0],
+        [0.0, 1.0, f64::INFINITY],
+        [f64::NEG_INFINITY, 0.0, 1.0],
+    ] {
+        assert_eq!(
+            gauss_rule_statuses(4, &segments, 2),
+            (SPIR_INVALID_ARGUMENT, SPIR_INVALID_ARGUMENT),
+            "{segments:?}"
+        );
+    }
+
+    let segments = [0.0, 1.0];
+    for (n, n_segments) in [(4, i32::MAX), (i32::MAX, i32::MAX - 1)] {
+        assert_eq!(
+            gauss_rule_statuses(n, &segments, n_segments),
+            (SPIR_INVALID_DIMENSION, SPIR_INVALID_DIMENSION),
+            "n = {n}, n_segments = {n_segments}"
+        );
+    }
+
+    assert_eq!(
+        gauss_rule_statuses(4, &[0.0, 0.5, 1.0], 2),
+        (SPIR_COMPUTATION_SUCCESS, SPIR_COMPUTATION_SUCCESS)
+    );
 }

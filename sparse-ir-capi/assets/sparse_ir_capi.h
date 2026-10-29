@@ -397,7 +397,16 @@ StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
  * * `positive_only` - If true, return only non-negative frequencies (n ≥ 0; bosonic
  *   sets include n = 0)
  * * `points` - Pre-allocated array to store the reduced Matsubara frequencies n
- *   (iν = iπn/β)
+ *   (iν = iπn/β). It must hold at least as many elements as
+ *   `spir_basis_get_n_default_matsus` reports for the same `b` and
+ *   `positive_only`; this function takes no capacity and writes exactly that
+ *   many elements.
+ *
+ * Call `spir_basis_get_n_default_matsus` first and allocate the count it
+ * returns. Do not size `points` by `spir_basis_get_size`: the count can
+ * exceed it (a bosonic basis of even size L has L + 1 points when
+ * `positive_only` is false). `spir_basis_get_default_matsus_ext` takes an
+ * explicit capacity and checks it before writing.
  *
  * For a DLR the default points are its Matsubara interpolation nodes, one
  * per pole (the DLR had none up to 0.10).
@@ -650,6 +659,34 @@ StatusCode spir_basis_get_default_matsus_ext(const struct spir_basis *b,
                                              int points_capacity,
                                              int64_t *points,
                                              int *n_points_total);
+
+/**
+ * Whether this build of the library may execute fused multiply-add
+ * instructions
+ *
+ * # Returns
+ * 1 if the library was compiled with the FMA target feature (the default
+ * build on x86-64 and every aarch64 build), 0 if it was built without it,
+ * e.g. with `RUSTFLAGS="-C target-feature=-fma"`. A build that returns 0
+ * runs on any CPU of its architecture.
+ */
+ int spir_build_uses_fma(void);
+
+/**
+ * Whether this CPU, and the operating system, support fused multiply-add
+ * instructions
+ *
+ * On x86-64 this reads CPUID and the enabled register state directly,
+ * because `is_x86_feature_detected!` answers "yes" without asking the CPU
+ * in a build compiled with the feature. On aarch64 FMA is part of the base
+ * instruction set. The result is computed once and cached. The function
+ * executes no FMA instruction itself, so it is safe to call on any CPU.
+ *
+ * # Returns
+ * 1 if the CPU can execute FMA instructions, 0 otherwise (and on
+ * architectures other than x86-64 and aarch64)
+ */
+ int spir_cpu_has_fma(void);
 
 /**
  * Creates a new DLR directly from its physical parameters, without an IR basis
@@ -1790,7 +1827,9 @@ struct spir_sampling *spir_tau_sampling_new(const struct spir_basis *b,
  * # Arguments
  * * `b` - Pointer to a finite temperature basis object
  * * `positive_only` - If true, only non-negative frequencies are used; the IR
- *   coefficients are then real, i.e. G(-iν) = conj(G(iν))
+ *   coefficients are then real, i.e. G(-iν) = conj(G(iν)). This holds for
+ *   any basis, with or without definite parity: the basis functions are
+ *   real in τ.
  * * `num_points` - Number of sampling points
  * * `points` - Array of `num_points` reduced Matsubara frequencies n
  *   (iν = iπn/β): odd for a fermionic basis, even for a bosonic basis, and
@@ -2493,9 +2532,10 @@ struct spir_sve_result *spir_sve_result_truncate(const struct spir_sve_result *s
  * - SPIR_INVALID_ARGUMENT if `K_high`, `segments_x` or `segments_y` is NULL,
  *   a size is less than 1, `epsilon` is not positive and finite or is 1 or
  *   more, an entry of `K_high` or `K_low` is NaN or infinite or their sum
- *   overflows, the segments are not finite and strictly increasing, a
- *   segment length is not finite or is subnormal, the sum of the ends of a
- *   segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is not
+ *   overflows, `order` is not SPIR_ORDER_ROW_MAJOR or
+ *   SPIR_ORDER_COLUMN_MAJOR, the segments are not finite and strictly
+ *   increasing, a segment length is not finite or is subnormal, the sum of
+ *   the ends of a segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is not
  *   `n_segments_y * n_gauss`, or the matrix has rank 0
  * - SPIR_INVALID_DIMENSION if the matrix is too large to be addressed
  * - SPIR_INTERNAL_ERROR if the SVD fails (e.g. the QR of the matrix
@@ -2559,8 +2599,9 @@ struct spir_sve_result *spir_sve_result_from_matrix(const double *K_high,
  * - SPIR_INVALID_ARGUMENT if `K_even_high`, `K_odd_high`, `segments_x` or
  *   `segments_y` is NULL, a size is less than 1, `epsilon` is not positive
  *   and finite or is 1 or more, an entry of a matrix that is read is NaN or
- *   infinite or the sum of a high and a low entry overflows, the segments
- *   are not finite and strictly increasing, the segments do not start at 0,
+ *   infinite or the sum of a high and a low entry overflows, `order` is not
+ *   SPIR_ORDER_ROW_MAJOR or SPIR_ORDER_COLUMN_MAJOR, the segments are not
+ *   finite and strictly increasing, the segments do not start at 0,
  *   a segment length is not finite or is subnormal, the sum of the ends of
  *   a segment overflows, `nx` is not `n_segments_x * n_gauss` or `ny` is
  *   not `n_segments_y * n_gauss`, or both matrices have rank 0
@@ -2590,18 +2631,22 @@ struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double
 /**
  * Choose the working type (Twork) based on epsilon value
  *
- * This function determines the appropriate working precision type based on the
- * target accuracy epsilon. It follows the same logic as SPIR_TWORK_AUTO:
- * - Returns SPIR_TWORK_FLOAT64X2 if epsilon < 1e-8 or epsilon is NaN
- * - Returns SPIR_TWORK_FLOAT64 otherwise
+ * Returns the working precision that SPIR_TWORK_AUTO selects for `epsilon`.
+ * The selection is owned by the core SVE policy, so this helper and the SVE
+ * cannot disagree:
+ * - SPIR_TWORK_FLOAT64 if epsilon >= 1e-8
+ * - SPIR_TWORK_FLOAT64X2 if epsilon < 1e-8
  *
  * # Arguments
- * * `epsilon` - Target accuracy (must be non-negative, or NaN for auto-selection)
+ * * `epsilon` - Target accuracy, in (0, 1) like every SVE accepts
  *
  * # Returns
  * Working type constant:
  * - SPIR_TWORK_FLOAT64 (0): Use double precision (64-bit)
  * - SPIR_TWORK_FLOAT64X2 (1): Use extended precision (128-bit)
+ *
+ * or SPIR_INVALID_ARGUMENT if `epsilon` is not in (0, 1): NaN, zero,
+ * negative, infinite, or 1 or more. No SVE accepts such an epsilon.
  */
  int spir_choose_working_type(double epsilon);
 
@@ -2627,7 +2672,11 @@ struct spir_sve_result *spir_sve_result_from_matrix_centrosymmetric(const double
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
  *   or `segments` does not meet the conditions above
+ * - SPIR_INVALID_DIMENSION if `n_segments + 1` or `n * n_segments` is not
+ *   representable, or arrays of that many doubles are not addressable
  * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The outputs are written only on success.
  */
 
 StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
@@ -2665,7 +2714,11 @@ StatusCode spir_gauss_legendre_rule_piecewise_double(int n,
  * - SPIR_COMPUTATION_SUCCESS (0) on success
  * - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
  *   or `segments` does not meet the conditions above
+ * - SPIR_INVALID_DIMENSION if `n_segments + 1` or `n * n_segments` is not
+ *   representable, or arrays of that many doubles are not addressable
  * - SPIR_INTERNAL_ERROR if an internal error occurs
+ *
+ * The outputs are written only on success.
  */
 
 StatusCode spir_gauss_legendre_rule_piecewise_ddouble(int n,

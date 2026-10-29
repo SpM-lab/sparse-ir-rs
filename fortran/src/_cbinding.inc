@@ -228,8 +228,7 @@ function c_spir_basis_get_n_default_matsus_ext( &
 end function
 
 function c_spir_basis_get_default_matsus_ext( &
-    & b, positive_only, fence, basis_size, points_capacity, points, &
-    & n_points_total) &
+    & b, positive_only, fence, basis_size, points_capacity, points, n_points_total) &
     bind(c, name="spir_basis_get_default_matsus_ext")
   import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: b
@@ -240,6 +239,20 @@ function c_spir_basis_get_default_matsus_ext( &
   type(c_ptr), value :: points
   type(c_ptr), value :: n_points_total
   integer(c_int) :: c_spir_basis_get_default_matsus_ext
+
+end function
+
+function c_spir_build_uses_fma() &
+    bind(c, name="spir_build_uses_fma")
+  import :: c_int
+  integer(c_int) :: c_spir_build_uses_fma
+
+end function
+
+function c_spir_cpu_has_fma() &
+    bind(c, name="spir_cpu_has_fma")
+  import :: c_int
+  integer(c_int) :: c_spir_cpu_has_fma
 
 end function
 
@@ -503,8 +516,7 @@ function c_spir_funcs_batch_eval_matsu( &
 end function
 
 function c_spir_uhat_get_default_matsus( &
-    & uhat, positive_only, fence, basis_size, points_capacity, points, &
-    & n_points_total) &
+    & uhat, positive_only, fence, basis_size, points_capacity, points, n_points_total) &
     bind(c, name="spir_uhat_get_default_matsus")
   import :: c_bool, c_int, c_ptr
   type(c_ptr), value :: uhat

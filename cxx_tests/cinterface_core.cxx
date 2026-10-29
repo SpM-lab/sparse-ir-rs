@@ -197,6 +197,16 @@ TEST_CASE("Test spir_kernel_get_sve_hints error handling", "[cinterface]")
     spir_kernel_release(kernel);
 }
 
+TEST_CASE("Test spir_build_uses_fma and spir_cpu_has_fma", "[cinterface]")
+{
+    // This test runs, so the library runs on this CPU
+    int uses = spir_build_uses_fma();
+    int has = spir_cpu_has_fma();
+    REQUIRE((uses == 0 || uses == 1));
+    REQUIRE((has == 0 || has == 1));
+    REQUIRE(spir_cpu_has_fma() == has);
+}
+
 TEST_CASE("Test spir_choose_working_type", "[cinterface]")
 {
     // Test with epsilon >= 1e-8 -> should return FLOAT64
@@ -221,10 +231,10 @@ TEST_CASE("Test spir_choose_working_type", "[cinterface]")
         REQUIRE(twork == SPIR_TWORK_FLOAT64X2);
     }
 
-    // Test with NaN -> should return FLOAT64X2
-    {
-        int twork = spir_choose_working_type(std::numeric_limits<double>::quiet_NaN());
-        REQUIRE(twork == SPIR_TWORK_FLOAT64X2);
+    // An epsilon that no SVE accepts is rejected, not given a precision
+    for (double eps : {std::numeric_limits<double>::quiet_NaN(), 0.0, -1.0,
+                       std::numeric_limits<double>::infinity(), 1.0}) {
+        REQUIRE(spir_choose_working_type(eps) == SPIR_INVALID_ARGUMENT);
     }
 
     // Test boundary case: epsilon = 1e-8 exactly

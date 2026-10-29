@@ -367,25 +367,43 @@ pub(crate) unsafe fn create_view_mut_from_ptr<'a, T: sparse_ir::TensorScalar>(
 
 /// Choose the working type (Twork) based on epsilon value
 ///
-/// This function determines the appropriate working precision type based on the
-/// target accuracy epsilon. It follows the same logic as SPIR_TWORK_AUTO:
-/// - Returns SPIR_TWORK_FLOAT64X2 if epsilon < 1e-8 or epsilon is NaN
-/// - Returns SPIR_TWORK_FLOAT64 otherwise
+/// Returns the working precision that SPIR_TWORK_AUTO selects for `epsilon`.
+/// The selection is owned by the core SVE policy, so this helper and the SVE
+/// cannot disagree:
+/// - SPIR_TWORK_FLOAT64 if epsilon >= 1e-8
+/// - SPIR_TWORK_FLOAT64X2 if epsilon < 1e-8
 ///
 /// # Arguments
-/// * `epsilon` - Target accuracy (must be non-negative, or NaN for auto-selection)
+/// * `epsilon` - Target accuracy, in (0, 1) like every SVE accepts
 ///
 /// # Returns
 /// Working type constant:
 /// - SPIR_TWORK_FLOAT64 (0): Use double precision (64-bit)
 /// - SPIR_TWORK_FLOAT64X2 (1): Use extended precision (128-bit)
+///
+/// or SPIR_INVALID_ARGUMENT if `epsilon` is not in (0, 1): NaN, zero,
+/// negative, infinite, or 1 or more. No SVE accepts such an epsilon.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_choose_working_type(epsilon: f64) -> libc::c_int {
-    if epsilon.is_nan() || epsilon < 1e-8 {
-        SPIR_TWORK_FLOAT64X2
-    } else {
-        SPIR_TWORK_FLOAT64
+    match sparse_ir::TworkType::auto_for(epsilon) {
+        Ok(twork) => twork as libc::c_int,
+        Err(e) => crate::status::status_from(&e),
     }
+}
+
+/// Validated sizes of a piecewise Gauss-Legendre rule with `n` points on
+/// each of `n_segments` segments: the number of boundaries,
+/// `n_segments + 1`, and of points, `n * n_segments`
+///
+/// # Errors
+/// `SPIR_INVALID_DIMENSION` if a count overflows or an array of that many
+/// `f64` is not addressable. `n` and `n_segments` are positive (checked by
+/// the caller).
+fn gauss_rule_sizes(n: libc::c_int, n_segments: libc::c_int) -> Result<(usize, usize), StatusCode> {
+    let n_knots = n_segments.checked_add(1).ok_or(SPIR_INVALID_DIMENSION)?;
+    let knots = validate_dims::<f64>(&[n_knots])?;
+    let points = validate_dims::<f64>(&[n, n_segments])?;
+    Ok((knots[0], points[0] * points[1]))
 }
 
 /// Compute piecewise Gauss-Legendre quadrature rule (double precision)
@@ -409,7 +427,11 @@ pub extern "C" fn spir_choose_working_type(epsilon: f64) -> libc::c_int {
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
 ///   or `segments` does not meet the conditions above
+/// - SPIR_INVALID_DIMENSION if `n_segments + 1` or `n * n_segments` is not
+///   representable, or arrays of that many doubles are not addressable
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// The outputs are written only on success.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
     n: libc::c_int,
@@ -441,10 +463,24 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
         return SPIR_INVALID_ARGUMENT;
     }
 
+    // Validate both array sizes before either array is touched (#292): the
+    // `n_segments + 1` boundaries and the `n * n_segments` outputs, computed
+    // without overflow.
+    let (n_knots, n_points) = match gauss_rule_sizes(n, n_segments) {
+        Ok(sizes) => sizes,
+        Err(code) => {
+            unsafe {
+                *status = code;
+            }
+            return code;
+        }
+    };
+
     let result = crate::ffi_call(|| {
-        // Convert segments to Vec
-        let segments_slice =
-            unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        // SAFETY: `segments` is non-null (checked above) and holds
+        // `n_segments + 1` elements (caller contract), a count that
+        // `gauss_rule_sizes` proved addressable.
+        let segments_slice = unsafe { std::slice::from_raw_parts(segments, n_knots) };
         let segs_vec = segments_slice.to_vec();
 
         // Generate base rule with DDouble precision, then convert to double
@@ -470,8 +506,9 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
             }
         };
 
-        // Copy to output arrays
-        for i in 0..piecewise_rule.x().len() {
+        // Copy to output arrays, `n_points` elements each
+        debug_assert_eq!(piecewise_rule.x().len(), n_points);
+        for i in 0..n_points {
             unsafe {
                 *x.add(i) = piecewise_rule.x()[i];
                 *w.add(i) = piecewise_rule.w()[i];
@@ -519,7 +556,11 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_double(
 /// - SPIR_COMPUTATION_SUCCESS (0) on success
 /// - SPIR_INVALID_ARGUMENT if a pointer is NULL, `n` or `n_segments` < 1,
 ///   or `segments` does not meet the conditions above
+/// - SPIR_INVALID_DIMENSION if `n_segments + 1` or `n * n_segments` is not
+///   representable, or arrays of that many doubles are not addressable
 /// - SPIR_INTERNAL_ERROR if an internal error occurs
+///
+/// The outputs are written only on success.
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
     n: libc::c_int,
@@ -558,10 +599,24 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
         return SPIR_INVALID_ARGUMENT;
     }
 
+    // Validate both array sizes before either array is touched (#292): the
+    // `n_segments + 1` boundaries and the `n * n_segments` outputs, computed
+    // without overflow.
+    let (n_knots, n_points) = match gauss_rule_sizes(n, n_segments) {
+        Ok(sizes) => sizes,
+        Err(code) => {
+            unsafe {
+                *status = code;
+            }
+            return code;
+        }
+    };
+
     let result = crate::ffi_call(|| {
-        // Convert segments to Vec
-        let segments_slice =
-            unsafe { std::slice::from_raw_parts(segments, (n_segments + 1) as usize) };
+        // SAFETY: `segments` is non-null (checked above) and holds
+        // `n_segments + 1` elements (caller contract), a count that
+        // `gauss_rule_sizes` proved addressable.
+        let segments_slice = unsafe { std::slice::from_raw_parts(segments, n_knots) };
         let segs_vec: Vec<sparse_ir::Df64> = segments_slice
             .iter()
             .map(|&x| sparse_ir::Df64::new(x))
@@ -583,8 +638,9 @@ pub extern "C" fn spir_gauss_legendre_rule_piecewise_ddouble(
             }
         };
 
-        // Extract high and low parts
-        for i in 0..piecewise_rule.x().len() {
+        // Extract high and low parts, `n_points` elements each
+        debug_assert_eq!(piecewise_rule.x().len(), n_points);
+        for i in 0..n_points {
             unsafe {
                 *x_high.add(i) = piecewise_rule.x()[i].hi();
                 *x_low.add(i) = piecewise_rule.x()[i].lo();
@@ -765,10 +821,10 @@ mod tests {
             assert_eq!(twork, SPIR_TWORK_FLOAT64X2);
         }
 
-        // Test with NaN -> should return FLOAT64X2
-        {
-            let twork = spir_choose_working_type(f64::NAN);
-            assert_eq!(twork, SPIR_TWORK_FLOAT64X2);
+        // An epsilon that no SVE accepts is rejected, not given a precision
+        // (#345)
+        for eps in [f64::NAN, 0.0, -1.0, f64::INFINITY, 1.0] {
+            assert_eq!(spir_choose_working_type(eps), crate::SPIR_INVALID_ARGUMENT);
         }
 
         // Test boundary case: epsilon = 1e-8 exactly

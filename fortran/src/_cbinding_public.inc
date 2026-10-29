@@ -21,6 +21,8 @@
   public :: c_spir_basis_get_default_taus_ext
   public :: c_spir_basis_get_n_default_matsus_ext
   public :: c_spir_basis_get_default_matsus_ext
+  public :: c_spir_build_uses_fma
+  public :: c_spir_cpu_has_fma
   public :: c_spir_dlr_new_independent
   public :: c_spir_dlr_new
   public :: c_spir_dlr_new_with_poles

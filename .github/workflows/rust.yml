@@ -64,6 +64,13 @@ jobs:
       - name: Run library tests with the parallel feature
         run: cargo test -p sparse-ir-core -p sparse-ir-basis --lib --release --locked --features sparse-ir-core/parallel,sparse-ir-basis/parallel
 
+      # spir_cpu_has_fma reads CPUID itself. In a build without FMA, std's
+      # runtime detection asks the CPU too, and the test compares the two.
+      - name: Test the FMA detection in a build without FMA
+        env:
+          RUSTFLAGS: -C target-feature=-fma
+        run: cargo test -p sparse-ir-capi --lib --locked --target-dir target/no-fma 'cpu::'
+
   rust-system-blas:
     runs-on: ubuntu-latest
     name: Rust (system BLAS backend)
@@ -128,3 +135,27 @@ jobs:
           cbindgen --config cbindgen.toml --cpp-compat --output /tmp/sparseir.h .
           diff include/sparseir/sparseir.h /tmp/sparseir.h
           diff include/sparseir/sparseir.h assets/sparse_ir_capi.h
+
+      # The Fortran and Python declarations are generated from the header
+      # too; a C API change must regenerate them in the same change (#294).
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      # The libclang wheel ships without clang's builtin headers, so `bool`
+      # would parse as `int`; give it a stdbool.h.
+      - name: Provide stdbool.h to libclang
+        run: |
+          mkdir -p /tmp/clang-builtins
+          echo '#define bool _Bool' > /tmp/clang-builtins/stdbool.h
+          echo "C_INCLUDE_PATH=/tmp/clang-builtins" >> "$GITHUB_ENV"
+
+      - name: Regenerate and diff the Fortran C bindings
+        working-directory: fortran
+        run: |
+          uv run script/generate_c_binding.py ../sparse-ir-capi/include/sparseir/sparseir.h
+          git diff --exit-code -- src/_cbinding.inc src/_cbinding_public.inc
+
+      - name: Regenerate and diff the Python ctypes bindings
+        run: |
+          uv run --no-project --with libclang python python/tools/gen_ctypes.py
+          git diff --exit-code -- python/pylibsparseir/ctypes_autogen.py

@@ -273,6 +273,29 @@ def _adopt_result(handle_type, raw, status, failure):
     return handle_type(raw)
 
 
+def _check_cpu_supports_build(lib):
+    """Raise if the library uses the fused multiply-add and the CPU lacks it.
+
+    The default build of libsparseir uses FMA instructions (x86-64 CPUs
+    since 2013, every aarch64 CPU); on a CPU without them the first one would
+    kill the process with SIGILL. Both functions are safe to call on any CPU.
+    A library older than this check does not export them and is not checked.
+    """
+    if not (hasattr(lib, "spir_build_uses_fma") and hasattr(lib, "spir_cpu_has_fma")):
+        return
+    lib.spir_build_uses_fma.argtypes = []
+    lib.spir_build_uses_fma.restype = ctypes.c_int
+    lib.spir_cpu_has_fma.argtypes = []
+    lib.spir_cpu_has_fma.restype = ctypes.c_int
+    if lib.spir_build_uses_fma() and not lib.spir_cpu_has_fma():
+        raise RuntimeError(
+            "libsparseir was built for CPUs with the fused multiply-add (FMA) "
+            "instruction, which this CPU does not have. Build pylibsparseir "
+            "from source without it: "
+            'RUSTFLAGS="-C target-feature=-fma" pip install --no-binary '
+            "pylibsparseir pylibsparseir")
+
+
 # Load the library
 _blas_backend = None
 try:
@@ -295,6 +318,8 @@ try:
     ptr_z = ctypes.pythonapi.PyCapsule_GetPointer(capsule_z, name_z)
 
     _lib = ctypes.CDLL(_find_library())
+    # Before anything that may execute an FMA instruction
+    _check_cpu_supports_build(_lib)
 
     # Create GEMM backend handle from SciPy BLAS functions
     # Note: SciPy BLAS typically uses LP64 interface (32-bit integers)

@@ -17,6 +17,13 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   own, sized by `RAYON_NUM_THREADS` or all cores (#344).
 - `SVEStrategy::blocks` (provided method) and `KernelBlock`: the weighted
   kernel blocks of an SVE strategy, evaluated on demand.
+- `TworkType::auto_for(epsilon)`: the working precision that
+  `TworkType::Auto` selects, or `Error::InvalidParameter` for an epsilon
+  outside (0, 1) (#345).
+- C API: `spir_build_uses_fma()` and `spir_cpu_has_fma()`. A binding that
+  finds `spir_build_uses_fma() && !spir_cpu_has_fma()` can raise a clear
+  error at import instead of the process dying with SIGILL on the first FMA
+  instruction. `pylibsparseir` does so (#332).
 
 ### Changed
 
@@ -39,8 +46,25 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   pairs `(K_high, K_low)` passed in, and return `SPIR_INVALID_ARGUMENT` if
   their sum overflows. Normalized pairs, such as those of a correctly
   rounded double-double value, give the same result as before.
+- `spir_choose_working_type` returns `SPIR_INVALID_ARGUMENT` for an epsilon
+  that no SVE accepts (NaN, zero, negative, infinite, or 1 or more) instead
+  of a precision; it used to return `SPIR_TWORK_FLOAT64X2` for NaN, 0 and
+  negative values. Valid epsilons give the same precision as before (#345).
 
 ### Fixed
 
 - The fitters return an error, not zeros or NaN, if the SVD of the sampling
   matrix has non-finite singular values.
+- C API: `spir_sve_result_from_matrix` and
+  `spir_sve_result_from_matrix_centrosymmetric` return
+  `SPIR_INVALID_ARGUMENT` for an `order` other than the two
+  `SPIR_ORDER_*` constants; they read the matrix as row-major (#325).
+- C API: `spir_gauss_legendre_rule_piecewise_double` and `_ddouble` return
+  `SPIR_INVALID_DIMENSION`, before reading `segments`, when
+  `n_segments + 1` or `n * n_segments` overflows, and write no output on
+  any error (#292).
+- C API: the documentation of `spir_basis_get_default_matsus` states the
+  buffer size it needs, the count of `spir_basis_get_n_default_matsus`,
+  which can exceed the basis size (#347).
+- The Fortran C bindings and the Python ctypes declarations are checked
+  against the header in CI (#294).

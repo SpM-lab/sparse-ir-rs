@@ -239,7 +239,9 @@ pub extern "C" fn spir_tau_sampling_new(
 /// # Arguments
 /// * `b` - Pointer to a finite temperature basis object
 /// * `positive_only` - If true, only non-negative frequencies are used; the IR
-///   coefficients are then real, i.e. G(-iν) = conj(G(iν))
+///   coefficients are then real, i.e. G(-iν) = conj(G(iν)). This holds for
+///   any basis, with or without definite parity: the basis functions are
+///   real in τ.
 /// * `num_points` - Number of sampling points
 /// * `points` - Array of `num_points` reduced Matsubara frequencies n
 ///   (iν = iπn/β): odd for a fermionic basis, even for a bosonic basis, and
