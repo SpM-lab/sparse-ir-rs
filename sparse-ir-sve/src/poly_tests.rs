@@ -1,7 +1,7 @@
 //! Tests for piecewise Legendre polynomial implementations
 
 use crate::matrix::{Mat, Mat3, mat};
-use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
+use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector, legendre_series};
 
 #[test]
 fn test_basic_polynomial_creation() {
@@ -256,29 +256,21 @@ fn test_split_function() {
 
 #[test]
 fn test_legendre_polynomial_evaluation() {
-    // Test the Legendre polynomial evaluation directly
-    let poly = PiecewiseLegendrePoly::new(
-        Mat::<f64>::from_elem([3, 1], 0.0),
-        vec![0.0, 1.0],
-        0,
-        None,
-        0,
-    )
-    .unwrap();
+    // The Legendre series by itself
 
     // Test P_0(x) = 1
     let coeffs = vec![1.0, 0.0, 0.0];
-    let result = poly.evaluate_legendre_polynomial(0.5, &coeffs);
+    let result = legendre_series(0.5, &coeffs);
     assert!((result - 1.0).abs() < 1e-10);
 
     // Test P_1(x) = x
     let coeffs = vec![0.0, 1.0, 0.0];
-    let result = poly.evaluate_legendre_polynomial(0.5, &coeffs);
+    let result = legendre_series(0.5, &coeffs);
     assert!((result - 0.5).abs() < 1e-10);
 
     // Test P_2(x) = (3x^2 - 1)/2
     let coeffs = vec![0.0, 0.0, 1.0];
-    let result = poly.evaluate_legendre_polynomial(0.5, &coeffs);
+    let result = legendre_series(0.5, &coeffs);
     let expected = (3.0 * 0.5 * 0.5 - 1.0) / 2.0;
     assert!((result - expected).abs() < 1e-10);
 }
@@ -419,34 +411,26 @@ fn test_high_precision_derivative() {
 #[test]
 fn test_legendre_polynomial_properties() {
     // Test that our Legendre polynomial evaluation matches known properties
-    let poly = PiecewiseLegendrePoly::new(
-        Mat::<f64>::from_elem([5, 1], 0.0),
-        vec![0.0, 1.0],
-        0,
-        None,
-        0,
-    )
-    .unwrap();
 
     // Test P_0(x) = 1 at x = 0
     let coeffs = vec![1.0, 0.0, 0.0, 0.0, 0.0];
-    let result = poly.evaluate_legendre_polynomial(0.0, &coeffs);
+    let result = legendre_series(0.0, &coeffs);
     assert!((result - 1.0).abs() < 1e-10);
 
     // Test P_1(x) = x at x = 0.5
     let coeffs = vec![0.0, 1.0, 0.0, 0.0, 0.0];
-    let result = poly.evaluate_legendre_polynomial(0.5, &coeffs);
+    let result = legendre_series(0.5, &coeffs);
     assert!((result - 0.5).abs() < 1e-10);
 
     // Test P_2(x) = (3x^2 - 1)/2 at x = 1.0
     let coeffs = vec![0.0, 0.0, 1.0, 0.0, 0.0];
-    let result = poly.evaluate_legendre_polynomial(1.0, &coeffs);
+    let result = legendre_series(1.0, &coeffs);
     let expected = (3.0 * 1.0 * 1.0 - 1.0) / 2.0;
     assert!((result - expected).abs() < 1e-10);
 
     // Test P_3(x) = (5x^3 - 3x)/2 at x = 0.5
     let coeffs = vec![0.0, 0.0, 0.0, 1.0, 0.0];
-    let result = poly.evaluate_legendre_polynomial(0.5, &coeffs);
+    let result = legendre_series(0.5, &coeffs);
     let expected = (5.0 * 0.125 - 3.0 * 0.5) / 2.0;
     assert!((result - expected).abs() < 1e-10);
 }

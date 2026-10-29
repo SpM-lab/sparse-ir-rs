@@ -72,6 +72,10 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `delta_x()`, `data()`, `norms()`, `polyorder()`, `domain()`, `l()`,
   `polys()`, ...), and `PiecewiseLegendrePolyVector::size` is `len` (with
   `is_empty`). The former names are deprecated.
+- Internal helpers are deprecated, to be removed:
+  `PiecewiseLegendrePoly::evaluate_legendre_polynomial` (a Legendre series
+  that does not depend on the polynomial), and
+  `DiscretizedKernel::new_legacy` and `remove_weights_from_sve`.
 - `CustomNumeric` is sealed (implemented for `f64` and `Df64` only) and
   requires `ComplexField<RealField = Self>`, so `abs()` returns `Self`;
   `abs_as_same_type` and `is_valid` (use `abs` and `is_finite`) are

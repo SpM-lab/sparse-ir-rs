@@ -295,7 +295,7 @@ impl PiecewiseLegendrePoly {
         let coeffs: Vec<f64> = (0..self.data.shape().0)
             .map(|row| self.data[[row, i]])
             .collect();
-        let value = self.evaluate_legendre_polynomial(x_tilde, &coeffs);
+        let value = legendre_series(x_tilde, &coeffs);
         value * self.norms[i]
     }
 
@@ -356,36 +356,6 @@ impl PiecewiseLegendrePoly {
         let last_idx = self.knots.len() - 2;
         let x_tilde = 2.0 * (x - self.xm[last_idx]) / self.delta_x[last_idx];
         (last_idx, x_tilde)
-    }
-
-    /// Evaluate Legendre polynomial using recurrence relation
-    pub fn evaluate_legendre_polynomial(&self, x: f64, coeffs: &[f64]) -> f64 {
-        if coeffs.is_empty() {
-            return 0.0;
-        }
-
-        let mut result = 0.0;
-        let mut p_prev = 1.0; // P_0(x) = 1
-        let mut p_curr = x; // P_1(x) = x
-
-        // Add first two terms
-        if !coeffs.is_empty() {
-            result += coeffs[0] * p_prev;
-        }
-        if coeffs.len() > 1 {
-            result += coeffs[1] * p_curr;
-        }
-
-        // Use recurrence relation: P_{n+1}(x) = ((2n+1)x*P_n(x) - n*P_{n-1}(x))/(n+1)
-        for n in 1..coeffs.len() - 1 {
-            let p_next =
-                ((2.0 * (n as f64) + 1.0) * x * p_curr - (n as f64) * p_prev) / ((n + 1) as f64);
-            result += coeffs[n + 1] * p_next;
-            p_prev = p_curr;
-            p_curr = p_next;
-        }
-
-        result
     }
 
     /// Compute derivative of the polynomial
@@ -463,7 +433,7 @@ impl PiecewiseLegendrePoly {
             }
             let inv_x_power = self.inv_xs[i].powi(n as i32);
             let scaled: Vec<f64> = coeffs.iter().map(|&c| c * inv_x_power).collect();
-            results.push(self.evaluate_legendre_polynomial(x_tilde, &scaled) * self.norms[i]);
+            results.push(legendre_series(x_tilde, &scaled) * self.norms[i]);
         }
         Ok(results)
     }
@@ -721,6 +691,36 @@ impl PiecewiseLegendrePoly {
     }
 }
 
+/// The Legendre series Σ_n coeffs[n] P_n(x), by the three-term recurrence
+pub(crate) fn legendre_series(x: f64, coeffs: &[f64]) -> f64 {
+    if coeffs.is_empty() {
+        return 0.0;
+    }
+
+    let mut result = 0.0;
+    let mut p_prev = 1.0; // P_0(x) = 1
+    let mut p_curr = x; // P_1(x) = x
+
+    // Add first two terms
+    if !coeffs.is_empty() {
+        result += coeffs[0] * p_prev;
+    }
+    if coeffs.len() > 1 {
+        result += coeffs[1] * p_curr;
+    }
+
+    // Use recurrence relation: P_{n+1}(x) = ((2n+1)x*P_n(x) - n*P_{n-1}(x))/(n+1)
+    for n in 1..coeffs.len() - 1 {
+        let p_next =
+            ((2.0 * (n as f64) + 1.0) * x * p_curr - (n as f64) * p_prev) / ((n + 1) as f64);
+        result += coeffs[n + 1] * p_next;
+        p_prev = p_curr;
+        p_curr = p_next;
+    }
+
+    result
+}
+
 /// Coefficients of the derivative of the Legendre series `c`
 /// (the same algorithm as the C++ legder function with cnt = 1)
 fn legder(c: &[f64]) -> Vec<f64> {
@@ -743,6 +743,14 @@ fn legder(c: &[f64]) -> Vec<f64> {
 
 /// Former names of the accessors
 impl PiecewiseLegendrePoly {
+    /// The Legendre series Σ_n coeffs[n] P_n(x); it does not depend on the
+    /// polynomial
+    #[deprecated(note = "an internal helper, to be removed")]
+    #[doc(hidden)]
+    pub fn evaluate_legendre_polynomial(&self, x: f64, coeffs: &[f64]) -> f64 {
+        legendre_series(x, coeffs)
+    }
+
     /// [`Self::xmin`]
     #[deprecated(note = "renamed xmin")]
     #[doc(hidden)]

@@ -45,7 +45,9 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
         }
     }
 
-    /// Create a new DiscretizedKernel without segments (legacy)
+    /// [`Self::new`] with the ends of the rules as the only segments
+    #[deprecated(note = "use new, with the segment boundaries")]
+    #[doc(hidden)]
     pub fn new_legacy(matrix: Mat<T>, gauss_x: Rule<T>, gauss_y: Rule<T>) -> Self {
         Self {
             matrix,
@@ -101,7 +103,10 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
         weighted_matrix
     }
 
-    /// Remove weights from matrix (inverse of apply_weights_for_sve)
+    /// Divides the matrix by the square roots of the weights (the inverse of
+    /// [`Self::apply_weights_for_sve`] applied in place)
+    #[deprecated(note = "unused by the SVE, to be removed")]
+    #[doc(hidden)]
     pub fn remove_weights_from_sve(&mut self) {
         let shape = *self.matrix.shape();
 
@@ -254,7 +259,15 @@ pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: ReducedKernel + SVEKernel>
         }
     }
 
-    DiscretizedKernel::new_legacy(result, gauss_x.clone(), gauss_y.clone())
+    let segments_x = vec![gauss_x.a, gauss_x.b];
+    let segments_y = vec![gauss_y.a, gauss_y.b];
+    DiscretizedKernel::new(
+        result,
+        gauss_x.clone(),
+        gauss_y.clone(),
+        segments_x,
+        segments_y,
+    )
 }
 
 /// Compute matrix from Gauss quadrature rules for non-centrosymmetric kernels
