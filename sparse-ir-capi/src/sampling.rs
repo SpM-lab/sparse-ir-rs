@@ -1076,6 +1076,13 @@ pub extern "C" fn spir_sampling_get_cond_num(
 /// - [`spir_sampling_eval_zz`]
 /// # Note
 /// Supports both row-major and column-major order. Zero-copy implementation.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed; the sampling transforms are well conditioned,
+/// so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_eval_dd(
     s: *const spir_sampling,
@@ -1171,6 +1178,13 @@ pub extern "C" fn spir_sampling_eval_dd(
 /// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed; the sampling transforms are well conditioned,
+/// so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_eval_dz(
     s: *const spir_sampling,
@@ -1266,6 +1280,13 @@ pub extern "C" fn spir_sampling_eval_dz(
 /// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed; the sampling transforms are well conditioned,
+/// so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_eval_zz(
     s: *const spir_sampling,
@@ -1391,6 +1412,13 @@ pub extern "C" fn spir_sampling_eval_zz(
 ///
 /// * [`spir_sampling_eval_dd`]
 /// * [`spir_sampling_fit_zz`]
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed; the sampling transforms are well conditioned,
+/// so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_fit_dd(
     s: *const spir_sampling,
@@ -1487,6 +1515,13 @@ pub extern "C" fn spir_sampling_fit_dd(
 /// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed; the sampling transforms are well conditioned,
+/// so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_fit_zz(
     s: *const spir_sampling,
@@ -1612,6 +1647,13 @@ pub extern "C" fn spir_sampling_fit_zz(
 ///
 /// * [`spir_sampling_fit_zz`]
 /// * [`spir_sampling_fit_dd`]
+///
+/// The mathematical transform does not depend on the axis placement or the
+/// memory order of the arrays, but the floating-point result can: a different
+/// `target_dim` selects a different contraction geometry, and the GEMM backend
+/// decides how that geometry is blocked. Bitwise agreement across axis
+/// placements is not guaranteed; the sampling transforms are well conditioned,
+/// so the difference stays at rounding level (SpM-lab/sparse-ir-rs#327).
 #[unsafe(no_mangle)]
 pub extern "C" fn spir_sampling_fit_zd(
     s: *const spir_sampling,

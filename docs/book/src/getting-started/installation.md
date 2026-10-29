@@ -30,8 +30,11 @@ on your machine, turn on the `system-blas` feature:
 sparse-ir = { version = "0.13.0", features = ["system-blas"] }
 ```
 
-Both backends compute the same numbers; the feature only changes which
-implementation multiplies the matrices.
+Both backends implement the same transforms and memory-order contract; the
+feature only changes which implementation multiplies the matrices. The
+results are not guaranteed to be bit-identical: rounding can differ, and an
+ill-conditioned step such as the DLR coefficient transforms can amplify the
+difference (about 1e-12 was measured, SpM-lab/sparse-ir-rs#326).
 
 The API reference is at
 [docs.rs/sparse-ir](https://docs.rs/sparse-ir/) for the release and
