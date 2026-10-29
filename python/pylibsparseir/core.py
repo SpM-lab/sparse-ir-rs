@@ -288,12 +288,19 @@ def _check_cpu_supports_build(lib):
     lib.spir_cpu_has_fma.argtypes = []
     lib.spir_cpu_has_fma.restype = ctypes.c_int
     if lib.spir_build_uses_fma() and not lib.spir_cpu_has_fma():
+        # PyPI has wheels only, so the source build comes from the git tag.
+        try:
+            from importlib.metadata import version
+            ref = "v" + version("pylibsparseir")
+        except Exception:
+            ref = "main"
         raise RuntimeError(
             "libsparseir was built for CPUs with the fused multiply-add (FMA) "
             "instruction, which this CPU does not have. Build pylibsparseir "
             "from source without it: "
-            'RUSTFLAGS="-C target-feature=-fma" pip install --no-binary '
-            "pylibsparseir pylibsparseir")
+            'RUSTFLAGS="-C target-feature=-fma" pip install '
+            f'"pylibsparseir @ git+https://github.com/SpM-lab/sparse-ir-rs@{ref}'
+            '#subdirectory=python"')
 
 
 # Load the library

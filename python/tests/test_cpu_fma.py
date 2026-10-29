@@ -37,8 +37,11 @@ def test_supported_combinations_pass(uses_fma, has_fma):
 
 
 def test_fma_build_on_a_cpu_without_fma_raises():
-    with pytest.raises(RuntimeError, match="fused multiply-add"):
+    with pytest.raises(RuntimeError, match="fused multiply-add") as err:
         _check_cpu_supports_build(_Lib(1, 0))
+    # PyPI has no sdist, so the advice must build from the repository
+    assert "git+https://github.com/SpM-lab/sparse-ir-rs@" in str(err.value)
+    assert "#subdirectory=python" in str(err.value)
 
 
 def test_a_library_without_the_check_is_accepted():
