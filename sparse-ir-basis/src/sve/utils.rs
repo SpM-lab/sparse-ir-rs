@@ -70,13 +70,10 @@ pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Ve
 
 /// Extend polynomials from [0, xmax] to [-xmax, xmax] using symmetry
 ///
-/// Following the C++ implementation logic from sve.rs.bak:856-888
-///
 /// # Arguments
 ///
 /// * `polys` - Polynomials defined on [0, xmax]
 /// * `symmetry` - Even or Odd symmetry type
-/// * `xmax` - Maximum value of the domain
 ///
 /// # Returns
 ///
@@ -99,7 +96,6 @@ pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Ve
 pub(crate) fn extend_to_full_domain(
     polys: Vec<PiecewiseLegendrePoly>,
     symmetry: SymmetryType,
-    _xmax: f64,
 ) -> Result<Vec<PiecewiseLegendrePoly>, Error> {
     let sign = symmetry.sign() as f64;
     let symm = symmetry.sign(); // Preserve symmetry: +1 for even, -1 for odd
@@ -211,8 +207,7 @@ pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
     let n_rows = u_or_v.shape().0;
 
     // Reshape to 3D: (n_gauss, n_segments, n_svals)
-    // Note: Due to QR early termination, u_or_v may have fewer rows than expected
-    // We need to handle the case where row_idx exceeds the actual number of rows
+    // Rows beyond the row count of u_or_v (if any) are left as zero
     let mut tensor_3d = Mat3::<f64>::zeros([n_gauss, n_segments, n_svals]);
     for i in 0..n_gauss {
         for j in 0..n_segments {
@@ -221,7 +216,6 @@ pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
                 if row_idx < n_rows {
                     tensor_3d[[i, j, k]] = u_or_v[[row_idx, k]].to_f64();
                 } else {
-                    // If row_idx is out of bounds, set to zero (due to early termination)
                     tensor_3d[[i, j, k]] = 0.0;
                 }
             }
@@ -288,9 +282,6 @@ pub(crate) fn svd_to_polynomials<T: CustomNumeric>(
 
     Ok(polys)
 }
-
-// Note: legendre_collocation_matrix is imported from interpolation1d module
-// Note: legendre_vandermonde is available in gauss module
 
 /// Canonicalize singular function signs
 ///
@@ -392,7 +383,6 @@ pub(crate) fn merge_blocks(
         });
     }
 
-    // Debug output
     // Create indices with symmetry info
     let mut indices: Vec<(usize, bool)> = Vec::new();
     for i in 0..s_even.len() {

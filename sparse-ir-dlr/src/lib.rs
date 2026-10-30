@@ -16,7 +16,8 @@ use sparse_ir_core::{
 };
 
 pub mod dlr; // Discrete Lehmann Representation utilities
-mod dlr_id; // Interpolative-decomposition construction of the DLR
+#[doc(hidden)]
+pub mod dlr_id; // Interpolative-decomposition construction of the DLR (internal)
 
 pub use dlr::{
     DiscreteLehmannRepresentation, DlrBuilder, IrDlrTransform, bosonic_single_pole,

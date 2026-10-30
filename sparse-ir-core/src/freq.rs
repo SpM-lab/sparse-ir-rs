@@ -54,7 +54,8 @@ use crate::traits::{Bosonic, Fermionic, Statistics, StatisticsType};
 #[derive(Debug, Clone, Copy)]
 pub struct MatsubaraFreq<S: StatisticsType> {
     n: i64,
-    _phantom: std::marker::PhantomData<S>,
+    // `fn() -> S` keeps the type Send + Sync whatever `S` is (it holds no S)
+    _phantom: std::marker::PhantomData<fn() -> S>,
 }
 
 // Type aliases for convenience

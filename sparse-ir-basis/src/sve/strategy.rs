@@ -63,8 +63,8 @@ pub trait SVEStrategy<T: CustomNumeric> {
     ///
     /// `compute_sve` decomposes these in double-double by adaptive cross
     /// approximation, which reads only a few rows and columns of each (in
-    /// f64 it decomposes [`Self::matrices`]). The default forms the
-    /// matrices; [`CentrosymmSVE`] evaluates the kernel lazily.
+    /// f64 it decomposes [`Self::matrices`] as before). The default forms the
+    /// matrices; the strategies of this crate evaluate the kernel lazily.
     fn blocks(&self) -> Vec<KernelBlock<'_, T>>
     where
         T: Send + Sync + 'static,
@@ -248,9 +248,25 @@ where
     ///
     /// # Errors
     ///
-    /// [`Error::InvalidParameter`] if the SVE hints of the kernel give
-    /// segments that are not finite and strictly increasing
+    /// * [`Error::InvalidParameter`] if the domain of the kernel is not
+    ///   symmetric (`xmin != -xmax` or `ymin != -ymax`), or if the SVE hints
+    ///   of the kernel give segments that are not finite and strictly
+    ///   increasing
     pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
+        // The even/odd SVE covers [0, xmax] x [0, ymax] and mirrors it, so it
+        // would silently drop the part of an asymmetric domain.
+        for (name, min, max) in [
+            ("kernel domain [xmin, xmax]", kernel.xmin(), kernel.xmax()),
+            ("kernel domain [ymin, ymax]", kernel.ymin(), kernel.ymax()),
+        ] {
+            if min != -max {
+                return Err(Error::InvalidParameter {
+                    name,
+                    value: format!("[{min:?}, {max:?}]"),
+                    reason: "must be symmetric about 0 for a centrosymmetric kernel".to_string(),
+                });
+            }
+        }
         let hints = kernel.sve_hints::<T>(epsilon);
 
         // Get segments for positive domain [0, xmax]
@@ -312,8 +328,8 @@ where
         let (u, s, v) = result;
 
         // Extend u and v from [0, xmax] to [-xmax, xmax]
-        let u_full = extend_to_full_domain(u, symmetry, self.kernel.xmax())?;
-        let v_full = extend_to_full_domain(v, symmetry, self.kernel.ymax())?;
+        let u_full = extend_to_full_domain(u, symmetry)?;
+        let v_full = extend_to_full_domain(v, symmetry)?;
 
         Ok((u_full, s, v_full))
     }
@@ -371,7 +387,7 @@ where
     }
 }
 
-/// SVE hints of a kernel expressed on its full domain `[-xmax, xmax] × [-ymax, ymax]`
+/// SVE hints of a kernel expressed on its full domain `[xmin, xmax] × [ymin, ymax]`
 ///
 /// [`SVEHints`] reports the segments of a centrosymmetric kernel on the
 /// half-domain `[0, xmax] × [0, ymax]` only, which is what [`CentrosymmSVE`]
@@ -421,8 +437,8 @@ where
 /// Non-centrosymmetric SVE computation
 ///
 /// This strategy computes the kernel matrix directly over the full domain
-/// [-xmax, xmax] × [-ymax, ymax]. No symmetry exploitation is performed, so it
-/// works for any kernel.
+/// [xmin, xmax] × [ymin, ymax] given by the kernel's [`SVEHints`]. No symmetry
+/// exploitation is performed, so it works for any kernel.
 ///
 /// Centrosymmetric kernels are also expanded correctly: their [`SVEHints`]
 /// segments cover only the half-domain `[0, xmax]` and are mirrored onto the
@@ -477,7 +493,7 @@ where
             half_domain: kernel.is_centrosymmetric(),
         };
 
-        // Get segments for full domain [-xmax, xmax]
+        // Get segments for full domain [xmin, xmax], [ymin, ymax]
         let segments_x = hints.segments_x();
         let segments_y = hints.segments_y();
         let n_gauss = hints.ngauss();
@@ -534,6 +550,14 @@ where
     fn matrices(&self) -> Vec<Mat<T>> {
         // Single matrix for non-centrosymmetric kernel
         vec![self.compute_matrix()]
+    }
+
+    fn blocks(&self) -> Vec<KernelBlock<'_, T>> {
+        // The weighted kernel over the full domain, evaluated lazily
+        vec![
+            self.sampling_sve
+                .weighted_block(|x, y| self.kernel.compute(x, y)),
+        ]
     }
 
     fn postprocess(

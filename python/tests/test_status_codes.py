@@ -11,7 +11,6 @@ from pylibsparseir.constants import (
     SPIR_COMPUTATION_SUCCESS,
     SPIR_INPUT_DIMENSION_MISMATCH,
     SPIR_INVALID_ARGUMENT,
-    SPIR_NOT_SUPPORTED,
     SPIR_ORDER_ROW_MAJOR,
     SPIR_STATISTICS_FERMIONIC,
 )
@@ -185,8 +184,9 @@ def test_a_sampling_matrix_with_a_nan_entry():
     assert not matsu_sampling
 
 
-def test_default_matsus_need_a_definite_parity():
-    """S9: a basis on an SVE from a matrix has no default Matsubara points."""
+def test_default_matsus_without_a_definite_parity():
+    """S9: a basis on an SVE from a matrix, whose functions have no parity,
+    has default Matsubara points (they were SPIR_NOT_SUPPORTED)."""
     status, sve = _from_matrix(
         _stand_in_kernel_matrix(4, 4), 4, 4, [-1.0, 0.0, 1.0])
     assert status == SPIR_COMPUTATION_SUCCESS
@@ -201,8 +201,8 @@ def test_default_matsus_need_a_definite_parity():
 
     n_points = c_int(-12345)
     assert _lib.spir_basis_get_n_default_matsus(
-        basis, False, byref(n_points)) == SPIR_NOT_SUPPORTED
-    assert n_points.value == -12345
+        basis, False, byref(n_points)) == SPIR_COMPUTATION_SUCCESS
+    assert n_points.value > 0
 
     _lib.spir_basis_release(basis)
     _lib.spir_kernel_release(kernel)
