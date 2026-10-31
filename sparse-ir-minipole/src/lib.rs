@@ -18,3 +18,4 @@ use sparse_ir_dlr::dlr;
 pub mod esprit; // Matrix ESPRIT (port of esprit.py)
 mod linalg; // Dense linear algebra in NumPy conventions
 pub mod minipole; // Minimal pole method (port of mini_pole*.py)
+pub mod sparse_pole; // Sparse causal pole representations (original)

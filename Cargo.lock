@@ -1585,6 +1585,7 @@ dependencies = [
  "sparse-ir-core",
  "sparse-ir-dlr",
  "tenferro-cpu",
+ "tenferro-einsum",
  "tenferro-linalg",
  "tenferro-tensor",
 ]

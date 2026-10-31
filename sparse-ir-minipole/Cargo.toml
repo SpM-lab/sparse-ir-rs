@@ -21,6 +21,7 @@ sparse-ir-dlr.workspace = true
 tenferro-tensor.workspace = true
 tenferro-linalg.workspace = true
 tenferro-cpu.workspace = true
+tenferro-einsum.workspace = true
 num-complex.workspace = true
 
 [dev-dependencies]
