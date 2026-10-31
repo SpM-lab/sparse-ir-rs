@@ -5,6 +5,8 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-10-31
+
 ### Added
 
 - Fortran: `check_cpu_fma` and `fma_combination_is_supported`. `init_ir`
