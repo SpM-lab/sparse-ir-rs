@@ -7,6 +7,8 @@ MODULE sparse_ir_extension
    !
    PUBLIC :: IR, evaluate_tau, evaluate_matsubara, fit_tau, fit_matsubara, ir2dlr, dlr2ir
    PUBLIC :: init_ir, finalize_ir, eval_u_tau, set_beta, deallocate_ir
+   PUBLIC :: check_cpu_fma, fma_combination_is_supported
+   ! The public surface added for #353 (the CPU check of #332 for this binding)
    ! Re-export constants from sparseir module
    PUBLIC :: SPIR_STATISTICS_FERMIONIC, SPIR_STATISTICS_BOSONIC
    !
@@ -322,6 +324,47 @@ CONTAINS
       DEALLOCATE (ws_c)
    END FUNCTION basis_get_ws
    !
+   !-----------------------------------------------------------------------
+   !> Whether a library with this build/CPU combination may run
+   !!
+   !! The library is compiled with FMA by default; a build that may use it
+   !! cannot run on a CPU without it (the first numerical call dies with
+   !! SIGILL, #332). This is the rule, as a function of the two flags, so that
+   !! every combination can be tested on any machine.
+   !-----------------------------------------------------------------------
+   LOGICAL FUNCTION fma_combination_is_supported(build_uses_fma, cpu_has_fma) RESULT(supported)
+      INTEGER(KIND=c_int), INTENT(IN) :: build_uses_fma
+   !! non-zero if the library may execute a fused multiply-add
+      INTEGER(KIND=c_int), INTENT(IN) :: cpu_has_fma
+   !! non-zero if the CPU has the fused multiply-add
+      !
+      supported = .NOT. (build_uses_fma /= 0_c_int .AND. cpu_has_fma == 0_c_int)
+   END FUNCTION fma_combination_is_supported
+   !
+   !-----------------------------------------------------------------------
+   !> Refuse to start numerical work on a CPU this library cannot run on
+   !!
+   !! Call it before the first call that may execute an FMA. On an
+   !! unsupported combination it stops with a message naming the requirement
+   !! and the `RUSTFLAGS="-C target-feature=-fma"` build, instead of letting
+   !! the process die with SIGILL (#353).
+   !-----------------------------------------------------------------------
+   SUBROUTINE check_cpu_fma(calling_routine)
+      CHARACTER(LEN=*), INTENT(IN) :: calling_routine
+   !! name of the caller, for the message
+      !
+      INTEGER(KIND=c_int) :: build_uses_fma, cpu_has_fma
+      !
+      build_uses_fma = c_spir_build_uses_fma()
+      cpu_has_fma = c_spir_cpu_has_fma()
+      IF (.NOT. fma_combination_is_supported(build_uses_fma, cpu_has_fma)) THEN
+         CALL errore(calling_routine, 'this libsparseir was built with the fused ' &
+              // 'multiply-add, which this CPU does not have: the first numerical ' &
+              // 'call would die with SIGILL. Rebuild it with ' &
+              // 'RUSTFLAGS="-C target-feature=-fma", or run on a CPU with FMA.', 1)
+      END IF
+   END SUBROUTINE check_cpu_fma
+   !
    SUBROUTINE init_ir(obj, beta, lambda, eps, positive_only)
       !-----------------------------------------------------------------------
     !!
@@ -345,6 +388,10 @@ CONTAINS
       INTEGER(KIND=c_int), TARGET :: status_c, npoles_c
       !
       TYPE(c_ptr) :: sve_ptr, basis_f_ptr, basis_b_ptr, k_ptr, dlr_f_ptr, dlr_b_ptr
+      !
+      ! Refuse a build that cannot run here before the first numerical call
+      ! (create_logistic_kernel would die with SIGILL, #353)
+      CALL check_cpu_fma('init_ir')
       !
       wmax = lambda/beta
       lpositive = .false.
