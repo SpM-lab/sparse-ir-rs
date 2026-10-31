@@ -902,79 +902,106 @@ pub extern "C" fn spir_sve_result_from_matrix_centrosymmetric(
             .piecewise(&segs_y_f64)
             .map_err(|e| status_from(&e))?;
 
-        // Assemble one symmetry block of the kernel matrix
-        let matrix_of =
-            |k_high_slice: &[f64], k_low_slice: Option<&[f64]>| -> Result<_, StatusCode> {
-                if let Some(k_low_slice) = k_low_slice {
-                    use sparse_ir::Df64;
-                    use sparse_ir::numeric::CustomNumeric;
-                    let mut matrix_dd = sparse_ir::matrix::Mat::<Df64>::from_elem(
-                        [nx as usize, ny as usize],
-                        Df64::new(0.0),
-                    );
-                    match memory_order {
-                        MemoryOrder::RowMajor => {
-                            for i in 0..(nx as usize) {
-                                for j in 0..(ny as usize) {
-                                    let idx = i * (ny as usize) + j;
-                                    matrix_dd[[i, j]] =
-                                        df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
-                                }
-                            }
-                        }
-                        MemoryOrder::ColumnMajor => {
-                            for i in 0..(nx as usize) {
-                                for j in 0..(ny as usize) {
-                                    let idx = j * (nx as usize) + i;
-                                    matrix_dd[[i, j]] =
-                                        df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
-                                }
-                            }
+        // Assemble one symmetry block of the kernel matrix, in the precision
+        // the caller asked for: the low parts of a DDouble kernel reach the
+        // SVD, they are not narrowed before it (#293).
+        let matrix_f64_of = |k_high_slice: &[f64]| -> sparse_ir::matrix::Mat<f64> {
+            let mut matrix_f64 = sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
+            match memory_order {
+                MemoryOrder::RowMajor => {
+                    for i in 0..(nx as usize) {
+                        for j in 0..(ny as usize) {
+                            let idx = i * (ny as usize) + j;
+                            matrix_f64[[i, j]] = k_high_slice[idx];
                         }
                     }
-                    // The centrosymmetric SVE is computed in double precision
-                    Ok(matrix_dd.map(|v| v.to_f64()))
-                } else {
-                    let mut matrix_f64 =
-                        sparse_ir::matrix::Mat::<f64>::zeros([nx as usize, ny as usize]);
-                    match memory_order {
-                        MemoryOrder::RowMajor => {
-                            for i in 0..(nx as usize) {
-                                for j in 0..(ny as usize) {
-                                    let idx = i * (ny as usize) + j;
-                                    matrix_f64[[i, j]] = k_high_slice[idx];
-                                }
-                            }
-                        }
-                        MemoryOrder::ColumnMajor => {
-                            for i in 0..(nx as usize) {
-                                for j in 0..(ny as usize) {
-                                    let idx = j * (nx as usize) + i;
-                                    matrix_f64[[i, j]] = k_high_slice[idx];
-                                }
-                            }
-                        }
-                    }
-                    Ok(matrix_f64)
                 }
-            };
+                MemoryOrder::ColumnMajor => {
+                    for i in 0..(nx as usize) {
+                        for j in 0..(ny as usize) {
+                            let idx = j * (nx as usize) + i;
+                            matrix_f64[[i, j]] = k_high_slice[idx];
+                        }
+                    }
+                }
+            }
+            matrix_f64
+        };
+        let matrix_dd_of = |k_high_slice: &[f64],
+                            k_low_slice: &[f64]|
+         -> Result<sparse_ir::matrix::Mat<sparse_ir::Df64>, StatusCode> {
+            use sparse_ir::Df64;
+            let mut matrix_dd = sparse_ir::matrix::Mat::<Df64>::from_elem(
+                [nx as usize, ny as usize],
+                Df64::new(0.0),
+            );
+            match memory_order {
+                MemoryOrder::RowMajor => {
+                    for i in 0..(nx as usize) {
+                        for j in 0..(ny as usize) {
+                            let idx = i * (ny as usize) + j;
+                            matrix_dd[[i, j]] =
+                                df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
+                        }
+                    }
+                }
+                MemoryOrder::ColumnMajor => {
+                    for i in 0..(nx as usize) {
+                        for j in 0..(ny as usize) {
+                            let idx = j * (nx as usize) + i;
+                            matrix_dd[[i, j]] =
+                                df64_from_parts(k_high_slice[idx], k_low_slice[idx])?;
+                        }
+                    }
+                }
+            }
+            Ok(matrix_dd)
+        };
 
-        let even = matrix_of(k_even_high, k_lows.map(|(even, _)| even))?;
-        let odd = matrix_of(k_odd_high, k_lows.map(|(_, odd)| odd))?;
-
-        let sve_result = SVEResult::from_discretized_matrices_centrosymmetric(
-            &even,
-            &odd,
-            &gauss_x,
-            &gauss_y,
-            segs_x_slice,
-            segs_y_slice,
-            n_gauss as usize,
-            xmax,
-            ymax,
-            epsilon,
-        )
-        .map_err(|e| status_from(&e))?;
+        let sve_result = if let Some((k_even_low, k_odd_low)) = k_lows {
+            // DDouble: the SVD itself runs in Df64
+            use sparse_ir::Df64;
+            let rule_base_dd = legendre::<Df64>(n_gauss as usize);
+            let segs_x_dd: Vec<Df64> = segs_x_slice.iter().map(|&x| Df64::from(x)).collect();
+            let segs_y_dd: Vec<Df64> = segs_y_slice.iter().map(|&y| Df64::from(y)).collect();
+            let gauss_x_dd = rule_base_dd
+                .piecewise(&segs_x_dd)
+                .map_err(|e| status_from(&e))?;
+            let gauss_y_dd = rule_base_dd
+                .piecewise(&segs_y_dd)
+                .map_err(|e| status_from(&e))?;
+            let even = matrix_dd_of(k_even_high, k_even_low)?;
+            let odd = matrix_dd_of(k_odd_high, k_odd_low)?;
+            SVEResult::from_discretized_matrices_centrosymmetric(
+                &even,
+                &odd,
+                &gauss_x_dd,
+                &gauss_y_dd,
+                segs_x_slice,
+                segs_y_slice,
+                n_gauss as usize,
+                xmax,
+                ymax,
+                epsilon,
+            )
+            .map_err(|e| status_from(&e))?
+        } else {
+            let even = matrix_f64_of(k_even_high);
+            let odd = matrix_f64_of(k_odd_high);
+            SVEResult::from_discretized_matrices_centrosymmetric(
+                &even,
+                &odd,
+                &gauss_x,
+                &gauss_y,
+                segs_x_slice,
+                segs_y_slice,
+                n_gauss as usize,
+                xmax,
+                ymax,
+                epsilon,
+            )
+            .map_err(|e| status_from(&e))?
+        };
 
         let sve_wrapper = spir_sve_result::new(sve_result);
         Ok(Box::into_raw(Box::new(sve_wrapper)))
@@ -2217,5 +2244,85 @@ mod tests {
             Err(SPIR_INVALID_ARGUMENT)
         );
         assert!(df64_from_parts(f64::MAX, -f64::MAX).is_ok());
+    }
+
+    /// The DDouble path of `spir_sve_result_from_matrix_centrosymmetric` runs
+    /// the SVD in Df64: with an ill-conditioned block its smallest singular
+    /// values must differ from those of the f64 path, which loses `cond * eps`
+    /// digits (#293)
+    ///
+    /// Before the fix the DDouble matrix was narrowed to f64 before the SVD,
+    /// so `use_ddouble` produced exactly the f64 decomposition and this test
+    /// compared two identical spectra.
+    #[test]
+    fn test_centrosymmetric_sve_ddouble_is_not_the_f64_decomposition() {
+        // An 8 x 8 Hilbert block: condition number about 1.5e10, so an f64 SVD
+        // resolves its smallest singular value only to ~1e-6 relative
+        let n: libc::c_int = 8;
+        let epsilon = 1e-10;
+        let segments_x = [0.0, 1.0];
+        let segments_y = [0.0, 1.0];
+        let mut k_even = vec![0.0; (n * n) as usize];
+        let mut k_odd = vec![0.0; (n * n) as usize];
+        for i in 0..n as usize {
+            for j in 0..n as usize {
+                k_even[i * n as usize + j] = 1.0 / (i + j + 1) as f64;
+                k_odd[i * n as usize + j] = 1.0 / (i + j + 2) as f64;
+            }
+        }
+
+        let svals_of = |even_low: *const f64, odd_low: *const f64| -> Vec<f64> {
+            let mut status = SPIR_INTERNAL_ERROR;
+            let sve = spir_sve_result_from_matrix_centrosymmetric(
+                k_even.as_ptr(),
+                even_low,
+                k_odd.as_ptr(),
+                odd_low,
+                n,
+                n,
+                SPIR_ORDER_ROW_MAJOR,
+                segments_x.as_ptr(),
+                1,
+                segments_y.as_ptr(),
+                1,
+                n,
+                epsilon,
+                &mut status,
+            );
+            assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+            assert!(!sve.is_null());
+            let mut size = 0;
+            assert_eq!(
+                spir_sve_result_get_size(sve, &mut size),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            let mut svals = vec![0.0; size as usize];
+            assert_eq!(
+                spir_sve_result_get_svals(sve, svals.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            spir_sve_result_release(sve);
+            svals
+        };
+
+        let f64_svals = svals_of(ptr::null(), ptr::null());
+        // Zero low parts: the Df64 matrix holds exactly the same values
+        let zeros = vec![0.0; k_even.len()];
+        let dd_svals = svals_of(zeros.as_ptr(), zeros.as_ptr());
+
+        assert_eq!(f64_svals.len(), dd_svals.len());
+        assert!(f64_svals.len() >= 8, "too few singular values");
+        // The smallest singular value is where the f64 SVD loses its digits
+        let worst = f64_svals
+            .iter()
+            .zip(&dd_svals)
+            .map(|(a, b)| ((a - b) / b).abs())
+            .fold(0.0_f64, f64::max);
+        assert!(
+            worst > 1e-10,
+            "the DDouble path reproduced the f64 decomposition (worst relative \
+             difference {worst:e}): the low parts are being narrowed before the SVD"
+        );
+        assert!(worst < 1e-3, "the two spectra disagree too much: {worst:e}");
     }
 }

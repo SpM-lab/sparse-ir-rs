@@ -5,6 +5,24 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+### Added
+
+- Fortran: `check_cpu_fma` and `fma_combination_is_supported`. `init_ir`
+  calls the check before its first numerical call, so a library built with
+  FMA stops with a message naming the requirement and the
+  `RUSTFLAGS="-C target-feature=-fma"` build, instead of dying with SIGILL on
+  a CPU without FMA (#353).
+
+### Fixed
+
+- C API: `spir_sve_result_from_matrix_centrosymmetric` ran its SVD on the
+  matrix narrowed to `f64`, so the double-double low parts `K_even_low` /
+  `K_odd_low` never reached the decomposition: the function delivered f64
+  accuracy while its documentation promised DDouble, and the two entry
+  points disagreed on precision for the same input. The decomposition now
+  runs in `Df64`, as the non-centrosymmetric `spir_sve_result_from_matrix`
+  already did; with f64 inputs the result is unchanged (#293).
+
 ## [0.14.0] - 2026-10-29
 
 ### Added

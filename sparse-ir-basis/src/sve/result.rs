@@ -107,6 +107,11 @@ impl SVEResult {
     /// contributes no singular function; only both blocks being empty is an
     /// error.
     ///
+    /// The decomposition runs in `T`, like [`Self::from_discretized_matrix`]:
+    /// a `Df64` matrix keeps its low-order parts through the SVD and is
+    /// narrowed to `f64` only when the singular vectors become piecewise
+    /// Legendre polynomials (which are `f64`).
+    ///
     /// # Errors
     ///
     /// * The errors of [`Self::from_discretized_matrix`] for each block,
@@ -115,11 +120,11 @@ impl SVEResult {
     ///   `merge_results`, in particular [`Error::EmptyInput`] if both blocks
     ///   are empty
     #[allow(clippy::too_many_arguments)]
-    pub fn from_discretized_matrices_centrosymmetric(
-        even: &Mat<f64>,
-        odd: &Mat<f64>,
-        gauss_x: &crate::gauss::Rule<f64>,
-        gauss_y: &crate::gauss::Rule<f64>,
+    pub fn from_discretized_matrices_centrosymmetric<T: crate::numeric::CustomNumeric + 'static>(
+        even: &Mat<T>,
+        odd: &Mat<T>,
+        gauss_x: &crate::gauss::Rule<T>,
+        gauss_y: &crate::gauss::Rule<T>,
         segments_x: &[f64],
         segments_y: &[f64],
         n_gauss: usize,
@@ -136,17 +141,20 @@ impl SVEResult {
         }
 
         let gauss_rule_f64 = crate::gauss::legendre::<f64>(n_gauss);
-        let block = |matrix: &Mat<f64>, symmetry: SymmetryType| {
+        let block = |matrix: &Mat<T>, symmetry: SymmetryType| {
             let (u, s, v) = crate::tsvd::compute_svd_dtensor(matrix)?;
             let u_unweighted = crate::sve::utils::remove_weights(&u, gauss_x.w.as_slice(), true);
             let v_unweighted = crate::sve::utils::remove_weights(&v, gauss_y.w.as_slice(), true);
-            let u_polys = svd_to_polynomials(&u_unweighted, segments_x, &gauss_rule_f64, n_gauss)?;
-            let v_polys = svd_to_polynomials(&v_unweighted, segments_y, &gauss_rule_f64, n_gauss)?;
+            // The singular vectors become polynomials in f64
+            let u_f64 = Mat::<f64>::from_fn(u_unweighted.dims(), |idx| u_unweighted[idx].to_f64());
+            let v_f64 = Mat::<f64>::from_fn(v_unweighted.dims(), |idx| v_unweighted[idx].to_f64());
+            let u_polys = svd_to_polynomials(&u_f64, segments_x, &gauss_rule_f64, n_gauss)?;
+            let v_polys = svd_to_polynomials(&v_f64, segments_y, &gauss_rule_f64, n_gauss)?;
             let u_full = extend_to_full_domain(u_polys, symmetry, xmax)?;
             let v_full = extend_to_full_domain(v_polys, symmetry, ymax)?;
             Ok::<_, Error>((
                 PiecewiseLegendrePolyVector::from_polys_unchecked(u_full),
-                s,
+                s.iter().map(|sv| sv.to_f64()).collect::<Vec<f64>>(),
                 PiecewiseLegendrePolyVector::from_polys_unchecked(v_full),
             ))
         };
