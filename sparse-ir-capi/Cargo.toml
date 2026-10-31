@@ -53,9 +53,8 @@ generation = false
 name = "sparse-ir-capi"
 description = "C API for SparseIR library"
 
-[profile.release]
-# Keep symbols for C API (overrides workspace default)
-strip = false
+# Profile settings live in the workspace root Cargo.toml. Cargo ignores
+# [profile.*] in non-root manifests, so do not add one here.
 
 [dev-dependencies]
 rstest = "0.22"

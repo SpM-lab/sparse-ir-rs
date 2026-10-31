@@ -172,6 +172,26 @@ See [`.github/workflows/`](.github/workflows/) for CI configurations.
 
 ### Benchmarks
 
+#### Rust benchmarks
+
+`bench_core` times basis construction and single fits (the regression guard for #259):
+
+```bash
+RAYON_NUM_THREADS=1 cargo run --release -p sparse-ir --example bench_core
+```
+
+`bench_batch` measures batched fit/evaluate throughput. It is a Rust port of the Fortran `test_timing`: the cycle `fit_matsubara → evaluate_tau → fit_tau → evaluate_matsubara` runs on `[lsize, npoints]` arrays, with `lsize = 1 … 10000`. The standard run sweeps every engine (in-house faer, injected system BLAS, tenferro-einsum) and writes the results to `target/bench_batch/<timestamp>/`:
+
+```bash
+sparse-ir/examples/run_bench_batch.sh            # add --accelerate on macOS, --quick for a smoke test
+```
+
+To run a single configuration, pass the Fortran `test_timing` arguments (`nlambda ndigit positive_only F|B lreal_ir lreal_tau [num] [lsize]`); see the header of [`bench_batch.rs`](sparse-ir/examples/bench_batch.rs) for all options:
+
+```bash
+RAYON_NUM_THREADS=1 cargo run --release -p sparse-ir --example bench_batch -- --blas 6 8 T F T T 185640 120
+```
+
 #### C API benchmarks
 
 ```bash

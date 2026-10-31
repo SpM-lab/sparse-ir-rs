@@ -46,6 +46,23 @@ dead_code = "warn"
 non_snake_case = "warn"
 unused_mut = "warn"
 
+[profile.dev]
+# Do not embed debug info: keeps target/ small (several GB for this
+# dependency graph) and edit-test loops fast. Assertions and overflow
+# checks stay enabled so bugs still fail loudly.
+opt-level = 0
+debug = 0
+debug-assertions = true
+overflow-checks = true
+incremental = true
+
+[profile.test]
+opt-level = 0
+debug = 0
+debug-assertions = true
+overflow-checks = true
+incremental = true
+
 [profile.release]
 # Maximum optimization for performance
 opt-level = 3
@@ -53,3 +70,8 @@ opt-level = 3
 lto = true
 # Single codegen unit for better optimization
 codegen-units = 1
+# No debug info in release artifacts. This matches Cargo's default, but is
+# stated explicitly so the intent is reviewable. `strip` keeps its default
+# ("debuginfo"), which drops debug sections while preserving the symbols the
+# C API (sparse-ir-capi) exports.
+debug = false

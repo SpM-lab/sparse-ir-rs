@@ -9,28 +9,48 @@
 //! `pre = lsize, post = 1`. The calls go through [`InplaceFitter`] with caller-owned
 //! buffers, exactly as `spir_sampling_{eval,fit}_*` do for the C/Fortran API.
 //!
-//! Run a single configuration (same positional arguments as the Fortran code):
+//! Every timed loop starts with one untimed warm-up call, which also absorbs
+//! the lazy pseudoinverse SVD. Each configuration is timed `--repeat` times
+//! and the run with the median total is reported. `per_vec` is the time of one
+//! full cycle for one batch row, which is the figure to compare.
+//!
+//! # Usage
 //!
 //! ```text
-//! cargo run --release --example bench_batch -- \
-//!     [nlambda] [ndigit] [positive_only] [statistics F|B] [lreal_ir] [lreal_tau] [num] [lsize]
+//! RAYON_NUM_THREADS=1 cargo run --release -p sparse-ir --example bench_batch -- [options]
+//! RAYON_NUM_THREADS=1 cargo run --release -p sparse-ir --example bench_batch -- [options] \
+//!     nlambda ndigit positive_only statistics(F|B) lreal_ir lreal_tau [num] [lsize]
 //! ```
 //!
-//! With no arguments (or `--sweep`) the Fortran "short" pattern set is run for
-//! `lsize = 1, 10, 120`. Pin threads externally (`RAYON_NUM_THREADS=1`).
+//! Without positional arguments, the six Fortran "short" patterns
+//! (Λ = 1e6, 8 digits) are swept over `lsize = 1, 10, 120, 1000, 10000`. The
+//! positional form runs one configuration, with the same arguments as the
+//! Fortran `test_timing` executable.
 //!
-//! `--blas` injects the system Fortran BLAS (`dgemm_`/`zgemm_`, Accelerate on
-//! macOS) as the GEMM backend, as the Fortran wrapper does via
-//! `spir_gemm_backend_new_from_fblas_lp64`; the default is the built-in faer
-//! backend (`backend = None`).
+//! Options:
 //!
-//! `--engine=einsum|plan|plan1s` replaces the in-house fitters with the same
-//! pseudoinverse two-step contractions written as tenferro-einsum calls
-//! (`einsum_read_into` from a string, a prepared `ConcreteEinsumPlan` with one
-//! backend session per call, or one session per timed loop). The
-//! positive-only/complex-coefficient patterns are skipped for these engines.
-//! tenferro-cpu uses faer unless built with
-//! `--features tenferro-cpu/blas-accelerate` (or another BLAS provider).
+//! - `--blas`: inject the system Fortran BLAS (`dgemm_`/`zgemm_`, Accelerate
+//!   on macOS) as the GEMM backend, as the Fortran wrapper does via
+//!   `spir_gemm_backend_new_from_fblas_lp64`. The default is the built-in
+//!   faer backend (`backend = None`).
+//! - `--engine=inhouse|einsum|plan|plan1s`: `inhouse` (default) uses
+//!   [`InplaceFitter`]. The other three run the same two-step pseudoinverse
+//!   contractions through tenferro-einsum:
+//!   - `einsum`: `einsum_read_into` from a subscript string;
+//!   - `plan`: a prepared `ConcreteEinsumPlan` with one backend session per
+//!     call;
+//!   - `plan1s`: a prepared plan with one session per timed loop.
+//!
+//!   The positive-only patterns with complex IR coefficients are not ported
+//!   to these engines. tenferro uses faer unless it is built with
+//!   `--features tenferro-linalg/blas-accelerate` (or another vendor).
+//!   Enabling only `tenferro-cpu/blas-*` breaks the pseudoinverse SVD at run
+//!   time (tenferro-rs#1905).
+//! - `--lsizes=1,10,...`: batch sizes for the sweep.
+//! - `--num=N`: batch rows per timed loop (default 185640; the loop runs
+//!   `max(num / lsize, 1)` iterations).
+//! - `--repeat=N`: timed repetitions (default 3).
+//! - `--quick`: `num / 10` and one repetition, for a smoke test.
 
 use num_complex::Complex;
 use sparse_ir::gemm::{DgemmFnPtr, ExternalBlasBackend, GemmBackendHandle, ZgemmFnPtr};
@@ -77,9 +97,10 @@ struct Config {
     lreal_tau: bool,
     num: usize,
     lsize: usize,
+    /// Timed repetitions; the run with the median total is reported.
+    repeat: usize,
 }
 
-#[derive(Default)]
 struct Timings {
     fit_matsu: f64,
     eval_tau: f64,
@@ -126,8 +147,7 @@ fn loop_real(
     let (nfreq, l, ntau) = (mats.n_points(), mats.basis_size(), tau.n_points());
     let mut gl = vec![0.0; lsize * l];
     let mut gtau = vec![0.0; lsize * ntau];
-    let mut t = Timings::default();
-    t.fit_matsu = time_loop(iters, || {
+    let fit_matsu = time_loop(iters, || {
         mats.fit_nd_zd_to(
             backend,
             &view(giv, &[lsize, nfreq]),
@@ -136,7 +156,7 @@ fn loop_real(
         )
         .unwrap();
     });
-    t.eval_tau = time_loop(iters, || {
+    let eval_tau = time_loop(iters, || {
         tau.evaluate_nd_dd_to(
             backend,
             &view(&gl, &[lsize, l]),
@@ -145,7 +165,7 @@ fn loop_real(
         )
         .unwrap();
     });
-    t.fit_tau = time_loop(iters, || {
+    let fit_tau = time_loop(iters, || {
         tau.fit_nd_dd_to(
             backend,
             &view(&gtau, &[lsize, ntau]),
@@ -154,7 +174,7 @@ fn loop_real(
         )
         .unwrap();
     });
-    t.eval_matsu = time_loop(iters, || {
+    let eval_matsu = time_loop(iters, || {
         mats.evaluate_nd_dz_to(
             backend,
             &view(&gl, &[lsize, l]),
@@ -163,7 +183,12 @@ fn loop_real(
         )
         .unwrap();
     });
-    t
+    Timings {
+        fit_matsu,
+        eval_tau,
+        fit_tau,
+        eval_matsu,
+    }
 }
 
 /// Complex IR coefficients and complex tau values (Fortran `cd`/`cc` loops):
@@ -180,8 +205,7 @@ fn loop_complex(
     let (nfreq, l, ntau) = (mats.n_points(), mats.basis_size(), tau.n_points());
     let mut gl = vec![C64::new(0.0, 0.0); lsize * l];
     let mut gtau = vec![C64::new(0.0, 0.0); lsize * ntau];
-    let mut t = Timings::default();
-    t.fit_matsu = time_loop(iters, || {
+    let fit_matsu = time_loop(iters, || {
         mats.fit_nd_zz_to(
             backend,
             &view(giv, &[lsize, nfreq]),
@@ -190,7 +214,7 @@ fn loop_complex(
         )
         .unwrap();
     });
-    t.eval_tau = time_loop(iters, || {
+    let eval_tau = time_loop(iters, || {
         tau.evaluate_nd_zz_to(
             backend,
             &view(&gl, &[lsize, l]),
@@ -199,7 +223,7 @@ fn loop_complex(
         )
         .unwrap();
     });
-    t.fit_tau = time_loop(iters, || {
+    let fit_tau = time_loop(iters, || {
         tau.fit_nd_zz_to(
             backend,
             &view(&gtau, &[lsize, ntau]),
@@ -208,7 +232,7 @@ fn loop_complex(
         )
         .unwrap();
     });
-    t.eval_matsu = time_loop(iters, || {
+    let eval_matsu = time_loop(iters, || {
         mats.evaluate_nd_zz_to(
             backend,
             &view(&gl, &[lsize, l]),
@@ -217,7 +241,12 @@ fn loop_complex(
         )
         .unwrap();
     });
-    t
+    Timings {
+        fit_matsu,
+        eval_tau,
+        fit_tau,
+        eval_matsu,
+    }
 }
 
 fn run<S: StatisticsType + 'static>(
@@ -266,7 +295,7 @@ fn run<S: StatisticsType + 'static>(
     };
 
     let lsize = cfg.lsize;
-    let iters = cfg.num / lsize;
+    let iters = (cfg.num / lsize).max(1);
     let mut giv = vec![C64::new(0.0, 0.0); lsize * nfreq];
     for (n, &iw) in freqs.iter().enumerate() {
         giv[n * lsize..(n + 1) * lsize].fill(1.0 / (iw - omega0));
@@ -276,68 +305,9 @@ fn run<S: StatisticsType + 'static>(
     let real_path = cfg.positive_only && cfg.lreal_ir;
     let dims = (nfreq, basis.size(), tau.n_points());
     let tau_a = tau.matrix().host_data().unwrap();
-    let t = if let Engine::Einsum(mode) = engine {
-        if real_path {
-            einsum_loop_real(
-                mode,
-                tau_a,
-                &mats_a,
-                dims,
-                iters,
-                lsize,
-                &giv,
-                &mut giv_reconst,
-            )
-        } else if !cfg.positive_only {
-            einsum_loop_complex(
-                mode,
-                tau_a,
-                &mats_a,
-                dims,
-                iters,
-                lsize,
-                &giv,
-                &mut giv_reconst,
-            )
-        } else {
-            // Positive-only with complex IR coefficients is not ported.
-            return;
-        }
-    } else if real_path {
-        loop_real(
-            backend,
-            &tau,
-            mats.as_ref(),
-            iters,
-            lsize,
-            &giv,
-            &mut giv_reconst,
-        )
-    } else {
-        loop_complex(
-            backend,
-            &tau,
-            mats.as_ref(),
-            iters,
-            lsize,
-            &giv,
-            &mut giv_reconst,
-        )
-    };
-
-    let expected = 1.0 / (freqs[freq_1_idx] - omega0);
-    let computed = giv_reconst[freq_1_idx * lsize];
-    let rel_err = ((computed.re + computed.im) - (expected.re + expected.im)).abs()
-        / (expected.re + expected.im).abs();
-    assert!(
-        rel_err <= 1e2 * eps,
-        "relative error {rel_err:e} exceeds tolerance {:e}",
-        1e2 * eps
-    );
-
     let flag = |b: bool| if b { 'T' } else { 'F' };
-    println!(
-        "{:>3} {:>3} {:>4} {:>4} {:>4} {:>4} {:>8} {:>6} {:>5} {:>5} {:>5} {:>10.4} {:>10.4} {:>10.4} {:>10.4} {:>10.4} {:>12.4e} {:>10.2e}",
+    let row_head = format!(
+        "{:>3} {:>3} {:>4} {:>4} {:>4} {:>4} {:>8} {:>6} {:>5} {:>5} {:>5}",
         cfg.nlambda,
         cfg.ndigit,
         flag(cfg.positive_only),
@@ -349,6 +319,76 @@ fn run<S: StatisticsType + 'static>(
         basis.size(),
         nfreq,
         tau.n_points(),
+    );
+    if matches!(engine, Engine::Einsum(_)) && cfg.positive_only && !real_path {
+        println!("{row_head}  (not ported to the einsum engine)");
+        return;
+    }
+    let mut once = || {
+        if let Engine::Einsum(mode) = engine {
+            if real_path {
+                einsum_loop_real(
+                    mode,
+                    tau_a,
+                    &mats_a,
+                    dims,
+                    iters,
+                    lsize,
+                    &giv,
+                    &mut giv_reconst,
+                )
+            } else if !cfg.positive_only {
+                einsum_loop_complex(
+                    mode,
+                    tau_a,
+                    &mats_a,
+                    dims,
+                    iters,
+                    lsize,
+                    &giv,
+                    &mut giv_reconst,
+                )
+            } else {
+                unreachable!("positive-only complex IR coefficients are skipped above")
+            }
+        } else if real_path {
+            loop_real(
+                backend,
+                &tau,
+                mats.as_ref(),
+                iters,
+                lsize,
+                &giv,
+                &mut giv_reconst,
+            )
+        } else {
+            loop_complex(
+                backend,
+                &tau,
+                mats.as_ref(),
+                iters,
+                lsize,
+                &giv,
+                &mut giv_reconst,
+            )
+        }
+    };
+    let mut runs: Vec<Timings> = (0..cfg.repeat.max(1)).map(|_| once()).collect();
+    runs.sort_by(|a, b| a.total().total_cmp(&b.total()));
+    let t = runs.swap_remove(runs.len() / 2);
+
+    let expected = 1.0 / (freqs[freq_1_idx] - omega0);
+    let computed = giv_reconst[freq_1_idx * lsize];
+    let rel_err = ((computed.re + computed.im) - (expected.re + expected.im)).abs()
+        / (expected.re + expected.im).abs();
+    assert!(
+        rel_err <= 1e2 * eps,
+        "relative error {rel_err:e} exceeds tolerance {:e}",
+        1e2 * eps
+    );
+
+    println!(
+        "{row_head} {:>10.4} {:>10.4} {:>10.4} {:>10.4} {:>10.4} {:>12.4e} {:>10.2e}",
         t.fit_matsu,
         t.eval_tau,
         t.fit_tau,
@@ -371,29 +411,67 @@ fn parse_bool(s: &str) -> bool {
     matches!(s, "T" | "t" | "true" | ".true." | "1")
 }
 
+/// Default sweep: the Fortran `run_timing_benchmark.sh` "short" patterns.
+const SWEEP_PATTERNS: [(bool, bool, bool, bool); 6] = [
+    (true, true, true, true),
+    (true, true, false, false),
+    (false, true, false, false),
+    (true, false, true, true),
+    (true, false, false, false),
+    (false, false, false, false),
+];
+const SWEEP_LSIZES: [usize; 5] = [1, 10, 120, 1000, 10_000];
+const DEFAULT_NUM: usize = 185_640;
+const DEFAULT_REPEAT: usize = 3;
+
+/// Remove `--name=value` from `args` and return the value.
+fn take_opt(args: &mut Vec<String>, name: &str) -> Option<String> {
+    let prefix = format!("--{name}=");
+    let pos = args.iter().position(|a| a.starts_with(&prefix))?;
+    Some(args.remove(pos)[prefix.len()..].to_string())
+}
+
+/// Remove the flag `--name` from `args` and return whether it was present.
+fn take_flag(args: &mut Vec<String>, name: &str) -> bool {
+    let flag = format!("--{name}");
+    let before = args.len();
+    args.retain(|a| *a != flag);
+    args.len() != before
+}
+
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let blas = args.iter().any(|a| a == "--blas");
-    args.retain(|a| a != "--blas");
-    let engine = args
-        .iter()
-        .find_map(|a| a.strip_prefix("--engine="))
-        .map_or(Engine::Inhouse, Engine::parse);
-    args.retain(|a| !a.starts_with("--engine="));
+    let blas = take_flag(&mut args, "blas");
+    let quick = take_flag(&mut args, "quick");
+    take_flag(&mut args, "sweep");
+    let engine = take_opt(&mut args, "engine").map_or(Engine::Inhouse, |e| Engine::parse(&e));
+    let num = take_opt(&mut args, "num")
+        .map_or(if quick { DEFAULT_NUM / 10 } else { DEFAULT_NUM }, |v| {
+            v.parse().unwrap()
+        });
+    let repeat = take_opt(&mut args, "repeat")
+        .map_or(if quick { 1 } else { DEFAULT_REPEAT }, |v| {
+            v.parse().unwrap()
+        });
+    let lsizes: Vec<usize> = take_opt(&mut args, "lsizes").map_or(SWEEP_LSIZES.to_vec(), |v| {
+        v.split(',').map(|x| x.parse().unwrap()).collect()
+    });
+    if let Some(bad) = args.iter().find(|a| a.starts_with("--")) {
+        panic!("unknown option {bad}");
+    }
+
     let handle = blas.then(fblas_backend);
     let backend = handle.as_ref();
-    if engine == Engine::Inhouse {
-        println!(
-            "# engine: inhouse, GEMM backend: {}",
-            if blas {
-                "system BLAS (injected)"
-            } else {
-                "faer (default)"
-            }
-        );
-    } else {
-        println!("# engine: {}", engine.name());
-    }
+    let backend_name = match engine {
+        Engine::Inhouse if blas => "system BLAS (injected)",
+        Engine::Inhouse => "faer (default)",
+        Engine::Einsum(_) => "tenferro-cpu provider",
+    };
+    println!(
+        "# engine: {}; GEMM: {backend_name}; RAYON_NUM_THREADS={}; repeat={repeat} (median total)",
+        engine.name(),
+        std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".into()),
+    );
     println!(
         "{:>3} {:>3} {:>4} {:>4} {:>4} {:>4} {:>8} {:>6} {:>5} {:>5} {:>5} {:>10} {:>10} {:>10} {:>10} {:>10} {:>12} {:>10}",
         "nλ",
@@ -415,18 +493,9 @@ fn main() {
         "per_vec(s)",
         "rel_err",
     );
-    if args.is_empty() || args[0] == "--sweep" {
-        // Fortran run_timing_benchmark.sh "short" patterns.
-        let patterns = [
-            (true, true, true, true),
-            (true, true, false, false),
-            (false, true, false, false),
-            (true, false, true, true),
-            (true, false, false, false),
-            (false, false, false, false),
-        ];
-        for (positive_only, fermionic, lreal_ir, lreal_tau) in patterns {
-            for lsize in [1, 10, 120] {
+    if args.is_empty() {
+        for (positive_only, fermionic, lreal_ir, lreal_tau) in SWEEP_PATTERNS {
+            for &lsize in &lsizes {
                 run_cfg(
                     Config {
                         nlambda: 6,
@@ -435,8 +504,9 @@ fn main() {
                         fermionic,
                         lreal_ir,
                         lreal_tau,
-                        num: 185_640,
+                        num,
                         lsize,
+                        repeat,
                     },
                     backend,
                     engine,
@@ -453,15 +523,10 @@ fn main() {
         fermionic: get(3, "F") != "B",
         lreal_ir: parse_bool(&get(4, "T")),
         lreal_tau: parse_bool(&get(5, "T")),
-        num: get(6, "185640").parse().unwrap(),
+        num: args.get(6).map_or(num, |v| v.parse().unwrap()),
         lsize: get(7, "1").parse().unwrap(),
+        repeat,
     };
-    assert!(
-        cfg.num % cfg.lsize == 0,
-        "num ({}) must be divisible by lsize ({})",
-        cfg.num,
-        cfg.lsize
-    );
     run_cfg(cfg, backend, engine);
 }
 
@@ -500,7 +565,7 @@ impl Engine {
 
     fn name(self) -> &'static str {
         match self {
-            Engine::Inhouse => "inhouse",
+            Engine::Inhouse => "inhouse (InplaceFitter)",
             Engine::Einsum(EinsumMode::String) => "einsum (string, session per call)",
             Engine::Einsum(EinsumMode::Plan) => "einsum (prepared plan, session per call)",
             Engine::Einsum(EinsumMode::PlanOneSession) => {
@@ -716,8 +781,7 @@ fn einsum_loop_real(
         tv(&gl, &[p, l]),
     );
 
-    let mut t = Timings::default();
-    t.fit_matsu = time_session_loop(&mut host, mode, iters, |s| {
+    let fit_matsu = time_session_loop(&mut host, mode, iters, |s| {
         fit_m1.run(
             s,
             tv(&uhb, &[rb, nfreq, 2]),
@@ -731,7 +795,7 @@ fn einsum_loop_real(
             tv_mut(&mut gl, &[p, l]),
         );
     });
-    t.eval_tau = time_session_loop(&mut host, mode, iters, |s| {
+    let eval_tau = time_session_loop(&mut host, mode, iters, |s| {
         eval_t.run(
             s,
             tv(tau_a, &[ntau, l]),
@@ -739,7 +803,7 @@ fn einsum_loop_real(
             tv_mut(&mut gtau, &[p, ntau]),
         );
     });
-    t.fit_tau = time_session_loop(&mut host, mode, iters, |s| {
+    let fit_tau = time_session_loop(&mut host, mode, iters, |s| {
         fit_t1.run(
             s,
             tv(&uht, &[rt, ntau]),
@@ -754,7 +818,7 @@ fn einsum_loop_real(
         );
     });
     let out = as_real_mut(giv_reconst);
-    t.eval_matsu = time_session_loop(&mut host, mode, iters, |s| {
+    let eval_matsu = time_session_loop(&mut host, mode, iters, |s| {
         eval_m.run(
             s,
             tv(&b, &[nfreq, 2, l]),
@@ -762,7 +826,12 @@ fn einsum_loop_real(
             tv_mut(out, &[2, p, nfreq]),
         );
     });
-    t
+    Timings {
+        fit_matsu,
+        eval_tau,
+        fit_tau,
+        eval_matsu,
+    }
 }
 
 /// Full Matsubara with complex IR coefficients, as `loop_complex`.
@@ -815,8 +884,7 @@ fn einsum_loop_complex(
     );
     let eval_m = Op::new(mode, "jl,pl->pj", tv(mats_a, &[nfreq, l]), tv(&gl, &[p, l]));
 
-    let mut t = Timings::default();
-    t.fit_matsu = time_session_loop(&mut host, mode, iters, |s| {
+    let fit_matsu = time_session_loop(&mut host, mode, iters, |s| {
         fit_m1.run(
             s,
             tv(&uhm, &[rm, nfreq]),
@@ -830,7 +898,7 @@ fn einsum_loop_complex(
             tv_mut(&mut gl, &[p, l]),
         );
     });
-    t.eval_tau = time_session_loop(&mut host, mode, iters, |s| {
+    let eval_tau = time_session_loop(&mut host, mode, iters, |s| {
         eval_t.run(
             s,
             tv(tau_a, &[ntau, l]),
@@ -838,7 +906,7 @@ fn einsum_loop_complex(
             tv_mut(as_real_mut(&mut gtau), &[2, p, ntau]),
         );
     });
-    t.fit_tau = time_session_loop(&mut host, mode, iters, |s| {
+    let fit_tau = time_session_loop(&mut host, mode, iters, |s| {
         fit_t1.run(
             s,
             tv(&uht, &[rt, ntau]),
@@ -852,7 +920,7 @@ fn einsum_loop_complex(
             tv_mut(as_real_mut(&mut gl), &[2, p, l]),
         );
     });
-    t.eval_matsu = time_session_loop(&mut host, mode, iters, |s| {
+    let eval_matsu = time_session_loop(&mut host, mode, iters, |s| {
         eval_m.run(
             s,
             tv(mats_a, &[nfreq, l]),
@@ -860,5 +928,10 @@ fn einsum_loop_complex(
             tv_mut(giv_reconst, &[p, nfreq]),
         );
     });
-    t
+    Timings {
+        fit_matsu,
+        eval_tau,
+        fit_tau,
+        eval_matsu,
+    }
 }
