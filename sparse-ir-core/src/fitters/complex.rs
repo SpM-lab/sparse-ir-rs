@@ -293,11 +293,16 @@ impl ComplexMatrixFitter {
     /// Complex values to real coefficients: the least-squares solution over
     /// real coefficients, `[Re A; Im A]⁺ [Re y; Im y]`
     ///
-    /// For data that real coefficients reproduce exactly, this is the real
-    /// part of the complex solution. Otherwise it differs: that real part is
-    /// a left inverse of the stacked matrix too, and the pseudo-inverse is
-    /// the one of least norm, so this fit amplifies noise less. It is one
-    /// real GEMM over the `2n` stacked values.
+    /// For points symmetric in ±n, this is the real part of the complex
+    /// solution `A⁺y` for any data: `AᴴA` is then real, and both are
+    /// `(Re AᴴA)⁺ Re(Aᴴy)`. For other points they differ. If `A` has full
+    /// column rank, both reproduce data that real coefficients reproduce
+    /// exactly; that real part is a left inverse of the stacked matrix too,
+    /// and the pseudo-inverse is the one of least norm, so this fit
+    /// amplifies noise less. If not (fewer points than functions, say), the
+    /// real part of `A⁺y` need not fit such data at all, while this fit
+    /// does whenever the stacked matrix has full column rank. It is one real
+    /// GEMM over the `2n` stacked values.
     pub fn fit_slab_zd(
         &self,
         backend: Option<&GemmBackendHandle>,

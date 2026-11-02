@@ -97,9 +97,9 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 - The default sampling points of bases of centrosymmetric kernels are
   unchanged (Matsubara exactly, tau to rounding).
 - Real-coefficient fits of `MatsubaraSampling` (`fit_real`, `fit_nd_real`,
-  `spir_sampling_fit_zd`) solve the real least-squares problem; for points
-  symmetric in ±n, such as the default ones, the result is the same up to
-  rounding.
+  `spir_sampling_fit_zd`) solve the real least-squares problem. For points
+  symmetric in ±n, such as the default ones, the result is unchanged (up
+  to rounding) for any data; for other points see Fixed.
 - Requires xprec 0.2.3.
 
 ### Changed in the C API
@@ -121,6 +121,12 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ### Fixed
 
+- Real-coefficient fits of `MatsubaraSampling` (`fit_real`, `fit_nd_real`,
+  `spir_sampling_fit_zd`) at points not symmetric in ±n returned the real
+  part of the complex least-squares solution, which with fewer points than
+  functions does not fit its own input: at the positive halves of the
+  default points, ‖A x − y‖/‖y‖ was 0.50 for data that real coefficients
+  reproduce; it is now at rounding level.
 - The asymptotic Matsubara model of functions without definite parity
   (wrong values at |n| ≥ n_asymp).
 - `CentrosymmSVE::new` (and so `compute_sve`) rejects a centrosymmetric

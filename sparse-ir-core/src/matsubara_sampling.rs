@@ -434,8 +434,11 @@ impl<S: StatisticsType> MatsubaraSampling<S> {
     ///
     /// This method fits complex Matsubara values to real IR coefficients.
     /// The least-squares solution over real coefficients,
-    /// `[Re A; Im A]⁺ [Re y; Im y]`; for data that real coefficients
-    /// reproduce exactly, the real part of the complex solution.
+    /// `[Re A; Im A]⁺ [Re y; Im y]`. For points symmetric in ±n, such as
+    /// the default ones, this is the real part of the complex solution `A⁺y`
+    /// for any data. For other points it is not, and where `A` lacks full
+    /// column rank (fewer points than functions, say) the real part of `A⁺y`
+    /// need not fit even data that real coefficients reproduce exactly.
     ///
     /// # Arguments
     /// * `backend` - Optional GEMM backend handle (None uses default)

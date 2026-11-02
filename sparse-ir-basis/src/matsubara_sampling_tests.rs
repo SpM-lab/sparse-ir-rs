@@ -1577,3 +1577,47 @@ fn test_matsubara_fit_real_is_real_least_squares() {
         "the case does not distinguish the fits"
     );
 }
+
+/// Regression: at a point set not symmetric in ±n with fewer points than
+/// functions (the positive halves of the default points), `fit_real` fits
+/// data that real coefficients reproduce. The real part of the complex
+/// least-squares solution, which it returned before, leaves half of such
+/// data unexplained (‖A x − y‖/‖y‖ ≈ 0.5).
+#[test]
+fn test_matsubara_fit_real_fits_asymmetric_points() {
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(100.0).unwrap(),
+        10.0,
+        Some(1e-8),
+        None,
+    )
+    .unwrap();
+    let points: Vec<_> = basis
+        .default_matsubara_sampling_points(false)
+        .unwrap()
+        .into_iter()
+        .filter(|p| p.n() > 0)
+        .collect();
+    assert!(points.len() < basis.size());
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points).unwrap();
+    let coeffs: Vec<f64> = (0..basis.size()).map(|l| 1.0 / (l as f64 + 1.0)).collect();
+    let values = sampling.evaluate_real(&coeffs).unwrap();
+    let norm = |v: &[Complex<f64>]| v.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+    let residual = |fitted: &[Complex<f64>]| {
+        let diff: Vec<Complex<f64>> = fitted.iter().zip(&values).map(|(a, b)| a - b).collect();
+        norm(&diff) / norm(&values)
+    };
+
+    let fit = sampling.fit_real(&values).unwrap();
+    let r = residual(&sampling.evaluate_real(&fit).unwrap());
+    assert!(r < 1e-12, "fit_real residual {r:e}");
+
+    let re_complex: Vec<f64> = sampling
+        .fit(&values)
+        .unwrap()
+        .iter()
+        .map(|z| z.re)
+        .collect();
+    let r = residual(&sampling.evaluate_real(&re_complex).unwrap());
+    assert!(r > 0.1, "the case does not distinguish the fits: {r:e}");
+}
