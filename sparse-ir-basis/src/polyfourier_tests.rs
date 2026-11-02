@@ -4,7 +4,7 @@
 
 use crate::basis::FiniteTempBasis;
 use crate::freq::{BosonicFreq, FermionicFreq};
-use crate::kernel::{CentrosymmKernel, KernelProperties, LogisticKernel, RegularizedBoseKernel};
+use crate::kernel::{BasisKernel, LogisticKernel, RegularizedBoseKernel};
 use crate::matrix::mat;
 use crate::poly::{PiecewiseLegendrePoly, PiecewiseLegendrePolyVector};
 use crate::polyfourier::{
@@ -311,7 +311,7 @@ const ASYMPTOTIC_VS_EXACT_RTOL: f64 = 1e-6;
 /// them to agree.
 fn check_asymptotic_branch_matches_exact<K, S>(basis: &FiniteTempBasis<K, S>)
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     // #265 hit exactly l = 1, 2 (mod 4): make sure every residue occurs twice.
@@ -387,7 +387,7 @@ where
 /// (-1)^n u_l(beta) + u_l(0) instead, an error of 2 |u_l(beta)|.
 fn check_uhat_high_frequency_tail<K, S>(basis: &FiniteTempBasis<K, S>)
 where
-    K: KernelProperties + CentrosymmKernel + Clone + 'static,
+    K: BasisKernel,
     S: StatisticsType,
 {
     let beta = basis.beta();
@@ -480,12 +480,15 @@ fn test_uhat_asymptotic_branch_regularized_bose() {
 }
 
 /// Functions without a parity (symm = 0, as from `compute_sve_general`) have
-/// no default Matsubara sampling points (#183): every entry point returns
-/// NotSupported (they panicked). The C API reports SPIR_NOT_SUPPORTED.
+/// default Matsubara sampling points (they were NotSupported, #183): every
+/// entry point returns the same symmetric set, and the samplings built from
+/// it, through the Basis trait, recover the coefficients.
 #[test]
-fn test_default_matsubara_points_need_functions_of_definite_parity() {
-    use crate::error::Error;
+fn test_default_matsubara_points_of_functions_without_parity() {
+    use crate::basis_trait::Basis;
+    use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
     use crate::sve::{TworkType, compute_sve_general};
+    use num_complex::Complex64;
 
     let kernel = LogisticKernel::new(10.0).unwrap();
     let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
@@ -493,60 +496,148 @@ fn test_default_matsubara_points_need_functions_of_definite_parity() {
     let basis =
         FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
             .unwrap();
-    let not_supported = |err: Error| {
-        assert!(
-            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
-            "{err:?}"
-        );
-    };
     for positive_only in [false, true] {
-        not_supported(
-            basis
-                .default_matsubara_sampling_points(positive_only)
-                .unwrap_err(),
+        let points = basis
+            .default_matsubara_sampling_points(positive_only)
+            .unwrap();
+        let ns: Vec<i64> = points.iter().map(|f| f.n()).collect();
+        assert!(!ns.is_empty() && ns.iter().all(|n| n % 2 != 0), "{ns:?}");
+        assert_eq!(
+            Basis::default_matsubara_sampling_points(&basis, positive_only).unwrap(),
+            points
         );
-        not_supported(
+        assert_eq!(
             basis
                 .default_matsubara_sampling_points_i64(positive_only)
-                .unwrap_err(),
+                .unwrap(),
+            ns
         );
-        not_supported(
+        assert_eq!(
             basis
-                .default_matsubara_sampling_points_i64_with_mitigate(positive_only, true, 8)
-                .unwrap_err(),
+                .default_matsubara_sampling_points_i64_with_mitigate(
+                    positive_only,
+                    false,
+                    basis.size()
+                )
+                .unwrap(),
+            ns
         );
     }
-    // The other default points do not depend on the parity.
-    assert!(!basis.default_tau_sampling_points().unwrap().is_empty());
-    assert!(!basis.default_omega_sampling_points().unwrap().is_empty());
+
+    let coeffs: Vec<f64> = (0..basis.size()).map(|l| 1.0 / (l as f64 + 1.0)).collect();
+    let complex: Vec<Complex64> = coeffs.iter().map(|&c| Complex64::new(c, 0.0)).collect();
+    let sampling = MatsubaraSampling::new(&basis).unwrap();
+    let fitted = sampling.fit(&sampling.evaluate(&complex).unwrap()).unwrap();
+    for (l, (a, b)) in fitted.iter().zip(&complex).enumerate() {
+        assert!((a - b).norm() < 1e-10, "l = {l}: {a} vs {b}");
+    }
+    let sampling = MatsubaraSamplingPositiveOnly::new(&basis).unwrap();
+    let fitted = sampling.fit(&sampling.evaluate(&coeffs).unwrap()).unwrap();
+    for (l, (a, b)) in fitted.iter().zip(&coeffs).enumerate() {
+        assert!((a - b).abs() < 1e-10, "l = {l}: {a} vs {b}");
+    }
 }
 
-/// The entry points that go through the Basis trait report the same
-/// NotSupported for a basis without parity (#183): the trait method itself
-/// and the two Matsubara samplings built from it.
+/// A bosonic basis of a nearly one-sided window (review of #342: β = 10,
+/// ε = 1e-6, window (-0.01, 1), L = 8) gets well-conditioned default
+/// Matsubara points from the pair selection over the whole grid. Selecting
+/// among the sign changes of û_L instead (8277719, reverted) gave condition
+/// numbers of 1.37e3 (1.93e3 with positive_only), and dropped n = ±2.
 #[test]
-fn test_trait_paths_to_default_matsubara_points_need_definite_parity() {
-    use crate::basis_trait::Basis;
-    use crate::error::Error;
+fn test_default_matsubara_points_of_a_nearly_one_sided_bosonic_window() {
+    use crate::kernel::LogisticKernelWindowed;
     use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
-    use crate::sve::{TworkType, compute_sve_general};
 
-    let kernel = LogisticKernel::new(10.0).unwrap();
-    let sve = compute_sve_general(kernel, Some(1e-6), None, None, TworkType::Auto).unwrap();
-    let basis =
-        FiniteTempBasis::<_, Fermionic>::from_sve_result(kernel, 1.0, sve, Some(1e-6), None)
-            .unwrap();
-    let not_supported = |err: Error| {
-        assert!(
-            matches!(&err, Error::NotSupported { what } if what.contains("definite parity")),
-            "{err:?}"
+    let kernel = LogisticKernelWindowed::from_physical(10.0, -0.01, 1.0).unwrap();
+    let basis = FiniteTempBasis::<_, Bosonic>::new(kernel, 10.0, Some(1e-6), None).unwrap();
+    assert_eq!(basis.size(), 8);
+    let ns = basis.default_matsubara_sampling_points_i64(false).unwrap();
+    assert!(ns.contains(&2) && ns.contains(&-2), "{ns:?}");
+    // Measured: 3.84 for both
+    let cond = MatsubaraSampling::new(&basis)
+        .unwrap()
+        .condition_number()
+        .unwrap();
+    assert!(cond < 10.0, "condition number {cond:e}, points {ns:?}");
+    let cond = MatsubaraSamplingPositiveOnly::new(&basis)
+        .unwrap()
+        .condition_number()
+        .unwrap();
+    assert!(cond < 10.0, "positive_only: condition number {cond:e}");
+}
+
+/// The method of the Matsubara points can be chosen: the pair selection for
+/// a basis with parity gives a symmetric set of at least L points, as well
+/// conditioned as the sign changes (within a factor 2 here); the sign
+/// changes of functions without parity are NotSupported
+#[test]
+fn test_matsubara_point_method_can_be_chosen() {
+    use crate::basis::MatsubaraPointMethod;
+    use crate::error::Error;
+    use crate::freq::MatsubaraFreq;
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::traits::StatisticsType;
+    use nalgebra::DMatrix;
+
+    fn check<S: StatisticsType + std::fmt::Debug + 'static>() {
+        let basis =
+            FiniteTempBasis::<_, S>::new(LogisticKernel::new(1e3).unwrap(), 10.0, Some(1e-8), None)
+                .unwrap();
+        let points = |method| {
+            basis
+                .matsubara_sampling_points(false, false, method)
+                .unwrap()
+                .iter()
+                .map(|f| f.n())
+                .collect::<Vec<i64>>()
+        };
+        assert_eq!(
+            points(MatsubaraPointMethod::SignChanges),
+            basis.default_matsubara_sampling_points_i64(false).unwrap()
         );
-    };
-    for positive_only in [false, true] {
-        not_supported(Basis::default_matsubara_sampling_points(&basis, positive_only).unwrap_err());
+        let pairs = points(MatsubaraPointMethod::PairSelection);
+        assert!(pairs.len() >= basis.size(), "{pairs:?}");
+        assert!(pairs.iter().all(|n| pairs.contains(&-n)), "{pairs:?}");
+        let positive = basis
+            .matsubara_sampling_points(true, false, MatsubaraPointMethod::PairSelection)
+            .unwrap();
+        assert!(
+            positive
+                .iter()
+                .all(|f| f.n() >= 0 && pairs.contains(&f.n()))
+        );
+
+        let cond = |ns: &[i64]| {
+            let a = DMatrix::from_fn(2 * ns.len(), basis.size(), |i, l| {
+                let v = basis.uhat_full()[l].evaluate(&MatsubaraFreq::<S>::new(ns[i / 2]).unwrap());
+                if i % 2 == 0 { v.re } else { v.im }
+            });
+            let sv = a.singular_values();
+            sv.max() / sv.min()
+        };
+        let signs = points(MatsubaraPointMethod::SignChanges);
+        let (c_pairs, c_signs) = (cond(&pairs), cond(&signs));
+        assert!(
+            c_pairs < 2.0 * c_signs,
+            "{:?}: {c_pairs:e} vs {c_signs:e}",
+            S::STATISTICS
+        );
+
+        let window = LogisticKernelWindowed::from_physical(10.0, -0.3, 1.0).unwrap();
+        let basis = FiniteTempBasis::<_, S>::new(window, 10.0, Some(1e-6), None).unwrap();
+        let err = basis
+            .matsubara_sampling_points(false, false, MatsubaraPointMethod::SignChanges)
+            .unwrap_err();
+        assert!(matches!(err, Error::NotSupported { .. }), "{err:?}");
+        assert_eq!(
+            basis
+                .matsubara_sampling_points(false, false, MatsubaraPointMethod::PairSelection)
+                .unwrap(),
+            basis.default_matsubara_sampling_points(false).unwrap()
+        );
     }
-    not_supported(MatsubaraSampling::new(&basis).err().unwrap());
-    not_supported(MatsubaraSamplingPositiveOnly::new(&basis).err().unwrap());
+    check::<Fermionic>();
+    check::<Bosonic>();
 }
 
 /// `set` rejects an index past the end, including `index == len`, and then
@@ -649,9 +740,9 @@ fn test_evaluate_at_n_rejects_the_wrong_parity() {
     assert_eq!(ft.evaluate_at_ns(&[1, -1]).unwrap().len(), 2);
 }
 
-/// Functions without a definite parity (symm = 0) have no default Matsubara
-/// sampling points: the sign changes and extrema that choose them are
-/// NotSupported, with both statistics (#183).
+/// Functions without a definite parity (symm = 0) have no sign changes and
+/// extrema to choose Matsubara points by: these are NotSupported, with both
+/// statistics (#183); the default points then come from the pair selection.
 #[test]
 fn test_sign_changes_of_functions_without_parity_are_not_supported() {
     use crate::error::Error;
@@ -681,3 +772,367 @@ fn test_sign_changes_of_functions_without_parity_are_not_supported() {
         not_supported(find_extrema(&ft, positive_only).map(nb));
     }
 }
+
+/// A function without definite parity (`symm == 0`, mixing even P0/P2 and odd
+/// P1 content) must get correct Matsubara values from the asymptotic model at
+/// large |n|: the model agrees with the exact inner transform. (A one-sided
+/// moment formula that takes the parity from `(-1)^l` is ~100% wrong here.)
+#[test]
+fn test_parityless_asymptotic_model_matches_inner_transform() {
+    let poly =
+        PiecewiseLegendrePoly::new(mat![[0.5], [0.4], [0.3]], vec![-1.0, 1.0], 1, None, 0).unwrap();
+    // n_asymp = inf: always the inner transform; n_asymp = 3: the model at |n| >= 3
+    let exact = FermionicPiecewiseLegendreFT::new(poly.clone(), Fermionic, None).unwrap();
+    let asymp = FermionicPiecewiseLegendreFT::new(poly, Fermionic, Some(3.0)).unwrap();
+
+    for n in [5_i64, 11, 21, 51, 101, 501] {
+        let e = exact.evaluate_at_n(n).unwrap();
+        let a = asymp.evaluate_at_n(n).unwrap();
+        let rel = (a - e).norm() / e.norm();
+        assert!(
+            rel < 1e-9,
+            "n={n}: asymptotic {a} vs exact {e} (rel_err={rel:.2e})"
+        );
+    }
+}
+
+/// The basis functions of an asymmetric window have no parity: the
+/// asymptotic model at |n| >= n_asymp, which takes the boundary derivatives
+/// at both ends, must still agree with the exact inner transform.
+#[test]
+fn test_uhat_asymptotic_branch_logistic_windowed() {
+    use crate::kernel::LogisticKernelWindowed;
+
+    let (beta, omega_min, omega_max) = (10.0, -0.3, 1.0);
+    let kernel = LogisticKernelWindowed::from_physical(beta, omega_min, omega_max).unwrap();
+    let fermionic = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    assert!(fermionic.uhat()[0].poly.symm == 0);
+    check_asymptotic_branch_matches_exact(&fermionic);
+    let bosonic = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    check_asymptotic_branch_matches_exact(&bosonic);
+}
+
+/// The Matsubara candidates are evaluated for n >= 0 only, relying on
+/// û_l(-n) = conj(û_l(n)) for real u_l(τ); check it on a basis without
+/// parity (asymmetric window), at low and asymptotic frequencies.
+#[test]
+fn test_uhat_negative_frequency_is_conjugate() {
+    use crate::freq::MatsubaraFreq;
+    use crate::kernel::LogisticKernelWindowed;
+
+    let kernel = LogisticKernelWindowed::from_physical(100.0, -0.2, 1.0).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, 100.0, Some(1e-8), None).unwrap();
+    let uhat = basis.uhat_full();
+    for n in [1i64, 3, 51, 999, 100_001, 10_000_001] {
+        let pos = uhat.evaluate_at(&MatsubaraFreq::<Fermionic>::new(n).unwrap());
+        let neg = uhat.evaluate_at(&MatsubaraFreq::<Fermionic>::new(-n).unwrap());
+        for (p, q) in pos.iter().zip(&neg) {
+            assert_eq!(*p, q.conj(), "n = {n}");
+        }
+    }
+}
+
+/// Default Matsubara sampling points are symmetric (`±n_k`, the full set is
+/// the positive-only set and its negatives), with an even number of points
+/// for fermions and an odd number including n = 0 for bosons; the number of
+/// points is the basis size, or one more when the parity requires it, and
+/// the fitting matrix is well conditioned. mitigate adds points: symmetric
+/// ones (oversampling) without parity, fencing points with parity. Checked
+/// with parity (symmetric kernel: the sign changes of SparseIR.jl) and
+/// without (asymmetric window: the pair selection).
+#[test]
+fn test_default_matsubara_points_symmetric() {
+    use crate::freq::MatsubaraFreq;
+    use crate::kernel::LogisticKernelWindowed;
+
+    fn check<K, S>(kernel: K)
+    where
+        K: BasisKernel,
+        S: StatisticsType + 'static,
+    {
+        let basis = FiniteTempBasis::<K, S>::new(kernel, 100.0, Some(1e-8), None).unwrap();
+        let l = basis.size();
+        let full = basis.default_matsubara_sampling_points(false).unwrap();
+        let pos = basis.default_matsubara_sampling_points(true).unwrap();
+        let mut expected: Vec<MatsubaraFreq<S>> = pos.clone();
+        expected.extend(pos.iter().filter(|f| f.n() != 0).map(|&f| -f));
+        expected.sort();
+        assert!(full == expected, "full set is not ±(positive-only set)");
+        assert!(pos.iter().all(|f| f.n() >= 0));
+        let bosonic = S::STATISTICS == Statistics::Bosonic;
+        assert_eq!(full.len() % 2, usize::from(bosonic));
+        assert_eq!(pos.first().unwrap().n() == 0, bosonic);
+        assert!(
+            full.len() == l || full.len() == l + 1,
+            "{} points for L = {l}",
+            full.len()
+        );
+        // Conditioning of the fit at these points
+        let values = basis.uhat().evaluate_at_many(&full);
+        let a = nalgebra::DMatrix::from_fn(full.len(), l, |i, j| values[i][j]);
+        let sv = a.singular_values();
+        assert!(sv[0] / sv[l - 1] < 100.0, "cond = {}", sv[0] / sv[l - 1]);
+        // mitigate adds points
+        let full_n: Vec<i64> = full.iter().map(|f| f.n()).collect();
+        let over = basis
+            .default_matsubara_sampling_points_i64_with_mitigate(false, true, l)
+            .unwrap();
+        assert!(over.len() > full_n.len());
+        assert!(full_n.iter().all(|n| over.contains(n)));
+        if basis.uhat()[0].poly.symm == 0 {
+            assert!(over.iter().all(|n| over.contains(&-n)));
+        }
+    }
+    check::<_, Fermionic>(LogisticKernel::new(100.0).unwrap());
+    check::<_, Bosonic>(LogisticKernel::new(100.0).unwrap());
+    let window = LogisticKernelWindowed::from_physical(100.0, -0.2, 1.0).unwrap();
+    check::<_, Fermionic>(window);
+    check::<_, Bosonic>(window);
+}
+
+/// The inner transform, contracted segment by segment from shared factors,
+/// agrees with the term-by-term sum of `data · T_nl · phase / norm` to
+/// rounding, for every function of a basis, at low and high frequencies
+#[test]
+fn test_inner_transform_matches_term_by_term_sum() {
+    let beta = 10.0;
+    let kernel = LogisticKernel::new(100.0).unwrap();
+    let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    let uhat = basis.uhat_full();
+    for n in [1i64, -3, 51, 999, 100_001] {
+        let freq = FermionicFreq::new(n).unwrap();
+        let shared = uhat.evaluate_at(&freq);
+        let max = shared.iter().map(|v| v.norm()).fold(0.0, f64::max);
+        for (l, ft) in uhat.get_polys().iter().enumerate() {
+            if (n as f64).abs() >= ft.n_asymp {
+                continue;
+            }
+            let poly = &ft.poly;
+            let wred = std::f64::consts::PI / 4.0 * n as f64;
+            let phase = FermionicPiecewiseLegendreFT::phase_stable(poly, n);
+            let mut naive = Complex64::new(0.0, 0.0);
+            for order in 0..poly.polyorder {
+                for (j, ph) in phase.iter().enumerate() {
+                    let tnl =
+                        FermionicPiecewiseLegendreFT::get_tnl(order as i32, wred * poly.delta_x[j]);
+                    naive += poly.data[[order, j]] * tnl * ph / poly.norms[j];
+                }
+            }
+            naive /= 2.0_f64.sqrt();
+            assert!(
+                (shared[l] - naive).norm() <= 1e-13 * max,
+                "n = {n}, l = {l}: {} vs {naive}",
+                shared[l]
+            );
+        }
+    }
+}
+
+/// Evaluating all functions at once (sharing the segment-wise factors) gives
+/// bitwise the values of evaluating each function on its own, with and
+/// without parity, on both branches of the transform
+#[test]
+fn test_evaluate_at_matches_each_function_bitwise() {
+    use crate::kernel::LogisticKernelWindowed;
+
+    fn check<K: BasisKernel>(kernel: K) {
+        let basis = FiniteTempBasis::<_, Fermionic>::new(kernel, 10.0, Some(1e-10), None).unwrap();
+        let uhat = basis.uhat_full();
+        for n in [1i64, -3, 51, 999, 100_001, 10_000_001] {
+            let freq = FermionicFreq::new(n).unwrap();
+            let shared = uhat.evaluate_at(&freq);
+            for (l, ft) in uhat.get_polys().iter().enumerate() {
+                assert_eq!(shared[l], ft.evaluate(&freq), "n = {n}, l = {l}");
+            }
+        }
+    }
+    check(LogisticKernel::new(100.0).unwrap());
+    check(LogisticKernelWindowed::from_physical(10.0, -3.0, 10.0).unwrap());
+}
+
+/// A bosonic pair selection always has n = 0, a fermionic one never, and as
+/// many rows as requested functions rounded up to the parity of the
+/// statistics, also when `uhat` has no next function to round up with
+/// (review of #342: β = 100, window (-0.3, 1), ε = 1e-8, L = 22). Requesting
+/// more points than functions is an error, not a smaller set.
+#[test]
+fn test_pair_selection_keeps_n0_and_the_requested_size() {
+    use crate::error::Error;
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::polyfourier::{PiecewiseLegendreFTVector, pair_sampling_points};
+
+    fn check<S: StatisticsType + 'static>() {
+        let kernel = LogisticKernelWindowed::from_physical(100.0, -0.3, 1.0).unwrap();
+        let basis = FiniteTempBasis::<_, S>::new(kernel, 100.0, Some(1e-8), None).unwrap();
+        let l = basis.size();
+        let bosonic = S::STATISTICS == Statistics::Bosonic;
+        for n_funcs in [l, l + 1, l + 2] {
+            let uhat = PiecewiseLegendreFTVector::from_vector(
+                basis.uhat_full().polyvec[..n_funcs].to_vec(),
+            );
+            for n_points in [l - 1, l, n_funcs] {
+                for (positive_only, mitigate) in [(false, false), (true, false), (false, true)] {
+                    let ns: Vec<i64> =
+                        pair_sampling_points(&uhat, n_points, positive_only, mitigate)
+                            .unwrap()
+                            .iter()
+                            .map(|f| f.n())
+                            .collect();
+                    let case = format!(
+                        "{:?}, {n_funcs} functions, {n_points} points, positive_only = \
+                         {positive_only}, mitigate = {mitigate}: {ns:?}",
+                        S::STATISTICS
+                    );
+                    let positive = ns.iter().filter(|&&n| n > 0).count();
+                    let rows = 2 * positive + usize::from(bosonic);
+                    assert_eq!(ns.contains(&0), bosonic, "{case}");
+                    if !positive_only {
+                        assert_eq!(ns.len(), rows, "{case}");
+                    }
+                    if !mitigate {
+                        // n_points rounded up to the parity of the statistics
+                        assert!(rows >= n_points && rows <= n_points + 1, "{case}");
+                        assert_eq!(rows % 2 == 1, bosonic, "{case}");
+                    }
+                }
+            }
+            assert!(matches!(
+                pair_sampling_points(&uhat, n_funcs + 1, false, false),
+                Err(Error::InvalidParameter {
+                    name: "n_points",
+                    ..
+                })
+            ));
+        }
+    }
+    check::<Bosonic>();
+    check::<Fermionic>();
+}
+
+/// `mitigate` adds frequencies that lower the condition number of the
+/// sampling matrix (by about half, measured over the bases of the comparison
+/// in the review of #342); oversampling with the opposite choice would raise
+/// it.
+#[test]
+fn test_pair_selection_mitigate_improves_conditioning() {
+    use crate::basis::MatsubaraPointMethod;
+    use crate::kernel::LogisticKernelWindowed;
+    use crate::matsubara_sampling::{MatsubaraSampling, MatsubaraSamplingPositiveOnly};
+
+    fn check<K: BasisKernel, S: StatisticsType + 'static>(kernel: K, name: &str) {
+        let basis = FiniteTempBasis::<_, S>::new(kernel, 1e3, Some(1e-8), None).unwrap();
+        for positive_only in [false, true] {
+            let cond = |mitigate| {
+                let points = basis
+                    .matsubara_sampling_points(
+                        positive_only,
+                        mitigate,
+                        MatsubaraPointMethod::PairSelection,
+                    )
+                    .unwrap();
+                if positive_only {
+                    MatsubaraSamplingPositiveOnly::with_sampling_points(&basis, points)
+                        .unwrap()
+                        .condition_number()
+                        .unwrap()
+                } else {
+                    MatsubaraSampling::with_sampling_points(&basis, points)
+                        .unwrap()
+                        .condition_number()
+                        .unwrap()
+                }
+            };
+            let (plain, mitigated) = (cond(false), cond(true));
+            assert!(
+                mitigated < 0.8 * plain,
+                "{name} {:?}, positive_only = {positive_only}: condition number {mitigated:e} \
+                 with mitigate, {plain:e} without",
+                S::STATISTICS
+            );
+        }
+    }
+    check::<_, Fermionic>(LogisticKernel::new(1e3).unwrap(), "logistic");
+    check::<_, Bosonic>(LogisticKernel::new(1e3).unwrap(), "logistic");
+    let windowed = LogisticKernelWindowed::from_physical(1e3, -0.3, 1.0).unwrap();
+    check::<_, Fermionic>(windowed, "windowed");
+    check::<_, Bosonic>(windowed, "windowed");
+}
+
+/// The default Matsubara points of a basis come from the sign changes when
+/// its functions have a parity and from the pair selection when they do not,
+/// and the pair selection of a small windowed basis is pinned (a change of
+/// the method or of its candidate grid shows here; the centrosymmetric
+/// bases are pinned to main in sparse-ir/tests/default_points_main.rs).
+#[test]
+fn test_default_matsubara_points_branch_and_pinned_pair_selection() {
+    use crate::basis::MatsubaraPointMethod;
+    use crate::kernel::LogisticKernelWindowed;
+
+    fn points<K: BasisKernel, S: StatisticsType + 'static>(
+        basis: &FiniteTempBasis<K, S>,
+        positive_only: bool,
+        mitigate: bool,
+        method: Option<MatsubaraPointMethod>,
+    ) -> Vec<i64> {
+        match method {
+            Some(m) => basis
+                .matsubara_sampling_points(positive_only, mitigate, m)
+                .unwrap()
+                .iter()
+                .map(|f| f.n())
+                .collect(),
+            None => basis
+                .default_matsubara_sampling_points_i64_with_mitigate(
+                    positive_only,
+                    mitigate,
+                    basis.size(),
+                )
+                .unwrap(),
+        }
+    }
+    fn check<S: StatisticsType + 'static>(pinned: &[&[i64]; 3]) {
+        let logistic = FiniteTempBasis::<_, S>::new(
+            LogisticKernel::new(10.0).unwrap(),
+            10.0,
+            Some(1e-6),
+            None,
+        )
+        .unwrap();
+        let kernel = LogisticKernelWindowed::from_physical(10.0, -0.3, 1.0).unwrap();
+        let windowed = FiniteTempBasis::<_, S>::new(kernel, 10.0, Some(1e-6), None).unwrap();
+        for (k, (positive_only, mitigate)) in [(false, false), (true, false), (false, true)]
+            .into_iter()
+            .enumerate()
+        {
+            let sign = Some(MatsubaraPointMethod::SignChanges);
+            let pair = Some(MatsubaraPointMethod::PairSelection);
+            assert_eq!(
+                points(&logistic, positive_only, mitigate, None),
+                points(&logistic, positive_only, mitigate, sign)
+            );
+            let default = points(&windowed, positive_only, mitigate, None);
+            assert_eq!(default, points(&windowed, positive_only, mitigate, pair));
+            assert_eq!(
+                default,
+                pinned[k],
+                "{:?}, positive_only = {positive_only}, mitigate = {mitigate}",
+                S::STATISTICS
+            );
+        }
+    }
+    check::<Fermionic>(&PINNED_FERMIONIC);
+    check::<Bosonic>(&PINNED_BOSONIC);
+}
+
+/// Default Matsubara points of the windowed basis (β = 10, window (-0.3, 1),
+/// ε = 1e-6): all, positive_only, mitigate
+const PINNED_FERMIONIC: [&[i64]; 3] = [
+    &[-13, -7, -5, -3, -1, 1, 3, 5, 7, 13],
+    &[1, 3, 5, 7, 13],
+    &[-15, -13, -7, -5, -3, -1, 1, 3, 5, 7, 13, 15],
+];
+const PINNED_BOSONIC: [&[i64]; 3] = [
+    &[-10, -6, -4, -2, 0, 2, 4, 6, 10],
+    &[0, 2, 4, 6, 10],
+    &[-12, -10, -6, -4, -2, 0, 2, 4, 6, 10, 12],
+];

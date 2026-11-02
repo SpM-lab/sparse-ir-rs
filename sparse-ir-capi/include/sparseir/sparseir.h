@@ -378,10 +378,6 @@ struct spir_basis *spir_basis_new_from_sve_and_regularizer(int statistics,
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or num_points is null
- * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
- *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
- *   centrosymmetric): the default Matsubara sampling points are chosen by the
- *   parity of a basis function and are not defined then. Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
 
@@ -414,10 +410,6 @@ StatusCode spir_basis_get_n_default_matsus(const struct spir_basis *b,
  * # Returns
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if b or points is null
- * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
- *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
- *   centrosymmetric): the default Matsubara sampling points are chosen by the
- *   parity of a basis function and are not defined then. Nothing is written.
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  */
 
@@ -582,7 +574,8 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
  * # Arguments
  * * `b` - Basis object
  * * `positive_only` - If true, return only non-negative frequencies
- * * `fence` - If true, add fencing points to improve conditioning
+ * * `fence` - If true, add fencing points to improve conditioning (for a
+ *   basis without definite parity, about 10% more frequencies)
  * * `basis_size` - Size of the basis the points are chosen for. When sampling
  *   an augmented basis, pass the augmented size; it may differ from the size
  *   of `b`.
@@ -595,10 +588,9 @@ StatusCode spir_basis_get_default_taus_ext(const struct spir_basis *b,
  * * `SPIR_COMPUTATION_SUCCESS` (0) on success
  * * `SPIR_INVALID_ARGUMENT` (-6) if `b` or `n_points_total` is null, or
  *   `basis_size < 0`
- * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
- *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
- *   centrosymmetric): the default Matsubara sampling points are chosen by the
- *   parity of a basis function and are not defined then. Nothing is written.
+ * * `SPIR_INVALID_ARGUMENT` (-6) for a basis without definite parity if
+ *   `basis_size` exceeds the number of singular functions of its SVE (the
+ *   selection fits at most those)
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
@@ -621,7 +613,8 @@ StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * # Arguments
  * * `b` - Basis object
  * * `positive_only` - If true, return only non-negative frequencies
- * * `fence` - If true, add fencing points to improve conditioning
+ * * `fence` - If true, add fencing points to improve conditioning (for a
+ *   basis without definite parity, about 10% more frequencies)
  * * `basis_size` - Size of the basis the points are chosen for. When sampling
  *   an augmented basis, pass the augmented size; it may differ from the size
  *   of `b`.
@@ -641,10 +634,9 @@ StatusCode spir_basis_get_n_default_matsus_ext(const struct spir_basis *b,
  * * `SPIR_INVALID_ARGUMENT` (-6) if `points_capacity` is smaller than the
  *   number of points; `points` is left untouched and `*n_points_total` is
  *   set to the required number
- * * `SPIR_NOT_SUPPORTED` (-5) if the basis functions have no definite parity,
- *   as for a basis built on an SVE from `spir_sve_result_from_matrix` (not
- *   centrosymmetric): the default Matsubara sampling points are chosen by the
- *   parity of a basis function and are not defined then. Nothing is written.
+ * * `SPIR_INVALID_ARGUMENT` (-6) for a basis without definite parity if
+ *   `basis_size` exceeds the number of singular functions of its SVE (the
+ *   selection fits at most those); nothing is written
  * * `SPIR_INTERNAL_ERROR` (-7) if internal panic occurs
  *
  * # Note
@@ -1290,12 +1282,17 @@ StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * `sparse_ir::basis::default_matsubara_sampling_points_from_uhat`
  * to compute default sampling points: the sign changes of the first discarded
  * Matsubara basis function (its extrema when that function is not available);
- * bosonic sets always include n = 0.
+ * bosonic sets always include n = 0. Functions without a definite parity, as
+ * those of a basis built on an SVE from `spir_sve_result_from_matrix` (not
+ * centrosymmetric), have no such sign changes; their points are selected as
+ * a set symmetric in ±n by an interpolative decomposition (pivoted QR) of
+ * the rows Re û(n), Im û(n).
  *
  * # Arguments
  * * `uhat` - Pointer to a spir_funcs object representing Matsubara-space basis functions
  * * `positive_only` - If true, return only non-negative frequencies
- * * `fence` - If true, add fencing points to improve conditioning
+ * * `fence` - If true, add fencing points to improve conditioning (for
+ *   functions without definite parity, about 10% more frequencies)
  * * `basis_size` - Size of the basis the points are chosen for
  * * `points_capacity` - Number of elements `points` can hold
  * * `points` - Buffer for the Matsubara indices, or NULL to query the number
@@ -1311,11 +1308,11 @@ StatusCode spir_funcs_batch_eval_matsu(const struct spir_funcs *funcs,
  * - SPIR_INVALID_ARGUMENT if points_capacity is smaller than the number of
  *   points; `points` is left untouched and `*n_points_total` is set to the
  *   required number
- * - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function, or if its
- *   functions have no definite parity, as those of a basis built on an SVE
- *   from `spir_sve_result_from_matrix` (not centrosymmetric): the default
- *   points are chosen by the parity of a basis function and are not defined
- *   then. Nothing is written.
+ * - SPIR_INVALID_ARGUMENT for functions without definite parity if
+ *   basis_size exceeds the number of functions in uhat (the selection fits
+ *   at most those); nothing is written
+ * - SPIR_NOT_SUPPORTED if uhat is not a Matsubara-space function. Nothing is
+ *   written.
  *
  * # Note
  * This function is only available for spir_funcs objects representing Matsubara-space basis functions

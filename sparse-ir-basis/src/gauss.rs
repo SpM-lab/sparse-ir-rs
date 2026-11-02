@@ -89,8 +89,8 @@ where
     /// # Arguments
     /// * `x` - Quadrature points
     /// * `w` - Quadrature weights
-    /// * `a` - Left endpoint (default: -1.0)
-    /// * `b` - Right endpoint (default: 1.0)
+    /// * `a` - Left endpoint
+    /// * `b` - Right endpoint
     ///
     /// The points are not checked for order or for lying in `[a, b]`;
     /// [`Self::validate`] does that.
@@ -637,9 +637,6 @@ impl Rule<crate::Df64> {
 }
 
 /// Compute Gauss-Legendre quadrature nodes and weights using Newton's method.
-///
-/// This is a simplified implementation of the Gauss-Legendre quadrature rule.
-/// For production use, a more sophisticated algorithm would be preferred.
 fn gauss_legendre_nodes_weights<T>(n: usize) -> (Vec<T>, Vec<T>)
 where
     T: CustomNumeric + Copy + Debug + std::fmt::Display + 'static,

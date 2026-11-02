@@ -34,11 +34,12 @@ pub use sparse_ir_dlr::{
 pub use sparse_ir_minipole::{esprit, minipole};
 
 pub use sparse_ir_basis::{
-    AbstractKernel, BosonicBasis, BosonicPiecewiseLegendreFT, BosonicPiecewiseLegendreFTVector,
-    CentrosymmKernel, CentrosymmSVE, CustomNumeric, Df64, DiscretizedKernel, DlrFromIr,
-    FermionicBasis, FermionicPiecewiseLegendreFT, FermionicPiecewiseLegendreFTVector,
-    FiniteTempBasis, IrBasis, KernelProperties, LogisticKernel, LogisticSVEHints,
-    PiecewiseLegendreFT, PiecewiseLegendreFTVector, PiecewiseLegendrePoly,
+    AbstractKernel, BasisKernel, BosonicBasis, BosonicPiecewiseLegendreFT,
+    BosonicPiecewiseLegendreFTVector, CentrosymmKernel, CentrosymmSVE, CustomNumeric, Df64,
+    DiscretizedKernel, DlrFromIr, FermionicBasis, FermionicPiecewiseLegendreFT,
+    FermionicPiecewiseLegendreFTVector, FiniteTempBasis, IrBasis, KernelBlock, KernelProperties,
+    LogisticKernel, LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints,
+    MatsubaraPointMethod, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PiecewiseLegendrePoly,
     PiecewiseLegendrePolyVector, PowerModel, RegularizedBoseKernel, RegularizedBoseSVEHints, Rule,
     SVDResult, SVEHints, SVEResult, SVEStrategy, SamplingSVE, SymmetryType, TSVDConfig, TworkType,
     compute_logistic_kernel, compute_sve, legendre, legendre_custom, legendre_twofloat,

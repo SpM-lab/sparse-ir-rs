@@ -1487,3 +1487,137 @@ fn test_duplicate_sampling_points_are_kept() {
         assert_eq!(tau.matrix().at(&[last, j]), tau.matrix().at(&[2, j]));
     }
 }
+
+/// Fitting complex values to real coefficients solves the least-squares
+/// problem over real coefficients, min ‖[Re; Im](A x - g)‖: on data no real
+/// coefficient vector reproduces, `fit_real`, `fit_nd_real` (dims 0 and 1)
+/// and the in-place real fit agree with the pseudo-inverse of [Re A; Im A]
+/// (an independent nalgebra SVD). The real part of the complex solution,
+/// which they returned before, is the same for a set of points symmetric in
+/// ±n (such as the default ones) but not otherwise: here one more frequency
+/// breaks the symmetry.
+#[test]
+fn test_matsubara_fit_real_is_real_least_squares() {
+    use crate::fitters::InplaceFitter;
+    use crate::test_utils::{At, tensor_filled, tensor_from_fn};
+    use nalgebra::DMatrix;
+
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(100.0).unwrap(),
+        10.0,
+        Some(1e-8),
+        None,
+    )
+    .unwrap();
+    let mut points = basis.default_matsubara_sampling_points(false).unwrap();
+    let last = points.last().unwrap().n();
+    points.push(crate::freq::MatsubaraFreq::new(last + 2).unwrap());
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points).unwrap();
+    let a = crate::matrix::Mat::from_typed(sampling.matrix()).unwrap();
+    let (n, l) = *a.shape();
+    let extra = 3;
+    // Complex values without conjugate structure: no real fit is exact
+    let value = |i: usize, j: usize| {
+        let t = (i * 7 + j * 3) as f64;
+        Complex::new((0.37 * t).sin(), (0.11 * t).cos())
+    };
+
+    let stacked = DMatrix::<f64>::from_fn(2 * n, l, |i, j| {
+        let z = a[[i % n, j]];
+        if i < n { z.re } else { z.im }
+    });
+    let pinv = stacked.pseudo_inverse(1e-14).unwrap();
+    let expected = DMatrix::<f64>::from_fn(l, extra, |i, j| {
+        (0..2 * n)
+            .map(|k| {
+                let g = value(k % n, j);
+                pinv[(i, k)] * if k < n { g.re } else { g.im }
+            })
+            .sum()
+    });
+    let scale = expected.amax();
+
+    let values0 = tensor_from_fn(&[n, extra], |i| value(i[0], i[1]));
+    let values1 = tensor_from_fn(&[extra, n], |i| value(i[1], i[0]));
+    let fit0 = sampling.fit_nd_real(None, &values0, 0).unwrap();
+    let fit1 = sampling.fit_nd_real(None, &values1, 1).unwrap();
+    let mut fit_inplace = tensor_filled::<f64>(&[l, extra], 0.0);
+    sampling
+        .fit_nd_zd_to(None, &values0.as_view(), 0, &mut fit_inplace.as_view_mut())
+        .unwrap();
+    let column0: Vec<Complex<f64>> = (0..n).map(|i| value(i, 0)).collect();
+    let fit_vec = sampling.fit_real(&column0).unwrap();
+    let complex_fit = sampling.fit(&column0).unwrap();
+    for i in 0..l {
+        assert!(
+            (fit_vec[i] - expected[(i, 0)]).abs() < 1e-10 * scale,
+            "vector ({i})"
+        );
+        for j in 0..extra {
+            let e = expected[(i, j)];
+            assert!(
+                (fit0.at(&[i, j]) - e).abs() < 1e-10 * scale,
+                "dim 0 ({i},{j})"
+            );
+            assert!(
+                (fit1.at(&[j, i]) - e).abs() < 1e-10 * scale,
+                "dim 1 ({i},{j})"
+            );
+            assert!(
+                (fit_inplace.at(&[i, j]) - e).abs() < 1e-10 * scale,
+                "in-place ({i},{j})"
+            );
+        }
+    }
+    let re_diff = (0..l)
+        .map(|i| (complex_fit[i].re - expected[(i, 0)]).abs())
+        .fold(0.0, f64::max);
+    assert!(
+        re_diff > 1e-6 * scale,
+        "the case does not distinguish the fits"
+    );
+}
+
+/// Regression: at a point set not symmetric in ±n with fewer points than
+/// functions (the positive halves of the default points), `fit_real` fits
+/// data that real coefficients reproduce. The real part of the complex
+/// least-squares solution, which it returned before, leaves half of such
+/// data unexplained (‖A x − y‖/‖y‖ ≈ 0.5).
+#[test]
+fn test_matsubara_fit_real_fits_asymmetric_points() {
+    let basis = FiniteTempBasis::<_, Fermionic>::new(
+        LogisticKernel::new(100.0).unwrap(),
+        10.0,
+        Some(1e-8),
+        None,
+    )
+    .unwrap();
+    let points: Vec<_> = basis
+        .default_matsubara_sampling_points(false)
+        .unwrap()
+        .into_iter()
+        .filter(|p| p.n() > 0)
+        .collect();
+    assert!(points.len() < basis.size());
+    let sampling = MatsubaraSampling::with_sampling_points(&basis, points).unwrap();
+    let coeffs: Vec<f64> = (0..basis.size()).map(|l| 1.0 / (l as f64 + 1.0)).collect();
+    let values = sampling.evaluate_real(&coeffs).unwrap();
+    let norm = |v: &[Complex<f64>]| v.iter().map(|z| z.norm_sqr()).sum::<f64>().sqrt();
+    let residual = |fitted: &[Complex<f64>]| {
+        let diff: Vec<Complex<f64>> = fitted.iter().zip(&values).map(|(a, b)| a - b).collect();
+        norm(&diff) / norm(&values)
+    };
+
+    let fit = sampling.fit_real(&values).unwrap();
+    let r = residual(&sampling.evaluate_real(&fit).unwrap());
+    assert!(r < 1e-12, "fit_real residual {r:e}");
+
+    let re_complex: Vec<f64> = sampling
+        .fit(&values)
+        .unwrap()
+        .iter()
+        .map(|z| z.re)
+        .collect();
+    let r = residual(&sampling.evaluate_real(&re_complex).unwrap());
+    assert!(r > 0.1, "the case does not distinguish the fits: {r:e}");
+}

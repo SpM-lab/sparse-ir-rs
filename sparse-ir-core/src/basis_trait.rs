@@ -12,7 +12,6 @@ use crate::traits::StatisticsType;
 /// This trait abstracts over different basis representations:
 /// - `FiniteTempBasis`: IR (Intermediate Representation) basis
 /// - `DiscreteLehmannRepresentation`: DLR basis
-/// - `AugmentedBasis`: IR basis with additional functions
 ///
 /// Each basis provides:
 /// - Physical parameters (β, ωmax, Λ)
@@ -115,9 +114,8 @@ pub trait Basis<S: StatisticsType> {
     ///
     /// # Errors
     ///
-    /// [`Error::NotSupported`] if the basis is a DLR (use the points of its IR
-    /// basis), or its basis functions have no definite parity (an SVE that is
-    /// not centrosymmetric, #183)
+    /// [`Error::NotSupported`] if the basis has no default Matsubara sampling
+    /// points
     fn default_matsubara_sampling_points(
         &self,
         positive_only: bool,
