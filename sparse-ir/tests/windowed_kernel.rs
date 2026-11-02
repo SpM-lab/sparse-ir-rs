@@ -65,9 +65,9 @@ fn windowed_kernel_regularizer_matches_logistic() {
 #[test]
 fn windowed_kernel_rejects_invalid_parameters() {
     for (beta, omega_min, omega_max) in [
-        (10.0, 0.1, 1.0),      // window without 0
-        (10.0, -1.0, -0.1),    // window without 0
-        (10.0, 0.0, 1.0),      // 0 at the edge
+        (10.0, 1.0, 1.0),      // degenerate window
+        (10.0, 1.0, 0.5),      // inverted window
+        (10.0, 0.0, 0.0),      // degenerate at 0
         (0.0, -1.0, 1.0),      // beta not positive
         (f64::NAN, -1.0, 1.0), // beta not finite
         (10.0, f64::NEG_INFINITY, 1.0),
@@ -78,6 +78,123 @@ fn windowed_kernel_rejects_invalid_parameters() {
             matches!(err, Error::InvalidParameter { .. }),
             "({beta}, {omega_min}, {omega_max}): {err:?}"
         );
+    }
+}
+
+/// The window need not contain 0: Λ = β·max(|ωmin|, |ωmax|) still holds.
+#[test]
+fn one_sided_windows_are_accepted() {
+    for (omega_min, omega_max, lambda, ymin, ymax) in [
+        (0.0, 2.0, 20.0, 0.0, 1.0),
+        (0.5, 2.0, 20.0, 0.25, 1.0),
+        (-2.0, 0.0, 20.0, -1.0, 0.0),
+        (-2.0, -0.5, 20.0, -1.0, -0.25),
+    ] {
+        let k = windowed(10.0, omega_min, omega_max);
+        assert_eq!(k.lambda(), lambda, "[{omega_min}, {omega_max}]");
+        assert_eq!(
+            (k.ymin(), k.ymax()),
+            (ymin, ymax),
+            "[{omega_min}, {omega_max}]"
+        );
+    }
+}
+
+/// The truncated SVE of a one-sided window reproduces the kernel on it
+/// to the accuracy, and the windows [0, 1] and [-1, 0], which the kernel's
+/// symmetry K(-x, -y) = K(x, y) maps onto each other, have the same spectrum.
+#[test]
+fn one_sided_window_sve_reproduces_kernel() {
+    let eps = 1e-10;
+    let sve = |omega_min, omega_max| {
+        compute_sve(
+            windowed(100.0, omega_min, omega_max),
+            Some(eps),
+            None,
+            None,
+            TworkType::Auto,
+        )
+        .unwrap()
+    };
+    for (omega_min, omega_max) in [(0.0, 1.0), (0.2, 1.0), (-1.0, -0.3)] {
+        let kernel = windowed(100.0, omega_min, omega_max);
+        let result = sve(omega_min, omega_max);
+        let s = result.s();
+        let xs: Vec<f64> = (0..=40).map(|i| -1.0 + i as f64 / 20.0).collect();
+        let (ymin, ymax) = (kernel.ymin(), kernel.ymax());
+        let ys: Vec<f64> = (0..=40)
+            .map(|i| ymin + (ymax - ymin) * i as f64 / 40.0)
+            .collect();
+        let u = result.u().evaluate_at_many(&xs);
+        let v = result.v().evaluate_at_many(&ys);
+        let mut max_err = 0.0_f64;
+        for (i, &x) in xs.iter().enumerate() {
+            for (j, &y) in ys.iter().enumerate() {
+                let approx: f64 = (0..s.len()).map(|l| u[[l, i]] * s[l] * v[[l, j]]).sum();
+                let exact: f64 = kernel.compute(x, y);
+                max_err = max_err.max((approx - exact).abs());
+            }
+        }
+        assert!(
+            max_err < 10.0 * eps * s[0],
+            "[{omega_min}, {omega_max}]: {} singular values, error {max_err:e}",
+            s.len()
+        );
+    }
+
+    let (pos, neg) = (sve(0.0, 1.0), sve(-1.0, 0.0));
+    assert_eq!(pos.s().len(), neg.s().len());
+    for (l, (a, b)) in pos.s().iter().zip(neg.s()).enumerate() {
+        assert!((a - b).abs() < 1e-12 * pos.s()[0], "s[{l}]: {a} vs {b}");
+    }
+}
+
+/// A basis on [0, ωmax] samples and fits in τ and Matsubara frequencies, and
+/// its bosonic DLR reproduces it, with the regularizer vanishing at the edge
+/// ω = 0.
+#[test]
+fn one_sided_window_basis_round_trips() {
+    use num_complex::Complex;
+    use sparse_ir::{MatsubaraSampling, TauSampling};
+
+    let beta = 10.0;
+    let kernel = windowed(beta, 0.0, 1.0);
+    let fermionic = FiniteTempBasis::<_, Fermionic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    let bosonic = FiniteTempBasis::<_, Bosonic>::new(kernel, beta, Some(1e-10), None).unwrap();
+    assert_eq!((bosonic.omega_min(), bosonic.omega_max()), (0.0, 1.0));
+
+    let g: Vec<f64> = (0..fermionic.size())
+        .map(|i| 1.0 / (i as f64 + 1.0))
+        .collect();
+    let tau = TauSampling::new(&fermionic).unwrap();
+    let g_tau = tau.fit(&tau.evaluate(&g).unwrap()).unwrap();
+    let matsu = MatsubaraSampling::new(&fermionic).unwrap();
+    let gc: Vec<Complex<f64>> = g.iter().map(|&x| Complex::new(x, 0.0)).collect();
+    let g_matsu = matsu.fit(&matsu.evaluate(&gc).unwrap()).unwrap();
+    for i in 0..g.len() {
+        assert!((g[i] - g_tau[i]).abs() < 1e-8, "tau: {i}");
+        assert!((gc[i] - g_matsu[i]).norm() < 1e-8, "matsubara: {i}");
+    }
+
+    let dlr = DiscreteLehmannRepresentation::<Bosonic>::from_ir(&bosonic).unwrap();
+    assert!(
+        dlr.poles().iter().all(|&w| 0.0 < w && w < 1.0),
+        "{:?}",
+        dlr.poles()
+    );
+    let taus = [0.1, 2.5, 7.3, 9.9];
+    let u = bosonic.evaluate_tau(&taus).unwrap();
+    let dlr_tau = dlr.evaluate_tau(&taus).unwrap();
+    let s = bosonic.svals();
+    for (p, &pole) in dlr.poles().iter().enumerate() {
+        let v = bosonic.evaluate_omega(&[pole]).unwrap();
+        for (t, tau) in taus.iter().enumerate() {
+            let ir: f64 = (0..bosonic.size())
+                .map(|l| -s[l] * *v.get(&[0, l]).unwrap() * *u.get(&[t, l]).unwrap())
+                .sum();
+            let err = (ir - *dlr_tau.get(&[t, p]).unwrap()).abs();
+            assert!(err < 1e-8, "pole {pole}, tau {tau}: error {err:e}");
+        }
     }
 }
 

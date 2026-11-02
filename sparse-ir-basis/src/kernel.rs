@@ -15,7 +15,7 @@
 //! `AbstractKernel::regularizer`): it transforms the original spectral function
 //! ρ(y) into the scaled version ρ'(y) used in the integral equation.
 
-use crate::error::{Error, require_positive_finite};
+use crate::error::{Error, require_finite, require_positive_finite};
 use crate::numeric::CustomNumeric;
 use crate::sve::{CentrosymmSVE, NonCentrosymmSVE, SVEStrategy};
 use crate::traits::{Statistics, StatisticsType};
@@ -381,8 +381,9 @@ impl CentrosymmKernel for LogisticKernel {
 ///
 /// The kernel formula is that of [`LogisticKernel`]; the non-centrosymmetry
 /// comes solely from restricting the y (= ω/wmax) domain to `[ymin, ymax]`
-/// with `ymin < 0 < ymax` and `max(|ymin|, ymax) == 1`, so that
-/// Λ = β·wmax with wmax = max(|ωmin|, ωmax). Its SVE goes through the
+/// with `ymin < ymax` and `max(|ymin|, |ymax|) == 1`, so that
+/// Λ = β·wmax with wmax = max(|ωmin|, |ωmax|). The window need not contain
+/// 0: a one-sided window such as `[0, ωmax]` is accepted. Its SVE goes through the
 /// full-domain strategy, and its singular functions have no definite parity.
 #[derive(Debug, Clone, Copy)]
 pub struct LogisticKernelWindowed {
@@ -394,26 +395,26 @@ pub struct LogisticKernelWindowed {
 
 impl LogisticKernelWindowed {
     /// Create the kernel for inverse temperature `beta` and the frequency
-    /// window `[omega_min, omega_max]`, which must contain 0
+    /// window `[omega_min, omega_max]`
     ///
     /// # Errors
     ///
     /// [`Error::InvalidParameter`] if `beta` is not positive and finite, or
-    /// `omega_min` and `omega_max` are not finite with
-    /// `omega_min < 0 < omega_max`
+    /// `omega_min` and `omega_max` are not finite with `omega_min < omega_max`
     pub fn from_physical(beta: f64, omega_min: f64, omega_max: f64) -> Result<Self, Error> {
         require_positive_finite("beta", beta)?;
-        require_positive_finite("omega_max", omega_max)?;
-        if !(omega_min.is_finite() && omega_min < 0.0) {
+        require_finite("omega_min", omega_min)?;
+        require_finite("omega_max", omega_max)?;
+        if omega_min >= omega_max {
             return Err(Error::InvalidParameter {
                 name: "omega_min",
                 value: format!("{omega_min:?}"),
-                reason: "must be finite and negative: the window must contain 0".to_string(),
+                reason: format!("must be less than omega_max = {omega_max:?}"),
             });
         }
-        let wmax = omega_max.max(-omega_min);
+        let wmax = omega_max.abs().max(omega_min.abs());
         let lambda = beta * wmax;
-        require_positive_finite("beta * max(-omega_min, omega_max)", lambda)?;
+        require_positive_finite("beta * max(|omega_min|, |omega_max|)", lambda)?;
         Ok(Self {
             logistic: LogisticKernel { lambda },
             ymin: omega_min / wmax,
@@ -421,7 +422,7 @@ impl LogisticKernelWindowed {
         })
     }
 
-    /// Get the cutoff parameter Λ = β·wmax with wmax = max(|ωmin|, ωmax)
+    /// Get the cutoff parameter Λ = β·wmax with wmax = max(|ωmin|, |ωmax|)
     pub fn lambda(&self) -> f64 {
         self.logistic.lambda
     }
@@ -485,7 +486,9 @@ impl BasisKernel for LogisticKernelWindowed {
 /// SVE hints for [`LogisticKernelWindowed`] on its full domain
 ///
 /// The segments of [`LogisticSVEHints`] on [0, 1] (x) and [0, 1] (y), mirrored
-/// onto [-1, 1] and scaled onto [ymin, ymax] respectively.
+/// onto [-1, 1]. In y, for a window that contains 0 in its interior, the two
+/// halves are scaled onto [ymin, 0] and [0, ymax]; for a one-sided window, the
+/// segments of [-1, 1] that lie inside it are kept, between its ends.
 #[derive(Debug, Clone)]
 pub struct LogisticWindowedSVEHints<T> {
     inner: LogisticSVEHints<T>,
@@ -502,18 +505,28 @@ where
     }
 
     fn segments_y(&self) -> Vec<T> {
-        // [0, s1, ..., 1] -> [ymin, ..., ymin s1, 0, ymax s1, ..., ymax]
         let half = self.inner.segments_y();
         let (ymin, ymax) = (
             T::from_f64_unchecked(self.ymin),
             T::from_f64_unchecked(self.ymax),
         );
-        let negative = half
-            .iter()
-            .rev()
-            .filter(|&&s| s > T::zero())
-            .map(|&s| s * ymin);
-        negative.chain(half.iter().map(|&s| s * ymax)).collect()
+        if self.ymin < 0.0 && 0.0 < self.ymax {
+            // [0, s1, ..., 1] -> [ymin, ..., ymin s1, 0, ymax s1, ..., ymax]
+            let negative = half
+                .iter()
+                .rev()
+                .filter(|&&s| s > T::zero())
+                .map(|&s| s * ymin);
+            negative.chain(half.iter().map(|&s| s * ymax)).collect()
+        } else {
+            // [-1, ..., 1] -> [ymin, (its points strictly inside), ymax]
+            let full = crate::sve::utils::mirror_segments_to_full_domain(&half);
+            let inside = full.into_iter().filter(|&s| ymin < s && s < ymax);
+            std::iter::once(ymin)
+                .chain(inside)
+                .chain(std::iter::once(ymax))
+                .collect()
+        }
     }
 
     fn nsvals(&self) -> usize {

@@ -47,8 +47,9 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   error at import instead of the process dying with SIGILL on the first FMA
   instruction. `pylibsparseir` does so (#332).
 - `LogisticKernelWindowed`: the logistic kernel on an asymmetric frequency
-  window `[omega_min, omega_max]` containing 0, the first built-in kernel
-  that is not centrosymmetric. Its SVE is taken over the full domain, and
+  window `[omega_min, omega_max]`, which need not contain 0 (e.g.
+  `[0, omega_max]`), the first built-in kernel that is not
+  centrosymmetric. Its SVE is taken over the full domain, and
   `FiniteTempBasis` works on the kernel's domain (`omega_min()`; the DLR
   rejects poles outside the window). Not yet available through the C API.
 - Default Matsubara sampling points for bases whose functions have no
