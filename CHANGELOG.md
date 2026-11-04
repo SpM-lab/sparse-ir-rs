@@ -203,6 +203,10 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   closer than 1e-14, so a function set with a shorter segment (accepted by
   `spir_funcs_from_piecewise_legendre`) reported fewer than
   `n_segments + 1` knots. They now report the segment boundaries as they are.
+- `special_functions::spherical_bessel_j` returned `(-1)^n j_n(x)` for a
+  negative order, which is not `j_{-n}(x)` (that is `(-1)^n y_{n-1}(x)`).
+  It now panics for a negative order, as it does for a negative `x`; the
+  library itself never asks for one.
 
 ## [0.15.0] - 2026-10-31
 
