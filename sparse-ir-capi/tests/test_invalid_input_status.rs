@@ -650,6 +650,27 @@ fn piecewise_funcs() -> Funcs {
     Funcs(funcs)
 }
 
+/// The knots of a function set are its segment boundaries, however short a
+/// segment is: a segment of length 1e-15 (accepted, since it is a normal
+/// double) keeps both of its knots.
+#[test]
+fn test_knots_of_short_segments() {
+    for segments in [[0.0, 1e-15, 1.0], [1.0, 1.0 + 4.0 * f64::EPSILON, 2.0]] {
+        let coeffs = [1.0, 0.5, -0.25, 2.0, 0.0, 1.0];
+        let mut status = SPIR_INTERNAL_ERROR;
+        let funcs = Funcs(spir_funcs_from_piecewise_legendre(
+            segments.as_ptr(),
+            2,
+            coeffs.as_ptr(),
+            3,
+            0,
+            &mut status,
+        ));
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        assert_eq!(knots(&funcs), segments);
+    }
+}
+
 /// Every τ- or ω-domain function set with its closed domain.
 fn continuous_function_sets(fx: &Fixture) -> Vec<(&'static str, Funcs, (f64, f64))> {
     let u = get_funcs(fx.basis, spir_basis_get_u);

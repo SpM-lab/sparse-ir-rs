@@ -199,6 +199,10 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 - `CentrosymmSVE::new` (and so `compute_sve`) rejects a centrosymmetric
   kernel whose domain is not symmetric, instead of returning the SVE of
   another kernel.
+- C API: `spir_funcs_get_n_knots` and `spir_funcs_get_knots` merged knots
+  closer than 1e-14, so a function set with a shorter segment (accepted by
+  `spir_funcs_from_piecewise_legendre`) reported fewer than
+  `n_segments + 1` knots. They now report the segment boundaries as they are.
 
 ## [0.15.0] - 2026-10-31
 
