@@ -586,6 +586,31 @@ fn test_vector_accessors() {
     println!("3D data shape: {:?}", data3d.shape());
 }
 
+/// `data` puts the segment first and the degree second: a shape with three
+/// different extents tells the axes apart.
+#[test]
+fn test_vector_data_axes() {
+    let knots = vec![0.0, 1.0, 2.0, 3.0];
+    // polyorder 2 × 3 segments; entry (l, s) = 10 l + s + 100 i
+    let polys: Vec<_> = (0..4)
+        .map(|i| {
+            let data = Mat::<f64>::from_fn([2, 3], |idx| (10 * idx[0] + idx[1] + 100 * i) as f64);
+            PiecewiseLegendrePoly::new(data, knots.clone(), i as i32, None, 0).unwrap()
+        })
+        .collect();
+    let vector = PiecewiseLegendrePolyVector::new(polys).unwrap();
+
+    let data3d = vector.data();
+    assert_eq!(*data3d.shape(), (3, 2, 4));
+    for s in 0..3 {
+        for l in 0..2 {
+            for i in 0..4 {
+                assert_eq!(data3d[[s, l, i]], (10 * l + s + 100 * i) as f64);
+            }
+        }
+    }
+}
+
 #[test]
 fn test_vector_roots() {
     let data1 = mat![[-0.5], [1.0]]; // Should have root at 0.5

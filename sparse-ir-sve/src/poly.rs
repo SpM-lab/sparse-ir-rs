@@ -1206,7 +1206,13 @@ impl PiecewiseLegendrePolyVector {
         self.polyvec.iter().map(|poly| poly.symm).collect()
     }
 
-    /// Legendre coefficients as a `polyorder × nsegments × npolys` array
+    /// Legendre coefficients as an `nsegments × polyorder × npolys` array:
+    /// element `[s, l, i]` is the coefficient of degree `l` on segment `s` of
+    /// polynomial `i`
+    ///
+    /// The first two axes are in the opposite order to those of
+    /// [`PiecewiseLegendrePoly::data`] and of the array that
+    /// [`Self::from_3d_data`] takes.
     pub fn data(&self) -> Mat3<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get data from empty PiecewiseLegendrePolyVector");
