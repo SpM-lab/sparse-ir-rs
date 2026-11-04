@@ -147,8 +147,8 @@ where
     F: Fn(f64) -> f64,
 {
     let v = basis.v();
-    let edges = v.get_knots(None);
-    let order = v.get_polyorder() + 8;
+    let edges = v.knots(None);
+    let order = v.polyorder() + 8;
     (0..basis.size())
         .map(|l| {
             let poly = &v[l];
@@ -164,8 +164,8 @@ where
     F: Fn(f64) -> f64,
 {
     let u = basis.u();
-    let edges = u.get_knots(None);
-    let order = u.get_polyorder() + 8;
+    let edges = u.knots(None);
+    let order = u.polyorder() + 8;
     (0..basis.size())
         .map(|l| {
             let poly = &u[l];

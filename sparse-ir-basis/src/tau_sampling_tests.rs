@@ -3,6 +3,7 @@
 use crate::basis::FiniteTempBasis;
 use crate::kernel::{AbstractKernel, KernelProperties};
 use crate::kernel::{LogisticKernel, RegularizedBoseKernel};
+use crate::matrix::MatTyped;
 use crate::sampling::TauSampling;
 use crate::test_utils::At;
 use crate::traits::{Bosonic, Fermionic, StatisticsType};

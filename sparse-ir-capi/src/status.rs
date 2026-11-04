@@ -10,8 +10,11 @@ use crate::{
 use sparse_ir::{Error, ErrorKind};
 
 /// Status code that reports `err` to C callers
-pub(crate) fn status_from(err: &Error) -> StatusCode {
-    status_of_kind(err.kind())
+///
+/// `err` is a core error or an error of the SVE layer, which becomes the
+/// core error of the same name.
+pub(crate) fn status_from<E: Clone + Into<Error>>(err: &E) -> StatusCode {
+    status_of_kind(err.clone().into().kind())
 }
 
 /// Status code of each error category

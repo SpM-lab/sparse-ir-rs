@@ -7,7 +7,7 @@ use crate::Matrix;
 use crate::error::Error;
 use crate::fitters::InplaceFitter;
 use crate::gemm::GemmBackendHandle;
-use crate::matrix::Mat;
+use crate::matrix::{Mat, MatTyped};
 use crate::traits::StatisticsType;
 use num_complex::Complex;
 use tenferro_tensor::{TensorScalar, TypedTensor, TypedTensorView, TypedTensorViewMut};

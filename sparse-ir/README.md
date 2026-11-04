@@ -154,10 +154,12 @@ calculations, are in the [user guide](https://spm-lab.github.io/sparse-ir-rs/).
 `sparse-ir` re-exports the crates it is made of, under their usual paths; you
 can also depend on them directly:
 
+- [`sparse-ir-sve`](https://crates.io/crates/sparse-ir-sve): the singular
+  value expansion of integral kernels, with the ACA-accelerated truncated SVD;
 - [`sparse-ir-core`](https://crates.io/crates/sparse-ir-core): statistics,
   errors, GEMM, fitters, the `Basis` trait and sparse sampling;
-- [`sparse-ir-basis`](https://crates.io/crates/sparse-ir-basis): kernels, the
-  singular value expansion and the IR basis `FiniteTempBasis`;
+- [`sparse-ir-basis`](https://crates.io/crates/sparse-ir-basis): the kernels
+  and the IR basis `FiniteTempBasis`;
 - [`sparse-ir-dlr`](https://crates.io/crates/sparse-ir-dlr): the discrete
   Lehmann representation;
 - [`sparse-ir-minipole`](https://crates.io/crates/sparse-ir-minipole): ESPRIT
@@ -178,7 +180,7 @@ This crate is dual-licensed under the terms of the MIT license and the Apache Li
 
 ### Third-party licenses
 
-The `col_piv_qr` module of `sparse-ir-basis` is based on code from the [nalgebra](https://github.com/dimforge/nalgebra) library, which is licensed under the Apache License 2.0:
+The `col_piv_qr` module of `sparse-ir-sve` is based on code from the [nalgebra](https://github.com/dimforge/nalgebra) library, which is licensed under the Apache License 2.0:
 
 - **nalgebra**: Apache License 2.0
   - Original source: `nalgebra/src/linalg/col_piv_qr.rs`

@@ -1,4 +1,4 @@
-use crate::gauss::{legendre_generic, legendre_vandermonde};
+use crate::gauss::{legendre, legendre_vandermonde};
 use crate::interpolation1d::legendre_collocation_matrix;
 use crate::matrix::Mat;
 
@@ -6,7 +6,7 @@ use crate::matrix::Mat;
 fn test_legendre_collocation_matrix_inverse() {
     // Test with different sizes
     for n in [2, 3, 5, 10] {
-        let gauss_rule = legendre_generic::<f64>(n).reseat(-1.0, 1.0);
+        let gauss_rule = legendre::<f64>(n).reseat(-1.0, 1.0);
 
         // Create Vandermonde matrix
         let vandermonde = legendre_vandermonde(&gauss_rule.x.to_vec(), n - 1);

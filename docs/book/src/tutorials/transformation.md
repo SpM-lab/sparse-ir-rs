@@ -70,7 +70,7 @@ functions are built on, where each \\(v_l\\) is a polynomial, and apply the
 rule on every piece; if \\(\rho\\) is smooth within a piece, the result
 converges exponentially in the order.
 
-`PiecewiseLegendrePolyVector::get_knots` hands you exactly those division
+`PiecewiseLegendrePolyVector::knots` hands you exactly those division
 points. `integrate_segments` is a tutorial-crate helper that applies a
 Gauss-Legendre rule on every segment; `sparse_ir::legendre` provides such a
 rule if you want to write your own.
@@ -164,7 +164,7 @@ saves you building a complex copy of an array that has no imaginary part.
 | What you want | What to call |
 | --- | --- |
 | \\(v_l\\) or \\(u_l\\) at your own points | `Basis::evaluate_omega`, `Basis::evaluate_tau` |
-| the segments to integrate over | `PiecewiseLegendrePolyVector::get_knots` |
+| the segments to integrate over | `PiecewiseLegendrePolyVector::knots` |
 | a Gauss-Legendre rule | `sparse_ir::legendre` |
 | DLR coefficients \\(c_p\\) → \\(g_l\\) | `DiscreteLehmannRepresentation::from_ir_with_poles`, `to_ir_nd` |
 | one axis of an array | the `_nd` and `_nd_real` variants |

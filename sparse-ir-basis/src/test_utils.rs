@@ -369,7 +369,7 @@ impl<T: Clone> ToMat<T> for crate::matrix::Mat<T> {
 
 impl<T: TensorScalar + Copy> ToMat<T> for crate::Matrix<T> {
     fn to_mat(&self) -> crate::matrix::Mat<T> {
-        crate::matrix::Mat::from_typed(self).unwrap()
+        <crate::matrix::Mat<T> as crate::matrix::MatTyped<T>>::from_typed(self).unwrap()
     }
 }
 

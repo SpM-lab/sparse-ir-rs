@@ -5,6 +5,101 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+### Added
+
+- The `sparse-ir-sve` crate: the SVE of integral kernels K(x, y), with the
+  ACA-accelerated truncated SVD, and the numerics it is built on (Gauss
+  quadrature, piecewise Legendre polynomials, `Df64`, the dense containers,
+  the error type, the FPU guard, the rayon pool), without the physics of the
+  IR basis, for use with other kernels. `sparse-ir-basis` re-exports its
+  modules under the previous paths (`sparse_ir::sve`, `sparse_ir::gauss`,
+  `sparse_ir::poly`, ...). Its `parallel` feature is off by default and
+  turned on by that of `sparse-ir-core`. The machinery of the SVE (its
+  strategies, the kernel matrices, the truncated SVD, the FPU guard, the
+  thread pool) is public only under `sparse_ir_sve::unstable`, outside the
+  semver guarantees of that crate; the `sparse_ir::` paths are unchanged.
+- `compute_sve_dense`: the SVE by the dense column-pivoted QR of the fully
+  formed blocks (what `compute_sve` does in f64), in f64 and double-double,
+  to check the ACA path on a new kernel.
+- `SegmentHints`: SVE hints given by the segment boundaries on the domain
+  of a kernel (`new`), or by a number of segments of equal length
+  (`uniform`), for any kernel, so that a kernel defined outside the crates
+  needs no hints type of its own.
+- `sve_residual`: max |K − Σ s_l u_l v_l| / s₀ of an SVE at points next to
+  the ends and at the midpoint of every segment, which shows whether the
+  segments of the hints resolve the kernel (`compute_sve` does not check
+  it). Limited from below by the rounding of the evaluation in f64.
+- `compute_sve_with` and `SVEOptions`: the SVE with options set by name
+  (accuracy, cutoff, maximum number of singular values, working precision,
+  full-domain expansion of a centrosymmetric kernel). `compute_sve` is
+  unchanged. `compute_sve_general`, `compute_sve_for_basis` and
+  `BASIS_CUTOFF_FACTOR` are deprecated in favor of
+  `SVEOptions::full_domain`, `SVEOptions::cutoff_from_epsilon` and
+  `ACCURACY_CUTOFF_FACTOR`.
+- `sparse_ir_sve::Error::kind` and `ErrorKind`: the category of an error
+  of the SVE (invalid argument, not supported, internal), stable when
+  variants are added.
+- `SVEResult::truncate`: the expansion truncated at a relative threshold
+  (its accuracy) and a maximum size, as an `SVEResult`. `SVEResult::part`,
+  which returned the parts as a tuple, is deprecated.
+
+### Changed
+
+- The kernel traits are split into the mathematics of the SVE, defined in
+  `sparse-ir-sve`, and the physics of the basis. `AbstractKernel` (values),
+  `SVEKernel` (domain and SVE hints, taken out of `KernelProperties`),
+  `ReducedKernel` (`compute_reduced`, taken out of `CentrosymmKernel`) and
+  `ExpandableKernel` (the kernels `compute_sve` expands, by their symmetry,
+  taken out of `BasisKernel`) come
+  from `sparse-ir-sve`; `KernelProperties` (`ypower`, `conv_radius`,
+  `regularizer`), `CentrosymmKernel` (`lambda`) and `BasisKernel`
+  (`kernel_lambda`) stay in `sparse-ir-basis`, each extending the trait it
+  was split from. Code that bounds on these traits is unchanged; a kernel
+  defined outside the crates implements `SVEKernel` next to
+  `KernelProperties`, `ReducedKernel` next to `CentrosymmKernel`, and, if it
+  is not centrosymmetric, `ExpandableKernel` next to `BasisKernel`. Calling
+  `xmax()` or `sve_hints()` on a concrete kernel needs `SVEKernel` in scope.
+- `SVEHints::segments_x` and `segments_y` return the segment boundaries of
+  the full domain `[xmin, xmax]` for every kernel, the centrosymmetric ones
+  included (`LogisticSVEHints` and `RegularizedBoseSVEHints` returned those
+  of `[0, 1]`); the SVE of a centrosymmetric kernel takes their half itself
+  (`sparse_ir::sve::half_domain_segments`). `AbstractKernel::is_centrosymmetric`
+  is deprecated: the SVE uses the symmetry of the kernels that implement
+  `ReducedKernel`. `spir_kernel_get_sve_hints_segments_x` and `_y` of the
+  C API are unchanged.
+- The accessors of `PiecewiseLegendrePoly` and
+  `PiecewiseLegendrePolyVector` drop their `get_` prefix (`knots()`,
+  `delta_x()`, `data()`, `norms()`, `polyorder()`, `domain()`, `l()`,
+  `polys()`, ...), and `PiecewiseLegendrePolyVector::size` is `len` (with
+  `is_empty`). The former names are deprecated.
+- Internal helpers are deprecated, to be removed:
+  `PiecewiseLegendrePoly::evaluate_legendre_polynomial` (a Legendre series
+  that does not depend on the polynomial), and
+  `DiscretizedKernel::new_legacy` and `remove_weights_from_sve`.
+- `CustomNumeric` is sealed (implemented for `f64` and `Df64` only) and
+  requires `ComplexField<RealField = Self>`, so `abs()` returns `Self`;
+  `abs_as_same_type` and `is_valid` (use `abs` and `is_finite`) are
+  deprecated.
+- The functions of the SVE, the quadrature and the polynomials return
+  `sparse_ir_sve::Error`, which converts into `sparse_ir::Error` (`?`,
+  `From`).
+
+### Removed
+
+- The duplicate names of the Gauss–Legendre rule and of the methods of
+  `Rule` are removed, with no deprecated alias. Breaking, for the next
+  minor release; use the name on the right:
+  - `legendre_custom::<T>(n)`, `legendre_generic::<f64>(n)` →
+    `legendre::<T>(n)` (the same rule)
+  - `legendre_twofloat(n)`, `legendre_generic::<Df64>(n)` →
+    `legendre::<Df64>(n)`, which is Newton's method, not xprec's rule: the
+    points and weights differ by up to 3e-28 relative
+  - `Rule::from_vectors`, `Rule::new_custom`, `Rule::from_vectors_custom`,
+    `Rule::new_twofloat`, `Rule::from_vectors_twofloat` → `Rule::new`
+  - `Rule::reseat_custom`, `Rule::reseat_twofloat` → `Rule::reseat`
+  - `Rule::scale_custom`, `Rule::scale_twofloat` → `Rule::scale`
+  - `Rule::validate_custom`, `Rule::validate_twofloat` → `Rule::validate`
+
 ## [0.15.0] - 2026-10-31
 
 ### Added

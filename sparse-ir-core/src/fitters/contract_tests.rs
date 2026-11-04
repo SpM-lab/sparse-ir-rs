@@ -4,7 +4,7 @@
 use super::common::InplaceFitter;
 use super::*;
 use crate::error::{ArrayRole, Error};
-use crate::matrix::Mat;
+use crate::matrix::{Mat, MatTyped};
 use num_complex::Complex;
 use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
 

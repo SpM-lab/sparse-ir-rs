@@ -33,18 +33,20 @@ pub use sparse_ir_dlr::{
 
 pub use sparse_ir_minipole::{esprit, minipole};
 
+#[allow(deprecated)]
 pub use sparse_ir_basis::{
     AbstractKernel, BasisKernel, BosonicBasis, BosonicPiecewiseLegendreFT,
     BosonicPiecewiseLegendreFTVector, CentrosymmKernel, CentrosymmSVE, CustomNumeric, Df64,
-    DiscretizedKernel, DlrFromIr, FermionicBasis, FermionicPiecewiseLegendreFT,
+    DiscretizedKernel, DlrFromIr, ExpandableKernel, FermionicBasis, FermionicPiecewiseLegendreFT,
     FermionicPiecewiseLegendreFTVector, FiniteTempBasis, IrBasis, KernelBlock, KernelProperties,
     LogisticKernel, LogisticKernelWindowed, LogisticSVEHints, LogisticWindowedSVEHints,
     MatsubaraPointMethod, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PiecewiseLegendrePoly,
-    PiecewiseLegendrePolyVector, PowerModel, RegularizedBoseKernel, RegularizedBoseSVEHints, Rule,
-    SVDResult, SVEHints, SVEResult, SVEStrategy, SamplingSVE, SymmetryType, TSVDConfig, TworkType,
-    compute_logistic_kernel, compute_sve, legendre, legendre_custom, legendre_twofloat,
-    matrix_from_gauss, matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
-    svd_decompose, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
+    PiecewiseLegendrePolyVector, PowerModel, ReducedKernel, RegularizedBoseKernel,
+    RegularizedBoseSVEHints, Rule, SVDResult, SVEHints, SVEKernel, SVEOptions, SVEResult,
+    SVEStrategy, SamplingSVE, SymmetryType, TSVDConfig, TworkType, compute_logistic_kernel,
+    compute_sve, compute_sve_with, legendre, matrix_from_gauss,
+    matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments, svd_decompose,
+    tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
 };
 pub use sparse_ir_basis::{
     basis, gauss, ir_dlr, kernel, kernelmatrix, numeric, poly, polyfourier, special_functions, sve,
