@@ -238,7 +238,10 @@ fn return_repr(
 /// * `nmax` - The contour ends at `(2 nmax + 1)π/β` without symmetry, or <= 0 for `nmax = β`
 /// * `err` - Error tolerance of ESPRIT, or <= 0 to use `n_poles` alone
 /// * `err_type` - 0: `err` is absolute, 1: relative to the largest singular value
-/// * `n_poles` - Number of poles, or <= 0 to choose it from `err`; one of `err` and `n_poles` is required
+/// * `n_poles` - Maximum number of poles, or <= 0 to choose it from `err`; one of `err` and
+///   `n_poles` is required. The result can have fewer: the number is capped by the size of
+///   the Hankel matrix and lowered until the approximation error is controlled, and nodes
+///   with |γ| >= 1 are dropped
 /// * `symmetry` - Impose up-down symmetry (gapless map)
 /// * `status` - Pointer to store the status code
 ///
@@ -308,7 +311,10 @@ pub extern "C" fn spir_minipole_from_dlr(
 /// * `n0_shift` - Shift (>= 0) added to the automatic choice of `n0`
 /// * `err` - Error tolerance (> 0), at least the noise level of the data
 /// * `err_type` - 0: `err` is absolute, 1: relative
-/// * `n_poles` - Number of poles, or <= 0 to use the precision of the first approximation
+/// * `n_poles` - Maximum number of poles, or <= 0 to use the precision of the first
+///   approximation. The result can have fewer: the number is capped and lowered as in
+///   `spir_minipole_from_dlr`, and nodes with |γ| >= 1 and poles whose weights do not
+///   exceed the error are dropped
 /// * `symmetry` - Preserve up-down symmetry
 /// * `g_symmetric` - Symmetrize the data as `G_ij = G_ji`
 /// * `compute_const` - Fit a constant term (not with `symmetry`)

@@ -47,7 +47,11 @@ pub struct MiniPoleParams {
     pub err: f64,
     /// Interpretation of `err` (default absolute).
     pub err_type: ErrType,
-    /// Number of poles; `None` uses the precision of the first ESPRIT.
+    /// Maximum number of poles; `None` uses the precision of the first
+    /// ESPRIT. The result can have fewer: the bound of
+    /// [`EspritParams::m`](crate::esprit::EspritParams::m) applies, and
+    /// nodes with |γ| ≥ 1 and poles whose weights do not exceed the error
+    /// are dropped.
     pub m: Option<usize>,
     /// Preserve up-down symmetry.
     pub symmetry: bool,

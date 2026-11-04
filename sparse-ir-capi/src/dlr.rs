@@ -442,6 +442,9 @@ fn dlr_sizes(b: &spir_basis) -> Option<(usize, usize)> {
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
+///
 /// The mathematical transform does not depend on the axis placement or the
 /// memory order of the arrays, but the floating-point result can: a different
 /// `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -561,6 +564,9 @@ pub extern "C" fn spir_ir2dlr_dd(
 /// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
+///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
 ///
 /// The mathematical transform does not depend on the axis placement or the
 /// memory order of the arrays, but the floating-point result can: a different
@@ -686,6 +692,9 @@ pub extern "C" fn spir_ir2dlr_zz(
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
 ///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
+///
 /// The mathematical transform does not depend on the axis placement or the
 /// memory order of the arrays, but the floating-point result can: a different
 /// `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -805,6 +814,9 @@ pub extern "C" fn spir_dlr2ir_dd(
 /// * `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// `input_dims` is validated before `input` or `out` is accessed.
+///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
 ///
 /// The mathematical transform does not depend on the axis placement or the
 /// memory order of the arrays, but the floating-point result can: a different
