@@ -1428,6 +1428,7 @@ dependencies = [
 name = "sparse-ir-core"
 version = "0.15.0"
 dependencies = [
+ "bytemuck",
  "faer 0.24.4",
  "faer-traits 0.24.0",
  "libc",
