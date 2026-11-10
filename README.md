@@ -136,7 +136,7 @@ This workspace is dual-licensed under the terms of the MIT license and the Apach
 
 Some components incorporate third-party code:
 
-- the `col_piv_qr` module in the `sparse-ir-sve` crate is based on nalgebra (Apache-2.0); see [`sparse-ir/README.md`](sparse-ir/README.md) and `LICENSE-APACHE`;
+- the `col_piv_qr` module in the `sparse-ir-sve` crate is based on nalgebra (Apache-2.0); see [`sparse-ir-sve/LICENSE-THIRD-PARTY`](sparse-ir-sve/LICENSE-THIRD-PARTY);
 - the ESPRIT and MiniPole code in the `sparse-ir-minipole` crate is a port of [MiniPole](https://github.com/Green-Phys/MiniPole) (MIT); see [`sparse-ir-minipole/LICENSE-THIRD-PARTY`](sparse-ir-minipole/LICENSE-THIRD-PARTY).
 
 ---

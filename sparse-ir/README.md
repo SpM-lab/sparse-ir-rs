@@ -187,7 +187,7 @@ The `col_piv_qr` module of `sparse-ir-sve` is based on code from the [nalgebra](
   - Copyright 2020 Sébastien Crozet
   - See [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0) for details
 
-Modifications and additions to the nalgebra code (including early termination support) are available under the same dual license as this crate (MIT OR Apache-2.0).
+Modifications and additions to the nalgebra code (including early termination support) are available under the same dual license as this crate (MIT OR Apache-2.0); see `sparse-ir-sve/LICENSE-THIRD-PARTY`.
 
 The ESPRIT and MiniPole code of `sparse-ir-minipole` is a port of
 [MiniPole](https://github.com/Green-Phys/MiniPole) (MIT License); see
