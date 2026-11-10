@@ -16,8 +16,11 @@
 //! In `f64`, [`compute_sve`] decomposes the discretized kernel by a dense
 //! column-pivoted QR; in double-double (`Df64`), where that is costly, by
 //! adaptive cross approximation (ACA), which reads only a few rows and
-//! columns of it. [`unstable::sve::compute_sve_dense`] takes the dense path in both,
-//! to check the result on a new kernel.
+//! columns of it. The one exception is the full-domain SVE of a
+//! centrosymmetric kernel ([`SVEOptions::full_domain`]), which keeps the
+//! dense QR in `Df64` too: its single block holds nearly degenerate pairs of
+//! singular values. [`unstable::sve::compute_sve_dense`] takes the dense
+//! path in both, to check the result on a new kernel.
 //!
 //! The crate is mathematics only: it defines no concrete kernel. The
 //! `sparse-ir` crates define the kernels of the IR basis and build the basis

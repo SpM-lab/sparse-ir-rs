@@ -16,8 +16,10 @@ on statistics or Matsubara frequencies, so it can expand other kernels as well.
   whether the segments of the hints resolve the kernel.
 - In `f64` the SVE takes the SVDs of the discretized kernel by a dense
   column-pivoted QR, in double-double by adaptive cross approximation, which
-  reads only a few of its rows and columns; `compute_sve_dense` takes the
-  dense path in both, to check the SVE of a new kernel.
+  reads only a few of its rows and columns (except the full-domain SVE of a
+  centrosymmetric kernel, which keeps the dense QR). `compute_sve_dense`
+  takes the dense path in both, to check the SVE of a new kernel; like the
+  truncated SVD, it is under `unstable`, outside the semver of this crate.
 - The `parallel` feature (off by default) runs the SVE on the rayon thread
   pool.
 - The singular functions are piecewise Legendre polynomials
@@ -25,8 +27,9 @@ on statistics or Matsubara frequencies, so it can expand other kernels as well.
 - The crate is mathematics only and defines no concrete kernel;
   `sparse-ir-basis` defines the kernels of the IR basis and builds the basis
   on top of this crate.
-- The truncated SVD (`tsvd`), Gauss–Legendre quadrature (`gauss`) and
-  double-double arithmetic (`Df64`) are available on their own.
+- Gauss–Legendre quadrature (`gauss`), the piecewise Legendre polynomials
+  (`poly`) and double-double arithmetic (`Df64`) are available on their
+  own.
 
 The crate documentation has an example that expands a kernel defined outside
 this crate.

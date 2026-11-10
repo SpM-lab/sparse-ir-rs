@@ -151,7 +151,7 @@ sparse-ir-rs/
 │   ├── examples/        # Rust examples
 │   └── tests/           # Integration tests
 ├── sparse-ir-core/      # Statistics, errors, GEMM, fitters, Basis trait, sampling
-├── sparse-ir-sve/       # Singular value expansion (kernels, TSVD, ACA)
+├── sparse-ir-sve/       # Singular value expansion (kernel traits, TSVD, ACA; no concrete kernel)
 ├── sparse-ir-dlr/       # Discrete Lehmann representation
 ├── sparse-ir-minipole/  # ESPRIT and minimal pole representations
 ├── sparse-ir-basis/     # Physical kernels, IR basis
