@@ -37,11 +37,6 @@ fn default_cutoff<T: CustomNumeric>() -> T {
 /// ε = 10⁻¹⁰…10⁻¹⁵.
 pub const ACCURACY_CUTOFF_FACTOR: f64 = 1e-10;
 
-/// [`ACCURACY_CUTOFF_FACTOR`]
-#[deprecated(note = "use ACCURACY_CUTOFF_FACTOR")]
-#[doc(hidden)]
-pub const BASIS_CUTOFF_FACTOR: f64 = ACCURACY_CUTOFF_FACTOR;
-
 /// Cutoff of [`SVEOptions::cutoff_from_epsilon`]:
 /// `max(2 * T::epsilon(), ACCURACY_CUTOFF_FACTOR * epsilon)`
 ///
@@ -369,29 +364,6 @@ where
         max_num_svals,
         twork,
         Resolve::Full,
-    )
-}
-
-/// [`compute_sve_with`] with [`SVEOptions::cutoff_from_epsilon`]
-///
-/// # Errors
-///
-/// The errors of [`compute_sve`]
-#[deprecated(note = "use compute_sve_with and SVEOptions::cutoff_from_epsilon")]
-#[doc(hidden)]
-pub fn compute_sve_for_basis<K: ExpandableKernel>(
-    kernel: K,
-    epsilon: f64,
-    max_num_svals: Option<usize>,
-    twork: TworkType,
-) -> Result<SVEResult, Error> {
-    compute_sve_impl(
-        KernelDomain(kernel),
-        Some(epsilon),
-        None,
-        max_num_svals,
-        twork,
-        Resolve::Basis,
     )
 }
 

@@ -35,10 +35,8 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 - `compute_sve_with` and `SVEOptions`: the SVE with options set by name
   (accuracy, cutoff, maximum number of singular values, working precision,
   full-domain expansion of a centrosymmetric kernel). `compute_sve` is
-  unchanged. `compute_sve_general`, `compute_sve_for_basis` and
-  `BASIS_CUTOFF_FACTOR` are deprecated in favor of
-  `SVEOptions::full_domain`, `SVEOptions::cutoff_from_epsilon` and
-  `ACCURACY_CUTOFF_FACTOR`.
+  unchanged. `compute_sve_general` is deprecated in favor of
+  `SVEOptions::full_domain`.
 - `sparse_ir_sve::Error::kind` and `ErrorKind`: the category of an error
   of the SVE (invalid argument, not supported, internal), stable when
   variants are added.
@@ -68,10 +66,9 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   accept. It is implemented for every `CentrosymmKernel` (plus
   `KernelProperties + Clone + 'static`), so every kernel accepted before
   still is, and for `LogisticKernelWindowed`.
-- `KernelProperties::xmin()` and `ymin()`, defaulting to the symmetric
-  domain.
-- `compute_sve_for_basis` and `BASIS_CUTOFF_FACTOR`: an SVE that resolves
-  only the singular values a basis for ε uses, down to
+- `SVEKernel::xmin()` and `ymin()`, defaulting to the symmetric domain.
+- `SVEOptions::cutoff_from_epsilon` and `ACCURACY_CUTOFF_FACTOR`: an SVE
+  that resolves only the singular values a basis for ε uses, down to
   `max(2·ε_work, 1e-10·ε)`; in double-double 1.5–2.3× faster than
   `compute_sve`, with about 20% fewer singular values. Opt-in: the default
   SVE is unchanged.

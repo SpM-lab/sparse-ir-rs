@@ -1427,23 +1427,3 @@ fn test_compute_sve_general_is_compute_sve_with_full_domain() {
     let full = compute_sve_with(kernel, &options).unwrap();
     assert_eq!(general.s(), full.s());
 }
-
-/// The deprecated `compute_sve_for_basis` and `BASIS_CUTOFF_FACTOR` are
-/// `compute_sve_with` with `SVEOptions::cutoff_from_epsilon` and
-/// `ACCURACY_CUTOFF_FACTOR`
-#[test]
-#[allow(deprecated)]
-fn test_compute_sve_for_basis_is_cutoff_from_epsilon() {
-    use super::{ACCURACY_CUTOFF_FACTOR, BASIS_CUTOFF_FACTOR, compute_sve_for_basis};
-    assert_eq!(BASIS_CUTOFF_FACTOR, ACCURACY_CUTOFF_FACTOR);
-    let kernel = ExpKernel::new(10.0);
-    let twork = TworkType::Float64X2;
-    let options = SVEOptions::new()
-        .epsilon(1e-10)
-        .twork(twork)
-        .cutoff_from_epsilon();
-
-    let for_basis = compute_sve_for_basis(kernel, 1e-10, None, twork).unwrap();
-    let with = compute_sve_with(kernel, &options).unwrap();
-    assert_eq!(for_basis.s(), with.s());
-}
