@@ -43,12 +43,12 @@ pub use sparse_ir_basis::{
     MatsubaraPointMethod, PiecewiseLegendreFT, PiecewiseLegendreFTVector, PiecewiseLegendrePoly,
     PiecewiseLegendrePolyVector, PowerModel, ReducedKernel, RegularizedBoseKernel,
     RegularizedBoseSVEHints, Rule, SVDResult, SVEHints, SVEKernel, SVEOptions, SVEResult,
-    SVEStrategy, SamplingSVE, SymmetryType, TSVDConfig, TworkType, compute_logistic_kernel,
-    compute_sve, compute_sve_with, legendre, matrix_from_gauss,
+    SVEStrategy, SamplingSVE, SegmentHints, SymmetryType, TSVDConfig, TworkType,
+    compute_logistic_kernel, compute_sve, compute_sve_with, legendre, matrix_from_gauss,
     matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments, svd_decompose,
     tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
 };
 pub use sparse_ir_basis::{
-    basis, gauss, ir_dlr, kernel, kernelmatrix, numeric, poly, polyfourier, special_functions, sve,
-    tsvd,
+    basis, gauss, hints, ir_dlr, kernel, kernelmatrix, numeric, poly, polyfourier,
+    special_functions, sve, tsvd,
 };

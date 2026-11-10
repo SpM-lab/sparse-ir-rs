@@ -31,6 +31,8 @@ pub use sparse_ir_sve::unstable::fpu_check; // FPU state checking for Intel Fort
 pub mod freq;
 pub mod gemm; // Matrix multiplication utilities (Faer backend)
 pub mod matrix; // Column-major dense containers for internal numerics
+#[doc(hidden)]
+pub use sparse_ir_sve::mat; // `mat!`, at its path before the split
 pub mod matsubara_sampling; // Sparse sampling in Matsubara frequencies
 #[doc(hidden)]
 pub use sparse_ir_sve::unstable::parallel; // Parallel execution on the rayon pool (internal)

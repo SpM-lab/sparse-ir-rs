@@ -42,16 +42,18 @@ pub mod special_functions;
 
 // The SVE and the numerics it is built on, under the paths of this crate
 pub use sparse_ir_sve::unstable::{kernelmatrix, tsvd};
-pub use sparse_ir_sve::{gauss, numeric, poly};
+pub use sparse_ir_sve::{gauss, hints, numeric, poly};
 
 /// Singular value expansion (SVE) of the kernels, from `sparse-ir-sve`
 pub mod sve {
     pub use sparse_ir_sve::sve::*;
     pub use sparse_ir_sve::unstable::sve::*;
+    pub use sparse_ir_sve::{Error, ErrorKind};
 }
 
 pub use basis::{BosonicBasis, FermionicBasis, FiniteTempBasis, MatsubaraPointMethod};
 pub use gauss::{Rule, legendre};
+pub use hints::SegmentHints;
 pub use ir_dlr::{DlrFromIr, IrBasis};
 pub use kernel::{
     AbstractKernel, BasisKernel, CentrosymmKernel, ExpandableKernel, KernelProperties,
@@ -74,7 +76,9 @@ pub use sve::{
     CentrosymmSVE, KernelBlock, SVEOptions, SVEResult, SVEStrategy, SamplingSVE, TworkType,
     compute_sve, compute_sve_with,
 };
-pub use tsvd::{SVDResult, TSVDConfig, svd_decompose, tsvd_df64, tsvd_df64_from_f64, tsvd_f64};
+pub use tsvd::{
+    SVDResult, TSVDConfig, svd_decompose, tsvd, tsvd_df64, tsvd_df64_from_f64, tsvd_f64,
+};
 
 // Test utilities (only available in test mode)
 #[cfg(test)]

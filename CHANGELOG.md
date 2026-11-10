@@ -24,7 +24,7 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 - `SegmentHints`: SVE hints given by the segment boundaries on the domain
   of a kernel (`new`), or by a number of segments of equal length
   (`uniform`), for any kernel, so that a kernel defined outside the crates
-  needs no hints type of its own.
+  needs no hints type of its own. Also `sparse_ir::SegmentHints`.
 - `sve_residual`: max |K − Σ s_l u_l v_l| / s₀ of an SVE at points next to
   the ends and at the midpoint of every segment, which shows whether the
   segments of the hints resolve the kernel (`compute_sve` does not check
@@ -81,8 +81,8 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `abs_as_same_type` and `is_valid` (use `abs` and `is_finite`) are
   deprecated.
 - The functions of the SVE, the quadrature and the polynomials return
-  `sparse_ir_sve::Error`, which converts into `sparse_ir::Error` (`?`,
-  `From`).
+  `sparse_ir_sve::Error` (also `sparse_ir::sve::Error`), which converts into
+  `sparse_ir::Error` (`?`, `From`).
 
 ### Removed
 
