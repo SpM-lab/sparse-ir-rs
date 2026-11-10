@@ -117,6 +117,10 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   requires `ComplexField<RealField = Self>`, so `abs()` returns `Self`;
   `abs_as_same_type` and `is_valid` (use `abs` and `is_finite`) are
   deprecated.
+- `Mat::into_typed` and `Mat::from_typed`, the conversions to and from
+  tenferro matrices, are methods of the trait
+  `sparse_ir::matrix::MatTyped`, which a caller imports: `Mat` lives in
+  `sparse-ir-sve`, which does not depend on tenferro.
 - The functions of the SVE, the quadrature and the polynomials return
   `sparse_ir_sve::Error` (also `sparse_ir::sve::Error`), which converts into
   `sparse_ir::Error` (`?`, `From`).
