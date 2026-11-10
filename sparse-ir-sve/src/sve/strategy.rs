@@ -436,7 +436,10 @@ where
     /// # Errors
     ///
     /// [`Error::InvalidParameter`] if the SVE hints of the kernel give
-    /// segments that are not finite and strictly increasing
+    /// segments that are not finite and strictly increasing, or that do not
+    /// run from `xmin` to `xmax` (`ymin` to `ymax`). Hints written for the
+    /// half domain `[0, xmax]` of sparse-ir 0.15 are rejected here: the SVE
+    /// over their segments would expand only part of the kernel.
     pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
         let hints = kernel.sve_hints::<T>(epsilon);
 
@@ -449,6 +452,18 @@ where
         let rule = sve_legendre::<T>(n_gauss);
         let gauss_x = rule.piecewise(&segments_x)?;
         let gauss_y = rule.piecewise(&segments_y)?;
+        check_segment_ends(
+            "SVE hints segments_x",
+            &segments_x,
+            kernel.xmin(),
+            kernel.xmax(),
+        )?;
+        check_segment_ends(
+            "SVE hints segments_y",
+            &segments_y,
+            kernel.ymin(),
+            kernel.ymax(),
+        )?;
 
         // Create the general SVE processor
         let sampling_sve = SamplingSVE::new(
@@ -486,6 +501,30 @@ where
         // Apply weights for SVE
         discretized.apply_weights_for_sve()
     }
+}
+
+/// `InvalidParameter` unless the segment boundaries (at least one segment,
+/// as `Rule::piecewise` checks) start at `min` and end at `max`
+///
+/// Exact comparison, as in `SegmentHints::new`: the boundaries are meant to
+/// be the bounds of the domain, not values near them.
+fn check_segment_ends<T: CustomNumeric>(
+    name: &'static str,
+    segments: &[T],
+    min: f64,
+    max: f64,
+) -> Result<(), Error> {
+    let (first, last) = (segments[0].to_f64(), segments[segments.len() - 1].to_f64());
+    if first != min || last != max {
+        return Err(Error::InvalidParameter {
+            name,
+            value: format!("[{first:?}, {last:?}]"),
+            reason: format!(
+                "must run from the lower to the upper bound of the domain, [{min:?}, {max:?}]"
+            ),
+        });
+    }
+    Ok(())
 }
 
 impl<T, K> SVEStrategy<T> for NonCentrosymmSVE<T, K>

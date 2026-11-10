@@ -493,6 +493,83 @@ fn test_full_domain_sve_non_centrosymmetric_kernel() {
     }
 }
 
+/// [`TiltedExpKernel`] with SVE hints that follow the contract of sparse-ir
+/// 0.15: the segments of the half domain `[0, 1]` only
+#[derive(Debug, Clone, Copy)]
+struct HalfDomainHintsKernel(TiltedExpKernel);
+
+#[derive(Debug, Clone)]
+struct HalfDomainHints;
+
+impl<T: Copy + Debug + Send + Sync + CustomNumeric> SVEHints<T> for HalfDomainHints {
+    fn segments_x(&self) -> Vec<T> {
+        [0.0, 0.5, 1.0].map(T::from_f64_unchecked).to_vec()
+    }
+
+    fn segments_y(&self) -> Vec<T> {
+        <Self as SVEHints<T>>::segments_x(self)
+    }
+
+    fn nsvals(&self) -> usize {
+        16
+    }
+
+    fn ngauss(&self) -> usize {
+        16
+    }
+}
+
+impl AbstractKernel for HalfDomainHintsKernel {
+    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
+        self.0.compute(x, y)
+    }
+}
+
+impl SVEKernel for HalfDomainHintsKernel {
+    type SVEHintsType<T>
+        = HalfDomainHints
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static;
+
+    fn xmax(&self) -> f64 {
+        1.0
+    }
+
+    fn ymax(&self) -> f64 {
+        1.0
+    }
+
+    fn sve_hints<T>(&self, _epsilon: f64) -> HalfDomainHints
+    where
+        T: Copy + Debug + Send + Sync + CustomNumeric + 'static,
+    {
+        HalfDomainHints
+    }
+}
+
+impl ExpandableKernel for HalfDomainHintsKernel {}
+
+/// Hints whose segments do not span the domain are an error, not the SVE of
+/// part of the kernel: half-domain hints written for sparse-ir 0.15 would
+/// otherwise expand only K on `[0, 1] x [0, 1]`
+#[test]
+fn test_full_domain_sve_rejects_hints_of_part_of_the_domain() {
+    let kernel = HalfDomainHintsKernel(TiltedExpKernel(ExpKernel::new(10.0)));
+    for twork in [TworkType::Float64, TworkType::Float64X2] {
+        let err = compute_sve(kernel, Some(1e-6), None, None, twork).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::InvalidParameter {
+                    name: "SVE hints segments_x",
+                    ..
+                }
+            ),
+            "{twork:?}: {err:?}"
+        );
+    }
+}
+
 /// `compute_sve` dispatches on the kernel: one that is not a
 /// `ReducedKernel` goes through the full-domain strategy, exactly as with
 /// the full-domain SVE

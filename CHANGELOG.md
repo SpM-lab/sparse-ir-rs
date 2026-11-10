@@ -63,7 +63,14 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   the full domain `[xmin, xmax]` for every kernel, the centrosymmetric ones
   included (`LogisticSVEHints` and `RegularizedBoseSVEHints` returned those
   of `[0, 1]`); the SVE of a centrosymmetric kernel takes their half itself
-  (`sparse_ir::sve::half_domain_segments`). `AbstractKernel::is_centrosymmetric`
+  (`sparse_ir::sve::half_domain_segments`). Breaking for code that
+  implements `SVEHints`: hints that return the half domain `[0, xmax]`, as
+  0.15 asked of a centrosymmetric kernel, must return the full domain. The
+  SVE over the full domain (a kernel that is not centrosymmetric, or
+  `SVEOptions::full_domain`) rejects segments that do not run from `xmin`
+  to `xmax` with `InvalidParameter`, instead of expanding part of the
+  kernel; that of a centrosymmetric kernel still accepts half-domain hints,
+  with the same result. `AbstractKernel::is_centrosymmetric`
   is deprecated: the SVE uses the symmetry of the kernels that implement
   `ReducedKernel`. `spir_kernel_get_sve_hints_segments_x` and `_y` of the
   C API are unchanged.
