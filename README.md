@@ -284,13 +284,16 @@ The release process is done in **two stages** because Julia bindings depend on t
    version = "X.Y.Z"  # Update this
    
    [workspace.dependencies]
-   sparse-ir = { version = "X.Y.Z", path = "sparse-ir" }
-   sparse-ir-sve = { version = "X.Y.Z", path = "sparse-ir-sve" }
-   sparse-ir-core = { version = "X.Y.Z", path = "sparse-ir-core" }
-   sparse-ir-dlr = { version = "X.Y.Z", path = "sparse-ir-dlr" }
-   sparse-ir-minipole = { version = "X.Y.Z", path = "sparse-ir-minipole" }
-   sparse-ir-basis = { version = "X.Y.Z", path = "sparse-ir-basis" }
+   sparse-ir = { version = "=X.Y.Z", path = "sparse-ir" }
+   sparse-ir-sve = { version = "=X.Y.Z", path = "sparse-ir-sve" }
+   sparse-ir-core = { version = "=X.Y.Z", path = "sparse-ir-core" }
+   sparse-ir-dlr = { version = "=X.Y.Z", path = "sparse-ir-dlr" }
+   sparse-ir-minipole = { version = "=X.Y.Z", path = "sparse-ir-minipole" }
+   sparse-ir-basis = { version = "=X.Y.Z", path = "sparse-ir-basis" }
    ```
+   The crates of the workspace require each other at exactly the same
+   version (`=`): they are released together, and the items they share
+   through `sparse_ir_sve::unstable` are outside semver.
 
 2. Update the Python bindings version in `python/pyproject.toml`:
    ```toml
