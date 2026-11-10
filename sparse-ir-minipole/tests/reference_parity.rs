@@ -248,31 +248,65 @@ fn mini_pole_dlr_matches_reference() {
     }
 }
 
-/// Metrics of a pole representation against the reference: nearest-pole
-/// matching; `(max |Δξ| of poles with |A| > 1e-6, max |Δξ| |A| of the
-/// others, max |ΔA|, max |ΔG(iω_n)|)`.
-fn pole_metrics(
-    rep: &MiniPoleResult,
-    case: &Case,
-    n_orb: usize,
-    w: &[f64],
-) -> (f64, f64, f64, f64) {
+/// Weight above which a pole is physical. The others are spurious: they
+/// absorb the rounding residual of the data, so their number and positions
+/// depend on rounding. They differ between platforms, and the reference
+/// itself gives 13 or 14 poles on `mats_symmetric` depending on the versions
+/// of numpy and scipy.
+const PHYSICAL_WEIGHT: f64 = 1e-6;
+
+/// Comparison of a pole representation with the reference.
+struct PoleMetrics {
+    /// Number of physical poles, ours and the reference's.
+    n_phys: usize,
+    n_phys_ref: usize,
+    /// Max |Δξ| over the physical poles of the reference.
+    dphys: f64,
+    /// Max |Δξ| |A| over its spurious poles.
+    dspur: f64,
+    /// Max |ΔA|; a pole without a partner counts with its own weight.
+    dw: f64,
+    /// Max |ΔG(iω_n)| over the points the fit uses, `n >= n0`.
+    dg: f64,
+}
+
+/// Matches the poles of the reference, the heaviest first, each to the
+/// nearest pole of ours not yet taken. The two may have different numbers of
+/// spurious poles; a pole left without a partner, on either side, must then
+/// have a weight within the tolerance on `dw`.
+///
+/// `G` is compared from `w[n0]` on. The contour integrals and the constant
+/// use only those points, so below them both representations extrapolate:
+/// on `mats_matrix_symmetric` the reference itself is 5e-7 off the data
+/// below `w[n0]`, against 4.5e-12 from `w[n0]` on.
+fn pole_metrics(rep: &MiniPoleResult, case: &Case, n_orb: usize, w: &[f64]) -> PoleMetrics {
     let loc_ref = case.c("pole_location");
     let w_ref = case.c("pole_weight");
-    let r = loc_ref.len();
+    let r_ref = loc_ref.len();
+    let r = rep.pole_location.len();
     let d = n_orb * n_orb;
     let ours = rep.pole_weight.host_data().unwrap();
+    let weight_ref = |j: usize| (0..d).map(|c| w_ref[j * d + c].norm()).fold(0.0, f64::max);
+    let weight = |k: usize| (0..d).map(|c| ours[k + r * c].norm()).fold(0.0, f64::max);
+    let mut order: Vec<usize> = (0..r_ref).collect();
+    order.sort_by(|&a, &b| weight_ref(b).total_cmp(&weight_ref(a)));
     let mut used = vec![false; r];
     let (mut dphys, mut dspur, mut dw) = (0.0_f64, 0.0_f64, 0.0_f64);
-    for j in 0..r {
-        let wn = (0..d).map(|c| w_ref[j * d + c].norm()).fold(0.0, f64::max);
-        let (jo, dl) = (0..r)
+    for j in order {
+        let wn = weight_ref(j);
+        let nearest = (0..r)
             .filter(|&k| !used[k])
             .map(|k| (k, (rep.pole_location[k] - loc_ref[j]).norm()))
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .unwrap();
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        let Some((jo, dl)) = nearest else {
+            if wn > PHYSICAL_WEIGHT {
+                dphys = f64::INFINITY;
+            }
+            dw = dw.max(wn);
+            continue;
+        };
         used[jo] = true;
-        if wn > 1e-6 {
+        if wn > PHYSICAL_WEIGHT {
             dphys = dphys.max(dl);
         } else {
             dspur = dspur.max(dl * wn);
@@ -281,7 +315,15 @@ fn pole_metrics(
             dw = dw.max((ours[jo + r * chan(c, n_orb)] - w_ref[j * d + c]).norm());
         }
     }
-    let z: Vec<C64> = w.iter().map(|&x| C64::new(0.0, x)).collect();
+    for k in (0..r).filter(|&k| !used[k]) {
+        dw = dw.max(weight(k));
+    }
+    let n_phys = (0..r).filter(|&k| weight(k) > PHYSICAL_WEIGHT).count();
+    let n_phys_ref = (0..r_ref)
+        .filter(|&j| weight_ref(j) > PHYSICAL_WEIGHT)
+        .count();
+    let n0 = case.i("n0") as usize;
+    let z: Vec<C64> = w[n0..].iter().map(|&x| C64::new(0.0, x)).collect();
     let g = rep.evaluate(&z).unwrap();
     let g = g.host_data().unwrap();
     let cref = case.c("const");
@@ -289,17 +331,25 @@ fn pole_metrics(
     for (i, &zi) in z.iter().enumerate() {
         for c in 0..d {
             let gr: C64 = cref[c]
-                + (0..r)
+                + (0..r_ref)
                     .map(|j| w_ref[j * d + c] / (zi - loc_ref[j]))
                     .sum::<C64>();
             dg = dg.max((g[i + z.len() * chan(c, n_orb)] - gr).norm());
         }
     }
-    (dphys, dspur, dw, dg)
+    PoleMetrics {
+        n_phys,
+        n_phys_ref,
+        dphys,
+        dspur,
+        dw,
+        dg,
+    }
 }
 
 /// Runs the case and checks the discrete outputs exactly (`n0`, number of
-/// moments and poles) and the continuous ones to the given tolerances.
+/// moments, number of physical poles) and the continuous ones to the given
+/// tolerances.
 fn check_mats(name: &str, n_orb: usize, tol_pole: f64, tol_g: f64) {
     let case = Case::load(name);
     let w = case.r("w");
@@ -346,7 +396,14 @@ fn check_mats(name: &str, n_orb: usize, tol_pole: f64, tol_g: f64) {
     let em_ref = case.r("err_max")[0];
     let em = rep.err_max.unwrap();
     let npoles_ref = case.c("pole_location").len();
-    let (dphys, dspur, dw, dg) = pole_metrics(&rep, &case, n_orb, &w);
+    let PoleMetrics {
+        n_phys,
+        n_phys_ref,
+        dphys,
+        dspur,
+        dw,
+        dg,
+    } = pole_metrics(&rep, &case, n_orb, &w);
     let dc = max_diff(
         &(0..d)
             .map(|c| rep.constant[chan(c, n_orb)])
@@ -354,20 +411,25 @@ fn check_mats(name: &str, n_orb: usize, tol_pole: f64, tol_g: f64) {
         &case.c("const"),
     );
     eprintln!(
-        "{name}: n0 {}/{} K {nk}/{nk_ref} poles {}/{npoles_ref} err_max {em:.2e}/{em_ref:.2e} \
+        "{name}: n0 {}/{} K {nk}/{nk_ref} poles {}/{npoles_ref} physical {n_phys}/{n_phys_ref} err_max {em:.2e}/{em_ref:.2e} \
          |dh| {dh:.1e} |dxi| {dphys:.1e} |dxi A| {dspur:.1e} |dA| {dw:.1e} |dG| {dg:.1e} |dC| {dc:.1e}",
         rep.n0,
         case.i("n0"),
         rep.pole_location.len()
     );
     assert_eq!(rep.n0 as i64, case.i("n0"), "{name}: n0");
-    assert_eq!(
-        rep.pole_location.len(),
-        npoles_ref,
-        "{name}: number of poles"
-    );
+    assert_eq!(n_phys, n_phys_ref, "{name}: number of physical poles");
     assert!((em - em_ref).abs() < 0.2 * em_ref, "{name}: err_max");
-    assert!(dh < 0.05 * em_ref, "{name}: h_k");
+    // Each moment combines oscillatory integrals with coefficients whose
+    // moduli add up to at most 4/π, and each integral is converged to
+    // 0.01 err_max, here and in the reference (QAWO): the two agree to about
+    // 2.5 % of err_max. The convergence test compares successive estimates,
+    // so it bounds the error only up to a small factor; hence 10 %.
+    //
+    // This checks that the moments are computed as in the reference. It is
+    // not the guard for the accuracy of the inverse problem: that is the
+    // comparison of the physical poles and of G from w[n0] on, below.
+    assert!(dh < 0.1 * em_ref, "{name}: h_k");
     assert!(
         dphys < tol_pole && dspur < tol_g && dw < tol_g && dc < tol_g && dg < tol_g,
         "{name}"
