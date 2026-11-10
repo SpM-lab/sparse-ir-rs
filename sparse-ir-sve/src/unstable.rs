@@ -4,7 +4,12 @@
 //! These are the machinery of the SVE (its strategies, the discretized
 //! kernel matrices, the truncated SVD), the FPU guard and the thread pool.
 //! Any release may change or remove them; a program that only computes
-//! SVEs does not need them.
+//! SVEs does not need them. `sparse-ir-basis` and `sparse-ir` re-export
+//! some of them under their own paths (`sparse_ir::tsvd`,
+//! `sparse_ir::sve::compute_sve_dense`, ...), where they follow the semver
+//! of those crates; the crates of the workspace require each other at the
+//! same exact version, so such a change reaches them in a release of their
+//! own.
 
 /// The strategies [`compute_sve`](crate::compute_sve) decomposes a kernel
 /// with, and the dense reference path

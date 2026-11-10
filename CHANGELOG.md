@@ -14,10 +14,13 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   IR basis, for use with other kernels. `sparse-ir-basis` re-exports its
   modules under the previous paths (`sparse_ir::sve`, `sparse_ir::gauss`,
   `sparse_ir::poly`, ...). Its `parallel` feature is off by default and
-  turned on by that of `sparse-ir-core`. The machinery of the SVE (its
-  strategies, the kernel matrices, the truncated SVD, the FPU guard, the
-  thread pool) is public only under `sparse_ir_sve::unstable`, outside the
-  semver guarantees of that crate; the `sparse_ir::` paths are unchanged.
+  turned on by that of `sparse-ir-core`. Within `sparse-ir-sve`, the
+  machinery of the SVE (its strategies, the kernel matrices, the truncated
+  SVD, the FPU guard, the thread pool) is public only under
+  `sparse_ir_sve::unstable`, outside the semver guarantees of that crate.
+  It stays reachable as before through the `sparse_ir::` paths (for
+  example `sparse_ir::sve::compute_sve_dense`, `sparse_ir::tsvd`,
+  `sparse_ir::kernelmatrix`), which are under the semver of `sparse-ir`.
 - `compute_sve_dense`: the SVE by the dense column-pivoted QR of the fully
   formed blocks (what `compute_sve` does in f64), in f64 and double-double,
   to check the ACA path on a new kernel.
