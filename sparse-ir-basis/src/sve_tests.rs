@@ -251,6 +251,81 @@ fn test_full_domain_sve_reconstructs_centrosymmetric_kernels() {
     assert_sve_reconstructs_kernel(&kernel, &sve, 1e-6);
 }
 
+/// The full-domain SVE of an IR kernel has the singular values of
+/// `compute_sve` (issue #246, and the full-domain hints of 3c77574)
+///
+/// With the hints mirrored to the full domain, the full-domain matrix uses
+/// the Gauss points of the even/odd blocks of `compute_sve` and is
+/// orthogonally equivalent to their direct sum, so each singular value moves
+/// only by the rounding of the two SVDs, O(u_work s_0), plus one f64 ulp of
+/// the output (`2 ε s_l`). The cutoff is explicit, so that the comparison does
+/// not depend on the default cutoff. `same_count` is set where the smallest
+/// kept singular value is far above the cutoff; otherwise a value kept by one
+/// path only must lie at the cutoff within the same bound. The mechanics are
+/// tested in `sparse-ir-sve` on `ExpKernel`; this is the cross-check on the
+/// kernels of this crate.
+#[test]
+fn test_full_domain_sve_matches_compute_sve_ir_kernels() {
+    fn check<K: BasisKernel + std::fmt::Debug>(
+        kernel: K,
+        epsilon: f64,
+        twork: TworkType,
+        same_count: bool,
+    ) {
+        let case = format!("{kernel:?}, eps = {epsilon:e}, {twork:?}");
+        let u_work = working_machine_epsilon(twork);
+        let cutoff = 2.0 * u_work;
+        let reference =
+            compute_sve(kernel.clone(), Some(epsilon), Some(cutoff), None, twork).unwrap();
+        let options = SVEOptions::new()
+            .epsilon(epsilon)
+            .cutoff(cutoff)
+            .twork(twork)
+            .full_domain(true);
+        let full = compute_sve_with(kernel, &options).unwrap();
+
+        let s0 = reference.s()[0];
+        let tol = |s: f64| 1000.0 * u_work * s0 + 2.0 * f64::EPSILON * s;
+        let n = reference.s().len().min(full.s().len());
+        for l in 0..n {
+            let diff = (full.s()[l] - reference.s()[l]).abs();
+            assert!(
+                diff <= tol(reference.s()[l]),
+                "{case}: s[{l}] full domain {:.16e}, compute_sve {:.16e}",
+                full.s()[l],
+                reference.s()[l]
+            );
+        }
+        for &s in reference.s()[n..].iter().chain(full.s()[n..].iter()) {
+            assert!(
+                s <= cutoff * s0 + tol(s),
+                "{case}: {:.3e} s0 kept by one path only, above the cutoff",
+                s / s0
+            );
+        }
+        if same_count {
+            assert_eq!(
+                full.s().len(),
+                reference.s().len(),
+                "{case}: number of singular values"
+            );
+        }
+    }
+
+    // At lambda = 10 the smallest kept singular value is far above the cutoff
+    // 2 u_work s_0 (about 8.6 and 27 u s_0 for the logistic kernel, 12 and 38
+    // u s_0 for the bosonic one, in Float64 and Float64X2); at lambda = 1e4 it
+    // is within rounding of the cutoff (about 2.7 u s_0).
+    let logistic = |lambda| LogisticKernel::new(lambda).unwrap();
+    check(logistic(10.0), 1e-6, TworkType::Float64, true);
+    check(logistic(10.0), 1e-10, TworkType::Float64X2, true);
+    check(logistic(1e4), 1e-6, TworkType::Float64, false);
+    let bose = |lambda| RegularizedBoseKernel::new(lambda).unwrap();
+    check(bose(10.0), 1e-6, TworkType::Float64, true);
+    check(bose(10.0), 1e-10, TworkType::Float64X2, true);
+    check(bose(1e4), 1e-6, TworkType::Float64, false);
+}
+
 /// Deviations of an SVE from a reference: `(max relative error of s_l,
 /// max error of u_l and v_l relative to their maximum)`, over the singular
 /// values and functions `ls`
