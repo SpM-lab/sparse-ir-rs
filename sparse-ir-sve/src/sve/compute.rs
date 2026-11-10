@@ -515,8 +515,16 @@ where
     };
 
     // 2.-3. The SVD of each block, the blocks concurrently (they are
-    // independent). The work is counted as forming the blocks in full.
-    let svds = if !aca || std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>() {
+    // independent). The work is counted as forming the blocks in full, in
+    // f64 operations (a Df64 operation costs `DF64_OP` of them, as in the
+    // ACA).
+    let is_f64 = std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
+    let entry_work = if is_f64 {
+        crate::cost::KERNEL_ENTRY
+    } else {
+        crate::cost::KERNEL_ENTRY * crate::cost::DF64_OP
+    };
+    let svds = if !aca || is_f64 {
         // In f64, by the column-pivoted QR of the formed blocks, as before
         // the ACA: the f64 SVE is that of main bitwise. Taken by ACA, its
         // singular values agree to the working precision, but the number of
@@ -526,7 +534,7 @@ where
         let matrices = sve.matrices();
         let work = matrices
             .iter()
-            .map(|m| m.shape().0 * m.shape().1 * crate::cost::KERNEL_ENTRY)
+            .map(|m| m.shape().0 * m.shape().1 * entry_work)
             .sum();
         crate::parallel::map_on_pool(matrices.len(), work, |b| {
             crate::tsvd::compute_svd_dtensor(&matrices[b])
@@ -538,7 +546,7 @@ where
         let blocks = sve.blocks();
         let work = blocks
             .iter()
-            .map(|block| block.nrows() * block.ncols() * crate::cost::KERNEL_ENTRY)
+            .map(|block| block.nrows() * block.ncols() * entry_work)
             .sum();
         crate::parallel::map_on_pool(blocks.len(), work, |b| {
             let block = &blocks[b];
