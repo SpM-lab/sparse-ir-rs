@@ -213,6 +213,30 @@ else()
         # Try OpenBLAS (common on Linux)
         find_package(OpenBLAS QUIET)
         if(OpenBLAS_FOUND)
+            # The OpenBLASConfig.cmake of some distributions names a library
+            # that does not exist: Ubuntu 26.04 (OpenBLAS 0.3.32) takes the
+            # root as ../../.. of /usr/lib/x86_64-linux-gnu/cmake/openblas
+            # and gives /usr/lib/lib/libopenblas.so. Use such a config only
+            # if its libraries exist; otherwise let FindBLAS look for
+            # OpenBLAS in the standard library directories.
+            foreach(_openblas_lib IN LISTS OpenBLAS_LIBRARIES)
+                if(NOT EXISTS "${_openblas_lib}")
+                    message(STATUS "OpenBLAS config in ${OpenBLAS_DIR} names "
+                        "${_openblas_lib}, which does not exist; asking FindBLAS")
+                    set(OpenBLAS_FOUND FALSE)
+                endif()
+            endforeach()
+            if(NOT OpenBLAS_FOUND)
+                set(BLA_VENDOR "OpenBLAS")
+                find_package(BLAS QUIET)
+                unset(BLA_VENDOR)
+                if(BLAS_FOUND)
+                    set(OpenBLAS_FOUND TRUE)
+                    set(OpenBLAS_LIBRARIES ${BLAS_LIBRARIES})
+                endif()
+            endif()
+        endif()
+        if(OpenBLAS_FOUND)
             message(STATUS "Found OpenBLAS: ${OpenBLAS_LIBRARIES}")
             target_link_libraries(sparseir_fortran PUBLIC ${OpenBLAS_LIBRARIES})
         else()
