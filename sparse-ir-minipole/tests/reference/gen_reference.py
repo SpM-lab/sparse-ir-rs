@@ -162,5 +162,8 @@ mats_case("mats_matrix", Gm, wf, n0=3, err=1e-10)
 mats_case("mats_matrix_gsym", Gm.real + 0j, wf, n0=3, err=1e-10, G_symmetric=True)
 Gs = g_poles(1j * wf, xs_sym, amps_sym)
 mats_case("mats_symmetric", Gs, wf, n0=3, err=1e-10, symmetry=True)
-mats_case("mats_matrix_symmetric", Gm, wf, n0=3, err=1e-10, symmetry=True)
+# Up-down symmetric matrix spectrum: the residues of mats_matrix at -x and x.
+Gms = g_poles(1j * wf, np.array([-0.75, -0.2, 0.2, 0.75]),
+              np.array([res[2], res[0], res[0], res[2]]))
+mats_case("mats_matrix_symmetric", Gms, wf, n0=3, err=1e-10, symmetry=True)
 print("done")
