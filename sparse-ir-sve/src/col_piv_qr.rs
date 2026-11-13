@@ -60,6 +60,22 @@ where
 {
     /// Computes the `ColPivQR` decomposition using householder reflections with early termination.
     ///
+    /// # Pivoting rule
+    /// At step `i`, the pivot is the column holding the entry of largest
+    /// modulus in the remaining block `matrix[i.., i..]`, not the column of
+    /// largest remaining norm. This is therefore not the Businger–Golub
+    /// column-pivoted QR, and the classical rank-revealing bounds (`|R[k,k]|`
+    /// within a factor of the `k`-th singular value) do not apply: a column
+    /// whose norm is large but whose entries are all small can be passed over,
+    /// so `|R[i,i]|` may fall below the cut while a singular value above it
+    /// remains in the trailing block.
+    ///
+    /// Consequently `rtol` is a numerical cut on the diagonal of `R` relative
+    /// to `|R[0,0]|`, not a certified numerical rank: after an early stop the
+    /// discarded part is not guaranteed to have norm below
+    /// `rtol * |R[0,0]|`. `test_entry_pivot_drops_a_column_above_the_cut`
+    /// pins down this behaviour on a 102×3 matrix.
+    ///
     /// # Arguments
     /// * `matrix` - Input matrix to decompose
     /// * `rtol` - Optional relative tolerance for early termination.
@@ -303,6 +319,49 @@ mod tests {
             }
         }
         sum.sqrt()
+    }
+
+    /// The pivot is the largest remaining entry, not the largest remaining
+    /// column norm (see [`ColPivQR::new_with_rtol`]), and the early stop can
+    /// then drop a singular value well above the cut.
+    ///
+    /// Column 1 has one entry `δ`; column 2 has 100 entries `0.9 δ`, so its
+    /// norm is `9 δ`. After column 0 is eliminated, the entry pivot picks
+    /// column 1, whose `|R[1,1]| = δ` is below `2ε`, and the decomposition
+    /// stops with rank 1. Column 2, of singular value `9 δ ≈ 8 × 2ε`, is
+    /// discarded; a column-norm pivot would keep it (rank 2).
+    ///
+    /// This asserts the current outcome so that a change of the pivoting
+    /// rule shows up as a failure of this test rather than as a silent
+    /// numerical change.
+    #[test]
+    fn test_entry_pivot_drops_a_column_above_the_cut() {
+        let m = 102;
+        let delta = 4e-16;
+        let a = DMatrix::from_fn(m, 3, |i, j| match j {
+            0 if i == 0 => 1.0,
+            1 if i == 1 => delta,
+            2 if i >= 2 => 0.9 * delta,
+            _ => 0.0,
+        });
+        // The cut used by `tsvd` for f64 (`compute_svd_dtensor`).
+        let rtol = 2.0 * f64::EPSILON;
+
+        // The singular values are 1, 9 δ and δ (orthogonal columns).
+        let s = a.singular_values();
+        let mut s: Vec<f64> = s.iter().copied().collect();
+        s.sort_by(|x, y| y.total_cmp(x));
+        assert!((s[1] - 9.0 * delta).abs() < 1e-3 * 9.0 * delta);
+        assert!(s[1] > 8.0 * rtol * s[0], "9 δ is about 8× above the cut");
+
+        let qr = ColPivQR::new_with_rtol(a.clone(), Some(rtol));
+        assert_eq!(qr.rank(), 1, "the entry pivot stops after column 0");
+
+        // The same outcome through the truncated SVD.
+        let mat = crate::matrix::Mat::<f64>::from_fn([m, 3], |idx| a[(idx[0], idx[1])]);
+        let (_, s_tsvd, _) = crate::tsvd::compute_svd_dtensor(&mat).unwrap();
+        assert_eq!(s_tsvd.len(), 1);
+        assert!((s_tsvd[0] - 1.0).abs() < 1e-15);
     }
 
     #[test]
