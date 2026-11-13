@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 authors.workspace = true
-description = "The IR basis of sparse-ir: kernels, the singular value expansion and FiniteTempBasis"
+description = "The IR basis of sparse-ir: the physical kernels, the Fourier transforms of the singular functions and FiniteTempBasis"
 readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
@@ -16,16 +16,13 @@ targets = ["x86_64-unknown-linux-gnu"]
 no-default-features = true
 
 [dependencies]
+sparse-ir-sve.workspace = true
 sparse-ir-core.workspace = true
 sparse-ir-dlr.workspace = true
 tenferro-tensor.workspace = true
 num-complex.workspace = true
 num-traits.workspace = true
-# Extended precision
-xprec = "0.2.3"
-simba = "0.9"
-libm.workspace = true
-# Extended-precision TSVD / QR
+# Matsubara sampling-point selection (pair_select.rs)
 nalgebra = "0.33"
 
 [dev-dependencies]
@@ -41,5 +38,5 @@ sparse-ir = { path = "../sparse-ir" }
 
 [features]
 # Run the threaded work (the SVE) on the rayon thread pool; see
-# sparse-ir-core/src/parallel.rs
+# sparse-ir-sve/src/parallel.rs
 parallel = ["sparse-ir-core/parallel"]

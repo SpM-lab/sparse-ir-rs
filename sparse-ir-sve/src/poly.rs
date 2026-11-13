@@ -1,4 +1,4 @@
-//! Piecewise Legendre polynomial implementations for SparseIR
+//! Piecewise Legendre polynomials
 //!
 //! This module provides high-performance piecewise Legendre polynomial
 //! functionality compatible with the C++ implementation.
@@ -79,9 +79,10 @@ fn check_knots(knots: &[f64], nsegments: usize) -> Result<(), Error> {
 ///
 /// The first term is a relative tolerance on the segment length. The second
 /// covers the rounding of the knots, which grows with their magnitude: knots
-/// and widths scaled separately (as `FiniteTempBasis::from_sve_result` does,
-/// by β / 2) differ by a few units in the last place of the knots, which next
-/// to large knots can exceed 1e-10 times a narrow segment.
+/// and widths scaled separately (as when the functions of an SVE on [-1, 1]
+/// are mapped onto a longer interval) differ by a few units in the last place
+/// of the knots, which next to large knots can exceed 1e-10 times a narrow
+/// segment.
 fn check_delta_x(delta_x: &[f64], knots: &[f64]) -> Result<(), Error> {
     let nsegments = knots.len() - 1;
     if delta_x.len() != nsegments {
@@ -206,7 +207,7 @@ impl PiecewiseLegendrePoly {
     /// Rescale domain: create a new polynomial with the same data but different knots
     ///
     /// This is useful for transforming from one domain to another, e.g.,
-    /// from x ∈ [-1, 1] to τ ∈ [0, β].
+    /// from [-1, 1] to [0, b].
     ///
     /// # Arguments
     ///
@@ -238,8 +239,8 @@ impl PiecewiseLegendrePoly {
 
     /// Scale all data values by a constant factor
     ///
-    /// This is useful for normalizations, e.g., multiplying by √β for
-    /// Fourier transform preparations.
+    /// This is useful for normalizations, e.g., multiplying by √c to keep
+    /// the functions normalized after the domain is scaled by c.
     ///
     /// # Arguments
     ///
@@ -294,7 +295,7 @@ impl PiecewiseLegendrePoly {
         let coeffs: Vec<f64> = (0..self.data.shape().0)
             .map(|row| self.data[[row, i]])
             .collect();
-        let value = self.evaluate_legendre_polynomial(x_tilde, &coeffs);
+        let value = legendre_series(x_tilde, &coeffs);
         value * self.norms[i]
     }
 
@@ -355,36 +356,6 @@ impl PiecewiseLegendrePoly {
         let last_idx = self.knots.len() - 2;
         let x_tilde = 2.0 * (x - self.xm[last_idx]) / self.delta_x[last_idx];
         (last_idx, x_tilde)
-    }
-
-    /// Evaluate Legendre polynomial using recurrence relation
-    pub fn evaluate_legendre_polynomial(&self, x: f64, coeffs: &[f64]) -> f64 {
-        if coeffs.is_empty() {
-            return 0.0;
-        }
-
-        let mut result = 0.0;
-        let mut p_prev = 1.0; // P_0(x) = 1
-        let mut p_curr = x; // P_1(x) = x
-
-        // Add first two terms
-        if !coeffs.is_empty() {
-            result += coeffs[0] * p_prev;
-        }
-        if coeffs.len() > 1 {
-            result += coeffs[1] * p_curr;
-        }
-
-        // Use recurrence relation: P_{n+1}(x) = ((2n+1)x*P_n(x) - n*P_{n-1}(x))/(n+1)
-        for n in 1..coeffs.len() - 1 {
-            let p_next =
-                ((2.0 * (n as f64) + 1.0) * x * p_curr - (n as f64) * p_prev) / ((n + 1) as f64);
-            result += coeffs[n + 1] * p_next;
-            p_prev = p_curr;
-            p_curr = p_next;
-        }
-
-        result
     }
 
     /// Compute derivative of the polynomial
@@ -462,7 +433,7 @@ impl PiecewiseLegendrePoly {
             }
             let inv_x_power = self.inv_xs[i].powi(n as i32);
             let scaled: Vec<f64> = coeffs.iter().map(|&c| c * inv_x_power).collect();
-            results.push(self.evaluate_legendre_polynomial(x_tilde, &scaled) * self.norms[i]);
+            results.push(legendre_series(x_tilde, &scaled) * self.norms[i]);
         }
         Ok(results)
     }
@@ -680,37 +651,74 @@ impl PiecewiseLegendrePoly {
         (a - b).abs() <= eps
     }
 
-    // Accessor methods to match C++ interface
-    pub fn get_xmin(&self) -> f64 {
+    /// Lower end of the domain
+    pub fn xmin(&self) -> f64 {
         self.xmin
     }
-    pub fn get_xmax(&self) -> f64 {
+    /// Upper end of the domain
+    pub fn xmax(&self) -> f64 {
         self.xmax
     }
-    pub fn get_l(&self) -> i32 {
+    /// Index of the function in its sequence of singular functions
+    /// (0-based, in order of non-increasing singular value)
+    pub fn l(&self) -> i32 {
         self.l
     }
-    pub fn get_domain(&self) -> (f64, f64) {
+    /// The domain `(xmin, xmax)`
+    pub fn domain(&self) -> (f64, f64) {
         (self.xmin, self.xmax)
     }
-    pub fn get_knots(&self) -> &[f64] {
+    /// Segment boundaries, strictly increasing from `xmin` to `xmax`
+    pub fn knots(&self) -> &[f64] {
         &self.knots
     }
-    pub fn get_delta_x(&self) -> &[f64] {
+    /// Segment lengths
+    pub fn delta_x(&self) -> &[f64] {
         &self.delta_x
     }
-    pub fn get_symm(&self) -> i32 {
-        self.symm
-    }
-    pub fn get_data(&self) -> &Mat<f64> {
+    /// Legendre coefficients, `polyorder × nsegments` (one column per
+    /// segment)
+    pub fn data(&self) -> &Mat<f64> {
         &self.data
     }
-    pub fn get_norms(&self) -> &[f64] {
+    /// Normalization of the Legendre polynomials on each segment
+    pub fn norms(&self) -> &[f64] {
         &self.norms
     }
-    pub fn get_polyorder(&self) -> usize {
+    /// Number of Legendre coefficients per segment (degree + 1)
+    pub fn polyorder(&self) -> usize {
         self.polyorder
     }
+}
+
+/// The Legendre series Σ_n coeffs[n] P_n(x), by the three-term recurrence
+pub(crate) fn legendre_series(x: f64, coeffs: &[f64]) -> f64 {
+    if coeffs.is_empty() {
+        return 0.0;
+    }
+
+    let mut result = 0.0;
+    let mut p_prev = 1.0; // P_0(x) = 1
+    let mut p_curr = x; // P_1(x) = x
+
+    // Add first two terms
+    if !coeffs.is_empty() {
+        result += coeffs[0] * p_prev;
+    }
+    if coeffs.len() > 1 {
+        result += coeffs[1] * p_curr;
+    }
+
+    // Use recurrence relation: P_{n+1}(x) = ((2n+1)x*P_n(x) - n*P_{n-1}(x))/(n+1)
+    for n in 1..coeffs.len() - 1 {
+        let p_next =
+            ((2.0 * (n as f64) + 1.0) * x * p_curr - (n as f64) * p_prev) / ((n + 1) as f64);
+        result += coeffs[n + 1] * p_next;
+        p_prev = p_curr;
+        p_curr = p_next;
+    }
+
+    result
 }
 
 /// Coefficients of the derivative of the Legendre series `c`
@@ -776,8 +784,8 @@ impl PiecewiseLegendrePolyVector {
         Self { polyvec }
     }
 
-    /// Get the polynomials
-    pub fn get_polys(&self) -> &[PiecewiseLegendrePoly] {
+    /// The polynomials
+    pub fn polys(&self) -> &[PiecewiseLegendrePoly] {
         &self.polyvec
     }
 
@@ -840,9 +848,14 @@ impl PiecewiseLegendrePolyVector {
         Ok(Self { polyvec })
     }
 
-    /// Get the size of the vector
-    pub fn size(&self) -> usize {
+    /// Number of polynomials
+    pub fn len(&self) -> usize {
         self.polyvec.len()
+    }
+
+    /// Whether there is no polynomial
+    pub fn is_empty(&self) -> bool {
+        self.polyvec.is_empty()
     }
 
     /// Rescale domain for all polynomials in the vector
@@ -1041,7 +1054,6 @@ impl PiecewiseLegendrePolyVector {
         Ok(results)
     }
 
-    // Accessor methods to match C++ interface
     pub fn xmin(&self) -> f64 {
         if self.polyvec.is_empty() {
             panic!("Cannot get xmin from empty PiecewiseLegendrePolyVector");
@@ -1056,7 +1068,9 @@ impl PiecewiseLegendrePolyVector {
         self.polyvec[0].xmax
     }
 
-    pub fn get_knots(&self, tolerance: Option<f64>) -> Vec<f64> {
+    /// The knots of all the polynomials, merged where closer than
+    /// `tolerance` (1e-10 by default)
+    pub fn knots(&self, tolerance: Option<f64>) -> Vec<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get knots from empty PiecewiseLegendrePolyVector");
         }
@@ -1079,36 +1093,46 @@ impl PiecewiseLegendrePolyVector {
         all_knots
     }
 
-    pub fn get_delta_x(&self) -> Vec<f64> {
+    /// Segment lengths of the first polynomial
+    pub fn delta_x(&self) -> Vec<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get delta_x from empty PiecewiseLegendrePolyVector");
         }
         self.polyvec[0].delta_x.clone()
     }
 
-    pub fn get_polyorder(&self) -> usize {
+    /// Number of Legendre coefficients per segment (degree + 1)
+    pub fn polyorder(&self) -> usize {
         if self.polyvec.is_empty() {
             panic!("Cannot get polyorder from empty PiecewiseLegendrePolyVector");
         }
         self.polyvec[0].polyorder
     }
 
-    pub fn get_norms(&self) -> &[f64] {
+    /// Normalization of the Legendre polynomials on each segment
+    pub fn norms(&self) -> &[f64] {
         if self.polyvec.is_empty() {
             panic!("Cannot get norms from empty PiecewiseLegendrePolyVector");
         }
         &self.polyvec[0].norms
     }
 
-    pub fn get_symm(&self) -> Vec<i32> {
+    /// Parity of each polynomial: 1 even, -1 odd, 0 none
+    pub fn symm(&self) -> Vec<i32> {
         if self.polyvec.is_empty() {
             panic!("Cannot get symm from empty PiecewiseLegendrePolyVector");
         }
         self.polyvec.iter().map(|poly| poly.symm).collect()
     }
 
-    /// Get data as 3D tensor: [segment][degree][polynomial]
-    pub fn get_data(&self) -> Mat3<f64> {
+    /// Legendre coefficients as an `nsegments × polyorder × npolys` array:
+    /// element `[s, l, i]` is the coefficient of degree `l` on segment `s` of
+    /// polynomial `i`
+    ///
+    /// The first two axes are in the opposite order to those of
+    /// [`PiecewiseLegendrePoly::data`] and of the array that
+    /// [`Self::from_3d_data`] takes.
+    pub fn data(&self) -> Mat3<f64> {
         if self.polyvec.is_empty() {
             panic!("Cannot get data from empty PiecewiseLegendrePolyVector");
         }
@@ -1178,103 +1202,6 @@ impl std::ops::Index<usize> for PiecewiseLegendrePolyVector {
     fn index(&self, index: usize) -> &Self::Output {
         &self.polyvec[index]
     }
-}
-
-/// Get default sampling points in [-1, 1]
-///
-/// C++ implementation: libsparseir/include/sparseir/basis.hpp:287-310
-///
-/// For orthogonal polynomials (the high-T limit of IR), we know that the
-/// ideal sampling points for a basis of size L are the roots of the L-th
-/// polynomial. We empirically find that these stay good sampling points
-/// for our kernels (probably because the kernels are totally positive).
-///
-/// If we do not have enough polynomials in the basis, we approximate the
-/// roots of the L'th polynomial by the extrema of the last basis function,
-/// which is sensible due to the strong interleaving property of these
-/// functions' roots.
-///
-/// `name` names `u` in the errors (`"u"` or `"v"`), and `domain` is the
-/// domain of the kernel the SVE expanded (`[xmin, xmax]` for `u`,
-/// `[ymin, ymax]` for `v`; [-1, 1] for a symmetric kernel).
-///
-/// # Errors
-///
-/// * [`Error::InvalidParameter`] named `name` if `u` is not on `domain`
-///   (1e-10), i.e. not the unscaled functions of an SVE
-/// * [`Error::NotSupported`] if the extrema are needed and the last function
-///   has none (e.g. an SVE truncated to 2 functions, whose u_1 is monotonic)
-pub(crate) fn default_sampling_points(
-    u: &PiecewiseLegendrePolyVector,
-    name: &'static str,
-    domain: (f64, f64),
-    l: usize,
-) -> Result<Vec<f64>, Error> {
-    // C++: if (u.xmin() != -1.0 || u.xmax() != 1.0)
-    //          throw std::runtime_error("Expecting unscaled functions here.");
-    // (here generalized to the domain of an asymmetric kernel)
-    if (u.xmin() - domain.0).abs() > 1e-10 || (u.xmax() - domain.1).abs() > 1e-10 {
-        return Err(Error::InvalidParameter {
-            name,
-            value: format!("functions on [{:?}, {:?}]", u.xmin(), u.xmax()),
-            reason: format!(
-                "must be the unscaled functions of an SVE, on [{:?}, {:?}]",
-                domain.0, domain.1
-            ),
-        });
-    }
-
-    let x0 = if l < u.polyvec.len() {
-        // C++: return u.polyvec[L].roots();
-        u[l].roots()
-    } else {
-        // C++: PiecewiseLegendrePoly poly = u.polyvec.back();
-        //      Eigen::VectorXd maxima = poly.deriv().roots();
-        let poly = u.last();
-        let poly_deriv = poly.deriv(1);
-        let maxima = poly_deriv.roots();
-
-        // C++ reads maxima[0] without a check; SparseIR.jl's first(maxima)
-        // fails the same way.
-        let (Some(&first), Some(&last)) = (maxima.first(), maxima.last()) else {
-            return Err(Error::NotSupported {
-                what: format!(
-                    "default sampling points for {l} basis functions: the last singular \
-                     function (l = {}) has no extrema to stand in for the roots of the \
-                     missing function l = {l} (an SVE truncated to too few functions)",
-                    poly.l
-                ),
-            });
-        };
-
-        // C++: double left = (maxima[0] + poly.xmin) / 2.0;
-        let left = (first + poly.xmin) / 2.0;
-
-        // C++: double right = (maxima[maxima.size() - 1] + poly.xmax) / 2.0;
-        let right = (last + poly.xmax) / 2.0;
-
-        // C++: Eigen::VectorXd x0(maxima.size() + 2);
-        //      x0[0] = left;
-        //      x0.segment(1, maxima.size()) = maxima;
-        //      x0[x0.size() - 1] = right;
-        let mut x0_vec = Vec::with_capacity(maxima.len() + 2);
-        x0_vec.push(left);
-        x0_vec.extend_from_slice(&maxima);
-        x0_vec.push(right);
-        x0_vec
-    };
-
-    // C++: if (x0.size() != L) { warning }
-    if x0.len() != l {
-        debug_warn!(
-            "Expecting to get {} sampling points for corresponding basis function, \
-             instead got {}. This may happen if not enough precision is left in the polynomial.",
-            l,
-            x0.len()
-        );
-    }
-
-    Ok(x0)
 }
 
 #[cfg(test)]

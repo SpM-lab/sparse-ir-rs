@@ -1,7 +1,9 @@
 //! Tests for the asymmetric-window logistic kernel (a non-centrosymmetric
 //! kernel) through the kernel, SVE, basis and DLR layers.
 
-use sparse_ir::kernel::{AbstractKernel, KernelProperties, LogisticKernel, LogisticKernelWindowed};
+use sparse_ir::kernel::{
+    AbstractKernel, KernelProperties, LogisticKernel, LogisticKernelWindowed, SVEKernel,
+};
 use sparse_ir::sve::compute_sve;
 use sparse_ir::traits::{Bosonic, Fermionic};
 use sparse_ir::{
@@ -27,7 +29,6 @@ fn windowed_kernel_dimensionless_params() {
     assert_eq!(k.ymax(), 1.0);
     assert_eq!(k.ymin(), -0.2);
     assert_eq!((k.xmin(), k.xmax()), (-1.0, 1.0));
-    assert!(!k.is_centrosymmetric());
 
     // omega_min-dominant window: wmax = |omega_min|
     let k = windowed(20.0, -1.0, 0.3);
@@ -262,11 +263,8 @@ fn windowed_basis_maps_to_physical_window() {
         );
 
         // v lives on the asymmetric window, not on [-wmax, wmax].
-        let v0 = &b.v().get_polys()[0];
-        assert_eq!(
-            (v0.get_xmin(), v0.get_xmax()),
-            (b.omega_min(), b.omega_max())
-        );
+        let v0 = &b.v().polys()[0];
+        assert_eq!((v0.xmin(), v0.xmax()), (b.omega_min(), b.omega_max()));
 
         // The default omega points (the DLR poles) lie inside the window.
         let omegas = b.default_omega_sampling_points().unwrap();

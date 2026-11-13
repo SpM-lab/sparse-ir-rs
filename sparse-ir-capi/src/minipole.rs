@@ -190,7 +190,7 @@ fn finish(
     let data = rep
         .pole_weight
         .host_data()
-        .map_err(|e| status_from(&e.into()))?;
+        .map_err(|e| status_from(&sparse_ir::Error::from(e)))?;
     Ok(PoleReprInner {
         residues: move_front_to_axis(data, np, &out_dims, axis),
         // The channels in column-major order of the remaining axes are the

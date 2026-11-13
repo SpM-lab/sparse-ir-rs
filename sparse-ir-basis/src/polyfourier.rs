@@ -60,10 +60,10 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     ///   default, disables the asymptotic model)
     pub fn new(poly: PiecewiseLegendrePoly, _stat: S, n_asymp: Option<f64>) -> Result<Self, Error> {
         // Validate domain
-        if !((poly.xmin + 1.0).abs() <= 1e-12 && (poly.xmax - 1.0).abs() <= 1e-12) {
+        if !((poly.xmin() + 1.0).abs() <= 1e-12 && (poly.xmax() - 1.0).abs() <= 1e-12) {
             return Err(Error::InvalidParameter {
                 name: "poly",
-                value: format!("a polynomial on [{:?}, {:?}]", poly.xmin, poly.xmax),
+                value: format!("a polynomial on [{:?}, {:?}]", poly.xmin(), poly.xmax()),
                 reason: "must be defined on [-1, 1] (within 1e-12)".to_string(),
             });
         }
@@ -150,8 +150,8 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
         // within 1e-12 of -1/1, where derivs(-1.0)/derivs(1.0) would be
         // outside the domain.
         PowerModel::new(Self::power_moments(
-            &poly.derivs(poly.xmax),
-            &poly.derivs(poly.xmin),
+            &poly.derivs(poly.xmax()),
+            &poly.derivs(poly.xmin()),
         ))
     }
 
@@ -160,7 +160,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// `M_m = -( statsign · (-1)^(m+1) · u^(m)(+1) + (-1)^m · u^(m)(-1) ) / sqrt(2)`,
     /// where `deriv_p[m]` / `deriv_m[m]` is the order-m derivative at x = +1 / -1.
     /// No parity is assumed, so this holds for functions without definite
-    /// parity (`symm == 0`, e.g. from `compute_sve_general`); for a function
+    /// parity (`symm == 0`, e.g. from the full-domain SVE (`SVEOptions::full_domain`)); for a function
     /// of parity `(-1)^l` it reduces to the one-sided form with
     /// `u^(m)(-1) = (-1)^(l+m) u^(m)(+1)`.
     fn power_moments(deriv_p: &[f64], deriv_m: &[f64]) -> Vec<f64> {
@@ -182,7 +182,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
 
     /// Compute the inner Fourier transform (for small frequencies)
     fn compute_unl_inner(&self, poly: &PiecewiseLegendrePoly, wn: i64) -> Complex64 {
-        Self::contract_inner(poly, &InnerFactors::new::<S>(poly, poly.polyorder, wn))
+        Self::contract_inner(poly, &InnerFactors::new::<S>(poly, poly.polyorder(), wn))
     }
 
     /// Inner transform from precomputed segment-wise factors
@@ -191,12 +191,12 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// segment j first (real × complex over the contiguous column j of the
     /// column-major `data`), then divides each segment sum by `norms[j]` once.
     fn contract_inner(poly: &PiecewiseLegendrePoly, f: &InnerFactors) -> Complex64 {
-        let polyorder = poly.polyorder;
-        debug_assert_eq!(f.nseg, poly.knots.len() - 1);
+        let polyorder = poly.polyorder();
+        debug_assert_eq!(f.nseg, poly.knots().len() - 1);
         debug_assert!(polyorder <= f.polyorder);
         let mut res = Complex64::new(0.0, 0.0);
         for j in 0..f.nseg {
-            let col = &poly.data.col(j)[..polyorder];
+            let col = &poly.data().col(j)[..polyorder];
             let w_re = &f.w_re[j * f.polyorder..j * f.polyorder + polyorder];
             let w_im = &f.w_im[j * f.polyorder..j * f.polyorder + polyorder];
             let (mut acc_re, mut acc_im) = (0.0, 0.0);
@@ -204,7 +204,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
                 acc_re += col[o] * w_re[o];
                 acc_im += col[o] * w_im[o];
             }
-            res += Complex64::new(acc_re, acc_im) / poly.norms[j];
+            res += Complex64::new(acc_re, acc_im) / poly.norms()[j];
         }
         res / 2.0_f64.sqrt()
     }
@@ -286,7 +286,7 @@ impl<S: StatisticsType> PiecewiseLegendreFT<S> {
     /// Computes: im^mod(wn * (extra_shift + 1), 4) * cispi(wn * xmid_diff / 2)
     /// where cispi(x) = exp(i*π*x)
     fn phase_stable(poly: &PiecewiseLegendrePoly, wn: i64) -> Vec<Complex64> {
-        let (xmid_diff, extra_shift) = Self::shift_xmid(&poly.knots, &poly.delta_x);
+        let (xmid_diff, extra_shift) = Self::shift_xmid(poly.knots(), poly.delta_x());
         let mut phase_wi = Vec::with_capacity(xmid_diff.len());
 
         let im_unit = Complex64::new(0.0, 1.0);
@@ -346,7 +346,7 @@ impl InnerFactors {
         let nseg = phase.len();
         let mut w_re = Vec::with_capacity(polyorder * nseg);
         let mut w_im = Vec::with_capacity(polyorder * nseg);
-        for (&dx, &ph) in poly.delta_x.iter().zip(&phase) {
+        for (&dx, &ph) in poly.delta_x().iter().zip(&phase) {
             for order in 0..polyorder {
                 let w = PiecewiseLegendreFT::<S>::get_tnl(order as i32, wred * dx) * ph;
                 w_re.push(w.re);
@@ -412,9 +412,9 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
         _stat: S,
         n_asymp: Option<f64>,
     ) -> Result<Self, Error> {
-        let mut polyvec = Vec::with_capacity(polys.size());
+        let mut polyvec = Vec::with_capacity(polys.len());
 
-        for poly in polys.get_polys() {
+        for poly in polys.polys() {
             let ft_poly = PiecewiseLegendreFT::new(poly.clone(), _stat, n_asymp)?;
             polyvec.push(ft_poly);
         }
@@ -481,10 +481,9 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
         let Some(first) = self.polyvec.first() else {
             return Vec::new();
         };
-        let shared_knots = self
-            .polyvec
-            .iter()
-            .all(|p| p.poly.knots == first.poly.knots && p.poly.delta_x == first.poly.delta_x);
+        let shared_knots = self.polyvec.iter().all(|p| {
+            p.poly.knots() == first.poly.knots() && p.poly.delta_x() == first.poly.delta_x()
+        });
         if !shared_knots {
             return self.polyvec.iter().map(|p| p.evaluate(omega)).collect();
         }
@@ -492,7 +491,7 @@ impl<S: StatisticsType> PiecewiseLegendreFTVector<S> {
         let polyorder = self
             .polyvec
             .iter()
-            .map(|p| p.poly.polyorder)
+            .map(|p| p.poly.polyorder())
             .max()
             .unwrap_or(0);
         let mut factors = None;

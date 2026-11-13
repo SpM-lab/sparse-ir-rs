@@ -9,7 +9,7 @@ use crate::fitters::FitScalar;
 use crate::fitters::RealMatrixFitter;
 use crate::freq::MatsubaraFreq;
 use crate::gemm::GemmBackendHandle;
-use crate::matrix::Mat;
+use crate::matrix::{Mat, MatTyped};
 use crate::taufuncs::normalize_tau;
 use crate::traits::{Statistics, StatisticsType};
 use num_complex::Complex;

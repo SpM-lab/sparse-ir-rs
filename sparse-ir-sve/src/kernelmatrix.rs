@@ -1,10 +1,10 @@
-//! Kernel matrix discretization for SparseIR
+//! Kernel matrix discretization
 //!
 //! This module provides functionality to discretize kernels using Gauss quadrature
 //! rules and store them as matrices for numerical computation.
 
 use crate::gauss::Rule;
-use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SymmetryType};
+use crate::kernel::{AbstractKernel, ReducedKernel, SVEKernel, SymmetryType};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use std::fmt::Debug;
@@ -42,17 +42,6 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
             gauss_y,
             segments_x,
             segments_y,
-        }
-    }
-
-    /// Create a new DiscretizedKernel without segments (legacy)
-    pub fn new_legacy(matrix: Mat<T>, gauss_x: Rule<T>, gauss_y: Rule<T>) -> Self {
-        Self {
-            matrix,
-            gauss_x: gauss_x.clone(),
-            gauss_y: gauss_y.clone(),
-            segments_x: vec![gauss_x.a, gauss_x.b],
-            segments_y: vec![gauss_y.a, gauss_y.b],
         }
     }
 
@@ -101,27 +90,6 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
         weighted_matrix
     }
 
-    /// Remove weights from matrix (inverse of apply_weights_for_sve)
-    pub fn remove_weights_from_sve(&mut self) {
-        let shape = *self.matrix.shape();
-
-        // Remove weights from U matrix (x-direction)
-        for i in 0..self.gauss_x.x.len() {
-            let weight_sqrt = self.gauss_x.w[i].sqrt();
-            for j in 0..shape.1 {
-                self.matrix[[i, j]] = self.matrix[[i, j]] / weight_sqrt;
-            }
-        }
-
-        // Remove weights from V matrix (y-direction)
-        for j in 0..self.gauss_y.x.len() {
-            let weight_sqrt = self.gauss_y.w[j].sqrt();
-            for i in 0..shape.0 {
-                self.matrix[[i, j]] = self.matrix[[i, j]] / weight_sqrt;
-            }
-        }
-    }
-
     /// Get the number of Gauss points in x direction
     pub fn n_gauss_x(&self) -> usize {
         self.gauss_x.x.len()
@@ -139,7 +107,7 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
 /// and returns a DiscretizedKernel containing the matrix, quadrature rules, and segments.
 pub fn matrix_from_gauss_with_segments<
     T: CustomNumeric + Clone + Send + Sync,
-    K: CentrosymmKernel + KernelProperties,
+    K: ReducedKernel + SVEKernel,
     H: crate::kernel::SVEHints<T>,
 >(
     kernel: &K,
@@ -148,8 +116,9 @@ pub fn matrix_from_gauss_with_segments<
     symmetry: SymmetryType,
     hints: &H,
 ) -> DiscretizedKernel<T> {
-    let segments_x = hints.segments_x();
-    let segments_y = hints.segments_y();
+    // The reduced kernel lives on [0, xmax] x [0, ymax]
+    let segments_x = crate::sve::utils::half_domain_segments(&hints.segments_x());
+    let segments_y = crate::sve::utils::half_domain_segments(&hints.segments_y());
 
     // TODO: Fix range checking for composite Gauss rules
     // For now, skip range checking to allow testing
@@ -204,7 +173,7 @@ pub fn matrix_from_gauss_with_segments<
 ///
 /// This function evaluates the kernel at all combinations of Gauss points
 /// and returns a DiscretizedKernel containing the matrix and quadrature rules.
-pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelProperties>(
+pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: ReducedKernel + SVEKernel>(
     kernel: &K,
     gauss_x: &Rule<T>,
     gauss_y: &Rule<T>,
@@ -253,7 +222,15 @@ pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelP
         }
     }
 
-    DiscretizedKernel::new_legacy(result, gauss_x.clone(), gauss_y.clone())
+    let segments_x = vec![gauss_x.a, gauss_x.b];
+    let segments_y = vec![gauss_y.a, gauss_y.b];
+    DiscretizedKernel::new(
+        result,
+        gauss_x.clone(),
+        gauss_y.clone(),
+        segments_x,
+        segments_y,
+    )
 }
 
 /// Compute matrix from Gauss quadrature rules for non-centrosymmetric kernels
@@ -273,7 +250,7 @@ pub fn matrix_from_gauss<T: CustomNumeric + Clone, K: CentrosymmKernel + KernelP
 /// DiscretizedKernel containing the matrix, quadrature rules, and segments
 pub fn matrix_from_gauss_noncentrosymmetric<
     T: CustomNumeric + Clone + Send + Sync,
-    K: AbstractKernel + KernelProperties,
+    K: AbstractKernel + SVEKernel,
     H: crate::kernel::SVEHints<T>,
 >(
     kernel: &K,

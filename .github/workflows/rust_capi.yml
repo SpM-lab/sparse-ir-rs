@@ -42,9 +42,11 @@ jobs:
       # The `parallel` feature of sparse-ir (a rayon thread pool for the SVE,
       # off by default) must stay out of the C library.
       run: |
-        if cargo tree -p sparse-ir-capi -e features -i sparse-ir-core | grep 'sparse-ir-core feature "parallel"'; then
-          echo "sparse-ir-capi enables the parallel feature of sparse-ir-core" >&2
-          exit 1
-        fi
+        for crate in sparse-ir-core sparse-ir-sve; do
+          if cargo tree -p sparse-ir-capi -e features -i $crate | grep "$crate feature \"parallel\""; then
+            echo "sparse-ir-capi enables the parallel feature of $crate" >&2
+            exit 1
+          fi
+        done
     - name: Run tests
       run: cargo test -p sparse-ir-capi --release

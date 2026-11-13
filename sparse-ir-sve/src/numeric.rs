@@ -17,8 +17,13 @@ use std::fmt::Debug;
 /// - num_traits::Zero for zero()
 /// - simba::scalar::ComplexField for mathematical functions (abs, sqrt, cos, sin, exp, etc.)
 /// - ComplexField::is_finite() for is_finite()
+///
+/// It is implemented for `f64` and `Df64` only (sealed), so that methods can
+/// be added without breaking code that uses it. Both are real:
+/// `ComplexField::abs` returns `Self`.
 pub trait CustomNumeric:
-    Copy
+    sealed::Sealed
+    + Copy
     + Debug
     + PartialOrd
     + std::fmt::Display
@@ -28,7 +33,7 @@ pub trait CustomNumeric:
     + std::ops::Div<Output = Self>
     + std::ops::Neg<Output = Self>
     + num_traits::Zero                    // zero()
-    + simba::scalar::ComplexField         // abs, cos, sin, exp, sqrt, etc.
+    + simba::scalar::ComplexField<RealField = Self> // abs, cos, sin, exp, sqrt, etc.
 {
     /// Convert from f64 to Self (direct conversion, no Option)
     ///
@@ -58,24 +63,18 @@ pub trait CustomNumeric:
     /// Minimum of two values (not provided by ComplexField)
     fn min(self, other: Self) -> Self;
 
-    /// Check if the value is valid (not NaN/infinite)
-    fn is_valid(&self) -> bool;
-
-    /// Check if the value is finite (not NaN or infinite)
-
-    /// Get absolute value as the same type (convenience method)
-    ///
-    /// This method wraps ComplexField::abs() and converts the result back to Self
-    /// to avoid type conversion issues in generic code.
-    /// Note: Only abs() has this problem - other math functions (exp, cos, sin, sqrt) 
-    /// already return Self directly from ComplexField.
-    fn abs_as_same_type(self) -> Self;
-
     /// Compute exp(self) - 1 with higher precision for small values
     ///
     /// This is more accurate than `self.exp() - 1` when self is close to zero,
     /// avoiding catastrophic cancellation.
     fn exp_m1(self) -> Self;
+}
+
+/// The types that implement [`CustomNumeric`]
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for f64 {}
+    impl Sealed for crate::Df64 {}
 }
 
 /// f64 implementation of CustomNumeric
@@ -122,14 +121,6 @@ impl CustomNumeric for f64 {
 
     fn min(self, other: Self) -> Self {
         self.min(other)
-    }
-
-    fn is_valid(&self) -> bool {
-        num_traits::Float::is_finite(*self)
-    }
-
-    fn abs_as_same_type(self) -> Self {
-        Self::convert_from(self.abs())
     }
 
     fn exp_m1(self) -> Self {
@@ -186,15 +177,6 @@ impl CustomNumeric for Df64 {
 
     fn min(self, other: Self) -> Self {
         if self < other { self } else { other }
-    }
-
-    fn is_valid(&self) -> bool {
-        let value = *self;
-        f64::from(value).is_finite() && !f64::from(value).is_nan()
-    }
-
-    fn abs_as_same_type(self) -> Self {
-        Self::convert_from(self.abs())
     }
 
     fn exp_m1(self) -> Self {
