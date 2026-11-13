@@ -156,10 +156,6 @@ impl AbstractKernel for LogisticKernel {
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
         compute_logistic_kernel(self.lambda, x, y)
     }
-
-    fn is_centrosymmetric(&self) -> bool {
-        true
-    }
 }
 
 impl ReducedKernel for LogisticKernel {
@@ -655,10 +651,6 @@ impl AbstractKernel for RegularizedBoseKernel {
         let x_plus = Some(T::from_f64_unchecked(1.0) + x);
         let x_minus = Some(T::from_f64_unchecked(1.0) - x);
         self.compute_impl(x, y, x_plus, x_minus)
-    }
-
-    fn is_centrosymmetric(&self) -> bool {
-        true
     }
 }
 

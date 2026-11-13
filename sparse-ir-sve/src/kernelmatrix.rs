@@ -45,19 +45,6 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
         }
     }
 
-    /// [`Self::new`] with the ends of the rules as the only segments
-    #[deprecated(note = "use new, with the segment boundaries")]
-    #[doc(hidden)]
-    pub fn new_legacy(matrix: Mat<T>, gauss_x: Rule<T>, gauss_y: Rule<T>) -> Self {
-        Self {
-            matrix,
-            gauss_x: gauss_x.clone(),
-            gauss_y: gauss_y.clone(),
-            segments_x: vec![gauss_x.a, gauss_x.b],
-            segments_y: vec![gauss_y.a, gauss_y.b],
-        }
-    }
-
     /// Delegate to matrix methods
     pub fn is_empty(&self) -> bool {
         self.matrix.is_empty()
@@ -101,30 +88,6 @@ impl<T: CustomNumeric + Clone> DiscretizedKernel<T> {
         }
 
         weighted_matrix
-    }
-
-    /// Divides the matrix by the square roots of the weights (the inverse of
-    /// [`Self::apply_weights_for_sve`] applied in place)
-    #[deprecated(note = "unused by the SVE, to be removed")]
-    #[doc(hidden)]
-    pub fn remove_weights_from_sve(&mut self) {
-        let shape = *self.matrix.shape();
-
-        // Remove weights from U matrix (x-direction)
-        for i in 0..self.gauss_x.x.len() {
-            let weight_sqrt = self.gauss_x.w[i].sqrt();
-            for j in 0..shape.1 {
-                self.matrix[[i, j]] = self.matrix[[i, j]] / weight_sqrt;
-            }
-        }
-
-        // Remove weights from V matrix (y-direction)
-        for j in 0..self.gauss_y.x.len() {
-            let weight_sqrt = self.gauss_y.w[j].sqrt();
-            for i in 0..shape.0 {
-                self.matrix[[i, j]] = self.matrix[[i, j]] / weight_sqrt;
-            }
-        }
     }
 
     /// Get the number of Gauss points in x direction

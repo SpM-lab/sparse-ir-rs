@@ -63,22 +63,6 @@ pub trait CustomNumeric:
     /// Minimum of two values (not provided by ComplexField)
     fn min(self, other: Self) -> Self;
 
-    /// Whether the value is finite: [`ComplexField::is_finite`]
-    #[deprecated(note = "use ComplexField::is_finite")]
-    #[doc(hidden)]
-    fn is_valid(&self) -> bool {
-        ComplexField::is_finite(self)
-    }
-
-    /// Check if the value is finite (not NaN or infinite)
-
-    /// The absolute value: [`ComplexField::abs`], which is `Self`
-    #[deprecated(note = "use abs, which returns Self")]
-    #[doc(hidden)]
-    fn abs_as_same_type(self) -> Self {
-        ComplexField::abs(self)
-    }
-
     /// Compute exp(self) - 1 with higher precision for small values
     ///
     /// This is more accurate than `self.exp() - 1` when self is close to zero,
@@ -274,22 +258,5 @@ mod tests {
         // Df64 should convert back to f64 with minimal loss
         let pi_back = pi_tf.to_f64();
         assert!((pi_back - pi_f64).abs() < f64::EPSILON);
-    }
-
-    /// The deprecated `abs_as_same_type` and `is_valid` are `abs` and
-    /// `is_finite`
-    #[test]
-    #[allow(deprecated)]
-    fn test_deprecated_methods() {
-        for x in [-2.5, 0.0, 3.0] {
-            assert_eq!(x.abs_as_same_type(), x.abs());
-            let d = Df64::from(x);
-            assert_eq!(d.abs_as_same_type(), ComplexField::abs(d));
-        }
-        for x in [1.0, f64::NAN, f64::INFINITY] {
-            assert_eq!(x.is_valid(), x.is_finite());
-            let d = Df64::from(x);
-            assert_eq!(d.is_valid(), ComplexField::is_finite(&d));
-        }
     }
 }

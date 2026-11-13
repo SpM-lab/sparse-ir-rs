@@ -117,18 +117,6 @@ pub trait AbstractKernel: Send + Sync {
     ///
     /// The kernel value K(x, y)
     fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T;
-
-    /// Whether the kernel is centrosymmetric
-    ///
-    /// The SVE exploits the symmetry of the kernels that implement
-    /// [`ReducedKernel`]. Only `compute_sve_general`, which takes any kernel,
-    /// reads this, to keep the dense decomposition for a centrosymmetric
-    /// kernel.
-    #[deprecated(note = "a kernel is centrosymmetric when it implements ReducedKernel")]
-    #[doc(hidden)]
-    fn is_centrosymmetric(&self) -> bool {
-        false
-    }
 }
 
 /// Trait for centrosymmetric kernels, through their reduced kernels
@@ -217,10 +205,6 @@ mod tests {
     impl AbstractKernel for SimpleNonCentrosymmKernel {
         fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
             x + y
-        }
-
-        fn is_centrosymmetric(&self) -> bool {
-            false
         }
     }
 

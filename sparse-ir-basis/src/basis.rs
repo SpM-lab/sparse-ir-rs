@@ -378,7 +378,7 @@ where
     ///   is `Some(0)`, or `sve_result` is not an SVE on the kernel's domain
     ///   `[xmin, xmax] × [ymin, ymax]`
     /// * [`Error::EmptyInput`] if `sve_result` has no singular functions
-    /// * The errors of [`SVEResult::part`] (for an `SVEResult` whose public
+    /// * The errors of [`SVEResult::truncate`] (for an `SVEResult` whose public
     ///   fields break its invariants)
     pub fn from_sve_result(
         kernel: K,

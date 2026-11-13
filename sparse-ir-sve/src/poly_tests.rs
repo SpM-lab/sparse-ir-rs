@@ -1448,33 +1448,3 @@ fn test_derivs_match_deriv_evaluate() {
         }
     }
 }
-
-/// The former names of the accessors return what the new ones do
-#[test]
-#[allow(deprecated)]
-fn test_former_accessor_names() {
-    let data = mat![[1.0, 0.5], [0.25, -0.5]];
-    let p = PiecewiseLegendrePoly::new(data, vec![-1.0, 0.0, 1.0], 3, None, 1).unwrap();
-    assert_eq!(
-        (p.get_xmin(), p.get_xmax(), p.get_l()),
-        (p.xmin(), p.xmax(), p.l())
-    );
-    assert_eq!((p.get_domain(), p.get_symm()), (p.domain(), p.symm()));
-    assert_eq!((p.get_knots(), p.get_delta_x()), (p.knots(), p.delta_x()));
-    assert_eq!(
-        (p.get_norms(), p.get_polyorder()),
-        (p.norms(), p.polyorder())
-    );
-    assert_eq!(p.get_data().as_slice(), p.data().as_slice());
-
-    let v = PiecewiseLegendrePolyVector::new(vec![p.clone(), p]).unwrap();
-    assert_eq!((v.size(), v.get_polys().len()), (v.len(), v.polys().len()));
-    assert_eq!(v.get_knots(None), v.knots(None));
-    assert_eq!(
-        (v.get_delta_x(), v.get_polyorder()),
-        (v.delta_x(), v.polyorder())
-    );
-    assert_eq!((v.get_norms(), v.get_symm()), (v.norms(), v.symm()));
-    assert_eq!(v.get_data().as_slice(), v.data().as_slice());
-    assert!(!v.is_empty());
-}

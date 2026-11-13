@@ -379,7 +379,7 @@ fn assert_general_path_matches_compute_sve<K>(
         max_rel_diff = max_rel_diff.max(diff / s0);
         assert!(
             diff <= tol(reference.s[l]),
-            "s[{l}] mismatch (eps={epsilon:e}, twork={twork:?}): compute_sve_general={:.16e}, \
+            "s[{l}] mismatch (eps={epsilon:e}, twork={twork:?}): full domain={:.16e}, \
              compute_sve={:.16e}, |diff|/s0={:.3e}, tol/s0={:.3e}",
             general.s[l],
             reference.s[l],
@@ -403,7 +403,7 @@ fn assert_general_path_matches_compute_sve<K>(
         );
     }
     eprintln!(
-        "compute_sve_general vs compute_sve (eps={epsilon:e}, twork={twork:?}): n={}/{}, max|ds|/s0={max_rel_diff:.3e}",
+        "full domain vs compute_sve (eps={epsilon:e}, twork={twork:?}): n={}/{}, max|ds|/s0={max_rel_diff:.3e}",
         general.s.len(),
         reference.s.len()
     );
@@ -777,7 +777,7 @@ where
         compute_sve_full_domain(kernel, Some(epsilon), None, None, twork).unwrap();
     assert_eq!(
         general_default.s, general_2u.s,
-        "compute_sve_general default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
+        "full-domain default cutoff must be 2 * machine epsilon (eps={epsilon:e}, twork={twork:?})"
     );
     assert_eq!(
         general_default.s.len(),
@@ -1072,11 +1072,6 @@ fn test_sve_result_truncate_checks_its_parameters() {
     assert_eq!(part.epsilon(), 1e-3);
     assert!(part.s().iter().all(|&s| s >= 1e-3 * sve.s[0]));
     assert!(sve.s[part.s().len()] < 1e-3 * sve.s[0]);
-
-    // The deprecated `part` gives the same parts
-    #[allow(deprecated)]
-    let (u, s, _) = sve.part(None, Some(3)).unwrap();
-    assert_eq!((u.len(), s), (3, sve.s[..3].to_vec()));
 }
 
 /// `extend_to_full_domain` needs functions on [0, xmax]. Before the change a
@@ -1407,23 +1402,4 @@ fn test_sve_residual_of_a_kernel_discontinuous_at_a_knot() {
     let residual = sve_residual(&kernel, &sve);
     // Measured: 2.7e-14
     assert!(residual < 1e-11, "{residual:e}");
-}
-
-/// The deprecated `compute_sve_general` is `compute_sve_with` over the full
-/// domain, for a kernel that is not centrosymmetric (for a centrosymmetric
-/// one it reads the symmetry from `is_centrosymmetric` only)
-#[test]
-#[allow(deprecated)]
-fn test_compute_sve_general_is_compute_sve_with_full_domain() {
-    use super::compute_sve_general;
-    let kernel = TiltedExpKernel(ExpKernel::new(10.0));
-    let twork = TworkType::Float64X2;
-    let options = SVEOptions::new()
-        .epsilon(1e-10)
-        .twork(twork)
-        .full_domain(true);
-
-    let general = compute_sve_general(kernel, Some(1e-10), None, None, twork).unwrap();
-    let full = compute_sve_with(kernel, &options).unwrap();
-    assert_eq!(general.s(), full.s());
 }

@@ -253,28 +253,6 @@ impl SVEResult {
         Self::new(u, s, v, eps.unwrap_or(self.epsilon))
     }
 
-    /// The parts of [`Self::truncate`]
-    ///
-    /// # Errors
-    ///
-    /// The errors of [`Self::truncate`]
-    #[deprecated(note = "use truncate, which returns an SVEResult")]
-    #[doc(hidden)]
-    pub fn part(
-        &self,
-        eps: Option<f64>,
-        max_size: Option<usize>,
-    ) -> Result<
-        (
-            PiecewiseLegendrePolyVector,
-            Vec<f64>,
-            PiecewiseLegendrePolyVector,
-        ),
-        Error,
-    > {
-        self.part_impl(eps, max_size)
-    }
-
     /// The singular functions and values of [`Self::truncate`]
     fn part_impl(
         &self,

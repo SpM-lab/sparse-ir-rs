@@ -332,41 +332,6 @@ where
     )
 }
 
-/// [`compute_sve_with`] with [`SVEOptions::full_domain`], for any kernel
-///
-/// It takes a kernel of any type, so it knows a centrosymmetric kernel, whose
-/// Df64 block it decomposes without the ACA, only by
-/// [`AbstractKernel::is_centrosymmetric`]; `compute_sve_with` knows it by
-/// [`ReducedKernel`](crate::kernel::ReducedKernel).
-///
-/// # Errors
-///
-/// The errors of [`compute_sve`]
-#[deprecated(note = "use compute_sve_with and SVEOptions::full_domain")]
-#[doc(hidden)]
-pub fn compute_sve_general<K>(
-    kernel: K,
-    epsilon: Option<f64>,
-    cutoff: Option<f64>,
-    max_num_svals: Option<usize>,
-    twork: TworkType,
-) -> Result<SVEResult, Error>
-where
-    K: AbstractKernel + SVEKernel + Clone + 'static,
-{
-    // A kernel of any type tells its symmetry only by is_centrosymmetric.
-    #[allow(deprecated)]
-    let aca = !kernel.is_centrosymmetric();
-    compute_sve_impl(
-        FullDomain { kernel, aca },
-        epsilon,
-        cutoff,
-        max_num_svals,
-        twork,
-        Resolve::Full,
-    )
-}
-
 /// Check the parameters of [`compute_sve_with`]
 fn check_sve_parameters(
     epsilon: Option<f64>,

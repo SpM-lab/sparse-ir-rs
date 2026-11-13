@@ -35,14 +35,13 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 - `compute_sve_with` and `SVEOptions`: the SVE with options set by name
   (accuracy, cutoff, maximum number of singular values, working precision,
   full-domain expansion of a centrosymmetric kernel). `compute_sve` is
-  unchanged. `compute_sve_general` is deprecated in favor of
-  `SVEOptions::full_domain`.
+  unchanged. It replaces `compute_sve_general` (see Removed).
 - `sparse_ir_sve::Error::kind` and `ErrorKind`: the category of an error
   of the SVE (invalid argument, not supported, internal), stable when
   variants are added.
 - `SVEResult::truncate`: the expansion truncated at a relative threshold
-  (its accuracy) and a maximum size, as an `SVEResult`. `SVEResult::part`,
-  which returned the parts as a tuple, is deprecated.
+  (its accuracy) and a maximum size, as an `SVEResult`. It replaces
+  `SVEResult::part`, which returned the parts as a tuple (see Removed).
 
 - `LogisticKernelWindowed`: the logistic kernel on an asymmetric frequency
   window `[omega_min, omega_max]`, which need not contain 0 (e.g.
@@ -100,23 +99,18 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `SVEOptions::full_domain`) rejects segments that do not run from `xmin`
   to `xmax` with `InvalidParameter`, instead of expanding part of the
   kernel; that of a centrosymmetric kernel still accepts half-domain hints,
-  with the same result. `AbstractKernel::is_centrosymmetric`
-  is deprecated: the SVE uses the symmetry of the kernels that implement
-  `ReducedKernel`. `spir_kernel_get_sve_hints_segments_x` and `_y` of the
-  C API are unchanged.
+  with the same result. The SVE uses the symmetry of the kernels that
+  implement `ReducedKernel` (`AbstractKernel::is_centrosymmetric` is
+  removed, see Removed). `spir_kernel_get_sve_hints_segments_x` and `_y`
+  of the C API are unchanged.
 - The accessors of `PiecewiseLegendrePoly` and
   `PiecewiseLegendrePolyVector` drop their `get_` prefix (`knots()`,
   `delta_x()`, `data()`, `norms()`, `polyorder()`, `domain()`, `l()`,
   `polys()`, ...), and `PiecewiseLegendrePolyVector::size` is `len` (with
-  `is_empty`). The former names are deprecated.
-- Internal helpers are deprecated, to be removed:
-  `PiecewiseLegendrePoly::evaluate_legendre_polynomial` (a Legendre series
-  that does not depend on the polynomial), and
-  `DiscretizedKernel::new_legacy` and `remove_weights_from_sve`.
+  `is_empty`). The former names are removed (see Removed).
 - `CustomNumeric` is sealed (implemented for `f64` and `Df64` only) and
-  requires `ComplexField<RealField = Self>`, so `abs()` returns `Self`;
-  `abs_as_same_type` and `is_valid` (use `abs` and `is_finite`) are
-  deprecated.
+  requires `ComplexField<RealField = Self>`, so `abs()` returns `Self`.
+  `abs_as_same_type` and `is_valid` are removed (see Removed).
 - `Mat::into_typed` and `Mat::from_typed`, the conversions to and from
   tenferro matrices, are methods of the trait
   `sparse_ir::matrix::MatTyped`, which a caller imports: `Mat` lives in
@@ -125,10 +119,11 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   `sparse_ir_sve::Error` (also `sparse_ir::sve::Error`), which converts into
   `sparse_ir::Error` (`?`, `From`).
 
-- `compute_sve_general` computes the double-double SVE of a kernel that is
-  not centrosymmetric by ACA as well (for a centrosymmetric kernel it
-  keeps the dense column-pivoted QR, whose single block holds nearly
-  degenerate pairs of singular values).
+- The double-double SVE over the full domain (`compute_sve_with` with
+  `SVEOptions::full_domain`, which replaces `compute_sve_general`) computes
+  that of a kernel that is not centrosymmetric by ACA as well (for a
+  centrosymmetric kernel it keeps the dense column-pivoted QR, whose single
+  block holds nearly degenerate pairs of singular values).
 - `FiniteTempBasis::from_sve_result` accepts an SVE without parity for a
   `LogisticKernel` (it was `NotSupported`).
 - The default Matsubara points are computed once per basis.
@@ -162,6 +157,34 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
   - `Rule::reseat_custom`, `Rule::reseat_twofloat` → `Rule::reseat`
   - `Rule::scale_custom`, `Rule::scale_twofloat` → `Rule::scale`
   - `Rule::validate_custom`, `Rule::validate_twofloat` → `Rule::validate`
+- The following items of 0.15.0 (exported under `sparse_ir::`) are removed,
+  with no deprecated alias. Breaking, for the next minor release; use the
+  name on the right:
+  - `compute_sve_general(kernel, epsilon, cutoff, max_num_svals, twork)` →
+    `compute_sve_with(kernel, &options)`, with
+    `SVEOptions::new().full_domain(true)` and the same parameters set by
+    name
+  - `SVEResult::part(eps, max_size)`, which returned a tuple →
+    `SVEResult::truncate(eps, max_size)`, which returns an `SVEResult`
+    (`u()`, `s()`, `v()`)
+  - `AbstractKernel::is_centrosymmetric` → implement `ReducedKernel`. An
+    implementation of `AbstractKernel` that defines `is_centrosymmetric`
+    no longer compiles; delete that method.
+  - The accessors of `PiecewiseLegendrePoly` with the prefix `get_`
+    (`get_xmin`, `get_xmax`, `get_l`, `get_domain`, `get_knots`,
+    `get_delta_x`, `get_symm`, `get_data`, `get_norms`, `get_polyorder`) →
+    the same names without `get_`
+  - `PiecewiseLegendrePolyVector::size` → `len`; its `get_polys`,
+    `get_knots`, `get_delta_x`, `get_polyorder`, `get_norms`, `get_symm`,
+    `get_data` → the same names without `get_`
+  - `CustomNumeric::abs_as_same_type` → `abs`; `CustomNumeric::is_valid` →
+    `is_finite`
+  - `DiscretizedKernel::new_legacy` → `DiscretizedKernel::new`, with the
+    segment boundaries
+  - `PiecewiseLegendrePoly::evaluate_legendre_polynomial` (a Legendre series
+    that does not depend on the polynomial) and
+    `DiscretizedKernel::remove_weights_from_sve`, internal helpers, with no
+    replacement
 
 ### Fixed
 
