@@ -221,7 +221,7 @@ From `sparse-ir`:
 | --- | --- |
 | the fermionic IR basis at \\(\beta\\), \\(\omega_\mathrm{max}\\), \\(\varepsilon\\) | `LogisticKernel::new`, `FiniteTempBasis::<_, Fermionic>::new` |
 | sampling in \\(\tau\\) and \\(\mathrm{i}\nu\\) | `TauSampling::new`, `MatsubaraSampling::new` (wrapped by `IrMesh`) |
-| \\(s_l\\) and \\(v_l(\omega)\\) for \\(g_l = -s_l\rho_l\\) | `basis.s()`, `basis.v()` (`get_knots`, `get_polyorder`) |
+| \\(s_l\\) and \\(v_l(\omega)\\) for \\(g_l = -s_l\rho_l\\) | `basis.s()`, `basis.v()` (`knots`, `polyorder`) |
 | the reduced index of a sampling frequency | `MatsubaraFreq::n` |
 
 From the tutorial crate (`docs/tutorial-code/src`):

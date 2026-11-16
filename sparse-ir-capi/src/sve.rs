@@ -293,17 +293,11 @@ pub extern "C" fn spir_sve_result_truncate(
             Some(max_size as usize)
         };
 
-        // Extract truncated parts using SVEResult::part
-        let (u_part, s_part, v_part) = sve_ref
+        // The truncated expansion, whose accuracy is the given epsilon
+        let sve_truncated = sve_ref
             .inner()
-            .part(Some(epsilon), max_size_opt)
+            .truncate(Some(epsilon), max_size_opt)
             .map_err(|e| status_from(&e))?;
-
-        // Create new SVE result with truncated data
-        let sve_truncated = sparse_ir::sve::SVEResult::new(
-            u_part, s_part, v_part, epsilon, // Use provided epsilon for new result
-        )
-        .map_err(|e| status_from(&e))?;
 
         // Wrap in C-API type
         let sve_wrapper = spir_sve_result::new(sve_truncated);
@@ -1567,7 +1561,7 @@ mod tests {
     #[test]
     fn test_sve_result_from_matrix_centrosymmetric_vs_from_matrix() {
         use sparse_ir::gauss::legendre;
-        use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints, SymmetryType};
+        use sparse_ir::kernel::{LogisticKernel, SVEHints, SVEKernel, SymmetryType};
         use sparse_ir::kernelmatrix::{
             matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
         };
@@ -1578,8 +1572,8 @@ mod tests {
 
         // Get SVE hints
         let hints = kernel.sve_hints::<f64>(epsilon);
-        let segments_x = hints.segments_x();
-        let segments_y = hints.segments_y();
+        let segments_x = sparse_ir::sve::half_domain_segments(&hints.segments_x());
+        let segments_y = sparse_ir::sve::half_domain_segments(&hints.segments_y());
         let n_gauss = hints.ngauss();
 
         // Create Gauss rules for reduced domain [0, xmax] x [0, ymax]
@@ -1790,14 +1784,15 @@ mod tests {
 
     fn logistic_kernel_matrices() -> KernelMatrices {
         use sparse_ir::gauss::legendre;
-        use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints, SymmetryType};
+        use sparse_ir::kernel::{LogisticKernel, SVEHints, SVEKernel, SymmetryType};
         use sparse_ir::kernelmatrix::{
             matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments,
         };
 
         let kernel = LogisticKernel::new(MATRICES_LAMBDA).unwrap();
         let hints = kernel.sve_hints::<f64>(MATRICES_EPSILON);
-        let (segs_x, segs_y) = (hints.segments_x(), hints.segments_y());
+        let half = sparse_ir::sve::half_domain_segments::<f64>;
+        let (segs_x, segs_y) = (half(&hints.segments_x()), half(&hints.segments_y()));
         let rule = legendre::<f64>(hints.ngauss());
         let (gauss_x, gauss_y) = (
             rule.piecewise(&segs_x).unwrap(),

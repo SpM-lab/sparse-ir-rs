@@ -12,7 +12,7 @@ use super::real::check_vec_len;
 use crate::Matrix;
 use crate::error::Result;
 use crate::gemm::GemmBackendHandle;
-use crate::matrix::Mat;
+use crate::matrix::{Mat, MatTyped};
 use num_complex::Complex;
 use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
 
@@ -36,7 +36,7 @@ type C64 = Complex<f64>;
 ///
 /// ```
 /// use num_complex::Complex;
-/// use sparse_ir::matrix::Mat;
+/// use sparse_ir::matrix::{Mat, MatTyped};
 /// use sparse_ir::{Fermionic, FermionicFreq, MatsubaraSamplingPositiveOnly};
 /// use std::f64::consts::PI;
 ///

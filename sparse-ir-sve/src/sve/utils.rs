@@ -55,17 +55,30 @@ pub(crate) fn remove_weights<T: CustomNumeric>(
 /// Mirror half-domain segment boundaries onto the full domain
 ///
 /// Maps `[0, s_1, ..., s_n]` to `[-s_n, ..., -s_1, -0, s_1, ..., s_n]`.
-/// This is the knot layout that [`extend_to_full_domain`] gives the singular
-/// functions of a centrosymmetric SVE, so a full-domain discretization built
-/// from these segments uses the mirror images of the half-domain segments.
+/// This is the knot layout of the singular functions of a centrosymmetric
+/// SVE, so a full-domain discretization built from these segments uses the
+/// mirror images of the half-domain segments. A kernel's full-domain
+/// [`SVEHints`](crate::kernel::SVEHints) can be built from half-domain ones
+/// with it.
 ///
-/// The input must start at zero, as [`crate::kernel::SVEHints`] documents
-/// for the segments of centrosymmetric kernels.
-pub(crate) fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Vec<T> {
+/// The input must start at zero, as [`half_domain_segments`] returns it.
+pub fn mirror_segments_to_full_domain<T: CustomNumeric>(half: &[T]) -> Vec<T> {
     let mut full = Vec::with_capacity((2 * half.len()).saturating_sub(1));
     full.extend(half.iter().rev().map(|&s| -s));
     full.extend(half.iter().skip(1).copied());
     full
+}
+
+/// The half-domain segment boundaries the SVE of a centrosymmetric kernel
+/// discretizes
+///
+/// Maps the boundaries of the full domain to `[0, s_1, ..., s_n]`: those in
+/// `(0, max]` with 0 added. On boundaries symmetric about 0 this is the
+/// inverse of [`mirror_segments_to_full_domain`].
+pub fn half_domain_segments<T: CustomNumeric>(full: &[T]) -> Vec<T> {
+    std::iter::once(T::zero())
+        .chain(full.iter().copied().filter(|&s| s > T::zero()))
+        .collect()
 }
 
 /// Extend polynomials from [0, xmax] to [-xmax, xmax] using symmetry

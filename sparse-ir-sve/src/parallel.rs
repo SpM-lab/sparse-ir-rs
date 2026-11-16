@@ -1,10 +1,11 @@
 //! Parallel execution on the rayon thread pool.
 //!
-//! The threaded work of the library (the SVE) goes through the functions
+//! The threaded work of this crate (the SVE) goes through the functions
 //! here. Without the `parallel` feature (the default; never enabled by the
-//! C API), and inside [`sequential`], it runs on the calling thread. (The
-//! SVDs of the fitters go through tenferro's `CpuBackend`, which has a pool
-//! of its own, outside these functions; see #344.)
+//! C API of sparse-ir), and inside [`sequential`], it runs on the calling
+//! thread. (The SVDs of the fitters of sparse-ir go through tenferro's
+//! `CpuBackend`, which has a pool of its own, outside these functions; see
+//! #344.)
 //! With the feature it runs on the current rayon pool (the global one unless
 //! the caller runs inside `ThreadPool::install`), whose size
 //! (`RAYON_NUM_THREADS`) therefore bounds the number of threads the library

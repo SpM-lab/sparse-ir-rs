@@ -8,9 +8,10 @@ sparse-ir = "0.15.0"
 ```
 
 This book is written against `sparse-ir` 0.15. The `sparse-ir` crate re-exports
-everything the book uses; it is built from four crates you can also depend on
-directly: `sparse-ir-core` (statistics, sampling, fitting), `sparse-ir-basis`
-(kernels, SVE and the IR basis), `sparse-ir-dlr` (the DLR) and
+everything the book uses; it is built from five crates you can also depend on
+directly: `sparse-ir-sve` (the singular value expansion of kernels),
+`sparse-ir-core` (statistics, sampling, fitting), `sparse-ir-basis` (the
+physical kernels and the IR basis), `sparse-ir-dlr` (the DLR) and
 `sparse-ir-minipole` (ESPRIT and MiniPole). To follow the development branch
 instead, use the Git dependency, pinned to a tested `rev` for reproducible
 projects:

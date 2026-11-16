@@ -13,7 +13,7 @@ use super::common::{
 use crate::Matrix;
 use crate::error::Result;
 use crate::gemm::{GemmBackendHandle, apply_along_axis};
-use crate::matrix::Mat;
+use crate::matrix::{Mat, MatTyped};
 use num_complex::Complex;
 use std::sync::OnceLock;
 use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
@@ -33,7 +33,7 @@ use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
 /// `fit` forward to the fitter, so the example goes through that public API.
 ///
 /// ```
-/// use sparse_ir::matrix::Mat;
+/// use sparse_ir::matrix::{Mat, MatTyped};
 /// use sparse_ir::{Fermionic, TauSampling};
 /// use std::f64::consts::PI;
 ///

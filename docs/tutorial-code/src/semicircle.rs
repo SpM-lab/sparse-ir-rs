@@ -73,7 +73,7 @@ where
 
     // Only the part of the basis' ω range where ρ is nonzero contributes.
     let mut edges: Vec<f64> = v
-        .get_knots(None)
+        .knots(None)
         .into_iter()
         .filter(|&omega| (omega - center).abs() < half_width)
         .collect();
@@ -86,7 +86,7 @@ where
 
     // The polynomials have `polyorder` coefficients per segment, and cos²θ
     // adds two more degrees; an order well above half of that is exact.
-    let order = v.get_polyorder() + 8;
+    let order = v.polyorder() + 8;
 
     (0..basis.size())
         .map(|l| {

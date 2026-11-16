@@ -104,7 +104,7 @@ jobs:
             exit 1
           fi
 
-          for crate in sparse-ir-core sparse-ir-dlr sparse-ir-minipole sparse-ir-basis sparse-ir sparse-ir-capi; do
+          for crate in sparse-ir-sve sparse-ir-core sparse-ir-dlr sparse-ir-minipole sparse-ir-basis sparse-ir sparse-ir-capi; do
             status_code="$(curl -sS -A "${CRATES_IO_USER_AGENT}" -H 'Accept: application/json' -o /tmp/${crate}.json -w '%{http_code}' "https://crates.io/api/v1/crates/${crate}/${version}")"
             if [[ "${status_code}" == "200" ]]; then
               echo "::error::${crate} ${version} is already published on crates.io"
@@ -133,7 +133,7 @@ jobs:
 
           # Each crate must be visible on crates.io before the next one,
           # which depends on it, is published.
-          for crate in sparse-ir-core sparse-ir-dlr sparse-ir-minipole sparse-ir-basis sparse-ir; do
+          for crate in sparse-ir-sve sparse-ir-core sparse-ir-dlr sparse-ir-minipole sparse-ir-basis sparse-ir; do
             cargo publish -p "${crate}" --locked
             visible=0
             for attempt in $(seq 1 30); do

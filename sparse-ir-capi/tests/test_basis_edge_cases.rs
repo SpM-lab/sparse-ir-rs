@@ -93,17 +93,12 @@ struct FullDomainMatrix {
 
 fn logistic_full_domain_matrix() -> FullDomainMatrix {
     use sparse_ir::gauss::legendre;
-    use sparse_ir::kernel::{KernelProperties, LogisticKernel, SVEHints};
+    use sparse_ir::kernel::{LogisticKernel, SVEHints, SVEKernel};
     use sparse_ir::kernelmatrix::matrix_from_gauss_noncentrosymmetric;
 
     let kernel = LogisticKernel::new(BETA * WMAX).unwrap();
     let hints = kernel.sve_hints::<f64>(EPS);
-    let mirror = |half: Vec<f64>| -> Vec<f64> {
-        let mut full: Vec<f64> = half.iter().rev().map(|&s| -s).collect();
-        full.extend_from_slice(&half[1..]);
-        full
-    };
-    let (segs_x, segs_y) = (mirror(hints.segments_x()), mirror(hints.segments_y()));
+    let (segs_x, segs_y) = (hints.segments_x(), hints.segments_y());
     let rule = legendre::<f64>(hints.ngauss());
     let matrix = matrix_from_gauss_noncentrosymmetric(
         &kernel,

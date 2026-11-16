@@ -42,15 +42,16 @@ impl<T> TSVDConfig<T> {
 /// nalgebra's `try_svd` iterates until convergence when its `max_niter` is 0,
 /// and a NaN or an infinity never converges: the SVD then loops forever. The
 /// limit turns non-convergence into [`Error::DecompositionFailed`]. The SVDs of
-/// the SVE matrices of the logistic and regularized Bose kernels (Λ from 1 to
-/// 1e5, f64 and Df64) converge within 1.4 sweeps per singular value; LAPACK's
+/// the SVE matrices of the kernels e^{-Λy(x+1)/2} / (1 ± e^{-Λy}) (the latter
+/// times y) on [-1, 1]² (Λ from 1 to 1e5, f64 and Df64) converge within 1.4
+/// sweeps per singular value; LAPACK's
 /// `dbdsqr` allows `MAXITR = 6` sweeps per singular value (the bound is
 /// convention-matched with it, no code is derived from it). 30 leaves a wide
 /// margin and still bounds the work on a matrix that does not converge.
 const SVD_MAX_SWEEPS_PER_SINGULAR_VALUE: usize = 30;
 
 /// Iteration limit of the SVD of an `nrows × ncols` matrix
-fn svd_max_sweeps(nrows: usize, ncols: usize) -> usize {
+pub(crate) fn svd_max_sweeps(nrows: usize, ncols: usize) -> usize {
     // Never 0, which nalgebra reads as "no limit"
     SVD_MAX_SWEEPS_PER_SINGULAR_VALUE * nrows.min(ncols).max(1)
 }

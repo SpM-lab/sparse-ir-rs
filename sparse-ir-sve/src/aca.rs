@@ -6,7 +6,7 @@
 //! rank-decaying) SVE kernel matrices. The factors are recompressed to a true
 //! SVD by two thin QRs plus a small `k×k` SVD.
 
-use nalgebra::{ComplexField, DMatrix, RealField};
+use nalgebra::{ComplexField, DMatrix, RealField, SVD};
 use num_traits::{One, ToPrimitive, Zero};
 
 use crate::cost::KERNEL_ENTRY;
@@ -14,7 +14,8 @@ use crate::error::Error;
 use crate::numeric::CustomNumeric;
 use crate::parallel::for_each_chunk;
 use crate::tsvd::{
-    SVDResult, TSVDConfig, check_finite_entries, check_tsvd_input, try_svd_decompose, tsvd,
+    SVDResult, TSVDConfig, check_finite_entries, check_tsvd_input, svd_max_sweeps,
+    try_svd_decompose, tsvd,
 };
 
 /// Oversampling window: the number of consecutive pivots that must pass the
@@ -336,8 +337,8 @@ fn next_pivot_row<T: ComplexField>(used: &[bool], u: Option<&Vec<T>>) -> Option<
 /// can underestimate the residual, so singular values close to `rtol` are not
 /// reliable: callers must take `rtol` well below the accuracy they need, as
 /// the SVE does with its default `2ε` and, in
-/// [`crate::sve::compute_sve_for_basis`], through
-/// [`crate::sve::BASIS_CUTOFF_FACTOR`], whose value was validated with this
+/// [`crate::sve::SVEOptions::cutoff_from_epsilon`], through
+/// [`crate::sve::ACCURACY_CUTOFF_FACTOR`], whose value was validated with this
 /// stopping rule; changing either (the norm estimate, the redo check,
 /// `OVERSAMPLE`) requires checking the SVE accuracy again.
 ///
@@ -433,8 +434,9 @@ const MAX_CHOLESKY_QR_LOSS: f64 = 1e-20;
 /// products and two lifts, all matrix products, instead of two Householder
 /// QRs, the formation of their `Q`, and the lifts. The ACA factors are well
 /// conditioned once their columns are normalized (κ(Ũ) ≲ 10⁵, κ(Ṽ) ≲ 10² for
-/// the SVE blocks up to Λ = 10⁶), so this is taken in double-double precision;
-/// in `f64`, `κ²·ε` always exceeds the bound and Householder QR is used.
+/// the SVE blocks of e^{-Λy(x+1)/2} / (1 + e^{-Λy}) up to Λ = 10⁶), so this
+/// is taken in double-double precision when `κ²·ε` is small enough, and
+/// Householder QR otherwise; in `f64`, `κ²·ε` always exceeds the bound.
 ///
 /// # Errors
 /// The errors of [`try_svd_decompose`] for the small SVD
@@ -465,7 +467,22 @@ where
             .l()
             .transpose();
         let r_f64 = r.map(|x| CustomNumeric::to_f64(x));
-        let sv = r_f64.singular_values();
+        // Where ŨᵀŨ is not numerically positive definite, the double-double
+        // Cholesky can return NaN instead of failing; an SVD of NaN never
+        // converges.
+        if !r_f64.iter().all(|x| x.is_finite()) {
+            return None;
+        }
+        // nalgebra's singular_values() with an iteration limit
+        let n = r_f64.nrows();
+        let sv = SVD::try_new_unordered(
+            r_f64,
+            false,
+            false,
+            5.0 * f64::EPSILON,
+            svd_max_sweeps(n, n),
+        )?
+        .singular_values;
         let kappa = sv.max() / sv.min();
         (kappa * kappa * eps <= MAX_CHOLESKY_QR_LOSS).then_some((scaled, d, r))
     };
@@ -705,10 +722,11 @@ mod tests {
     /// singular vectors. In `f64` it declines.
     #[test]
     fn cholesky_recompression_matches_householder_df64() {
-        use crate::kernel::LogisticKernel;
-        use crate::sve::{CentrosymmSVE, SVEStrategy};
+        use crate::test_kernels::ExpKernel;
+        use crate::unstable::sve::{CentrosymmSVE, SVEStrategy};
 
-        let sve = CentrosymmSVE::<Df64, _>::new(LogisticKernel::new(1e4).unwrap(), 1e-12).unwrap();
+        let kernel = ExpKernel { a: 10.0, nseg: 8 };
+        let sve = CentrosymmSVE::<Df64, _>::new(kernel, 1e-12).unwrap();
         let rtol = 1e-18;
         for block in sve.blocks() {
             let (m, n) = (block.nrows(), block.ncols());
@@ -802,13 +820,18 @@ mod tests {
     }
 
     /// Stopping ACA with the sum-of-squares norm estimate keeps the exact
-    /// stopping test satisfied and the singular values of the exact-norm ACA.
+    /// stopping test satisfied and the singular values of the exact-norm ACA,
+    /// on SVE blocks of a smooth kernel. The estimate is not a bound (for
+    /// exp(10 x y) on these segments it stops too early, and `tsvd_aca` redoes
+    /// ACA, see `tsvd_aca_redoes_aca_when_estimate_stops_too_early`); the
+    /// kernel here is one for which it holds.
     #[test]
     fn sum_of_squares_stop_matches_exact_norm() {
-        use crate::kernel::LogisticKernel;
-        use crate::sve::{CentrosymmSVE, SVEStrategy};
+        use crate::test_kernels::ExpKernel;
+        use crate::unstable::sve::{CentrosymmSVE, SVEStrategy};
 
-        let sve = CentrosymmSVE::<Df64, _>::new(LogisticKernel::new(1e4).unwrap(), 1e-12).unwrap();
+        let kernel = ExpKernel { a: 20.0, nseg: 8 };
+        let sve = CentrosymmSVE::<Df64, _>::new(kernel, 1e-12).unwrap();
         let rtol = 1e-18;
         for block in sve.blocks() {
             let (m, n) = (block.nrows(), block.ncols());

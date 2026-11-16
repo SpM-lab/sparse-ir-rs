@@ -1,18 +1,17 @@
 //! SVE computation strategies
 
 use crate::error::Error;
-use crate::gauss::{Rule, legendre_generic};
-use crate::kernel::{AbstractKernel, CentrosymmKernel, KernelProperties, SVEHints, SymmetryType};
+use crate::gauss::{Rule, sve_legendre};
+use crate::kernel::{AbstractKernel, ReducedKernel, SVEHints, SVEKernel, SymmetryType};
 use crate::kernelmatrix::{matrix_from_gauss_noncentrosymmetric, matrix_from_gauss_with_segments};
 use crate::matrix::Mat;
 use crate::numeric::CustomNumeric;
 use crate::poly::PiecewiseLegendrePolyVector;
-use std::fmt::Debug;
 
 use super::result::SVEResult;
 use super::utils::{
-    SvdBlock, canonicalize_signs, extend_to_full_domain, merge_blocks,
-    mirror_segments_to_full_domain, remove_weights, svd_to_polynomials,
+    SvdBlock, canonicalize_signs, extend_to_full_domain, half_domain_segments, merge_blocks,
+    remove_weights, svd_to_polynomials,
 };
 
 /// A discretized, weighted kernel matrix `A[i, j] = K(x_i, y_j) √w_i √w'_j`
@@ -192,7 +191,7 @@ where
         let v_unweighted = remove_weights(v, self.gauss_y.w.as_slice(), true);
 
         // 2. Convert to polynomials
-        let gauss_rule_f64 = legendre_generic::<f64>(self.n_gauss);
+        let gauss_rule_f64 = sve_legendre::<f64>(self.n_gauss);
         let u_polys = svd_to_polynomials(
             &u_unweighted,
             &self.segments_x,
@@ -218,7 +217,7 @@ where
 pub struct CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + 'static,
-    K: CentrosymmKernel + KernelProperties,
+    K: ReducedKernel + SVEKernel,
 {
     kernel: K,
     epsilon: f64,
@@ -241,7 +240,7 @@ where
 impl<T, K> CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: CentrosymmKernel + KernelProperties + Clone,
+    K: ReducedKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new CentrosymmSVE
@@ -269,13 +268,14 @@ where
         }
         let hints = kernel.sve_hints::<T>(epsilon);
 
-        // Get segments for positive domain [0, xmax]
-        let segments_x = hints.segments_x();
-        let segments_y = hints.segments_y();
+        // The half [0, xmax] x [0, ymax] of the segments; the even and odd
+        // blocks hold their mirror images
+        let segments_x = half_domain_segments(&hints.segments_x());
+        let segments_y = half_domain_segments(&hints.segments_y());
         let n_gauss = hints.ngauss();
 
         // Create composite Gauss rules
-        let rule = legendre_generic::<T>(n_gauss);
+        let rule = sve_legendre::<T>(n_gauss);
         let gauss_x = rule.piecewise(&segments_x)?;
         let gauss_y = rule.piecewise(&segments_y)?;
 
@@ -338,7 +338,7 @@ where
 impl<T, K> SVEStrategy<T> for CentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: CentrosymmKernel + KernelProperties + Clone,
+    K: ReducedKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     fn matrices(&self) -> Vec<Mat<T>> {
@@ -387,62 +387,14 @@ where
     }
 }
 
-/// SVE hints of a kernel expressed on its full domain `[xmin, xmax] × [ymin, ymax]`
-///
-/// [`SVEHints`] reports the segments of a centrosymmetric kernel on the
-/// half-domain `[0, xmax] × [0, ymax]` only, which is what [`CentrosymmSVE`]
-/// discretizes. [`NonCentrosymmSVE`] discretizes the full domain, so for a
-/// centrosymmetric kernel this wrapper mirrors the half-domain segments onto
-/// the full domain; the segments of other kernels already cover the full
-/// domain and are passed through unchanged.
-#[derive(Debug, Clone)]
-struct FullDomainHints<H> {
-    inner: H,
-    /// Whether `inner` reports half-domain segments (centrosymmetric kernel)
-    half_domain: bool,
-}
-
-impl<H> FullDomainHints<H> {
-    fn full_domain<T: CustomNumeric>(&self, segments: Vec<T>) -> Vec<T> {
-        if self.half_domain {
-            mirror_segments_to_full_domain(&segments)
-        } else {
-            segments
-        }
-    }
-}
-
-impl<T, H> SVEHints<T> for FullDomainHints<H>
-where
-    T: Copy + Debug + Send + Sync + CustomNumeric,
-    H: SVEHints<T>,
-{
-    fn segments_x(&self) -> Vec<T> {
-        self.full_domain(self.inner.segments_x())
-    }
-
-    fn segments_y(&self) -> Vec<T> {
-        self.full_domain(self.inner.segments_y())
-    }
-
-    fn nsvals(&self) -> usize {
-        self.inner.nsvals()
-    }
-
-    fn ngauss(&self) -> usize {
-        self.inner.ngauss()
-    }
-}
-
 /// Non-centrosymmetric SVE computation
 ///
 /// This strategy computes the kernel matrix directly over the full domain
 /// [xmin, xmax] × [ymin, ymax] given by the kernel's [`SVEHints`]. No symmetry
 /// exploitation is performed, so it works for any kernel.
 ///
-/// Centrosymmetric kernels are also expanded correctly: their [`SVEHints`]
-/// segments cover only the half-domain `[0, xmax]` and are mirrored onto the
-/// full domain before discretization. The singular values then agree with
+/// Centrosymmetric kernels are also expanded correctly, on the same
+/// segments of the full domain. The singular values then agree with
 /// [`CentrosymmSVE`] up to rounding, but the SVD is taken of a single matrix
 /// with twice as many rows and columns as each even/odd block, and the
 /// singular functions carry no parity tag.
@@ -456,11 +408,11 @@ where
 pub struct NonCentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + 'static,
-    K: AbstractKernel + KernelProperties,
+    K: AbstractKernel + SVEKernel,
 {
     kernel: K,
     epsilon: f64,
-    hints: FullDomainHints<K::SVEHintsType<T>>,
+    hints: K::SVEHintsType<T>,
     n_gauss: usize,
 
     // Geometric information (full domain [-xmax, xmax])
@@ -476,7 +428,7 @@ where
 impl<T, K> NonCentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: AbstractKernel + KernelProperties + Clone,
+    K: AbstractKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     /// Create a new NonCentrosymmSVE
@@ -484,14 +436,12 @@ where
     /// # Errors
     ///
     /// [`Error::InvalidParameter`] if the SVE hints of the kernel give
-    /// segments that are not finite and strictly increasing
+    /// segments that are not finite and strictly increasing, or that do not
+    /// run from `xmin` to `xmax` (`ymin` to `ymax`). Hints written for the
+    /// half domain `[0, xmax]` of sparse-ir 0.15 are rejected here: the SVE
+    /// over their segments would expand only part of the kernel.
     pub fn new(kernel: K, epsilon: f64) -> Result<Self, Error> {
-        // SVEHints are half-domain for centrosymmetric kernels; this strategy
-        // needs the full domain (issue #246).
-        let hints = FullDomainHints {
-            inner: kernel.sve_hints::<T>(epsilon),
-            half_domain: kernel.is_centrosymmetric(),
-        };
+        let hints = kernel.sve_hints::<T>(epsilon);
 
         // Get segments for full domain [xmin, xmax], [ymin, ymax]
         let segments_x = hints.segments_x();
@@ -499,9 +449,21 @@ where
         let n_gauss = hints.ngauss();
 
         // Create composite Gauss rules for full domain
-        let rule = legendre_generic::<T>(n_gauss);
+        let rule = sve_legendre::<T>(n_gauss);
         let gauss_x = rule.piecewise(&segments_x)?;
         let gauss_y = rule.piecewise(&segments_y)?;
+        check_segment_ends(
+            "SVE hints segments_x",
+            &segments_x,
+            kernel.xmin(),
+            kernel.xmax(),
+        )?;
+        check_segment_ends(
+            "SVE hints segments_y",
+            &segments_y,
+            kernel.ymin(),
+            kernel.ymax(),
+        )?;
 
         // Create the general SVE processor
         let sampling_sve = SamplingSVE::new(
@@ -541,10 +503,34 @@ where
     }
 }
 
+/// `InvalidParameter` unless the segment boundaries (at least one segment,
+/// as `Rule::piecewise` checks) start at `min` and end at `max`
+///
+/// Exact comparison, as in `SegmentHints::new`: the boundaries are meant to
+/// be the bounds of the domain, not values near them.
+fn check_segment_ends<T: CustomNumeric>(
+    name: &'static str,
+    segments: &[T],
+    min: f64,
+    max: f64,
+) -> Result<(), Error> {
+    let (first, last) = (segments[0].to_f64(), segments[segments.len() - 1].to_f64());
+    if first != min || last != max {
+        return Err(Error::InvalidParameter {
+            name,
+            value: format!("[{first:?}, {last:?}]"),
+            reason: format!(
+                "must run from the lower to the upper bound of the domain, [{min:?}, {max:?}]"
+            ),
+        });
+    }
+    Ok(())
+}
+
 impl<T, K> SVEStrategy<T> for NonCentrosymmSVE<T, K>
 where
     T: CustomNumeric + Send + Sync + Clone + 'static,
-    K: AbstractKernel + KernelProperties + Clone,
+    K: AbstractKernel + SVEKernel + Clone,
     K::SVEHintsType<T>: SVEHints<T> + Clone,
 {
     fn matrices(&self) -> Vec<Mat<T>> {

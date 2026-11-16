@@ -350,13 +350,13 @@ fn lorentz_overlaps(
 ) -> Vec<f64> {
     let v = basis.v();
     let edges: Vec<f64> = v
-        .get_knots(None)
+        .knots(None)
         .into_iter()
         .map(|omega| ((omega - centre) / eta).atan())
         .collect();
     // tan t varies fast at the ends of each segment, so take more points than
     // the polynomial degree alone would need.
-    let order = v.get_polyorder() + 24;
+    let order = v.polyorder() + 24;
 
     (0..basis.size())
         .map(|l| {

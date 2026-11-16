@@ -1,8 +1,9 @@
 //! Tests for kernel matrix discretization
 
 use crate::gauss::legendre;
-use crate::kernel::{LogisticKernel, SymmetryType};
+use crate::kernel::SymmetryType;
 use crate::kernelmatrix::matrix_from_gauss;
+use crate::test_kernels::ExpKernel;
 
 // ========================================================================
 // Basic matrix_from_gauss tests
@@ -11,7 +12,7 @@ use crate::kernelmatrix::matrix_from_gauss;
 #[test]
 fn test_matrix_from_gauss_basic() {
     // 2x2の小さな行列で基本動作確認
-    let kernel = LogisticKernel::new(1.0).unwrap();
+    let kernel = ExpKernel::new(1.0);
     let gauss_x = legendre::<f64>(2).reseat(0.0, 1.0);
     let gauss_y = legendre::<f64>(2).reseat(0.0, 1.0);
     let matrix = matrix_from_gauss(&kernel, &gauss_x, &gauss_y, SymmetryType::Even);
@@ -22,7 +23,7 @@ fn test_matrix_from_gauss_basic() {
 
 #[test]
 fn test_matrix_from_gauss_sizes() {
-    let kernel = LogisticKernel::new(1.0).unwrap();
+    let kernel = ExpKernel::new(1.0);
 
     for n in [2, 4, 8] {
         let gauss_x = legendre::<f64>(n).reseat(0.0, 1.0);

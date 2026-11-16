@@ -1,4 +1,4 @@
-//! 1D interpolation functionality for SparseIR
+//! 1D interpolation
 //!
 //! This module provides the Legendre collocation matrix the SVE uses to turn
 //! the singular vectors on the Gauss grid into piecewise Legendre polynomials.

@@ -211,9 +211,9 @@ From `sparse-ir`:
 | --- | --- |
 | the singular values | `FiniteTempBasis::s` |
 | \\(v_l\\) on a grid of ω | `Basis::evaluate_omega` |
-| the knots the basis is piecewise-polynomial on | `basis.v().get_knots(None)` |
+| the knots the basis is piecewise-polynomial on | `basis.v().knots(None)` |
 | one \\(v_l\\) as a polynomial | `basis.v()[l].evaluate(omega)` |
-| the degree to integrate exactly | `basis.v().get_polyorder()` |
+| the degree to integrate exactly | `basis.v().polyorder()` |
 
 From the tutorial crate (`sparse_ir_tutorial`, not part of the library):
 

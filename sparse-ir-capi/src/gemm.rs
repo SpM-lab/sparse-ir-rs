@@ -362,7 +362,7 @@ mod tests {
         use blas_sys::{dgemm_, zgemm_};
         use sparse_ir::Matrix;
         use sparse_ir::gemm::matmul;
-        use sparse_ir::matrix::Mat;
+        use sparse_ir::matrix::{Mat, MatTyped};
 
         /// Build a matrix from row literals.
         fn tensor<T: Copy + sparse_ir::TensorScalar, const N: usize>(rows: &[[T; N]]) -> Matrix<T> {

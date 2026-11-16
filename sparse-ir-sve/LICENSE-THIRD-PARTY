@@ -1,0 +1,11 @@
+Third-party code in sparse-ir-sve
+=================================
+
+src/col_piv_qr.rs is based on nalgebra/src/linalg/col_piv_qr.rs of the
+nalgebra library (https://github.com/dimforge/nalgebra), Copyright 2020
+Sébastien Crozet, licensed under the Apache License, Version 2.0. The text
+of that license is in LICENSE-APACHE next to this file.
+
+The modifications and additions (among them the early termination at a
+relative tolerance) are licensed under the same terms as this crate, MIT OR
+Apache-2.0 (LICENSE, LICENSE-APACHE).

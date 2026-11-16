@@ -154,10 +154,12 @@ calculations, are in the [user guide](https://spm-lab.github.io/sparse-ir-rs/).
 `sparse-ir` re-exports the crates it is made of, under their usual paths; you
 can also depend on them directly:
 
+- [`sparse-ir-sve`](https://crates.io/crates/sparse-ir-sve): the singular
+  value expansion of integral kernels, with the ACA-accelerated truncated SVD;
 - [`sparse-ir-core`](https://crates.io/crates/sparse-ir-core): statistics,
   errors, GEMM, fitters, the `Basis` trait and sparse sampling;
-- [`sparse-ir-basis`](https://crates.io/crates/sparse-ir-basis): kernels, the
-  singular value expansion and the IR basis `FiniteTempBasis`;
+- [`sparse-ir-basis`](https://crates.io/crates/sparse-ir-basis): the kernels
+  and the IR basis `FiniteTempBasis`;
 - [`sparse-ir-dlr`](https://crates.io/crates/sparse-ir-dlr): the discrete
   Lehmann representation;
 - [`sparse-ir-minipole`](https://crates.io/crates/sparse-ir-minipole): ESPRIT
@@ -178,14 +180,14 @@ This crate is dual-licensed under the terms of the MIT license and the Apache Li
 
 ### Third-party licenses
 
-The `col_piv_qr` module of `sparse-ir-basis` is based on code from the [nalgebra](https://github.com/dimforge/nalgebra) library, which is licensed under the Apache License 2.0:
+The `col_piv_qr` module of `sparse-ir-sve` is based on code from the [nalgebra](https://github.com/dimforge/nalgebra) library, which is licensed under the Apache License 2.0:
 
 - **nalgebra**: Apache License 2.0
   - Original source: `nalgebra/src/linalg/col_piv_qr.rs`
   - Copyright 2020 Sébastien Crozet
   - See [Apache License 2.0](http://www.apache.org/licenses/LICENSE-2.0) for details
 
-Modifications and additions to the nalgebra code (including early termination support) are available under the same dual license as this crate (MIT OR Apache-2.0).
+Modifications and additions to the nalgebra code (including early termination support) are available under the same dual license as this crate (MIT OR Apache-2.0); see `sparse-ir-sve/LICENSE-THIRD-PARTY`.
 
 The ESPRIT and MiniPole code of `sparse-ir-minipole` is a port of
 [MiniPole](https://github.com/Green-Phys/MiniPole) (MIT License); see

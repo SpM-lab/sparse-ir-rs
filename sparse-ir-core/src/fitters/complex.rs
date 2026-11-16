@@ -14,7 +14,7 @@ use super::real::check_vec_len;
 use crate::Matrix;
 use crate::error::{ArrayRole, Error, Result};
 use crate::gemm::{GemmBackendHandle, apply_along_axis};
-use crate::matrix::Mat;
+use crate::matrix::{Mat, MatTyped};
 use num_complex::Complex;
 use std::sync::OnceLock;
 use tenferro_tensor::{TypedTensor, TypedTensorView, TypedTensorViewMut};
@@ -160,7 +160,7 @@ pub(crate) fn role_of(name: &str) -> ArrayRole {
 ///
 /// ```
 /// use num_complex::Complex;
-/// use sparse_ir::matrix::Mat;
+/// use sparse_ir::matrix::{Mat, MatTyped};
 /// use sparse_ir::{Fermionic, FermionicFreq, MatsubaraSampling};
 /// use std::f64::consts::PI;
 ///

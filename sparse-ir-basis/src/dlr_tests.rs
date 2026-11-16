@@ -903,7 +903,7 @@ fn check_single_pole_fourier_pair<S: StatisticsType>() {
             .collect();
         let quad = rule.piecewise(&edges).unwrap();
         let gtau: Vec<f64> = quad
-            .x
+            .x()
             .iter()
             .map(|&tau| gtau_single_pole::<S>(tau, omega, beta).unwrap())
             .collect();
@@ -914,16 +914,21 @@ fn check_single_pole_fourier_pair<S: StatisticsType>() {
         // The quadrature truncation error is negligible: 16-point Gauss-Legendre
         // on 32 panels resolves exp((i v_n - omega) tau) far below machine
         // precision for |v_n| <= 17 pi / beta and |beta omega| <= 50.
-        let l1: f64 = quad.w.iter().zip(&gtau).map(|(&w, &g)| (w * g).abs()).sum();
-        let tol = 2.0 * quad.x.len() as f64 * f64::EPSILON * l1;
+        let l1: f64 = quad
+            .w()
+            .iter()
+            .zip(&gtau)
+            .map(|(&w, &g)| (w * g).abs())
+            .sum();
+        let tol = 2.0 * quad.x().len() as f64 * f64::EPSILON * l1;
 
         for m in -8..=8 {
             let freq = MatsubaraFreq::<S>::new(2 * m + parity).unwrap();
             let nu = freq.value(beta);
             let transform: Complex<f64> = quad
-                .x
+                .x()
                 .iter()
-                .zip(&quad.w)
+                .zip(quad.w())
                 .zip(&gtau)
                 .map(|((&tau, &w), &g)| Complex::new(0.0, nu * tau).exp() * (w * g))
                 .sum();
@@ -1540,26 +1545,24 @@ fn test_with_poles_accepts_duplicate_poles() {
     }
 }
 
-use crate::kernel::{KernelProperties, LogisticSVEHints};
+use crate::kernel::{KernelProperties, LogisticSVEHints, SVEKernel};
 
 /// LogisticKernel that reports ypower = 2, as a kernel of another crate
 /// could; with_poles only reads its ypower and its regularizer
 #[derive(Clone, Copy)]
 struct OtherYpowerKernel(LogisticKernel);
 
-impl KernelProperties for OtherYpowerKernel {
+impl AbstractKernel for OtherYpowerKernel {
+    fn compute<T: crate::CustomNumeric + Copy + std::fmt::Debug>(&self, x: T, y: T) -> T {
+        self.0.compute(x, y)
+    }
+}
+
+impl SVEKernel for OtherYpowerKernel {
     type SVEHintsType<T>
         = LogisticSVEHints<T>
     where
         T: Copy + std::fmt::Debug + Send + Sync + crate::CustomNumeric + 'static;
-
-    fn ypower(&self) -> i32 {
-        2
-    }
-
-    fn conv_radius(&self) -> f64 {
-        self.0.conv_radius()
-    }
 
     fn xmax(&self) -> f64 {
         self.0.xmax()
@@ -1569,15 +1572,25 @@ impl KernelProperties for OtherYpowerKernel {
         self.0.ymax()
     }
 
-    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
-        self.0.regularizer::<S>(beta, omega)
-    }
-
     fn sve_hints<T>(&self, epsilon: f64) -> Self::SVEHintsType<T>
     where
         T: Copy + std::fmt::Debug + Send + Sync + crate::CustomNumeric + 'static,
     {
         self.0.sve_hints(epsilon)
+    }
+}
+
+impl KernelProperties for OtherYpowerKernel {
+    fn ypower(&self) -> i32 {
+        2
+    }
+
+    fn conv_radius(&self) -> f64 {
+        self.0.conv_radius()
+    }
+
+    fn regularizer<S: StatisticsType + 'static>(&self, beta: f64, omega: f64) -> f64 {
+        self.0.regularizer::<S>(beta, omega)
     }
 }
 

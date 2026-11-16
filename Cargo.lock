@@ -1522,17 +1522,15 @@ dependencies = [
  "approx",
  "dashu-base",
  "dashu-float",
- "libm",
  "nalgebra",
  "num-complex",
  "num-traits",
  "rayon",
- "simba",
  "sparse-ir",
  "sparse-ir-core",
  "sparse-ir-dlr",
+ "sparse-ir-sve",
  "tenferro-tensor",
- "xprec",
 ]
 
 [[package]]
@@ -1559,8 +1557,8 @@ dependencies = [
  "num-traits",
  "once_cell",
  "pkg-config",
- "rayon",
  "sparse-ir",
+ "sparse-ir-sve",
  "tenferro-cpu",
  "tenferro-linalg",
  "tenferro-tensor",
@@ -1589,6 +1587,23 @@ dependencies = [
  "tenferro-cpu",
  "tenferro-linalg",
  "tenferro-tensor",
+]
+
+[[package]]
+name = "sparse-ir-sve"
+version = "0.15.0"
+dependencies = [
+ "dashu-base",
+ "dashu-float",
+ "libm",
+ "nalgebra",
+ "num-complex",
+ "num-traits",
+ "once_cell",
+ "rayon",
+ "simba",
+ "thiserror 1.0.69",
+ "xprec",
 ]
 
 [[package]]

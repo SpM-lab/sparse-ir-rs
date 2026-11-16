@@ -11,7 +11,7 @@ use crate::basis::FiniteTempBasis;
 use crate::basis_trait::Basis;
 use crate::dlr::{DiscreteLehmannRepresentation, IrDlrTransform};
 use crate::error::Error;
-use crate::kernel::{BasisKernel, KernelProperties};
+use crate::kernel::{BasisKernel, KernelProperties, SVEKernel};
 use crate::matrix::Mat;
 use crate::traits::{Statistics, StatisticsType};
 

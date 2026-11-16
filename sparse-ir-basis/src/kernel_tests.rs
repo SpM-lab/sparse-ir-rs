@@ -450,12 +450,13 @@ fn test_regularized_bose_kernel_discretized_matrix_y0() {
 
     // Get SVE hints to obtain segments and Gauss rules
     let hints = kernel.sve_hints::<f64>(epsilon);
-    let segments_x = hints.segments_x();
-    let segments_y = hints.segments_y();
+    // The half domain [0, 1] x [0, 1] of the reduced kernel
+    let segments_x = crate::sve::half_domain_segments(&hints.segments_x());
+    let segments_y = crate::sve::half_domain_segments(&hints.segments_y());
     let n_gauss = hints.ngauss();
 
     // Create composite Gauss rules
-    let rule = crate::gauss::legendre_generic::<f64>(n_gauss);
+    let rule = crate::gauss::legendre::<f64>(n_gauss);
     let gauss_x = rule.piecewise(&segments_x).unwrap();
     let gauss_y = rule.piecewise(&segments_y).unwrap();
 
@@ -468,7 +469,7 @@ fn test_regularized_bose_kernel_discretized_matrix_y0() {
     let mut y0_indices = Vec::new();
     let mut min_abs_y = f64::INFINITY;
 
-    for (j, &y_gauss) in gauss_y.x.iter().enumerate() {
+    for (j, &y_gauss) in gauss_y.x().iter().enumerate() {
         let abs_y = y_gauss.abs();
         if abs_y < min_abs_y {
             min_abs_y = abs_y;
@@ -486,11 +487,11 @@ fn test_regularized_bose_kernel_discretized_matrix_y0() {
     let tolerance = 1e-3;
 
     for &j in &y0_indices {
-        let y_gauss = gauss_y.x[j];
+        let y_gauss = gauss_y.x()[j];
 
         // Check a few x values
-        for i in [0, gauss_x.x.len() / 2, gauss_x.x.len() - 1] {
-            let x_gauss = gauss_x.x[i];
+        for i in [0, gauss_x.x().len() / 2, gauss_x.x().len() - 1] {
+            let x_gauss = gauss_x.x()[i];
             let matrix_value = discretized.matrix[[i, j]];
 
             // For Even symmetry, compute_reduced returns K(x, y) + K(x, -y)
@@ -566,53 +567,6 @@ fn test_regularized_bose_kernel_precision_critical_points() {
         &test_points_f64,
         &lambdas,
     );
-}
-
-// Simple non-centrosymmetric kernel for testing AbstractKernel trait
-// K(x, y) = x + y (clearly non-centrosymmetric: K(-x, -y) = -x - y = -(x + y) != x + y = K(x, y))
-#[derive(Debug, Clone, Copy)]
-struct SimpleNonCentrosymmKernel {
-    lambda: f64,
-}
-
-impl SimpleNonCentrosymmKernel {
-    fn new(lambda: f64) -> Self {
-        Self { lambda }
-    }
-}
-
-impl AbstractKernel for SimpleNonCentrosymmKernel {
-    fn compute<T: CustomNumeric + Copy + Debug>(&self, x: T, y: T) -> T {
-        x + y
-    }
-
-    fn is_centrosymmetric(&self) -> bool {
-        false
-    }
-}
-
-#[test]
-fn test_noncentrosymm_kernel_is_centrosymmetric() {
-    let kernel = SimpleNonCentrosymmKernel::new(10.0);
-    assert!(!kernel.is_centrosymmetric());
-}
-
-#[test]
-fn test_noncentrosymm_kernel_compute() {
-    let kernel = SimpleNonCentrosymmKernel::new(10.0);
-
-    // Test basic computation: K(x, y) = x + y
-    let result1: f64 = kernel.compute(0.5, 0.5);
-    assert!((result1 - 1.0).abs() < 1e-10);
-
-    let result2: f64 = kernel.compute(-0.5, 0.5);
-    assert!((result2 - 0.0).abs() < 1e-10);
-
-    // Verify non-centrosymmetry: K(-x, -y) != K(x, y)
-    // K(0.5, 0.5) = 1.0, K(-0.5, -0.5) = -1.0
-    let result3: f64 = kernel.compute(0.5, 0.5);
-    let result4: f64 = kernel.compute(-0.5, -0.5);
-    assert!((result3 - result4).abs() > 1e-10); // Should be different (1.0 vs -1.0)
 }
 
 /// Both kernel constructors reject a cutoff that is not positive and finite.

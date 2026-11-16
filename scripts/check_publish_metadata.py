@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BASE = "https://spm-lab.github.io/sparse-ir-rs/"
 CRATES = (
+    "sparse-ir-sve",
     "sparse-ir-core",
     "sparse-ir-dlr",
     "sparse-ir-minipole",
@@ -78,7 +79,14 @@ if '#![doc = include_str!("../README.md")]' not in (ROOT / "sparse-ir/src/lib.rs
 
 api_urls = {
     BASE + f"api/{crate.replace('-', '_')}/index.html"
-    for crate in ("sparse-ir", "sparse-ir-core", "sparse-ir-dlr", "sparse-ir-minipole", "sparse-ir-basis")
+    for crate in (
+        "sparse-ir",
+        "sparse-ir-sve",
+        "sparse-ir-core",
+        "sparse-ir-dlr",
+        "sparse-ir-minipole",
+        "sparse-ir-basis",
+    )
 }
 if api_urls - llms_urls:
     fail("llms.txt omits generated API entry points: " + ", ".join(sorted(api_urls - llms_urls)))

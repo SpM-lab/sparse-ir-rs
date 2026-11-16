@@ -1,6 +1,7 @@
 //! Type definitions for SVE computation
 
-use crate::error::{Error, require_accuracy};
+use crate::checks::require_accuracy;
+use crate::error::Error;
 
 /// Working precision type for SVE computations
 ///
