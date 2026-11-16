@@ -3,9 +3,14 @@
 #
 # `mdbook test` calls rustdoc directly, and rustdoc has no idea how Cargo
 # resolved `sparse-ir` to a path dependency. So: build the tutorial crate once,
-# ask Cargo (with -vv) what `--extern` flags it passed to rustc, and put a
-# rustdoc on PATH that passes the same ones. Borrowed from tensor4all-rs, whose
-# book has the same problem.
+# ask Cargo (with -vv) what `--extern` and `-L` flags it passed to rustc, and
+# put a rustdoc on PATH that passes the same ones. Borrowed from tensor4all-rs,
+# whose book has the same problem.
+#
+# The `-L` flags come from Cargo too, rather than from a fixed
+# target/<profile>/deps: since Rust 1.100 the build directory keeps each
+# crate in its own target/<profile>/build/<crate>/<hash>/out, and there is no
+# deps directory to point at.
 set -euo pipefail
 
 TUTORIAL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -13,13 +18,6 @@ BOOK_DIR="$(cd "$TUTORIAL_DIR/../book" && pwd)"
 cd "$TUTORIAL_DIR"
 
 PROFILE="${SPARSEIR_TUTORIAL_PROFILE:-ci}"
-# `--profile dev` puts its artifacts in target/debug, everything else in
-# target/<profile>.
-if [[ "$PROFILE" == "dev" ]]; then
-    ARTIFACT_DIR="$TUTORIAL_DIR/target/debug"
-else
-    ARTIFACT_DIR="$TUTORIAL_DIR/target/$PROFILE"
-fi
 
 probe_log="$(mktemp)"
 wrapper_dir="$(mktemp -d)"
@@ -50,6 +48,14 @@ if [[ -z "$extern_args" ]]; then
     exit 1
 fi
 
+# Where rustdoc finds the dependencies of those crates (`dependency=...`).
+library_args="$(printf '%s\n' "$rustc_line" | grep -oE -- '-L [^ ]+' | sed 's/^-L //')"
+if [[ -z "$library_args" ]]; then
+    echo "could not extract -L flags from:" >&2
+    printf '%s\n' "$rustc_line" >&2
+    exit 1
+fi
+
 real_rustdoc="$(rustup which rustdoc 2>/dev/null || command -v rustdoc)"
 {
     echo '#!/usr/bin/env bash'
@@ -66,8 +72,12 @@ real_rustdoc="$(rustup which rustdoc 2>/dev/null || command -v rustdoc)"
         fi
         printf '%q %q ' --extern "${crate_name}=${crate_path}"
     done <<< "$extern_args"
+    while IFS= read -r library_arg; do
+        [[ -n "$library_arg" ]] || continue
+        printf '%q %q ' -L "$library_arg"
+    done <<< "$library_args"
     echo '"$@"'
 } > "$wrapper_dir/rustdoc"
 chmod +x "$wrapper_dir/rustdoc"
 
-PATH="$wrapper_dir:$PATH" mdbook test "$BOOK_DIR" -L "$ARTIFACT_DIR/deps" "$@"
+PATH="$wrapper_dir:$PATH" mdbook test "$BOOK_DIR" "$@"
