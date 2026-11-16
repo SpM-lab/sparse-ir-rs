@@ -36,7 +36,9 @@ pub struct EspritParams {
     pub err: Option<f64>,
     /// Interpretation of `err` (default absolute).
     pub err_type: ErrType,
-    /// Number of nodes `M`; overrides `err`.
+    /// Number of nodes `M`; overrides `err`. An upper bound: it is capped at
+    /// `K - 1` (`K` singular values of the Hankel matrix) and lowered until
+    /// the approximation error is controlled.
     pub m: Option<usize>,
     /// Ratio `L / (N - 1)` of the Hankel matrix (default 0.4).
     pub lfactor: f64,

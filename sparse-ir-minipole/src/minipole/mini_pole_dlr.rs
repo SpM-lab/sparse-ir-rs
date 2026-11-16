@@ -29,7 +29,9 @@ pub struct MiniPoleDlrParams {
     pub err: Option<f64>,
     /// Interpretation of `err` (default absolute).
     pub err_type: ErrType,
-    /// Number of poles.
+    /// Maximum number of poles: the bound of
+    /// [`EspritParams::m`](crate::esprit::EspritParams::m) applies, and nodes
+    /// with |γ| ≥ 1 are dropped, so the result can have fewer.
     pub m: Option<usize>,
     /// Impose up-down symmetry (the gapless map).
     pub symmetry: bool,
