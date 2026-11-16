@@ -5,6 +5,8 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-11-16
+
 ### Added
 
 - The `sparse-ir-sve` crate: the SVE of integral kernels K(x, y), with the
