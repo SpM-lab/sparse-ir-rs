@@ -208,15 +208,13 @@ impl FitScalar for f64 {
 
 impl FitScalar for Complex<f64> {
     const REAL_WIDTH: usize = 2;
+    // `Complex<f64>` is `#[repr(C)] { re: f64, im: f64 }`, so N complex values
+    // are 2N f64 values; bytemuck checks the size and alignment.
     fn as_f64(s: &[Self]) -> &[f64] {
-        // SAFETY: `Complex<f64>` is `#[repr(C)] { re: f64, im: f64 }`, so a
-        // slice of N complex values is a valid slice of 2N f64 values with
-        // the same lifetime and alignment.
-        unsafe { std::slice::from_raw_parts(s.as_ptr().cast::<f64>(), 2 * s.len()) }
+        bytemuck::cast_slice(s)
     }
     fn as_f64_mut(s: &mut [Self]) -> &mut [f64] {
-        // SAFETY: as above; the unique borrow is transferred.
-        unsafe { std::slice::from_raw_parts_mut(s.as_mut_ptr().cast::<f64>(), 2 * s.len()) }
+        bytemuck::cast_slice_mut(s)
     }
 }
 

@@ -22,7 +22,9 @@ faer-traits.workspace = true
 tenferro-tensor.workspace = true
 tenferro-linalg.workspace = true
 tenferro-cpu.workspace = true
-num-complex.workspace = true
+# `bytemuck` views complex slices as interleaved f64 without `unsafe`
+num-complex = { workspace = true, features = ["bytemuck"] }
+bytemuck.workspace = true
 num-traits.workspace = true
 thiserror.workspace = true
 # System BLAS (optional, LP64)

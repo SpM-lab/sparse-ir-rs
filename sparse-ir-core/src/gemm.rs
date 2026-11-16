@@ -344,10 +344,9 @@ unsafe fn faer_gemm<T>(
         Accum::Replace
     } else {
         if beta != T::one() {
-            for j in 0..n {
-                for i in 0..m {
-                    // SAFETY: (i, j) is within the m x n destination.
-                    unsafe { *dst.as_mut().get_mut_unchecked(i, j) *= beta };
+            for col in dst.as_mut().col_iter_mut() {
+                for x in col.iter_mut() {
+                    *x *= beta;
                 }
             }
         }
