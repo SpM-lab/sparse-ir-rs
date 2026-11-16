@@ -1064,6 +1064,9 @@ pub extern "C" fn spir_sampling_get_cond_num(
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
 ///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
+///
 /// # Notes
 ///
 /// - For optimal performance, the target dimension should be either the
@@ -1181,6 +1184,9 @@ pub extern "C" fn spir_sampling_eval_dd(
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
 ///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
+///
 /// The mathematical transform does not depend on the axis placement or the
 /// memory order of the arrays, but the floating-point result can: a different
 /// `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -1282,6 +1288,9 @@ pub extern "C" fn spir_sampling_eval_dz(
 /// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
+///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
 ///
 /// The mathematical transform does not depend on the axis placement or the
 /// memory order of the arrays, but the floating-point result can: a different
@@ -1402,6 +1411,9 @@ pub extern "C" fn spir_sampling_eval_zz(
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
 ///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
+///
 /// # Notes
 ///
 /// * The output array must be pre-allocated with the correct size
@@ -1518,6 +1530,9 @@ pub extern "C" fn spir_sampling_fit_dd(
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
 ///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
+///
 /// The mathematical transform does not depend on the axis placement or the
 /// memory order of the arrays, but the floating-point result can: a different
 /// `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -1608,15 +1623,17 @@ pub extern "C" fn spir_sampling_fit_zz(
 ///
 /// # Supported Sampling Types
 ///
-/// - **Matsubara (full)**: ✅ Supported (takes real part of fitted complex coefficients)
+/// - **Matsubara (full)**: ✅ Supported
 /// - **Matsubara (positive_only)**: ✅ Supported
 /// - **Tau**: ❌ Not supported (use `spir_sampling_fit_dd` instead)
 ///
 /// # Notes
 ///
-/// For full-range Matsubara sampling, this function fits complex coefficients
-/// internally and returns their real parts. This is physically correct for
-/// Green's functions where IR coefficients are guaranteed to be real by symmetry.
+/// The coefficients are the least-squares solution over real coefficients:
+/// with the sampling matrix `A` and the values `y`, they are
+/// `[Re A; Im A]⁺ [Re y; Im y]`. For points symmetric in ±n, such as the
+/// default ones, this equals the real part of the complex fit
+/// (`spir_sampling_fit_zz`); for other points the two differ.
 ///
 /// Zero-copy implementation.
 ///
@@ -1644,6 +1661,9 @@ pub extern "C" fn spir_sampling_fit_zz(
 /// - `SPIR_INTERNAL_ERROR` if an internal panic occurs
 ///
 /// All shape arguments are validated before `input` or `out` is accessed.
+///
+/// `input` and `out` must not overlap: the transform reads `input` while it
+/// writes `out`, so an in-place call gives an undefined result.
 ///
 /// # See also
 ///

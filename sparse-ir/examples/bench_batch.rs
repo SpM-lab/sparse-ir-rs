@@ -33,6 +33,7 @@
 //! `--features tenferro-cpu/blas-accelerate` (or another BLAS provider).
 
 use num_complex::Complex;
+use sparse_ir::fitters::FitScalar;
 use sparse_ir::gemm::{DgemmFnPtr, ExternalBlasBackend, GemmBackendHandle, ZgemmFnPtr};
 use sparse_ir::{
     Bosonic, Fermionic, FiniteTempBasis, InplaceFitter, LogisticKernel, MatsubaraSampling,
@@ -563,13 +564,11 @@ fn tv_mut<'a, T: 'static>(data: &'a mut [T], shape: &[usize]) -> TypedTensorView
 
 /// A complex column-major `[p, ...]` buffer as a real `[2, p, ...]` buffer.
 fn as_real(x: &[C64]) -> &[f64] {
-    // SAFETY: `Complex<f64>` is `repr(C)` `{ re, im }`.
-    unsafe { std::slice::from_raw_parts(x.as_ptr().cast(), 2 * x.len()) }
+    C64::as_f64(x)
 }
 
 fn as_real_mut(x: &mut [C64]) -> &mut [f64] {
-    // SAFETY: as in `as_real`.
-    unsafe { std::slice::from_raw_parts_mut(x.as_mut_ptr().cast(), 2 * x.len()) }
+    C64::as_f64_mut(x)
 }
 
 /// Pseudoinverse `A^+ = V diag(1/s) U^H` of a column-major `n x m` matrix as

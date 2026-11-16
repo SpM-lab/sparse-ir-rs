@@ -330,19 +330,20 @@ fn spherical_bessel_j_positive_args(nu: i32, x: f64) -> f64 {
 /// Main function to calculate spherical Bessel function of the first kind
 ///
 /// This is the main entry point that matches the C++ sphericalbesselj function
+///
+/// # Panics
+///
+/// Panics if `x < 0` or `n < 0`. A negative order is not supported: it would
+/// need the spherical Bessel function of the second kind,
+/// `j_{-n}(x) = (-1)^n y_{n-1}(x)`, and the library uses only `n >= 0`.
 pub fn spherical_bessel_j(n: i32, x: f64) -> f64 {
-    // Handle negative arguments
     if x < 0.0 {
         panic!("sphericalBesselJ requires non-negative x");
     }
-
-    // Handle negative orders: j_{-n}(x) = (-1)^n * j_n(x)
     if n < 0 {
-        let result = spherical_bessel_j_positive_args(-n, x);
-        if n % 2 == 0 { result } else { -result }
-    } else {
-        spherical_bessel_j_positive_args(n, x)
+        panic!("sphericalBesselJ requires a non-negative order, got n = {n}");
     }
+    spherical_bessel_j_positive_args(n, x)
 }
 
 #[cfg(test)]
@@ -815,20 +816,14 @@ mod tests {
         }
     }
 
+    /// A negative order is rejected: `j_{-n} = (-1)^n y_{n-1}`, not
+    /// `(-1)^n j_n` (which the function returned before), e.g.
+    /// `j_{-1}(x) = cos(x) / x`.
     #[test]
-    fn test_spherical_bessel_j_negative_orders() {
-        // Test behavior for negative orders: j_{-n}(x) = (-1)^n * j_n(x)
-        for n in -5..0 {
-            let result_neg = spherical_bessel_j(n, 1.0);
-            let result_pos = spherical_bessel_j(-n, 1.0);
-            let expected = if n % 2 == 0 { result_pos } else { -result_pos };
-            assert!(
-                (result_neg - expected).abs() < 1e-15,
-                "j_{}(1.0) should be {} for negative n, got {}",
-                n,
-                expected,
-                result_neg
-            );
+    fn test_spherical_bessel_j_negative_orders_panic() {
+        for n in [-1, -2, -5] {
+            let result = std::panic::catch_unwind(|| spherical_bessel_j(n, 1.0));
+            assert!(result.is_err(), "j_{n}(1.0) should panic");
         }
     }
 

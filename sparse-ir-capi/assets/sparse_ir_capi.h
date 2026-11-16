@@ -832,6 +832,9 @@ struct spir_basis *spir_dlr_new_with_poles(const struct spir_basis *b,
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
+ *
  * The mathematical transform does not depend on the axis placement or the
  * memory order of the arrays, but the floating-point result can: a different
  * `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -876,6 +879,9 @@ StatusCode spir_ir2dlr_dd(const struct spir_basis *dlr,
  * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
+ *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
  *
  * The mathematical transform does not depend on the axis placement or the
  * memory order of the arrays, but the floating-point result can: a different
@@ -922,6 +928,9 @@ StatusCode spir_ir2dlr_zz(const struct spir_basis *dlr,
  *
  * `input_dims` is validated before `input` or `out` is accessed.
  *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
+ *
  * The mathematical transform does not depend on the axis placement or the
  * memory order of the arrays, but the floating-point result can: a different
  * `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -966,6 +975,9 @@ StatusCode spir_dlr2ir_dd(const struct spir_basis *dlr,
  * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * `input_dims` is validated before `input` or `out` is accessed.
+ *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
  *
  * The mathematical transform does not depend on the axis placement or the
  * memory order of the arrays, but the floating-point result can: a different
@@ -1640,7 +1652,10 @@ StatusCode spir_kernel_get_sve_hints_ngauss(const struct spir_kernel *k,
  * * `nmax` - The contour ends at `(2 nmax + 1)π/β` without symmetry, or <= 0 for `nmax = β`
  * * `err` - Error tolerance of ESPRIT, or <= 0 to use `n_poles` alone
  * * `err_type` - 0: `err` is absolute, 1: relative to the largest singular value
- * * `n_poles` - Number of poles, or <= 0 to choose it from `err`; one of `err` and `n_poles` is required
+ * * `n_poles` - Maximum number of poles, or <= 0 to choose it from `err`; one of `err` and
+ *   `n_poles` is required. The result can have fewer: the number is capped by the size of
+ *   the Hankel matrix and lowered until the approximation error is controlled, and nodes
+ *   with |γ| >= 1 are dropped
  * * `symmetry` - Impose up-down symmetry (gapless map)
  * * `status` - Pointer to store the status code
  *
@@ -1682,7 +1697,10 @@ struct spir_pole_repr *spir_minipole_from_dlr(const struct spir_basis *dlr,
  * * `n0_shift` - Shift (>= 0) added to the automatic choice of `n0`
  * * `err` - Error tolerance (> 0), at least the noise level of the data
  * * `err_type` - 0: `err` is absolute, 1: relative
- * * `n_poles` - Number of poles, or <= 0 to use the precision of the first approximation
+ * * `n_poles` - Maximum number of poles, or <= 0 to use the precision of the first
+ *   approximation. The result can have fewer: the number is capped and lowered as in
+ *   `spir_minipole_from_dlr`, and nodes with |γ| >= 1 and poles whose weights do not
+ *   exceed the error are dropped
  * * `symmetry` - Preserve up-down symmetry
  * * `g_symmetric` - Symmetrize the data as `G_ij = G_ji`
  * * `compute_const` - Fit a constant term (not with `symmetry`)
@@ -2085,6 +2103,9 @@ StatusCode spir_sampling_get_taus(const struct spir_sampling *s,
  *
  * All shape arguments are validated before `input` or `out` is accessed.
  *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
+ *
  * # Notes
  *
  * - For optimal performance, the target dimension should be either the
@@ -2136,6 +2157,9 @@ StatusCode spir_sampling_eval_dd(const struct spir_sampling *s,
  *
  * All shape arguments are validated before `input` or `out` is accessed.
  *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
+ *
  * The mathematical transform does not depend on the axis placement or the
  * memory order of the arrays, but the floating-point result can: a different
  * `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -2171,6 +2195,9 @@ StatusCode spir_sampling_eval_dz(const struct spir_sampling *s,
  * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * All shape arguments are validated before `input` or `out` is accessed.
+ *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
  *
  * The mathematical transform does not depend on the axis placement or the
  * memory order of the arrays, but the floating-point result can: a different
@@ -2221,6 +2248,9 @@ StatusCode spir_sampling_eval_zz(const struct spir_sampling *s,
  * * `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * All shape arguments are validated before `input` or `out` is accessed.
+ *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
  *
  * # Notes
  *
@@ -2273,6 +2303,9 @@ StatusCode spir_sampling_fit_dd(const struct spir_sampling *s,
  *
  * All shape arguments are validated before `input` or `out` is accessed.
  *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
+ *
  * The mathematical transform does not depend on the axis placement or the
  * memory order of the arrays, but the floating-point result can: a different
  * `target_dim` selects a different contraction geometry, and the GEMM backend
@@ -2298,15 +2331,17 @@ StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
  *
  * # Supported Sampling Types
  *
- * - **Matsubara (full)**: ✅ Supported (takes real part of fitted complex coefficients)
+ * - **Matsubara (full)**: ✅ Supported
  * - **Matsubara (positive_only)**: ✅ Supported
  * - **Tau**: ❌ Not supported (use `spir_sampling_fit_dd` instead)
  *
  * # Notes
  *
- * For full-range Matsubara sampling, this function fits complex coefficients
- * internally and returns their real parts. This is physically correct for
- * Green's functions where IR coefficients are guaranteed to be real by symmetry.
+ * The coefficients are the least-squares solution over real coefficients:
+ * with the sampling matrix `A` and the values `y`, they are
+ * `[Re A; Im A]⁺ [Re y; Im y]`. For points symmetric in ±n, such as the
+ * default ones, this equals the real part of the complex fit
+ * (`spir_sampling_fit_zz`); for other points the two differ.
  *
  * Zero-copy implementation.
  *
@@ -2334,6 +2369,9 @@ StatusCode spir_sampling_fit_zz(const struct spir_sampling *s,
  * - `SPIR_INTERNAL_ERROR` if an internal panic occurs
  *
  * All shape arguments are validated before `input` or `out` is accessed.
+ *
+ * `input` and `out` must not overlap: the transform reads `input` while it
+ * writes `out`, so an in-place call gives an undefined result.
  *
  * # See also
  *

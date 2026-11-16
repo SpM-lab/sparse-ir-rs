@@ -856,19 +856,9 @@ impl spir_funcs {
     /// Get knots for continuous functions (PolyVector only)
     pub(crate) fn knots(&self) -> Option<Vec<f64>> {
         match self.inner_type() {
-            FuncsType::PolyVector(pv) => {
-                // Get unique knots from all polynomials
-                let mut all_knots = Vec::new();
-                for p in pv.poly.polys() {
-                    for &knot in p.knots() {
-                        if !all_knots.iter().any(|&k: &f64| (k - knot).abs() < 1e-14) {
-                            all_knots.push(knot);
-                        }
-                    }
-                }
-                all_knots.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                Some(all_knots)
-            }
+            // Every polynomial of the vector has the same knots
+            // (`PiecewiseLegendrePolyVector::new` checks it).
+            FuncsType::PolyVector(pv) => Some(pv.poly.polys()[0].knots().to_vec()),
             _ => None, // FT vectors don't have knots in the traditional sense
         }
     }

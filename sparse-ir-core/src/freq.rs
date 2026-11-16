@@ -113,6 +113,15 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
     /// This function bypasses the validation in `new()`. Only use when you're
     /// certain the frequency is valid for the statistics type.
     pub unsafe fn new_unchecked(n: i64) -> Self {
+        Self::with_parity_checked_by_caller(n)
+    }
+
+    /// The frequency `n`, whose parity the caller has established
+    ///
+    /// Used inside this module instead of [`Self::new_unchecked`]: the parity
+    /// is not a memory-safety requirement (a wrong one gives a wrong
+    /// frequency, not undefined behaviour), so it needs no `unsafe`.
+    const fn with_parity_checked_by_caller(n: i64) -> Self {
         Self {
             n,
             _phantom: std::marker::PhantomData,
@@ -161,14 +170,14 @@ impl<S: StatisticsType> MatsubaraFreq<S> {
 impl Default for FermionicFreq {
     fn default() -> Self {
         // Default fermionic frequency is n=1 (smallest positive odd frequency)
-        unsafe { Self::new_unchecked(1) }
+        Self::with_parity_checked_by_caller(1)
     }
 }
 
 impl Default for BosonicFreq {
     fn default() -> Self {
         // Default bosonic frequency is n=0 (zero frequency)
-        unsafe { Self::new_unchecked(0) }
+        Self::with_parity_checked_by_caller(0)
     }
 }
 
@@ -193,9 +202,8 @@ macro_rules! impl_freq_arithmetic {
             type Output = $out;
 
             fn add(self, other: $rhs) -> $out {
-                // SAFETY: not a memory-safety requirement; the parity of the
-                // sum is that of $out (see above).
-                unsafe { <$out>::new_unchecked(self.n + other.n) }
+                // The parity of the sum is that of $out (see above)
+                <$out>::with_parity_checked_by_caller(self.n + other.n)
             }
         }
 
@@ -203,8 +211,8 @@ macro_rules! impl_freq_arithmetic {
             type Output = $out;
 
             fn sub(self, other: $rhs) -> $out {
-                // SAFETY: as for `add`
-                unsafe { <$out>::new_unchecked(self.n - other.n) }
+                // As for `add`
+                <$out>::with_parity_checked_by_caller(self.n - other.n)
             }
         }
     };
@@ -221,7 +229,7 @@ impl<S: StatisticsType> Neg for MatsubaraFreq<S> {
 
     fn neg(self) -> Self {
         // Negation preserves parity, so this is always valid
-        unsafe { Self::new_unchecked(-self.n) }
+        Self::with_parity_checked_by_caller(-self.n)
     }
 }
 
@@ -285,12 +293,6 @@ pub(crate) fn fermionic_sign<S: StatisticsType>() -> i32 {
         Statistics::Fermionic => -1,
         Statistics::Bosonic => 1,
     }
-}
-
-/// Create a zero frequency (bosonic only)
-#[allow(dead_code)]
-pub(crate) fn zero() -> BosonicFreq {
-    unsafe { BosonicFreq::new_unchecked(0) }
 }
 
 /// Check if a frequency is zero
@@ -467,10 +469,6 @@ mod tests {
         assert_eq!(fermionic_sign::<Fermionic>(), -1);
         assert_eq!(fermionic_sign::<Bosonic>(), 1);
 
-        // Zero frequency
-        let zero_freq = zero();
-        assert_eq!(zero_freq.get_n(), 0);
-
         // Is zero
         assert!(!is_zero(&fermionic));
         assert!(is_zero(&bosonic));
@@ -539,13 +537,6 @@ mod tests {
     fn test_fermionic_sign() {
         assert_eq!(fermionic_sign::<Fermionic>(), -1);
         assert_eq!(fermionic_sign::<Bosonic>(), 1);
-    }
-
-    #[test]
-    fn test_zero() {
-        let zero_freq = zero();
-        assert_eq!(zero_freq.get_n(), 0);
-        assert_eq!(zero_freq.value(1.0), 0.0);
     }
 
     #[test]

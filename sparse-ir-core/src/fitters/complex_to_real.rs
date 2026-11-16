@@ -23,9 +23,9 @@ type C64 = Complex<f64>;
 /// Solves: min ||A * coeffs - values||^2
 /// where A is complex, coeffs are real, values are complex
 ///
-/// Strategy: Flatten complex to real problem
-///   A_real ∈ R^{2n×m}: [Re(A[0,:]); Im(A[0,:]); Re(A[1,:]); Im(A[1,:]); ...]
-///   values_flat ∈ R^{2n}: [Re(v[0]); Im(v[0]); Re(v[1]); Im(v[1]); ...]
+/// Strategy: stack the real and imaginary parts into a real problem
+///   A_real ∈ R^{2n×m}: [Re A; Im A] (the n rows of Re A, then those of Im A)
+///   values_real ∈ R^{2n}: [Re v; Im v]
 ///
 /// # Example
 ///

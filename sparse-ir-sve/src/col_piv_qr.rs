@@ -34,6 +34,18 @@ use nalgebra::dimension::{Dim, DimMin, DimMinimum};
 use nalgebra::geometry::Reflection;
 use nalgebra::linalg::{PermutationSequence, householder};
 
+/// How [`ColPivQR`] chooses the pivot column at each step.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PivotRule {
+    /// The column holding the entry of largest modulus in the remaining
+    /// block. Used by [`ColPivQR::new_with_rtol`] and by `tsvd`.
+    #[default]
+    LargestEntry,
+    /// The column of largest remaining norm (Businger–Golub).
+    #[allow(dead_code)] // No caller outside the tests yet (#378)
+    LargestColumnNorm,
+}
+
 /// The QR decomposition (with column pivoting) of a general matrix.
 #[derive(Clone, Debug)]
 pub struct ColPivQR<T: ComplexField, R: DimMin<C>, C: Dim>
@@ -74,7 +86,8 @@ where
     /// to `|R[0,0]|`, not a certified numerical rank: after an early stop the
     /// discarded part is not guaranteed to have norm below
     /// `rtol * |R[0,0]|`. `test_entry_pivot_drops_a_column_above_the_cut`
-    /// pins down this behaviour on a 102×3 matrix.
+    /// pins down this behaviour on a 102×3 matrix. [`ColPivQR::new_with_pivot`]
+    /// with [`PivotRule::LargestColumnNorm`] pivots on the column norm instead.
     ///
     /// # Arguments
     /// * `matrix` - Input matrix to decompose
@@ -85,7 +98,42 @@ where
     /// # Returns
     /// * `ColPivQR` - QR decomposition result with column pivoting. If early termination occurred,
     ///                remaining diagonal elements are set to zero.
-    pub fn new_with_rtol(mut matrix: OMatrix<T, R, C>, rtol: Option<T::RealField>) -> Self
+    pub fn new_with_rtol(matrix: OMatrix<T, R, C>, rtol: Option<T::RealField>) -> Self
+    where
+        T: ComplexField,
+    {
+        Self::new_with_pivot(matrix, rtol, PivotRule::LargestEntry)
+    }
+
+    /// Like [`ColPivQR::new_with_rtol`], with the pivoting rule given.
+    ///
+    /// With [`PivotRule::LargestEntry`] this is `new_with_rtol`, with the
+    /// same result bit for bit.
+    ///
+    /// With [`PivotRule::LargestColumnNorm`] the pivot at step `i` is the
+    /// column of `matrix[i.., i..]` of largest norm, which is the
+    /// Businger–Golub column-pivoted QR. `|R[k,k]|` is then the largest
+    /// column norm of the trailing block, so when the decomposition stops at
+    /// step `k` the discarded block has 2-norm at most
+    /// `sqrt(n - k) * rtol * |R[0,0]|` (`n` columns), and no singular value
+    /// above that is dropped. A column like column 2 of
+    /// `test_entry_pivot_drops_a_column_above_the_cut` is therefore kept.
+    ///
+    /// # Trade-off
+    /// The entry pivot makes one pass over the remaining block per step, to
+    /// find its entry of largest modulus. The norm pivot makes one pass per
+    /// step as well, to compute the squared norm of every remaining column:
+    /// a multiply-add per entry instead of a comparison. The norms are
+    /// recomputed at every step rather than downdated from the previous
+    /// step, which avoids the cancellation of downdated norms (LAPACK's
+    /// `xGEQP3` has to detect it and recompute) at no extra asymptotic cost.
+    /// The norm pivot can keep columns that the entry pivot drops, so after
+    /// an early stop it can return a larger rank.
+    pub fn new_with_pivot(
+        mut matrix: OMatrix<T, R, C>,
+        rtol: Option<T::RealField>,
+        pivot: PivotRule,
+    ) -> Self
     where
         T: ComplexField,
     {
@@ -105,8 +153,10 @@ where
         let mut first_diag_abs = None;
 
         for i in 0..min_nrows_ncols.value() {
-            let piv = matrix.view_range(i.., i..).icamax_full();
-            let col_piv = piv.1 + i;
+            let col_piv = match pivot {
+                PivotRule::LargestEntry => matrix.view_range(i.., i..).icamax_full().1 + i,
+                PivotRule::LargestColumnNorm => largest_norm_column(&matrix, i),
+            };
             matrix.swap_columns(i, col_piv);
             p.append_permutation(i, col_piv);
 
@@ -281,6 +331,28 @@ where
     }
 }
 
+/// The index (in `matrix`) of the column of `matrix[i.., i..]` of largest
+/// norm; the first one on a tie, as `icamax_full` does for entries.
+fn largest_norm_column<T: ComplexField, R: Dim, C: Dim>(
+    matrix: &OMatrix<T, R, C>,
+    i: usize,
+) -> usize
+where
+    DefaultAllocator: Allocator<R, C>,
+{
+    let block = matrix.view_range(i.., i..);
+    let mut best = 0;
+    let mut best_norm2 = block.column(0).norm_squared();
+    for j in 1..block.ncols() {
+        let norm2 = block.column(j).norm_squared();
+        if norm2 > best_norm2 {
+            best = j;
+            best_norm2 = norm2;
+        }
+    }
+    best + i
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,6 +434,116 @@ mod tests {
         let (_, s_tsvd, _) = crate::tsvd::compute_svd_dtensor(&mat).unwrap();
         assert_eq!(s_tsvd.len(), 1);
         assert!((s_tsvd[0] - 1.0).abs() < 1e-15);
+    }
+
+    /// The matrix of `test_entry_pivot_drops_a_column_above_the_cut`: its
+    /// largest column norm (column 2, `9 δ`) is not where its largest
+    /// remaining entry is (column 1, `δ`).
+    fn entry_vs_norm_matrix() -> DMatrix<f64> {
+        let delta = 4e-16;
+        DMatrix::from_fn(102, 3, |i, j| match j {
+            0 if i == 0 => 1.0,
+            1 if i == 1 => delta,
+            2 if i >= 2 => 0.9 * delta,
+            _ => 0.0,
+        })
+    }
+
+    /// The column permutation as the list of original column indices, in
+    /// pivot order.
+    fn pivot_order(p: &PermutationSequence<Dyn>, ncols: usize) -> Vec<usize> {
+        let mut order = DMatrix::from_fn(1, ncols, |_, j| j as f64);
+        p.permute_columns(&mut order);
+        order.iter().map(|&j| j as usize).collect()
+    }
+
+    #[test]
+    fn test_norm_pivot_keeps_the_column_the_entry_pivot_drops() {
+        let a = entry_vs_norm_matrix();
+        let rtol = 2.0 * f64::EPSILON;
+        let delta = 4e-16;
+
+        let entry = ColPivQR::new_with_pivot(a.clone(), Some(rtol), PivotRule::LargestEntry);
+        assert_eq!(entry.rank(), 1);
+        assert_eq!(pivot_order(entry.p(), 3)[..2], [0, 1]);
+
+        let norm = ColPivQR::new_with_pivot(a.clone(), Some(rtol), PivotRule::LargestColumnNorm);
+        // Column 2 (norm 9 δ, above the cut) comes second; column 1 (δ,
+        // below the cut) third, where the decomposition stops.
+        assert_eq!(norm.rank(), 2);
+        assert_eq!(pivot_order(norm.p(), 3), [0, 2, 1]);
+        let diag = norm.diag_internal();
+        assert!((diag[1].abs() - 9.0 * delta).abs() < 1e-12 * 9.0 * delta);
+        assert_eq!(diag[2], 0.0);
+
+        // What is discarded is column 1 alone, of norm δ.
+        let q = norm.q();
+        let r = norm.r();
+        let err = frobenius_norm(&(&a - reconstruct_matrix_from_col_piv_qr(&q, &r, norm.p())));
+        assert!((err - delta).abs() < 1e-3 * delta, "err = {err:e}");
+    }
+
+    /// `new_with_rtol` is `new_with_pivot` with the entry pivot, bit for bit.
+    #[test]
+    fn test_largest_entry_rule_is_new_with_rtol() {
+        let matrices = [
+            create_hilbert_matrix(30, 20),
+            create_hilbert_matrix(20, 30),
+            entry_vs_norm_matrix(),
+            DMatrix::from_fn(17, 13, |i, j| ((3 * i + 7 * j) % 11) as f64 - 5.0),
+        ];
+        for a in matrices {
+            for rtol in [None, Some(1e-10), Some(2.0 * f64::EPSILON)] {
+                let old = ColPivQR::new_with_rtol(a.clone(), rtol);
+                let new = ColPivQR::new_with_pivot(a.clone(), rtol, PivotRule::default());
+                assert_eq!(old.col_piv_qr, new.col_piv_qr);
+                assert_eq!(old.diag, new.diag);
+                assert_eq!(
+                    pivot_order(old.p(), a.ncols()),
+                    pivot_order(new.p(), a.ncols())
+                );
+            }
+        }
+    }
+
+    /// With the norm pivot `|R[k,k]|` does not increase, the decomposition
+    /// reproduces the matrix, and an early stop discards at most
+    /// `sqrt(n - k) * rtol * |R[0,0]|`.
+    #[test]
+    fn test_norm_pivot_hilbert() {
+        for (nrows, ncols) in [(20, 20), (20, 30), (30, 20)] {
+            let h = create_hilbert_matrix(nrows, ncols);
+
+            let full = ColPivQR::new_with_pivot(h.clone(), None, PivotRule::LargestColumnNorm);
+            let d: Vec<f64> = full.diag_internal().iter().map(|x| x.abs()).collect();
+            for k in 1..d.len() {
+                assert!(
+                    d[k] <= d[k - 1] * (1.0 + 1e-12),
+                    "{nrows}x{ncols}: |R[{k},{k}]| grew"
+                );
+            }
+            let q = full.q();
+            let r = full.r();
+            let err = frobenius_norm(&(&h - reconstruct_matrix_from_col_piv_qr(&q, &r, full.p())));
+            assert!(
+                err < 1e-13 * frobenius_norm(&h),
+                "{nrows}x{ncols}: err = {err:e}"
+            );
+
+            let rtol = 1e-10;
+            let cut = ColPivQR::new_with_pivot(h.clone(), Some(rtol), PivotRule::LargestColumnNorm);
+            let k = cut.rank();
+            assert!(k < nrows.min(ncols));
+            let q = cut.q();
+            let r = cut.r();
+            let dropped = &h - reconstruct_matrix_from_col_piv_qr(&q, &r, cut.p());
+            let bound = ((ncols - k) as f64).sqrt() * rtol * cut.diag_internal()[0].abs();
+            let dropped_2norm = dropped.singular_values().max();
+            assert!(
+                dropped_2norm <= bound * (1.0 + 1e-8),
+                "{nrows}x{ncols}: dropped {dropped_2norm:e} > bound {bound:e}"
+            );
+        }
     }
 
     #[test]
