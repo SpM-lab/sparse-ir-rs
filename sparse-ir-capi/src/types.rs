@@ -905,11 +905,8 @@ impl spir_funcs {
                         Ok(freq) => freq,
                         Err(e) => return Some(Err(e)),
                     };
-                    let mut result = Vec::with_capacity(ft.get_polys().len());
-                    for p in ft.get_polys() {
-                        result.push(p.evaluate(&freq));
-                    }
-                    Some(Ok(result))
+                    // evaluate_at shares the segment factors across the functions
+                    Some(Ok(ft.evaluate_at(&freq)))
                 } else {
                     // Bosonic
                     let ft = ftv.ft_bosonic.as_ref()?;
@@ -917,11 +914,8 @@ impl spir_funcs {
                         Ok(freq) => freq,
                         Err(e) => return Some(Err(e)),
                     };
-                    let mut result = Vec::with_capacity(ft.get_polys().len());
-                    for p in ft.get_polys() {
-                        result.push(p.evaluate(&freq));
-                    }
-                    Some(Ok(result))
+                    // evaluate_at shares the segment factors across the functions
+                    Some(Ok(ft.evaluate_at(&freq)))
                 }
             }
             FuncsType::DLRMatsubara(f) => Some(
@@ -976,8 +970,8 @@ impl spir_funcs {
                             Ok(freq) => freq,
                             Err(e) => return Some(Err(e)),
                         };
-                        for (i, p) in ft.get_polys().iter().enumerate() {
-                            result[i][j] = p.evaluate(&freq);
+                        for (i, value) in ft.evaluate_at(&freq).into_iter().enumerate() {
+                            result[i][j] = value;
                         }
                     }
                     Some(Ok(result))
@@ -994,8 +988,8 @@ impl spir_funcs {
                             Ok(freq) => freq,
                             Err(e) => return Some(Err(e)),
                         };
-                        for (i, p) in ft.get_polys().iter().enumerate() {
-                            result[i][j] = p.evaluate(&freq);
+                        for (i, value) in ft.evaluate_at(&freq).into_iter().enumerate() {
+                            result[i][j] = value;
                         }
                     }
                     Some(Ok(result))

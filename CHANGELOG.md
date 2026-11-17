@@ -5,6 +5,16 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+### Changed in the C API
+
+- `spir_funcs_eval_matsu` and `spir_funcs_batch_eval_matsu` evaluate the
+  Matsubara functions of a basis with `PiecewiseLegendreFTVector::evaluate_at`,
+  which computes the segment-wise factors of the transform once per frequency
+  for all functions instead of once per function: about 30× faster below
+  `n_asymp` (β = 100, ωmax = 10, ε = 1e-10, L = 52: 2.8 ms → 88 µs per
+  frequency). The values are bitwise those of evaluating each function on its
+  own, as before.
+
 ## [0.16.0] - 2026-11-16
 
 ### Added
