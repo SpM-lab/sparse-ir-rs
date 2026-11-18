@@ -38,6 +38,11 @@ jobs:
           path: sparse-ir-rs
           token: ${{ steps.app-token.outputs.token }}
 
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.11'
+
       - name: Update julia/build_tarballs.jl
         id: release-tag
         working-directory: sparse-ir-rs
