@@ -2334,3 +2334,45 @@ fn test_dlr_funcs_equal_the_core_dlr_bit_for_bit() {
         spir_kernel_release(kernel);
     }
 }
+
+/// `spir_funcs_eval_matsu` and `spir_funcs_batch_eval_matsu` evaluate all
+/// functions of `uhat` at once, sharing the segment-wise factors; each value is
+/// bitwise that of the single-function slice, for both statistics, below and
+/// above `n_asymp`
+#[rstest]
+#[case::fermionic(SPIR_STATISTICS_FERMIONIC, [1, -3, 51, 999, 100_001])]
+#[case::bosonic(SPIR_STATISTICS_BOSONIC, [0, -2, 50, 1000, 100_000])]
+fn test_eval_matsu_all_functions_match_each_slice(#[case] statistics: i32, #[case] ns: [i64; 5]) {
+    unsafe {
+        let (kernel, sve, basis) = create_ir_basis(statistics, 10.0, 10.0, 1e-10);
+        let mut status = SPIR_INTERNAL_ERROR;
+        let uhat = spir_basis_get_uhat(basis, &mut status);
+        assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+        let n_funcs = get_basis_size(basis) as usize;
+        let batch = eval_uhat_rows(basis, &ns);
+        for (i, &n) in ns.iter().enumerate() {
+            let mut all = vec![Complex64::new(0.0, 0.0); n_funcs];
+            assert_eq!(
+                spir_funcs_eval_matsu(uhat, n, all.as_mut_ptr()),
+                SPIR_COMPUTATION_SUCCESS
+            );
+            assert_eq!(all[..], batch[i * n_funcs..(i + 1) * n_funcs], "n = {n}");
+            for (l, &value) in all.iter().enumerate() {
+                let index = l as i32;
+                let one = spir_funcs_get_slice(uhat, 1, &index, &mut status);
+                assert_eq!(status, SPIR_COMPUTATION_SUCCESS);
+                let mut alone = Complex64::new(0.0, 0.0);
+                assert_eq!(
+                    spir_funcs_eval_matsu(one, n, &mut alone),
+                    SPIR_COMPUTATION_SUCCESS
+                );
+                assert_eq!(value, alone, "n = {n}, l = {l}");
+                spir_funcs_release(one);
+            }
+        }
+        spir_funcs_release(uhat);
+        spir_basis_release(basis);
+        spir_sve_result_release(sve);
+        spir_kernel_release(kernel);
+    }
+}
