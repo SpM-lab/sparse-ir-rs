@@ -1539,6 +1539,7 @@ version = "0.16.0"
 dependencies = [
  "blas-sys",
  "libc",
+ "libm",
  "num-complex",
  "paste",
  "rstest",
