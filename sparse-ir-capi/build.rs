@@ -4,6 +4,17 @@ use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
+    // With `bundled-libm` the library defines the C math functions itself
+    // (src/bundled_libm.rs). On ELF targets its calls to them would still go
+    // to the system libm whenever that is loaded first, as in every Julia or
+    // Python process, unless the library binds its own definitions.
+    let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    if env::var_os("CARGO_FEATURE_BUNDLED_LIBM").is_some()
+        && !matches!(os.as_str(), "macos" | "ios" | "windows")
+    {
+        println!("cargo:rustc-cdylib-link-arg=-Wl,-Bsymbolic");
+    }
+
     println!("cargo:rerun-if-changed=cbindgen.toml");
     println!("cargo:rerun-if-changed=src/lib.rs");
 

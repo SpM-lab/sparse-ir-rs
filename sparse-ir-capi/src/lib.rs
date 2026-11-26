@@ -10,6 +10,9 @@
 mod macros;
 
 mod basis;
+/// cbindgen:ignore
+#[cfg(feature = "bundled-libm")]
+mod bundled_libm;
 mod cpu;
 mod dlr;
 mod funcs;

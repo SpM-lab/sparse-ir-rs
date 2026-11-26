@@ -41,12 +41,20 @@ num-complex.workspace = true
 # Macro utilities for identifier concatenation
 paste = "1.0"
 
+# Elementary functions of the C library with the `bundled-libm` feature
+libm = { workspace = true, optional = true }
+
 
 [features]
 default = []
 capi = []
 # Use system BLAS for GEMM backend
 system-blas = ["sparse-ir/system-blas"]
+# Compute the elementary functions (exp, sin, cosh, ...) of the library and its
+# dependencies with the pure-Rust libm crate instead of the system libm, so that
+# results do not depend on the libm of the machine. For the shared library: in
+# the static library the definitions would replace those of the whole program.
+bundled-libm = ["dep:libm"]
 
 # cargo-c configuration for cinstall
 [package.metadata.capi]

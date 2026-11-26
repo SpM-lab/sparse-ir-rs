@@ -5,6 +5,17 @@ User-visible changes of sparse-ir-rs (the Rust crates and the C API
 
 ## [Unreleased]
 
+### Added in the C API
+
+- The `bundled-libm` feature of `sparse-ir-capi`: the library computes the
+  elementary functions it and its dependencies call (`exp`, `sin`, `cosh`,
+  `expm1`, ...) with the pure-Rust `libm` crate instead of the system libm,
+  and binds them with `-Bsymbolic` on ELF targets, so that the results of a
+  build of `libsparse_ir_capi` no longer depend on the system libm. Without
+  it the Matsubara transforms of the same library differ in the last bit
+  between glibc 2.35 and 2.39. Off by default: in the static library the
+  definitions would replace the math functions of the whole program.
+
 ### Changed in the C API
 
 - `spir_funcs_eval_matsu` and `spir_funcs_batch_eval_matsu` evaluate the

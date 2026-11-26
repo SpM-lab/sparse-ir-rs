@@ -88,6 +88,24 @@ cargo build --release
 cargo test
 ```
 
+### Results that do not depend on the system libm
+
+By default the library calls the elementary functions (`exp`, `sin`, `cosh`,
+`expm1`, ...) of the system libm, whose last bits differ between versions: the
+same `libsparse_ir_capi.so` returns Matsubara transforms that differ in the last
+bit on glibc 2.35 and 2.39. With the `bundled-libm` feature the library carries
+its own copies from the pure-Rust `libm` crate, for its own code and for its
+dependencies, so that its results no longer depend on the system libm:
+
+```bash
+cargo build --release --features bundled-libm
+```
+
+On ELF targets (Linux, FreeBSD) the shared library is then linked with
+`-Bsymbolic`, so that its calls reach these copies even in a process that has
+loaded the system libm. Use the feature for the shared library only: the static
+library would export the same definitions to the program that links it.
+
 ### Installation
 
 Install the header and shared library to your system:
