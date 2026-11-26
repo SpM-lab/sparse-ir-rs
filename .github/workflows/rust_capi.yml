@@ -37,7 +37,7 @@ jobs:
         # Initialize libsparseir submodules but skip nested ones that may have issues
         cd libsparseir && git submodule update --init --jobs 4 || true
     - name: Build
-      run: cargo build -p sparse-ir-capi --release
+      run: cargo build -p sparse-ir-capi --release --features bundled-libm
     - name: Check that the C library is built without the parallel feature
       # The `parallel` feature of sparse-ir (a rayon thread pool for the SVE,
       # off by default) must stay out of the C library.
