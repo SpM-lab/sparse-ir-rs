@@ -50,3 +50,16 @@ jobs:
         done
     - name: Run tests
       run: cargo test -p sparse-ir-capi --release
+    - name: Check that bundled-libm leaves no math function to the system libm
+      # With the bundled-libm feature the library defines every C math
+      # function it calls (src/bundled_libm.rs); a function added to the code
+      # paths, here or in a dependency, must be added there too.
+      run: |
+        cargo build -p sparse-ir-capi --release --features bundled-libm
+        left=$(nm -D --undefined-only target/release/libsparse_ir_capi.so | awk '{print $2}' |
+          grep -E '^(a?sin|a?cos|a?tan|atan2|sinh|cosh|tanh|asinh|acosh|atanh|sincos|exp|exp2|expm1|log|log10|log1p|log2|pow|hypot|cbrt|erfc?|tgamma|lgamma)f?(@|$)' || true)
+        if [ -n "$left" ]; then
+          echo "libsparse_ir_capi.so still imports from libm: $left" >&2
+          exit 1
+        fi
+        cargo test -p sparse-ir-capi --release --features bundled-libm
