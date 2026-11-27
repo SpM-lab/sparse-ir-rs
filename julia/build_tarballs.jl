@@ -39,12 +39,12 @@ export CARGO_BUILD_JOBS=2
 
 if [[ "${target}" == *mingw* ]]; then
     export RUSTFLAGS="-C target-feature=+fma -C link-arg=-L${libdir} -C link-arg=-lblastrampoline-5"
-    cargo build --release --features system-blas
+    cargo build --release --features system-blas,bundled-libm
     install -D -m 755 "target/${rust_target}/release/sparse_ir_capi.${dlext}" \
         "${libdir}/libsparse_ir_capi.${dlext}"
 else
     export RUSTFLAGS="-C target-feature=+fma -C link-arg=-lblastrampoline"
-    cargo build --release --features system-blas
+    cargo build --release --features system-blas,bundled-libm
     install -D -m 755 "target/${rust_target}/release/libsparse_ir_capi.${dlext}" \
         "${libdir}/libsparse_ir_capi.${dlext}"
 fi
